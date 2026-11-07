@@ -96,3 +96,28 @@ def test_last_completion_is_kept_for_debugging():
     structurer.structure(_request())
     assert structurer.last_completion is not None
     assert json.loads(structurer.last_completion.text)["schema_version"] == 1
+
+
+def test_system_prompt_states_kind_relation_and_action_rules():
+    client = ReplayLLMClient([json.dumps(_document())])
+    LLMStructurer(client).structure(_request())
+    system = client.calls[0]["system"]
+    assert "ANIMAL" in system and "BACKGROUND" in system
+    assert "action" in system and "location" in system
+
+
+def test_repair_notes_are_kept_for_debugging():
+    document = _document()
+    document["scenes"][0]["requirements"].append(
+        {
+            "scene_key": "intro",
+            "entity_key": "barista",
+            "related_entity_key": "cafe",
+            "predicate": "near",
+            "expected_value": "cafe",
+        }
+    )
+    structurer = LLMStructurer(ReplayLLMClient([json.dumps(document)]))
+    ir = structurer.structure(_request())
+    assert all(r.related_entity_key != "cafe" for r in ir.iter_requirements())
+    assert structurer.last_repair_notes and "cafe" in structurer.last_repair_notes[0]

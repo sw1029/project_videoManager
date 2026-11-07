@@ -5,53 +5,106 @@ PROMPT_VERSION 은 프롬프트가 바뀔 때마다 올린다 (캐시 키·골�
 
 from __future__ import annotations
 
-from frame.application.ports.structurer import StructuringRequest
-from frame.domain.ir import IR_SCHEMA_VERSION
-from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
+import json
 
-PROMPT_VERSION = "2026-11-07.1"
+from frame.application.ports.structurer import StructuringRequest
+from frame.domain.enums import EntityKind
+from frame.domain.ir import IR_SCHEMA_VERSION
+from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
+
+PROMPT_VERSION = "2026-11-07.2"
 DEFAULT_DURATION_MS = 8000
 MIN_SCENE_MS = 3000  # 숏폼 장면 길이 하한 (장면 수 상한 계산용)
 
-_EXAMPLE_BRIEF = "8초 카페 숏폼. 바리스타가 빨간 머그컵을 들어 보이고(4초), 이어서 컵 클로즈업(4초). 분위기는 아늑하게."
-_EXAMPLE_OUTPUT = (
-    '{"schema_version":1,'
-    '"entities":[{"entity_key":"barista","kind":"PERSON","description":"바리스타"},'
-    '{"entity_key":"cup","kind":"PROP","description":"빨간 머그컵"}],'
-    '"scenes":[{"scene_key":"intro","planned_start_ms":0,"planned_end_ms":4000,'
-    '"description":"바리스타가 머그컵을 들어 보인다","entity_keys":["barista","cup"],'
-    '"requirements":[{"scene_key":"intro","entity_key":"cup","related_entity_key":null,'
-    '"predicate":"color","expected_value":"red"},'
-    '{"scene_key":"intro","entity_key":"barista","related_entity_key":"cup",'
-    '"predicate":"holds","expected_value":"cup"},'
-    '{"scene_key":"intro","entity_key":null,"related_entity_key":null,'
-    '"predicate":"mood","expected_value":"cozy"}]},'
-    '{"scene_key":"closeup","planned_start_ms":4000,"planned_end_ms":8000,'
-    '"description":"머그컵 클로즈업","entity_keys":["cup"],'
-    '"requirements":[{"scene_key":"closeup","entity_key":"cup","related_entity_key":null,'
-    '"predicate":"color","expected_value":"red"},'
-    '{"scene_key":"closeup","entity_key":null,"related_entity_key":null,'
-    '"predicate":"mood","expected_value":"cozy"}]}]}'
+_SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
+
+_EXAMPLE_BRIEF = (
+    "8초 카페 숏폼. 바리스타가 카운터에서 빨간 머그컵을 들어 보이고(4초), 이어서 컵 클로즈업(4초). "
+    "컵에는 FRAME 이라고 적혀 있고 분위기는 아늑하게."
 )
 
 
+def _req(
+    scene: str, predicate: str, value: str, entity: str | None = None, related: str | None = None
+) -> dict:
+    return {
+        "scene_key": scene,
+        "entity_key": entity,
+        "related_entity_key": related,
+        "predicate": predicate,
+        "expected_value": value,
+    }
+
+
+_EXAMPLE_DOCUMENT = {
+    "schema_version": IR_SCHEMA_VERSION,
+    "entities": [
+        {"entity_key": "barista", "kind": "PERSON", "description": "바리스타"},
+        {"entity_key": "cup", "kind": "PROP", "description": "빨간 머그컵"},
+    ],
+    "scenes": [
+        {
+            "scene_key": "intro",
+            "planned_start_ms": 0,
+            "planned_end_ms": 4000,
+            "description": "바리스타가 머그컵을 들어 보인다",
+            "entity_keys": ["barista", "cup"],
+            "requirements": [
+                _req("intro", "color", "red", "cup"),
+                _req("intro", "holds", "cup", "barista", "cup"),
+                _req("intro", "action", "shows cup to camera", "barista"),
+                _req("intro", "location", "cafe counter"),
+                _req("intro", "mood", "cozy"),
+            ],
+        },
+        {
+            "scene_key": "closeup",
+            "planned_start_ms": 4000,
+            "planned_end_ms": 8000,
+            "description": "머그컵 클로즈업",
+            "entity_keys": ["cup"],
+            "requirements": [
+                _req("closeup", "color", "red", "cup"),
+                _req("closeup", "text", "FRAME", "cup"),
+                _req("closeup", "camera", "close up"),
+                _req("closeup", "mood", "cozy"),
+            ],
+        },
+    ],
+}
+_EXAMPLE_OUTPUT = json.dumps(_EXAMPLE_DOCUMENT, ensure_ascii=False, separators=(",", ":"))
+
+
 def build_system_prompt(vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY) -> str:
-    attributes = ", ".join(s.name for s in vocabulary.specs() if not s.relational)
+    attributes = ", ".join(
+        s.name for s in vocabulary.specs() if not s.relational and s.name not in _SCENE_LEVEL
+    )
+    scene_level = ", ".join(s.name for s in vocabulary.specs() if s.name in _SCENE_LEVEL)
     relations = ", ".join(s.name for s in vocabulary.specs() if s.relational)
+    literals = ", ".join(s.name for s in vocabulary.specs() if s.value_kind is ValueKind.LITERAL)
+    kinds = ", ".join(str(k) for k in EntityKind)
     return f"""You convert a short-form video brief into a JSON intermediate representation (IR).
 Return ONLY JSON that matches the provided schema (schema_version {IR_SCHEMA_VERSION}).
 
 Rules
 - entity_key and scene_key are unique snake_case ASCII identifiers. Descriptions use the brief's language.
+- Entity kinds ({kinds}): PERSON for people, ANIMAL for animals, PROP for objects/products/logos,
+  BACKGROUND for places and environments, TEXT for on-screen text, OTHER when nothing fits.
 - Every entity must appear in at least one scene's entity_keys. Do not invent entities or conditions
   that the brief does not state or clearly imply.
 - Scenes are in timeline order, start at 0 ms, are contiguous (each planned_start_ms equals the previous
   planned_end_ms) and end exactly at the target duration. Keep each scene at least {MIN_SCENE_MS} ms.
 - Each requirement's entity_key and related_entity_key must be listed in that scene's entity_keys.
-  entity_key null means a scene-level condition (mood, lighting, camera).
-- attribute predicates: {attributes}. relation predicates: {relations} (related_entity_key required,
-  expected_value equal to related_entity_key). Use these names; add a new snake_case predicate only
-  when none fits.
+- Object attribute predicates: {attributes}.
+- Scene-level predicates ({scene_level}) describe the whole scene: use entity_key null for them.
+  Describe places with the scene-level predicate "location", not with relations to a BACKGROUND entity.
+- Relation predicates: {relations}. They need related_entity_key and expected_value equal to it, and they
+  connect PERSON/ANIMAL/PROP/TEXT entities only. Never use a BACKGROUND entity as the subject or object
+  of a relation. Use relations only for static states; movements and verbs are "action" conditions on
+  the actor (e.g. owner.action = "throws ball").
+- Use the predicate names above; add a new snake_case predicate only when none fits.
+- Values are short lowercase phrases with spaces, not underscores (e.g. "white shirt", "slow orbit").
+  Predicates {literals} keep the exact on-screen spelling.
 - At most one requirement per (scene, entity, predicate, related entity). Repeat a condition in every
   scene where it must hold (e.g. the cup stays red in every scene it appears in).
 

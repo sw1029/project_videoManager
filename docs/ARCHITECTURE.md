@@ -186,6 +186,8 @@ RunGenerationPipeline
 | 타임라인 | 장면은 0 ms 에서 시작, 겹침·빈 구간 없이 이어짐. 길이 합계는 목표 길이와 허용 오차(500 ms 또는 10%) 안 | `IR.validate()`, `StructureRequirements` |
 | 관계 수정 | `POST /revisions` 로 관계 술어를 바꾸면 상대 객체가 바뀐다. 같은 술어 조건이 여럿이면 `current_value` 로 대상을 지정 | `DefaultPropagationPolicy` |
 | schema_version | IR 문서에 `schema_version` 필드. 지원하지 않는 버전은 거부 | `IR.from_dict` |
+| 값 정규화 (ADR-0008) | 값 종류별 정규화: COLOR/TEXT 소문자·공백 정리, LITERAL(`text`·`brand`) 철자 보존, NUMBER, POSITION 토큰, ENTITY 키 그대로 | `RequirementSpec.__post_init__`, `AttributeChange.__post_init__` |
+| 객체 종류 | PERSON · ANIMAL · PROP · BACKGROUND · TEXT · OTHER. 관계의 주체·상대는 BACKGROUND 불가(장소는 `location` 장면 조건) | `IR.validate()`, 전파 정책, `light_repair` |
 
 ### 3.6 오류 모델
 
@@ -412,3 +414,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0005](adr/0005-job-dispatcher.md) | 비동기 작업은 디스패처 포트로 추상화 (inline/thread → Celery) |
 | [0006](adr/0006-error-model.md) | 실행 오류(FAILED) 와 검수 판정(FAIL/UNDETERMINED) 분리 |
 | [0007](adr/0007-predicate-vocabulary-and-relations.md) | 술어 어휘 · 관계 조건 규칙 · 요구조건 키 · 장면 타임라인 검증 |
+| [0008](adr/0008-value-normalization-and-relation-kinds.md) | 값 정규화 · ANIMAL 종류 · 관계의 배경 객체 금지 (실호출 결과 반영) |

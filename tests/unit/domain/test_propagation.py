@@ -1,8 +1,10 @@
 """US-01 AC-02: 선택 속성 변경이 연관 장면에 자동 전파된다 (원본 IR 은 불변)."""
 
+from dataclasses import replace
+
 import pytest
 
-from frame.domain.enums import ChangeScope
+from frame.domain.enums import ChangeScope, EntityKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
 from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
@@ -80,13 +82,30 @@ def test_scope_scenes_rejects_unknown_scene(ir):
 
 
 def test_relation_change_updates_related_entity_and_value(ir):
+    intro = ir.scene("intro")
+    with_phone = replace(
+        ir,
+        entities=ir.entities + (EntitySpec("phone", EntityKind.PROP),),
+        scenes=tuple(
+            replace(s, entity_keys=s.entity_keys + ("phone",)) if s.scene_key == "intro" else s
+            for s in ir.scenes
+        ),
+    )
     result = policy.apply(
-        ir, AttributeChange("barista", "holds", "cafe", ChangeScope.SCENES, ("intro",))
+        with_phone, AttributeChange("barista", "holds", "phone", ChangeScope.SCENES, ("intro",))
     )
     holds = next(r for r in result.ir.scene("intro").requirements if r.predicate == "holds")
-    assert (holds.expected_value, holds.related_entity_key) == ("cafe", "cafe")
-    assert holds.key == "intro:barista:holds:cafe"
+    assert (holds.expected_value, holds.related_entity_key) == ("phone", "phone")
+    assert holds.key == "intro:barista:holds:phone"
+    assert len(intro.requirements) == len(result.ir.scene("intro").requirements)
     result.ir.validate()
+
+
+def test_relation_change_to_background_is_rejected(ir):
+    with pytest.raises(ValidationError, match="배경"):
+        policy.apply(
+            ir, AttributeChange("barista", "holds", "cafe", ChangeScope.SCENES, ("intro",))
+        )
 
 
 def test_relation_change_to_entity_outside_scene_is_rejected(ir):
@@ -133,3 +152,13 @@ def test_predicate_alias_in_change_is_normalized(ir):
         r.predicate for r in result.ir.scene("intro").requirements if r.entity_key == "cup"
     }
     assert predicates == {"color"}
+
+
+def test_change_values_are_normalized(ir):
+    result = policy.apply(ir, AttributeChange("cup", "color", " Teal "))
+    assert {
+        r.expected_value for r in result.ir.scene("intro").requirements if r.predicate == "color"
+    } == {"teal"}
+    # current_value 도 정규화되어 'Red' 가 저장된 'red' 와 맞는다
+    matched = policy.apply(ir, AttributeChange("cup", "color", "teal", current_value="Red"))
+    assert matched.changed_scene_keys == ("intro", "closeup")

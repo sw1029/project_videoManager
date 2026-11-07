@@ -207,3 +207,47 @@ def test_schema_version_roundtrip_and_unknown_version_rejected(ir):
     data["schema_version"] = 99
     with pytest.raises(ValidationError, match="schema_version"):
         IntermediateRepresentation.from_dict(data)
+
+
+# ---- 3차 보완: 객체 종류 ANIMAL · 값 정규화 · 배경과의 관계 금지 ----------------------------
+
+
+def test_animal_kind_round_trips():
+    ir = IntermediateRepresentation(
+        entities=(EntitySpec("dog", EntityKind.ANIMAL, "강아지"),),
+        scenes=(SceneSpec("play", 0, 4000, "", ("dog",)),),
+    )
+    ir.validate()
+    assert (
+        IntermediateRepresentation.from_dict(ir.to_dict()).entity("dog").kind is EntityKind.ANIMAL
+    )
+
+
+def test_values_are_normalized_on_construction():
+    assert RequirementSpec("s", "outfit", "White_Shirt", "p").expected_value == "white shirt"
+    assert RequirementSpec("s", "color", " RED ", "p").expected_value == "red"
+    assert RequirementSpec("s", "text", "FRAME", "p").expected_value == "FRAME"
+
+
+def test_relation_cannot_target_a_background(ir):
+    intro = ir.scene("intro")
+    bad = ir.with_scene(
+        replace(
+            intro,
+            requirements=(RequirementSpec("intro", "near", "cafe", "barista", "cafe"),),
+        )
+    )
+    with pytest.raises(ValidationError, match="배경"):
+        bad.validate()
+
+
+def test_background_cannot_be_relation_subject(ir):
+    intro = ir.scene("intro")
+    bad = ir.with_scene(
+        replace(
+            intro,
+            requirements=(RequirementSpec("intro", "near", "cup", "cafe", "cup"),),
+        )
+    )
+    with pytest.raises(ValidationError, match="배경"):
+        bad.validate()

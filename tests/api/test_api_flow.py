@@ -190,13 +190,15 @@ def test_vocabulary_endpoint_lists_predicates(api):
 
 def test_revision_can_change_a_relation_with_current_value(api):
     client, dispatcher = api
-    version_id = _create(client, dispatcher)["version_id"]
+    version_id = _create(
+        client, dispatcher, prompt=CAFE_PROMPT + "entity phone PROP\nin intro: phone\n"
+    )["version_id"]
     response = client.post(
         f"/api/versions/{version_id}/revisions",
         json={
             "entity_key": "barista",
             "predicate": "holds",
-            "new_value": "cafe",
+            "new_value": "phone",
             "current_value": "cup",
             "scope": "SCENES",
             "scene_keys": ["intro"],
@@ -207,7 +209,7 @@ def test_revision_can_change_a_relation_with_current_value(api):
     intro = next(s for s in revised["ir"]["scenes"] if s["scene_key"] == "intro")
     holds = next(r for r in intro["requirements"] if r["predicate"] == "holds")
     assert (holds["related_entity_key"], holds["requirement_key"], holds["value_kind"]) == (
-        "cafe",
-        "intro:barista:holds:cafe",
+        "phone",
+        "intro:barista:holds:phone",
         "ENTITY",
     )

@@ -40,9 +40,10 @@ class Verdict(StrEnum):
 
 
 class EntityKind(StrEnum):
-    """구조화된 중간표현에서 객체의 종류 (인물/소품/배경/문구)."""
+    """구조화된 중간표현에서 객체의 종류 (인물/동물/소품/배경/문구)."""
 
     PERSON = "PERSON"
+    ANIMAL = "ANIMAL"
     PROP = "PROP"
     BACKGROUND = "BACKGROUND"
     TEXT = "TEXT"

@@ -16,7 +16,7 @@ from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from .llm_prompt import build_system_prompt, build_user_prompt, feedback_prompt, max_scenes_for
 from .llm_schema import IR_SCHEMA_NAME, ir_json_schema
-from .repair import light_repair
+from .repair import light_repair_with_notes
 
 
 class LLMStructurer(RequirementStructurer):
@@ -34,6 +34,7 @@ class LLMStructurer(RequirementStructurer):
         self._timeout_s = timeout_s
         self.attempts = 0
         self.last_completion: JsonCompletion | None = None  # 디버깅·재현용 원본 응답
+        self.last_repair_notes: list[str] = []  # 마지막 시도에서 보정한 내용
 
     def structure(self, request: StructuringRequest) -> IntermediateRepresentation:
         if not request.prompt.strip():
@@ -57,12 +58,13 @@ class LLMStructurer(RequirementStructurer):
                 user = feedback_prompt(user, last_error, completion.text)
         raise StructuringError(f"LLM 구조화가 {self.attempts}회 시도 후 실패했습니다: {last_error}")
 
-    @staticmethod
-    def _parse(text: str) -> IntermediateRepresentation:
+    def _parse(self, text: str) -> IntermediateRepresentation:
         data = json.loads(text)
         if not isinstance(data, dict):
             raise ValueError("응답이 JSON 객체가 아닙니다")
-        ir = IntermediateRepresentation.from_dict(light_repair(data))
+        repaired, notes = light_repair_with_notes(data)
+        self.last_repair_notes = notes
+        ir = IntermediateRepresentation.from_dict(repaired)
         ir.validate()
         return ir
 

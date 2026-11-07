@@ -9,14 +9,15 @@
 스키마 규칙 (validate 가 강제)
 - 객체 키는 프로젝트 내, 장면 키는 버전 내 유일.
 - 장면은 0 ms 에서 시작해 빈틈·겹침 없이 이어진다 (조립기가 순서대로 이어 붙이기 때문).
-- 요구조건의 술어는 어휘(vocabulary)로 정규화되고, 관계 술어는 상대 객체가 필수이며 값은 상대 객체 키와 같다.
+- 요구조건의 술어와 값은 어휘(vocabulary)로 정규화되고, 관계 술어는 상대 객체가 필수이며 값은 상대 객체 키와 같다.
+- 관계의 주체·상대는 배경(BACKGROUND) 객체일 수 없다. 장소는 장면 수준 location 조건으로 표현한다.
 - 요구조건 키 `장면:객체:술어[:상대객체]` 는 장면 안에서 유일하다.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -35,12 +36,13 @@ class RequirementSpec:
     scene_key: str
     predicate: str
     expected_value: str
-    entity_key: str | None = None  # None 이면 장면 수준 조건 (분위기·조명·카메라 등)
+    entity_key: str | None = None  # None 이면 장면 수준 조건 (분위기·조명·카메라·장소 등)
     related_entity_key: str | None = None  # 관계 조건의 상대 객체
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "predicate", DEFAULT_VOCABULARY.normalize(self.predicate))
-        value = (self.expected_value or "").strip()
+        predicate = DEFAULT_VOCABULARY.normalize(self.predicate)
+        object.__setattr__(self, "predicate", predicate)
+        value = DEFAULT_VOCABULARY.normalize_value(predicate, self.expected_value or "")
         if not value and self.related_entity_key:
             value = self.related_entity_key  # 관계 조건의 값은 상대 객체 키
         object.__setattr__(self, "expected_value", value)
@@ -128,14 +130,14 @@ class IntermediateRepresentation:
         if not self.scenes:
             raise ValidationError("장면이 하나 이상 있어야 합니다")
         self._validate_timeline()
-        known = set(entity_keys)
+        kinds = {e.entity_key: e.kind for e in self.entities}
         for s in self.scenes:
-            unknown = set(s.entity_keys) - known
+            unknown = set(s.entity_keys) - set(kinds)
             if unknown:
                 raise ValidationError(
                     f"장면 '{s.scene_key}' 이 정의되지 않은 객체를 참조합니다: {sorted(unknown)}"
                 )
-            self._validate_requirements(s)
+            self._validate_requirements(s, kinds)
 
     def _validate_timeline(self) -> None:
         expected_start = 0
@@ -157,7 +159,7 @@ class IntermediateRepresentation:
             expected_start = s.planned_end_ms
 
     @staticmethod
-    def _validate_requirements(scene: SceneSpec) -> None:
+    def _validate_requirements(scene: SceneSpec, kinds: Mapping[str, EntityKind]) -> None:
         seen: set[str] = set()
         for r in scene.requirements:
             if r.scene_key != scene.scene_key:
@@ -185,6 +187,15 @@ class IntermediateRepresentation:
                 if r.related_entity_key == r.entity_key:
                     raise ValidationError(
                         f"관계 조건 {r.key} 은 자기 자신을 상대로 가질 수 없습니다"
+                    )
+                if kinds.get(r.related_entity_key) is EntityKind.BACKGROUND:
+                    raise ValidationError(
+                        f"관계 조건 {r.key} 은 배경 객체를 상대로 가질 수 없습니다 "
+                        "(장소는 장면 수준 location 조건으로 표현)"
+                    )
+                if r.entity_key is not None and kinds.get(r.entity_key) is EntityKind.BACKGROUND:
+                    raise ValidationError(
+                        f"배경 객체 '{r.entity_key}' 는 관계 조건 {r.key} 의 주체가 될 수 없습니다"
                     )
             if r.key in seen:
                 raise ValidationError(

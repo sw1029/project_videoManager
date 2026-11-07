@@ -127,3 +127,13 @@ def test_non_contiguous_scenes_are_rejected(structurer):
                 "scene a 0-1000\nscene b 2000-3000\nentity cup PROP\nin a: cup\nin b: cup"
             )
         )
+
+
+def test_values_are_normalized_by_vocabulary(structurer):
+    ir = structurer.structure(
+        StructuringRequest(
+            "scene a 0-1000\nentity p PERSON\nin a: p\np.outfit = White_Shirt\np.color = RED"
+        )
+    )
+    values = {r.predicate: r.expected_value for r in ir.iter_requirements()}
+    assert values == {"outfit": "white shirt", "color": "red"}
