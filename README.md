@@ -55,3 +55,24 @@ docs/{ARCHITECTURE.md,TDD_WORKFLOW.md,adr/}
 ```
 
 브랜치 전략은 문서대로 `main` / `feature-{US번호}`, PR 에 US 번호·변경·검증 결과를 적는다.
+
+## LLM 구조화 호출 테스트
+
+`FRAME_STRUCTURER=llm` 이면 자연어 브리프를 OpenAI(또는 OpenAI 호환 로컬 서버)로 구조화한다. API 키는 환경 변수
+`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로만 전달하고 저장소에는 넣지 않는다.
+
+```bash
+pip install -e ".[dev,llm]"
+```
+
+```bash
+FRAME_STRUCTURER=llm FRAME_LLM_PROVIDER=openai FRAME_LLM_KEY_FILE=F:/key.txt python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
+```
+
+```bash
+FRAME_STRUCTURER=llm FRAME_LLM_PROVIDER=openai FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -m slow -s
+```
+
+로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,
+`FRAME_LLM_MODEL=<서빙 모델명>`, `FRAME_LLM_STRICT_SCHEMA=false` 를 더한다. 모델 호출은 `LLMClient` 포트 뒤에 있어
+유스케이스·API·테스트는 바뀌지 않는다.

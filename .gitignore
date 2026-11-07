@@ -9,3 +9,7 @@ artifacts/
 .env
 .ruff_cache/
 .mypy_cache/
+# API 키 파일은 절대 커밋하지 않는다
+key.txt
+*.key
+*.egg-info/

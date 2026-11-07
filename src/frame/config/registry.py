@@ -26,6 +26,7 @@ from frame.application.ports import (
     VideoAssembler,
     VideoGenerator,
 )
+from frame.application.ports.llm import LLMClient
 
 from .settings import Settings
 
@@ -84,6 +85,7 @@ def default_registry() -> AdapterRegistry:
         RecordingJobDispatcher,
         ThreadPoolJobDispatcher,
     )
+    from frame.adapters.llm import ReplayLLMClient
     from frame.adapters.persistence.memory import InMemoryStore, in_memory_uow_factory
     from frame.adapters.persistence.sqlalchemy import (
         create_engine_from_url,
@@ -97,11 +99,35 @@ def default_registry() -> AdapterRegistry:
 
     reg = AdapterRegistry()
 
+    # --- LLM 클라이언트 (구조화·검수가 공유) ---
+    reg.register(LLMClient, "fake", lambda ctx: ReplayLLMClient())
+
+    def _openai(ctx: BuildContext) -> LLMClient:
+        from frame.adapters.llm.openai_client import OpenAIJsonClient  # openai 패키지는 llm extra
+
+        s = ctx.settings
+        return OpenAIJsonClient(
+            model=s.llm_model,
+            key_file=s.llm_key_file,
+            base_url=s.llm_base_url,
+            timeout_s=s.llm_timeout_s,
+            temperature=s.llm_temperature,
+            strict=s.llm_strict_schema,
+        )
+
+    reg.register(LLMClient, "openai", _openai)
+
     # --- 요구사항 구조화 (US-06) ---
     reg.register(RequirementStructurer, "rule_based", lambda ctx: RuleBasedStructurer())
     reg.register(RequirementStructurer, "fake", lambda ctx: FakeStructurer())
     reg.register(
-        RequirementStructurer, "llm", lambda ctx: LLMStructurer(model=ctx.settings.llm_model)
+        RequirementStructurer,
+        "llm",
+        lambda ctx: LLMStructurer(
+            reg.build(LLMClient, ctx.settings.llm_provider, ctx),
+            max_attempts=ctx.settings.llm_max_attempts,
+            timeout_s=ctx.settings.llm_timeout_s,
+        ),
     )
 
     # --- 영상 생성 / 조립 (US-01) ---
