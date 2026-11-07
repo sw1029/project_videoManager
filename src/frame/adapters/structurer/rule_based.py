@@ -1,0 +1,194 @@
+"""규칙 기반 구조화 어댑터 (결정적). LLM 어댑터의 대체재이자 테스트의 기준 구현.
+
+입력 DSL (한 줄에 한 문장, '#' 이후는 주석):
+
+    scene <scene_key> <start_ms>-<end_ms> [: 설명]
+    entity <entity_key> [PERSON|PROP|BACKGROUND|TEXT|OTHER] [: 설명]
+    in <scene_key>: <entity_key>[, <entity_key> ...]
+    <entity_key>.<predicate> = <value> [@ <scene_key>[, <scene_key> ...]]
+    <entity_key> <predicate> -> <related_entity_key> [@ <scene_key>[, ...]]
+
+- '@' 가 없는 조건은 객체가 등장하는 모든 장면에 적용된다.
+- '@' 로 장면을 지정하면 해당 장면에 객체가 자동으로 연결된다.
+- scene 문장이 하나도 없으면 target_duration_ms(기본 8000ms) 길이의 단일 장면을 만든다.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from frame.application.errors import StructuringError
+from frame.application.ports.structurer import RequirementStructurer, StructuringRequest
+from frame.domain.enums import EntityKind
+from frame.domain.errors import DomainError
+from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
+
+_SCENE = re.compile(r"^scene\s+(\S+)\s+(\d+)\s*-\s*(\d+)\s*(?::\s*(.*))?$")
+_ENTITY = re.compile(r"^entity\s+(\S+)(?:\s+(PERSON|PROP|BACKGROUND|TEXT|OTHER))?\s*(?::\s*(.*))?$")
+_IN = re.compile(r"^in\s+(\S+)\s*:\s*(.+)$")
+_ATTR = re.compile(r"^([^\s.]+)\.(\S+)\s*=\s*(.+?)\s*(?:@\s*(.+))?$")
+_REL = re.compile(r"^(\S+)\s+(\S+)\s*->\s*(\S+)\s*(?:@\s*(.+))?$")
+
+DEFAULT_SCENE_KEY = "scene_01"
+DEFAULT_DURATION_MS = 8000
+
+
+@dataclass
+class _PendingRequirement:
+    entity_key: str
+    predicate: str
+    value: str
+    related_entity_key: str | None
+    scene_keys: tuple[str, ...]  # 비어 있으면 '등장하는 모든 장면'
+    line_no: int
+
+
+@dataclass
+class _Draft:
+    scenes: dict[str, SceneSpec] = field(default_factory=dict)
+    entities: dict[str, EntitySpec] = field(default_factory=dict)
+    members: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # scene_key -> entity_keys (순서 유지)
+    requirements: list[_PendingRequirement] = field(default_factory=list)
+
+
+class RuleBasedStructurer(RequirementStructurer):
+    def structure(self, request: StructuringRequest) -> IntermediateRepresentation:
+        draft = self._parse(request.prompt)
+        if not draft.entities:
+            raise StructuringError("객체(entity) 가 하나도 없습니다")
+        if not draft.scenes:
+            duration = request.target_duration_ms or DEFAULT_DURATION_MS
+            draft.scenes[DEFAULT_SCENE_KEY] = SceneSpec(DEFAULT_SCENE_KEY, 0, duration)
+            draft.members[DEFAULT_SCENE_KEY] = list(draft.entities)
+        ir = self._build(draft)
+        try:
+            ir.validate()
+        except DomainError as exc:
+            raise StructuringError(
+                f"구조화 결과가 무결성 규칙을 위반합니다: {exc.message}"
+            ) from exc
+        return ir
+
+    # ---- 1단계: 줄 단위 파싱 -------------------------------------------------
+    def _parse(self, prompt: str) -> _Draft:
+        draft = _Draft()
+        if not prompt.strip():
+            raise StructuringError("요구사항이 비어 있습니다")
+        for line_no, raw in enumerate(prompt.splitlines(), start=1):
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if m := _SCENE.match(line):
+                key, start, end, desc = m.groups()
+                if key in draft.scenes:
+                    raise StructuringError(f"장면 '{key}' 이 중복 정의되었습니다 (줄 {line_no})")
+                draft.scenes[key] = SceneSpec(key, int(start), int(end), (desc or "").strip())
+                draft.members.setdefault(key, [])
+            elif m := _ENTITY.match(line):
+                key, kind, desc = m.groups()
+                if key in draft.entities:
+                    raise StructuringError(f"객체 '{key}' 이 중복 정의되었습니다 (줄 {line_no})")
+                draft.entities[key] = EntitySpec(
+                    key, EntityKind(kind) if kind else EntityKind.OTHER, (desc or "").strip()
+                )
+            elif m := _IN.match(line):
+                scene_key, csv = m.groups()
+                for entity_key in self._split(csv):
+                    self._link(draft, scene_key, entity_key, line_no)
+            elif m := _ATTR.match(line):
+                entity_key, predicate, value, scenes = m.groups()
+                draft.requirements.append(
+                    _PendingRequirement(
+                        entity_key,
+                        predicate,
+                        value.strip(),
+                        None,
+                        self._scene_list(scenes),
+                        line_no,
+                    )
+                )
+            elif m := _REL.match(line):
+                entity_key, predicate, related, scenes = m.groups()
+                draft.requirements.append(
+                    _PendingRequirement(
+                        entity_key, predicate, related, related, self._scene_list(scenes), line_no
+                    )
+                )
+            else:
+                raise StructuringError(f"해석할 수 없는 문장 (줄 {line_no}): {line!r}")
+        return draft
+
+    # ---- 2단계: 요구조건을 장면에 배치 ------------------------------------------
+    def _build(self, draft: _Draft) -> IntermediateRepresentation:
+        reqs_by_scene: dict[str, list[RequirementSpec]] = {k: [] for k in draft.scenes}
+        for pending in draft.requirements:
+            for key in (pending.entity_key, pending.related_entity_key):
+                if key is not None and key not in draft.entities:
+                    raise StructuringError(
+                        f"정의되지 않은 객체 '{key}' 를 참조합니다 (줄 {pending.line_no})"
+                    )
+            if pending.scene_keys:
+                targets = pending.scene_keys
+                for scene_key in targets:
+                    self._link(draft, scene_key, pending.entity_key, pending.line_no)
+                    if pending.related_entity_key:
+                        self._link(draft, scene_key, pending.related_entity_key, pending.line_no)
+            else:
+                targets = tuple(
+                    k for k, members in draft.members.items() if pending.entity_key in members
+                )
+                if pending.related_entity_key:
+                    targets = tuple(
+                        k for k in targets if pending.related_entity_key in draft.members[k]
+                    )
+                if not targets:
+                    raise StructuringError(
+                        f"객체 '{pending.entity_key}' 가 등장하는 장면이 없어 조건을 둘 수 없습니다 "
+                        f"('in <scene>: {pending.entity_key}' 로 연결하세요, 줄 {pending.line_no})"
+                    )
+            for scene_key in targets:
+                reqs_by_scene[scene_key].append(
+                    RequirementSpec(
+                        scene_key=scene_key,
+                        predicate=pending.predicate,
+                        expected_value=pending.value,
+                        entity_key=pending.entity_key,
+                        related_entity_key=pending.related_entity_key,
+                    )
+                )
+        scenes = tuple(
+            SceneSpec(
+                scene_key=s.scene_key,
+                planned_start_ms=s.planned_start_ms,
+                planned_end_ms=s.planned_end_ms,
+                description=s.description,
+                entity_keys=tuple(draft.members.get(s.scene_key, [])),
+                requirements=tuple(reqs_by_scene[s.scene_key]),
+            )
+            for s in draft.scenes.values()
+        )
+        return IntermediateRepresentation(entities=tuple(draft.entities.values()), scenes=scenes)
+
+    # ---- helpers -------------------------------------------------------------
+    @staticmethod
+    def _split(csv: str) -> list[str]:
+        return [item.strip() for item in csv.split(",") if item.strip()]
+
+    @classmethod
+    def _scene_list(cls, scenes: str | None) -> tuple[str, ...]:
+        return tuple(cls._split(scenes)) if scenes else ()
+
+    @staticmethod
+    def _link(draft: _Draft, scene_key: str, entity_key: str, line_no: int) -> None:
+        if scene_key not in draft.scenes:
+            raise StructuringError(f"정의되지 않은 장면 '{scene_key}' 을 참조합니다 (줄 {line_no})")
+        if entity_key not in draft.entities:
+            raise StructuringError(
+                f"정의되지 않은 객체 '{entity_key}' 를 참조합니다 (줄 {line_no})"
+            )
+        members = draft.members.setdefault(scene_key, [])
+        if entity_key not in members:
+            members.append(entity_key)

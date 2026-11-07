@@ -1,0 +1,58 @@
+"""환경 변수(FRAME_*) 기반 설정. 어댑터 선택은 전부 '키' 하나로 이루어진다."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+
+
+@dataclass(frozen=True)
+class Settings:
+    structurer: str = "rule_based"
+    generator: str = "fake"
+    assembler: str = "fake"
+    tracker: str = "fake"
+    checkers: tuple[str, ...] = ("fake_requirement", "fake_consistency", "fake_preservation")
+    artifact_store: str = "memory"
+    artifact_dir: str = "./artifacts"
+    persistence: str = "memory"  # memory | sqlalchemy
+    db_url: str = "sqlite+pysqlite:///:memory:"
+    db_create_schema: bool = False  # 개발용. 운영 스키마는 Alembic 마이그레이션으로 관리
+    jobs: str = "inline"  # inline | recording | thread
+    generator_retries: int = 0
+    generator_cache: bool = False
+    llm_model: str = "unconfigured"
+    api_prefix: str = "/api"
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
+        src = os.environ if env is None else env
+        base = cls()
+
+        def text(name: str, default: str) -> str:
+            return src.get(f"FRAME_{name}", default)
+
+        def flag(name: str, default: bool) -> bool:
+            raw = src.get(f"FRAME_{name}")
+            return default if raw is None else raw.strip().lower() in {"1", "true", "yes", "on"}
+
+        checkers_raw = text("CHECKERS", ",".join(base.checkers))
+        return replace(
+            base,
+            structurer=text("STRUCTURER", base.structurer),
+            generator=text("GENERATOR", base.generator),
+            assembler=text("ASSEMBLER", base.assembler),
+            tracker=text("TRACKER", base.tracker),
+            checkers=tuple(c.strip() for c in checkers_raw.split(",") if c.strip()),
+            artifact_store=text("ARTIFACT_STORE", base.artifact_store),
+            artifact_dir=text("ARTIFACT_DIR", base.artifact_dir),
+            persistence=text("PERSISTENCE", base.persistence),
+            db_url=text("DB_URL", base.db_url),
+            db_create_schema=flag("DB_CREATE_SCHEMA", base.db_create_schema),
+            jobs=text("JOBS", base.jobs),
+            generator_retries=int(text("GENERATOR_RETRIES", str(base.generator_retries))),
+            generator_cache=flag("GENERATOR_CACHE", base.generator_cache),
+            llm_model=text("LLM_MODEL", base.llm_model),
+            api_prefix=text("API_PREFIX", base.api_prefix),
+        )

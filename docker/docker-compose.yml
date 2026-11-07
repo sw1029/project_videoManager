@@ -1,0 +1,36 @@
+services:
+  db:
+    image: mysql:8.4.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: frame
+      MYSQL_USER: frame
+      MYSQL_PASSWORD: frame
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uframe", "-pframe"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      FRAME_DB_URL: mysql+pymysql://frame:frame@db:3306/frame
+      FRAME_DB_CREATE_SCHEMA: "true"   # 개발용. 운영은 Alembic 마이그레이션으로 교체
+      FRAME_STRUCTURER: rule_based
+      FRAME_GENERATOR: fake            # 실제 모델: diffusers (GPU 필요) 또는 external_api
+      FRAME_TRACKER: fake
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifacts:/data/artifacts
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  artifacts:
