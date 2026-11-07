@@ -8,7 +8,7 @@ from frame import __version__
 from frame.config.container import Container
 
 from .errors import register_error_handlers
-from .routers import projects, versions
+from .routers import projects, versions, vocabulary
 
 
 def create_app(container: Container) -> FastAPI:
@@ -21,6 +21,7 @@ def create_app(container: Container) -> FastAPI:
     prefix = container.settings.api_prefix
     app.include_router(projects.router, prefix=prefix)
     app.include_router(versions.router, prefix=prefix)
+    app.include_router(vocabulary.router, prefix=prefix)
     register_error_handlers(app)
 
     @app.get("/health", tags=["ops"])

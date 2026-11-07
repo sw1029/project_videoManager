@@ -7,9 +7,11 @@
     in <scene_key>: <entity_key>[, <entity_key> ...]
     <entity_key>.<predicate> = <value> [@ <scene_key>[, <scene_key> ...]]
     <entity_key> <predicate> -> <related_entity_key> [@ <scene_key>[, ...]]
+    scene.<predicate> = <value> [@ <scene_key>[, ...]]        # 장면 수준 조건 (분위기·조명·카메라)
 
-- '@' 가 없는 조건은 객체가 등장하는 모든 장면에 적용된다.
+- '@' 가 없는 조건은 객체가 등장하는 모든 장면(장면 수준 조건은 모든 장면)에 적용된다.
 - '@' 로 장면을 지정하면 해당 장면에 객체가 자동으로 연결된다.
+- 술어는 어휘(domain/vocabulary.py)로 정규화된다: cup.색상 = 빨강 -> color, p 들다 -> cup -> holds.
 - scene 문장이 하나도 없으면 target_duration_ms(기본 8000ms) 길이의 단일 장면을 만든다.
 """
 
@@ -34,9 +36,12 @@ DEFAULT_SCENE_KEY = "scene_01"
 DEFAULT_DURATION_MS = 8000
 
 
+SCENE_LEVEL_TOKEN = "scene"  # `scene.mood = calm` 처럼 객체 자리에 쓰면 장면 수준 조건
+
+
 @dataclass
 class _PendingRequirement:
-    entity_key: str
+    entity_key: str | None  # None = 장면 수준 조건
     predicate: str
     value: str
     related_entity_key: str | None
@@ -102,7 +107,7 @@ class RuleBasedStructurer(RequirementStructurer):
                 entity_key, predicate, value, scenes = m.groups()
                 draft.requirements.append(
                     _PendingRequirement(
-                        entity_key,
+                        None if entity_key == SCENE_LEVEL_TOKEN else entity_key,
                         predicate,
                         value.strip(),
                         None,
@@ -133,9 +138,16 @@ class RuleBasedStructurer(RequirementStructurer):
             if pending.scene_keys:
                 targets = pending.scene_keys
                 for scene_key in targets:
-                    self._link(draft, scene_key, pending.entity_key, pending.line_no)
+                    if scene_key not in draft.scenes:
+                        raise StructuringError(
+                            f"정의되지 않은 장면 '{scene_key}' 을 참조합니다 (줄 {pending.line_no})"
+                        )
+                    if pending.entity_key is not None:
+                        self._link(draft, scene_key, pending.entity_key, pending.line_no)
                     if pending.related_entity_key:
                         self._link(draft, scene_key, pending.related_entity_key, pending.line_no)
+            elif pending.entity_key is None:
+                targets = tuple(draft.scenes)  # 장면 수준 조건: 모든 장면
             else:
                 targets = tuple(
                     k for k, members in draft.members.items() if pending.entity_key in members

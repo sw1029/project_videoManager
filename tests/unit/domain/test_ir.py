@@ -104,3 +104,106 @@ def test_requirement_key_is_stable():
 
 def test_scene_spec_duration():
     assert SceneSpec("s", 1000, 4500).duration_ms == 3500
+
+
+# ---- 2차 검토에서 고친 스키마 규칙: 요구조건 키 · 관계 · 타임라인 · schema_version ------------
+
+
+def test_relation_key_includes_related_entity_so_two_relations_can_coexist():
+    a = RequirementSpec("intro", "holds", "cup", "barista", "cup")
+    b = RequirementSpec("intro", "holds", "phone", "barista", "phone")
+    assert a.key == "intro:barista:holds:cup"
+    assert a.key != b.key
+    ir = IntermediateRepresentation(
+        entities=(EntitySpec("barista"), EntitySpec("cup"), EntitySpec("phone")),
+        scenes=(SceneSpec("intro", 0, 1000, "", ("barista", "cup", "phone"), (a, b)),),
+    )
+    ir.validate()
+
+
+def test_duplicate_requirement_key_in_a_scene_is_rejected(ir):
+    intro = ir.scene("intro")
+    dup = ir.with_scene(
+        replace(
+            intro,
+            requirements=intro.requirements + (RequirementSpec("intro", "color", "blue", "cup"),),
+        )
+    )
+    with pytest.raises(ValidationError, match="중복"):
+        dup.validate()
+
+
+def test_predicate_is_normalized_on_construction():
+    assert RequirementSpec("s", "Colour", "red", "cup").predicate == "color"
+    assert RequirementSpec("s", "색상", "red", "cup").predicate == "color"
+    assert RequirementSpec("s", "shirt color", "white", "p").predicate == "shirt_color"
+
+
+def test_relational_predicate_requires_related_entity(ir):
+    intro = ir.scene("intro")
+    bad = ir.with_scene(
+        replace(intro, requirements=(RequirementSpec("intro", "wears", "apron", "barista"),))
+    )
+    with pytest.raises(ValidationError, match="관계"):
+        bad.validate()
+
+
+def test_attribute_predicate_must_not_have_related_entity(ir):
+    intro = ir.scene("intro")
+    bad = ir.with_scene(
+        replace(intro, requirements=(RequirementSpec("intro", "color", "cup", "barista", "cup"),))
+    )
+    with pytest.raises(ValidationError, match="관계"):
+        bad.validate()
+
+
+def test_relation_value_must_equal_related_entity(ir):
+    intro = ir.scene("intro")
+    bad = ir.with_scene(
+        replace(intro, requirements=(RequirementSpec("intro", "holds", "bag", "barista", "cup"),))
+    )
+    with pytest.raises(ValidationError, match="상대 객체"):
+        bad.validate()
+
+
+def test_relation_value_defaults_to_related_entity():
+    assert RequirementSpec("intro", "holds", "", "barista", "cup").expected_value == "cup"
+
+
+def test_empty_expected_value_is_rejected(ir):
+    intro = ir.scene("intro")
+    bad = ir.with_scene(
+        replace(intro, requirements=(RequirementSpec("intro", "color", "  ", "cup"),))
+    )
+    with pytest.raises(ValidationError, match="값"):
+        bad.validate()
+
+
+@pytest.mark.parametrize(
+    ("spans", "message"),
+    [
+        ([(0, 5000), (3000, 8000)], "겹"),
+        ([(0, 4000), (5000, 8000)], "비어"),
+        ([(1000, 4000)], "0 ms"),
+    ],
+)
+def test_scene_timeline_must_be_contiguous_from_zero(spans, message):
+    scenes = tuple(
+        SceneSpec(f"s{i}", start, end, "", ("cup",)) for i, (start, end) in enumerate(spans)
+    )
+    bad = IntermediateRepresentation(entities=(EntitySpec("cup"),), scenes=scenes)
+    with pytest.raises(ValidationError, match=message):
+        bad.validate()
+
+
+def test_ir_total_duration(ir):
+    assert ir.total_duration_ms == 12000
+
+
+def test_schema_version_roundtrip_and_unknown_version_rejected(ir):
+    data = ir.to_dict()
+    assert data["schema_version"] == 1
+    assert IntermediateRepresentation.from_dict(data) == ir
+    data["schema_version"] = 99
+    with pytest.raises(ValidationError, match="schema_version"):
+        IntermediateRepresentation.from_dict(data)

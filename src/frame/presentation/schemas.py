@@ -29,6 +29,7 @@ class CreateRevisionIn(BaseModel):
     new_value: str = Field(min_length=1)
     scope: Literal["SCENES", "ALL_APPEARANCES"] = "ALL_APPEARANCES"
     scene_keys: list[str] = Field(default_factory=list)
+    current_value: str | None = None  # 같은 술어 조건이 여러 개(관계)일 때 바꿀 대상의 현재 값
 
 
 # ---- 응답 ----------------------------------------------------------------
@@ -37,6 +38,18 @@ class CreateRevisionIn(BaseModel):
 class ErrorOut(BaseModel):
     error_code: str
     error_message: str
+
+
+class PredicateOut(BaseModel):
+    name: str
+    value_kind: str
+    relational: bool
+    aliases: list[str]
+    description: str
+
+
+class VocabularyOut(BaseModel):
+    predicates: list[PredicateOut]
 
 
 class CreateProjectOut(BaseModel):
@@ -65,6 +78,8 @@ class RequirementOut(BaseModel):
     related_entity_key: str | None
     predicate: str
     expected_value: str
+    value_kind: str | None  # 어휘에 등록된 술어면 COLOR/TEXT/NUMBER/POSITION/ENTITY
+    relational: bool
 
 
 class SceneOut(BaseModel):

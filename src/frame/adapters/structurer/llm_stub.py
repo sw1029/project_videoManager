@@ -12,17 +12,35 @@ import json
 from frame.application.errors import StructuringError
 from frame.application.ports.structurer import RequirementStructurer, StructuringRequest
 from frame.domain.errors import DomainError
-from frame.domain.ir import IntermediateRepresentation
+from frame.domain.ir import IR_SCHEMA_VERSION, IntermediateRepresentation
+from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
-SYSTEM_PROMPT = """You convert a short-form video brief into a JSON intermediate representation.
+
+def build_system_prompt(vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY) -> str:
+    """IR 스키마 규칙(domain/ir.py validate)과 술어 어휘를 그대로 모델에 알려 준다."""
+    attributes = ", ".join(s.name for s in vocabulary.specs() if not s.relational)
+    relations = ", ".join(s.name for s in vocabulary.specs() if s.relational)
+    return f"""You convert a short-form video brief into a JSON intermediate representation.
 Return ONLY JSON with this shape:
-{"entities":[{"entity_key":str,"kind":"PERSON|PROP|BACKGROUND|TEXT|OTHER","description":str}],
- "scenes":[{"scene_key":str,"planned_start_ms":int,"planned_end_ms":int,"description":str,
+{{"schema_version":{IR_SCHEMA_VERSION},
+ "entities":[{{"entity_key":str,"kind":"PERSON|PROP|BACKGROUND|TEXT|OTHER","description":str}}],
+ "scenes":[{{"scene_key":str,"planned_start_ms":int,"planned_end_ms":int,"description":str,
             "entity_keys":[str],
-            "requirements":[{"scene_key":str,"entity_key":str|null,"related_entity_key":str|null,
-                             "predicate":str,"expected_value":str}]}]}
-Rules: entity_key/scene_key are unique snake_case; every requirement entity must be listed in the
-scene's entity_keys; scenes must not overlap and must cover the whole duration."""
+            "requirements":[{{"scene_key":str,"entity_key":str|null,"related_entity_key":str|null,
+                             "predicate":str,"expected_value":str}}]}}]}}
+Rules:
+- entity_key and scene_key are unique snake_case identifiers.
+- scenes are in timeline order, start at 0 ms, are contiguous (next planned_start_ms equals the
+  previous planned_end_ms) and end at the target duration.
+- every requirement's entity_key and related_entity_key must be listed in the scene's entity_keys;
+  entity_key null means a scene-level condition (mood, lighting, camera).
+- attribute predicates: {attributes}. relation predicates: {relations} (related_entity_key required,
+  expected_value must equal related_entity_key). Use these names; unknown predicates are allowed only
+  when none fits.
+- at most one requirement per (scene, entity, predicate, related entity)."""
+
+
+SYSTEM_PROMPT = build_system_prompt()
 
 
 class LLMStructurer(RequirementStructurer):

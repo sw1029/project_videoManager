@@ -1,3 +1,3 @@
-from . import projects, versions
+from . import projects, versions, vocabulary
 
-__all__ = ["projects", "versions"]
+__all__ = ["projects", "versions", "vocabulary"]

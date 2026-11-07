@@ -9,6 +9,10 @@ from frame.domain.models import VideoVersion
 from ..ports.structurer import ReferenceImageInput, RequirementStructurer, StructuringRequest
 from ..ports.unit_of_work import UnitOfWorkFactory
 
+# 장면 길이 합계와 목표 길이의 허용 오차: 500 ms 또는 목표 길이의 10% 중 큰 값
+DURATION_TOLERANCE_MS = 500
+DURATION_TOLERANCE_RATIO = 0.1
+
 
 class StructureRequirements:
     def __init__(self, uow_factory: UnitOfWorkFactory, structurer: RequirementStructurer) -> None:
@@ -43,6 +47,7 @@ class StructureRequirements:
                     raise ValidationError(
                         f"참조 이미지가 가리키는 객체가 구조화 결과에 없습니다: {unknown}"
                     )
+                self._check_target_duration(ir.total_duration_ms, version.target_duration_ms)
                 version.ir = ir
                 version.transition_to(VersionState.DRAFT)
             except Exception as exc:  # noqa: BLE001 - 어떤 오류든 FAILED + 원인으로 남긴다
@@ -50,3 +55,14 @@ class StructureRequirements:
             uow.versions.save(version)
             uow.commit()
             return version
+
+    @staticmethod
+    def _check_target_duration(total_ms: int, target_ms: int | None) -> None:
+        if target_ms is None:
+            return
+        tolerance = max(DURATION_TOLERANCE_MS, int(target_ms * DURATION_TOLERANCE_RATIO))
+        if abs(total_ms - target_ms) > tolerance:
+            raise ValidationError(
+                f"장면 길이 합계 {total_ms} ms 가 목표 길이 {target_ms} ms 와 다릅니다 "
+                f"(허용 오차 {tolerance} ms)"
+            )

@@ -48,7 +48,7 @@ def test_ir_is_normalized_into_erd_rows(engine, ir):
         assert _count(session, EntityRow) == 3
         assert _count(session, SceneEntityRow) == 7  # intro 3 + closeup 2 + outro 2
         assert _count(session, RequirementRow) == 8
-        row = session.get(RequirementRow, "ver_1:intro:barista:holds")
+        row = session.get(RequirementRow, "ver_1:intro:barista:holds:cup")
         assert (row.entity_id, row.related_entity_id) == ("prj_1:barista", "prj_1:cup")
 
 

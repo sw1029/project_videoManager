@@ -32,7 +32,7 @@ def test_returns_valid_ir_for_a_well_formed_brief(structurer):
     assert {
         "intro:cup:color",
         "closeup:cup:color",
-        "intro:barista:holds",
+        "intro:barista:holds:cup",
         "outro:cafe:lighting",
     } <= keys
     assert "outro:cup:color" not in keys  # 컵은 outro 에 없다
@@ -99,3 +99,31 @@ def test_fake_can_inject_canned_ir_and_records_calls():
     request = StructuringRequest("아무 말이나")
     assert fake.structure(request) == cafe_ir()
     assert fake.calls == [request]
+
+
+def test_scene_level_condition_and_predicate_aliases(structurer):
+    ir = structurer.structure(
+        StructuringRequest(
+            "scene a 0-1000\nentity cup PROP\nin a: cup\ncup.색상 = 빨강\nscene.mood = calm @ a"
+        )
+    )
+    keys = {r.key: r for r in ir.iter_requirements()}
+    assert keys["a:cup:color"].expected_value == "빨강"
+    assert keys["a:-:mood"].entity_key is None
+
+
+def test_relation_lines_accept_aliases_and_produce_relation_keys(structurer):
+    ir = structurer.structure(
+        StructuringRequest("scene a 0-1000\nentity p PERSON\nentity cup PROP\np 들다 -> cup @ a")
+    )
+    rel = next(iter(ir.iter_requirements()))
+    assert (rel.predicate, rel.related_entity_key, rel.key) == ("holds", "cup", "a:p:holds:cup")
+
+
+def test_non_contiguous_scenes_are_rejected(structurer):
+    with pytest.raises(StructuringError, match="비어"):
+        structurer.structure(
+            StructuringRequest(
+                "scene a 0-1000\nscene b 2000-3000\nentity cup PROP\nin a: cup\nin b: cup"
+            )
+        )

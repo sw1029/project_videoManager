@@ -4,6 +4,7 @@ import pytest
 
 from frame.domain.enums import ChangeScope
 from frame.domain.errors import NotFound, ValidationError
+from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
 from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
 
 policy = DefaultPropagationPolicy()
@@ -73,3 +74,62 @@ def test_scope_scenes_rejects_scene_without_the_entity(ir):
 def test_scope_scenes_rejects_unknown_scene(ir):
     with pytest.raises(NotFound):
         policy.apply(ir, AttributeChange("cup", "color", "teal", ChangeScope.SCENES, ("ghost",)))
+
+
+# ---- 관계 조건 수정 (2차 검토) ---------------------------------------------------------
+
+
+def test_relation_change_updates_related_entity_and_value(ir):
+    result = policy.apply(
+        ir, AttributeChange("barista", "holds", "cafe", ChangeScope.SCENES, ("intro",))
+    )
+    holds = next(r for r in result.ir.scene("intro").requirements if r.predicate == "holds")
+    assert (holds.expected_value, holds.related_entity_key) == ("cafe", "cafe")
+    assert holds.key == "intro:barista:holds:cafe"
+    result.ir.validate()
+
+
+def test_relation_change_to_entity_outside_scene_is_rejected(ir):
+    # outro 에는 cup 이 없다
+    with pytest.raises(ValidationError, match="연결"):
+        policy.apply(ir, AttributeChange("barista", "holds", "cup", ChangeScope.SCENES, ("outro",)))
+
+
+def test_ambiguous_relation_requires_current_value():
+    two = IntermediateRepresentation(
+        entities=(EntitySpec("barista"), EntitySpec("cup"), EntitySpec("phone"), EntitySpec("bag")),
+        scenes=(
+            SceneSpec(
+                "intro",
+                0,
+                1000,
+                "",
+                ("barista", "cup", "phone", "bag"),
+                (
+                    RequirementSpec("intro", "holds", "cup", "barista", "cup"),
+                    RequirementSpec("intro", "holds", "phone", "barista", "phone"),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(ValidationError, match="current_value"):
+        policy.apply(two, AttributeChange("barista", "holds", "bag"))
+    result = policy.apply(two, AttributeChange("barista", "holds", "bag", current_value="phone"))
+    assert sorted(r.related_entity_key for r in result.ir.scene("intro").requirements) == [
+        "bag",
+        "cup",
+    ]
+
+
+def test_current_value_without_match_changes_nothing(ir):
+    result = policy.apply(ir, AttributeChange("cup", "color", "teal", current_value="blue"))
+    assert result.changed_scene_keys == ()
+
+
+def test_predicate_alias_in_change_is_normalized(ir):
+    result = policy.apply(ir, AttributeChange("cup", "색상", "teal"))
+    assert result.changed_scene_keys == ("intro", "closeup")
+    predicates = {
+        r.predicate for r in result.ir.scene("intro").requirements if r.entity_key == "cup"
+    }
+    assert predicates == {"color"}

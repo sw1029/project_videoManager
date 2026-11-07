@@ -175,6 +175,18 @@ RunGenerationPipeline
 생성 조건 = `IR(fingerprint)` + `seed` + 참조 이미지 URI. 접수 시 `VideoVersion.frozen_fingerprint` 에 IR 해시를 저장하고,
 이후 IR 은 바뀌지 않는다(바꾸려면 새 DRAFT). 클립마다 자신을 만든 조건의 fingerprint 를 갖고 있으므로 "어떤 조건으로 만든 결과인지" 항상 추적된다.
 
+### 3.5a IR 스키마 규칙 (2차 검토 반영, ADR-0007)
+
+| 규칙 | 내용 | 강제 위치 |
+|---|---|---|
+| 술어 어휘 | 술어는 `domain/vocabulary.py` 로 정규화된다 (`colour`·`색상` → `color`). 등록 술어는 값 종류(COLOR/TEXT/NUMBER/POSITION/ENTITY)와 관계 여부를 가진다. 미등록 술어도 정규화 후 허용 | `RequirementSpec.__post_init__`, `AttributeChange.__post_init__` |
+| 관계 조건 | 관계 술어(holds, wears, near, looks_at, on)는 `related_entity_key` 필수, `expected_value` 는 상대 객체 키와 동일. 속성 술어는 상대 객체 금지 | `IR.validate()` |
+| 요구조건 키 | `장면:객체:술어[:상대객체]`. 장면 안에서 유일 (SQL `requirement_id` 도 같은 키에서 파생) | `IR.validate()`, DB PK |
+| 장면 수준 조건 | `entity_key=None` (분위기·조명·카메라). DSL: `scene.mood = calm @ a` | `RuleBasedStructurer` |
+| 타임라인 | 장면은 0 ms 에서 시작, 겹침·빈 구간 없이 이어짐. 길이 합계는 목표 길이와 허용 오차(500 ms 또는 10%) 안 | `IR.validate()`, `StructureRequirements` |
+| 관계 수정 | `POST /revisions` 로 관계 술어를 바꾸면 상대 객체가 바뀐다. 같은 술어 조건이 여럿이면 `current_value` 로 대상을 지정 | `DefaultPropagationPolicy` |
+| schema_version | IR 문서에 `schema_version` 필드. 지원하지 않는 버전은 거부 | `IR.from_dict` |
+
 ### 3.6 오류 모델
 
 | 구분 | 표현 | 예 |
@@ -332,6 +344,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
 | GET | `/api/versions/{version_id}/entities/{entity_id}/tracks` | `get_entity_tracks` | 200 등장 구간·박스·상태 (`entity_key` 또는 `project_id:entity_key`) | 404 |
+| GET | `/api/vocabulary/predicates` | (어휘 조회) | 200 술어 이름·값 종류·관계 여부·별칭 (화면의 속성 블록용) | — |
 
 ---
 
@@ -398,3 +411,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0004](adr/0004-persistence-dual-write.md) | IR 문서 + ERD 정규화 행 이중 저장 |
 | [0005](adr/0005-job-dispatcher.md) | 비동기 작업은 디스패처 포트로 추상화 (inline/thread → Celery) |
 | [0006](adr/0006-error-model.md) | 실행 오류(FAILED) 와 검수 판정(FAIL/UNDETERMINED) 분리 |
+| [0007](adr/0007-predicate-vocabulary-and-relations.md) | 술어 어휘 · 관계 조건 규칙 · 요구조건 키 · 장면 타임라인 검증 |

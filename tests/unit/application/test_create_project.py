@@ -9,7 +9,13 @@ from frame.application.jobs import STRUCTURE_REQUIREMENTS
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.domain.enums import VersionState
 from frame.domain.errors import ValidationError
-from tests.support.factories import CAFE_PROMPT, create_draft, make_container, version_of
+from tests.support.factories import (
+    CAFE_PROMPT,
+    create_draft,
+    dispatcher_of,
+    make_container,
+    version_of,
+)
 
 
 def test_create_project_persists_structuring_version_and_dispatches_job(container, dispatcher):
@@ -92,3 +98,21 @@ def test_structuring_job_is_idempotent(container, dispatcher):
     before = version_of(container, result.version_id)
     container.structure_requirements.execute(result.version_id)  # 재시도
     assert version_of(container, result.version_id) == before
+
+
+def test_target_duration_mismatch_fails_validation(container):
+    result = container.create_project.execute(
+        CreateProjectCommand("카페", CAFE_PROMPT, target_duration_ms=30000)  # 장면 합계는 12000
+    )
+    dispatcher_of(container).run_all()
+    version = version_of(container, result.version_id)
+    assert (version.state, version.error_code) == (VersionState.FAILED, "VALIDATION_ERROR")
+    assert "목표 길이" in version.error_message
+
+
+def test_target_duration_within_tolerance_is_accepted(container):
+    result = container.create_project.execute(
+        CreateProjectCommand("카페", CAFE_PROMPT, target_duration_ms=12400)
+    )
+    dispatcher_of(container).run_all()
+    assert version_of(container, result.version_id).state is VersionState.DRAFT

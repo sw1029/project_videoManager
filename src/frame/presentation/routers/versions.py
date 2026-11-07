@@ -56,6 +56,7 @@ def create_revision(
                 new_value=body.new_value,
                 scope=ChangeScope(body.scope),
                 scene_keys=tuple(body.scene_keys),
+                current_value=body.current_value,
             ),
         )
     )

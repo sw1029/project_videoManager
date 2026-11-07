@@ -5,6 +5,12 @@
 모델을 교체해도 IR 과 그 위의 유스케이스는 변하지 않는다.
 
 불변(frozen) 객체이며, 변경은 항상 새 IR 을 만들어 반환한다 (원본 버전 보존 원칙).
+
+스키마 규칙 (validate 가 강제)
+- 객체 키는 프로젝트 내, 장면 키는 버전 내 유일.
+- 장면은 0 ms 에서 시작해 빈틈·겹침 없이 이어진다 (조립기가 순서대로 이어 붙이기 때문).
+- 요구조건의 술어는 어휘(vocabulary)로 정규화되고, 관계 술어는 상대 객체가 필수이며 값은 상대 객체 키와 같다.
+- 요구조건 키 `장면:객체:술어[:상대객체]` 는 장면 안에서 유일하다.
 """
 
 from __future__ import annotations
@@ -17,22 +23,37 @@ from typing import Any
 from .enums import EntityKind
 from .errors import NotFound, ValidationError
 from .hashing import canonical_hash
+from .vocabulary import DEFAULT_VOCABULARY
+
+IR_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
 class RequirementSpec:
-    """장면 안에서 지켜져야 하는 조건. 예) cup.color = red, barista holds -> cup"""
+    """장면 안에서 지켜져야 하는 조건. 예) cup.color = red, barista holds -> cup, scene.mood = calm"""
 
     scene_key: str
     predicate: str
     expected_value: str
-    entity_key: str | None = None
-    related_entity_key: str | None = None
+    entity_key: str | None = None  # None 이면 장면 수준 조건 (분위기·조명·카메라 등)
+    related_entity_key: str | None = None  # 관계 조건의 상대 객체
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "predicate", DEFAULT_VOCABULARY.normalize(self.predicate))
+        value = (self.expected_value or "").strip()
+        if not value and self.related_entity_key:
+            value = self.related_entity_key  # 관계 조건의 값은 상대 객체 키
+        object.__setattr__(self, "expected_value", value)
+
+    @property
+    def is_relational(self) -> bool:
+        return self.related_entity_key is not None
 
     @property
     def key(self) -> str:
         """버전 내에서 요구조건을 식별하는 안정적인 키 (CHECK_RESULT.requirement_id 매핑용)."""
-        return f"{self.scene_key}:{self.entity_key or '-'}:{self.predicate}"
+        base = f"{self.scene_key}:{self.entity_key or '-'}:{self.predicate}"
+        return f"{base}:{self.related_entity_key}" if self.related_entity_key else base
 
 
 @dataclass(frozen=True)
@@ -87,12 +108,16 @@ class IntermediateRepresentation:
         for s in self.scenes:
             yield from s.requirements
 
+    @property
+    def total_duration_ms(self) -> int:
+        return self.scenes[-1].planned_end_ms if self.scenes else 0
+
     def with_scene(self, scene: SceneSpec) -> IntermediateRepresentation:
         """같은 scene_key 의 장면을 교체한 새 IR 을 돌려준다."""
         scenes = tuple(scene if s.scene_key == scene.scene_key else s for s in self.scenes)
         return replace(self, scenes=scenes)
 
-    # ---- 무결성 규칙 (ERD 규칙 2·3·4 의 도메인 측 검증) ----------------------
+    # ---- 무결성 규칙 (ERD 규칙 2·3·4 의 도메인 측 검증 + 타임라인·관계 규칙) ----------
     def validate(self) -> None:
         entity_keys = [e.entity_key for e in self.entities]
         if len(entity_keys) != len(set(entity_keys)):
@@ -102,28 +127,75 @@ class IntermediateRepresentation:
             raise ValidationError("scene_key 는 버전 내에서 유일해야 합니다")
         if not self.scenes:
             raise ValidationError("장면이 하나 이상 있어야 합니다")
+        self._validate_timeline()
         known = set(entity_keys)
         for s in self.scenes:
-            if s.planned_start_ms < 0 or s.planned_end_ms <= s.planned_start_ms:
-                raise ValidationError(f"장면 '{s.scene_key}' 의 시간 구간이 잘못되었습니다")
             unknown = set(s.entity_keys) - known
             if unknown:
                 raise ValidationError(
                     f"장면 '{s.scene_key}' 이 정의되지 않은 객체를 참조합니다: {sorted(unknown)}"
                 )
-            for r in s.requirements:
-                if r.scene_key != s.scene_key:
-                    raise ValidationError(f"요구조건 {r.key} 의 scene_key 가 장면과 다릅니다")
-                for ref in (r.entity_key, r.related_entity_key):
-                    if ref is not None and ref not in s.entity_keys:
-                        raise ValidationError(
-                            f"요구조건 {r.key} 의 대상 객체 '{ref}' 는 장면 '{s.scene_key}' 에 "
-                            "연결되어 있어야 합니다"
-                        )
+            self._validate_requirements(s)
+
+    def _validate_timeline(self) -> None:
+        expected_start = 0
+        for index, s in enumerate(self.scenes):
+            if s.planned_start_ms < 0 or s.planned_end_ms <= s.planned_start_ms:
+                raise ValidationError(f"장면 '{s.scene_key}' 의 시간 구간이 잘못되었습니다")
+            if index == 0 and s.planned_start_ms != 0:
+                raise ValidationError(f"첫 장면 '{s.scene_key}' 은 0 ms 에서 시작해야 합니다")
+            if s.planned_start_ms < expected_start:
+                raise ValidationError(
+                    f"장면 '{s.scene_key}' 이 앞 장면과 겹칩니다 "
+                    f"({s.planned_start_ms} ms < {expected_start} ms)"
+                )
+            if s.planned_start_ms > expected_start:
+                raise ValidationError(
+                    f"장면 '{s.scene_key}' 앞에 비어 있는 구간이 있습니다 "
+                    f"({expected_start}~{s.planned_start_ms} ms)"
+                )
+            expected_start = s.planned_end_ms
+
+    @staticmethod
+    def _validate_requirements(scene: SceneSpec) -> None:
+        seen: set[str] = set()
+        for r in scene.requirements:
+            if r.scene_key != scene.scene_key:
+                raise ValidationError(f"요구조건 {r.key} 의 scene_key 가 장면과 다릅니다")
+            if not r.expected_value:
+                raise ValidationError(f"요구조건 {r.key} 의 값이 비어 있습니다")
+            for ref in (r.entity_key, r.related_entity_key):
+                if ref is not None and ref not in scene.entity_keys:
+                    raise ValidationError(
+                        f"요구조건 {r.key} 의 대상 객체 '{ref}' 는 장면 '{scene.scene_key}' 에 "
+                        "연결되어 있어야 합니다"
+                    )
+            relational = DEFAULT_VOCABULARY.is_relational(r.predicate)
+            if relational is True and r.related_entity_key is None:
+                raise ValidationError(
+                    f"'{r.predicate}' 는 관계 술어이므로 상대 객체(related_entity_key)가 필요합니다 ({r.key})"
+                )
+            if relational is False and r.related_entity_key is not None:
+                raise ValidationError(
+                    f"'{r.predicate}' 는 속성 술어이므로 관계 상대 객체를 가질 수 없습니다 ({r.key})"
+                )
+            if r.related_entity_key is not None:
+                if r.expected_value != r.related_entity_key:
+                    raise ValidationError(f"관계 조건 {r.key} 의 값은 상대 객체 키와 같아야 합니다")
+                if r.related_entity_key == r.entity_key:
+                    raise ValidationError(
+                        f"관계 조건 {r.key} 은 자기 자신을 상대로 가질 수 없습니다"
+                    )
+            if r.key in seen:
+                raise ValidationError(
+                    f"장면 '{scene.scene_key}' 에 중복된 요구조건이 있습니다: {r.key}"
+                )
+            seen.add(r.key)
 
     # ---- 직렬화 / 조건 고정 -----------------------------------------------
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": IR_SCHEMA_VERSION,
             "entities": [
                 {"entity_key": e.entity_key, "kind": str(e.kind), "description": e.description}
                 for e in self.entities
@@ -152,6 +224,11 @@ class IntermediateRepresentation:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IntermediateRepresentation:
+        version = data.get("schema_version", IR_SCHEMA_VERSION)
+        if version != IR_SCHEMA_VERSION:
+            raise ValidationError(
+                f"지원하지 않는 schema_version 입니다: {version} (지원: {IR_SCHEMA_VERSION})"
+            )
         entities = tuple(
             EntitySpec(
                 entity_key=e["entity_key"],
@@ -171,7 +248,7 @@ class IntermediateRepresentation:
                     RequirementSpec(
                         scene_key=r["scene_key"],
                         predicate=r["predicate"],
-                        expected_value=r["expected_value"],
+                        expected_value=r.get("expected_value", ""),
                         entity_key=r.get("entity_key"),
                         related_entity_key=r.get("related_entity_key"),
                     )

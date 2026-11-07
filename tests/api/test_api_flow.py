@@ -178,3 +178,36 @@ def test_revision_validation_errors(api):
 def test_empty_prompt_is_rejected_by_schema(api):
     client, _ = api
     assert client.post("/api/projects", json={"title": "카페", "prompt": ""}).status_code == 422
+
+
+def test_vocabulary_endpoint_lists_predicates(api):
+    client, _ = api
+    body = client.get("/api/vocabulary/predicates").json()
+    by_name = {p["name"]: p for p in body["predicates"]}
+    assert by_name["color"]["value_kind"] == "COLOR" and by_name["color"]["relational"] is False
+    assert by_name["holds"]["relational"] is True and "들다" in by_name["holds"]["aliases"]
+
+
+def test_revision_can_change_a_relation_with_current_value(api):
+    client, dispatcher = api
+    version_id = _create(client, dispatcher)["version_id"]
+    response = client.post(
+        f"/api/versions/{version_id}/revisions",
+        json={
+            "entity_key": "barista",
+            "predicate": "holds",
+            "new_value": "cafe",
+            "current_value": "cup",
+            "scope": "SCENES",
+            "scene_keys": ["intro"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    revised = client.get(f"/api/versions/{response.json()['version_id']}").json()
+    intro = next(s for s in revised["ir"]["scenes"] if s["scene_key"] == "intro")
+    holds = next(r for r in intro["requirements"] if r["predicate"] == "holds")
+    assert (holds["related_entity_key"], holds["requirement_key"], holds["value_kind"]) == (
+        "cafe",
+        "intro:barista:holds:cafe",
+        "ENTITY",
+    )

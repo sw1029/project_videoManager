@@ -6,8 +6,29 @@ from dataclasses import asdict
 
 from frame.application.dto import ChecksView, EntityTracksView, ProjectDetail, VersionDetail
 from frame.domain.identifiers import entity_id
+from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
+
+
+def _value_kind(predicate: str) -> str | None:
+    kind = DEFAULT_VOCABULARY.value_kind(predicate)
+    return None if kind is None else str(kind)
+
+
+def vocabulary_out(vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY) -> s.VocabularyOut:
+    return s.VocabularyOut(
+        predicates=[
+            s.PredicateOut(
+                name=p.name,
+                value_kind=str(p.value_kind),
+                relational=p.relational,
+                aliases=list(p.aliases),
+                description=p.description,
+            )
+            for p in vocabulary.specs()
+        ]
+    )
 
 
 def project_out(detail: ProjectDetail) -> s.ProjectOut:
@@ -55,6 +76,8 @@ def version_out(detail: VersionDetail) -> s.VersionOut:
                             related_entity_key=r.related_entity_key,
                             predicate=r.predicate,
                             expected_value=r.expected_value,
+                            value_kind=_value_kind(r.predicate),
+                            relational=r.is_relational,
                         )
                         for r in sc.requirements
                     ],
