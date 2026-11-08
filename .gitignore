@@ -13,3 +13,5 @@ artifacts/
 key.txt
 *.key
 *.egg-info/
+
+.DS_Store
