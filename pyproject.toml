@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frame"
+version = "0.1.0"
+description = "FRAME - 구조화된 중간 표현 기반 숏폼 비디오 선택적 편집 및 일관성 제어 프레임워크 (backend & pipeline)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.13",
+  "uvicorn==0.34.2",
+  "sqlalchemy>=2.0,<3",
+  "pymysql>=1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov", "httpx>=0.27", "ruff", "mypy", "jsonschema>=4"]
+llm = ["openai>=1.50"]
+# 실제 모델 어댑터를 붙일 때만 설치 (문서의 개발 환경 버전 고정)
+ml = ["torch==2.5.1", "torchvision==0.20.1", "opencv-python==4.10.0.84", "numpy==1.26.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "ac(id): 연결된 Acceptance Criteria ID (예: AC-01)",
+  "slow: 실제 모델·외부 API를 호출하는 느린 테스트 (기본 제외)",
+  "gpu: GPU가 필요한 테스트 (기본 제외)",
+]
+
+[tool.coverage.run]
+source = ["frame"]
+branch = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 120  # 코드는 100 칸으로 포맷하되, 한글 docstring/주석은 120 칸까지 허용
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+strict = false
