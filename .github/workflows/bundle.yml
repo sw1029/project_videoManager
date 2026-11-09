@@ -1,0 +1,81 @@
+name: bundle
+
+# OS별 시연 번들(휴대용 Python + FRAME + 빌드된 화면)을 대상마다 맞는 러너에서 만들고,
+# 임시 폴더에 풀어 저장소·다른 Python·Node 없이 도는지 확인한다 (docs/DEMO.md 0절).
+# v* 태그를 올리면 GitHub Release 에 번들을 첨부한다. 수동 실행(workflow_dispatch)은 Actions 산출물로 받는다.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "src/frame/tools/bundle.py"
+      - "src/frame/tools/demo.py"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/bundle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          # 오래된 glibc 에서도 돌도록 22.04 에서 만든다 (pip 가 그 glibc 에 맞는 휠을 고른다)
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: 번들 만들기
+        run: python scripts/frame_bundle.py build --target ${{ matrix.target }}
+      - name: 풀어서 확인 (저장소·다른 Python 없이)
+        run: python scripts/frame_bundle.py verify dist --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frame-demo-${{ matrix.target }}
+          path: dist/frame-demo-*
+          retention-days: 30
+          compression-level: 0 # 이미 압축된 파일
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+          merge-multiple: true
+      - name: GitHub Release 에 첨부
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: >-
+            OS에 맞는 파일을 받아 압축을 풀고 run.cmd(Windows) 또는 sh run.sh(macOS·Linux)를 실행하세요.
+            Python·Node.js 설치가 필요 없습니다. 각 파일의 .sha256 으로 받은 파일을 확인할 수 있습니다.
+            안내: docs/DEMO.md
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" bundles/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" bundles/* --repo "$GITHUB_REPOSITORY" \
+              --title "FRAME 시연 번들 $GITHUB_REF_NAME" --notes "$NOTES"
+          fi

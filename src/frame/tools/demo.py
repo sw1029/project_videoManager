@@ -41,6 +41,7 @@ LAN_RATE_LIMIT_PER_MINUTE = "30"
 LOOPBACK = "127.0.0.1"
 DEMO_DIR = ".demo"
 KEY_FILE_NAME = "openai.key"
+BUNDLE_MARKER = "frame-bundle.json"  # OS별 번들(Python·화면 동봉)의 루트에 있는 표식 파일
 _KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]{17,400}")
 
 INSTALL_HINTS = {
@@ -140,9 +141,36 @@ def demo_env(
     return env
 
 
+def is_bundle(root: Path) -> bool:
+    return (root / BUNDLE_MARKER).is_file()
+
+
+def bundle_python(root: Path, platform: str = sys.platform) -> Path:
+    if platform_key(platform) == "win32":
+        return root / "python" / "python.exe"
+    return root / "python" / "bin" / "python3"
+
+
+def runtime_python(root: Path) -> Path:
+    """서버를 띄울 파이썬: 번들이면 동봉 런타임, 아니면 저장소의 .venv."""
+    return bundle_python(root) if is_bundle(root) else venv_python(root)
+
+
+def bundle_info(root: Path) -> dict:
+    try:
+        data = json.loads((root / BUNDLE_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def uvicorn_command(python: Path, host: str, port: int) -> list[str]:
+    # -I: 다른 Python 이 남긴 PYTHONHOME·PYTHONPATH 를 무시 (동봉 런타임 보호), -X utf8: 한글 출력
     return [
         str(python),
+        "-I",
+        "-X",
+        "utf8",
         "-m",
         "uvicorn",
         "--factory",
@@ -162,12 +190,20 @@ def can_open_browser(platform: str = sys.platform, env: Mapping[str, str] | None
     return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
 
 
-def runner_hint(platform: str = sys.platform) -> str:
-    return r"scripts\run.cmd" if platform_key(platform) == "win32" else "sh scripts/run.sh"
+def runner_hint(platform: str = sys.platform, *, bundle: bool = False) -> str:
+    return _wrapper_hint("run", platform, bundle)
 
 
-def setup_hint(platform: str = sys.platform) -> str:
-    return r"scripts\setup.cmd" if platform_key(platform) == "win32" else "sh scripts/setup.sh"
+def setup_hint(platform: str = sys.platform, *, bundle: bool = False) -> str:
+    return _wrapper_hint("setup", platform, bundle)
+
+
+def _wrapper_hint(name: str, platform: str, bundle: bool) -> str:
+    """래퍼 위치: 저장소는 scripts/ 아래, 번들은 압축을 푼 폴더 바로 아래."""
+    windows = platform_key(platform) == "win32"
+    if bundle:
+        return f"{name}.cmd" if windows else f"sh {name}.sh"
+    return f"scripts\\{name}.cmd" if windows else f"sh scripts/{name}.sh"
 
 
 def save_key(demo_dir: Path, key: str) -> Path:
@@ -303,7 +339,8 @@ def _json(method: str, url: str, body: object | None = None) -> tuple[int, dict]
 
 
 def _start_server(root: Path, env: Mapping[str, str], host: str, port: int) -> subprocess.Popen:
-    process = subprocess.Popen(uvicorn_command(venv_python(root), host, port), cwd=root, env=dict(env))
+    command = uvicorn_command(runtime_python(root), host, port)
+    process = subprocess.Popen(command, cwd=root, env=dict(env))
     _tie_to_launcher(process)
     return process
 
@@ -433,11 +470,27 @@ def _server(root: Path, env: Mapping[str, str], port: int) -> Iterator[str]:
 
 
 def _ready_to_run(root: Path) -> str | None:
-    if not _venv_ready(venv_python(root)):
+    bundle = is_bundle(root)
+    again = "압축을 다시 풀거나 번들 파일을 다시 받으세요"
+    if bundle:
+        if not bundle_python(root).is_file():
+            return f"번들의 python 폴더가 없습니다. {again}"
+    elif not _venv_ready(venv_python(root)):
         return f"설치가 필요합니다. 먼저 {setup_hint()} 를 실행하세요"
     if not (root / "frontend" / "dist" / "index.html").is_file():
-        return f"화면 빌드가 없습니다. 먼저 {setup_hint()} 를 실행하세요"
+        return f"화면 빌드가 없습니다. {again if bundle else f'먼저 {setup_hint()} 를 실행하세요'}"
     return None
+
+
+def _report_key_and_port(root: Path) -> None:
+    if key_file_path(root).is_file():
+        _say("OpenAI 키: .demo/openai.key 있음")
+    elif os.environ.get("OPENAI_API_KEY"):
+        _say("OpenAI 키: OPENAI_API_KEY 환경 변수 있음")
+    else:
+        _say("OpenAI 키: 없음. 실행 후 화면에서 넣거나, run --offline 으로 키 없이 시연할 수 있습니다")
+    port_state = "사용 가능" if _port_free(DEFAULT_PORT, LOOPBACK) else "사용 중 (run --port 로 변경)"
+    _say(f"포트 {DEFAULT_PORT}: {port_state}")
 
 
 # ---- 명령 ---------------------------------------------------------------------------------
@@ -445,6 +498,17 @@ def _ready_to_run(root: Path) -> str | None:
 
 def cmd_doctor(root: Path) -> int:
     _say(f"운영체제: {pyplatform.platform()} ({platform_key()})")
+    if is_bundle(root):
+        info = bundle_info(root)
+        _say(
+            f"번들: {info.get('label', '?')} · FRAME {info.get('frame_version', '?')}"
+            f" ({info.get('git_sha', '?')}) · Python {info.get('python', '?')} 동봉"
+            f" · 빌드 {info.get('built_at', '?')}"
+        )
+        _report_key_and_port(root)
+        problem = _ready_to_run(root)
+        _say(f"판정: {problem}" if problem else f"판정: 실행 준비 완료 → {runner_hint(bundle=True)}")
+        return 0 if problem is None else 1
     version = pyplatform.python_version()
     python_ok = python_supported(sys.version_info)
     _say(f"Python {version}: {'사용 가능' if python_ok else '3.11 이상 필요. 설치: ' + _hint('python')}")
@@ -463,20 +527,21 @@ def cmd_doctor(root: Path) -> int:
         _say(f"Node.js {node}: {'사용 가능' if node_ok else f'{MIN_NODE} 이상 필요. 설치: ' + _hint('node')}")
     dist = root / "frontend" / "dist" / "index.html"
     _say(f"화면 빌드(frontend/dist): {'있음' if dist.is_file() else '없음 (setup 이 처리)'}")
-    if key_file_path(root).is_file():
-        _say("OpenAI 키: .demo/openai.key 있음")
-    elif os.environ.get("OPENAI_API_KEY"):
-        _say("OpenAI 키: OPENAI_API_KEY 환경 변수 있음")
-    else:
-        _say("OpenAI 키: 없음. 실행 후 화면에서 넣거나, run --offline 으로 키 없이 시연할 수 있습니다")
-    port_state = "사용 가능" if _port_free(DEFAULT_PORT, LOOPBACK) else "사용 중 (run --port 로 변경)"
-    _say(f"포트 {DEFAULT_PORT}: {port_state}")
+    _report_key_and_port(root)
     problem = _ready_to_run(root)
     _say(f"판정: {problem}" if problem else f"판정: 실행 준비 완료 → {runner_hint()}")
     return 0 if python_ok and problem is None else 1
 
 
 def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: bool) -> int:
+    if is_bundle(root):  # 번들은 Python·의존성·화면이 이미 들어 있어 키 저장만 한다
+        _say("이 번들에는 Python 과 화면이 들어 있어 설치가 필요 없습니다")
+        status = _store_key(root, key_file=key_file, no_key=no_key)
+        if status:
+            return status
+        runner = runner_hint(bundle=True)
+        _say(f"실행: {runner}   (키 없이 오프라인 시연: {runner} --offline)")
+        return 0
     venv = venv_python(root)
     if foreign_venv(root):
         return _fail(
@@ -703,6 +768,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="frame_demo", description="FRAME 시연 준비·실행 (Windows / macOS / Linux)"
     )
+    parser.add_argument("--root", type=Path, help="저장소 또는 압축을 푼 번들 폴더 (기본: 현재 폴더)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="실행 환경 점검")
     setup = sub.add_parser("setup", help="가상환경·의존성 설치, 화면 빌드, API 키 저장(선택)")
@@ -720,9 +786,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None, *, root: Path) -> int:
+def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     _utf8_output()
     args = build_parser().parse_args(argv)
+    root = Path(args.root or root or Path.cwd()).resolve()
     if args.command == "doctor":
         return cmd_doctor(root)
     if not python_supported(sys.version_info):
@@ -742,3 +809,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path) -> int:
             reset=args.reset,
         )
     return cmd_smoke(root, port=args.port)
+
+
+if __name__ == "__main__":  # 번들: python -I -m frame.tools.demo --root <폴더> run
+    raise SystemExit(main())

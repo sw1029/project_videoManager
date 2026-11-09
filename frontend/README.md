@@ -4,7 +4,7 @@
 
 ## 한 번에 실행 (새 기기 시연)
 
-화면을 빌드해 백엔드가 같은 주소에서 서빙하는 방식입니다. 저장소 루트에서 Windows 는 `scripts\setup.cmd` → `scriptsun.cmd`,
+화면을 빌드해 백엔드가 같은 주소에서 서빙하는 방식입니다. 저장소 루트에서 Windows 는 `scripts\setup.cmd` → `scripts\run.cmd`,
 macOS·Linux 는 `sh scripts/setup.sh` → `sh scripts/run.sh` 를 실행하면 `http://127.0.0.1:8000` 이 열립니다.
 자세한 내용은 [docs/DEMO.md](../docs/DEMO.md) 를 보세요. 아래는 화면을 고치면서 개발할 때의 방법입니다.
 

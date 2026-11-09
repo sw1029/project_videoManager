@@ -1,5 +1,6 @@
 """시연 런처(frame.tools.demo)의 OS 별 분기와 환경 구성. 실제 설치·서버 기동은 CI 의 demo-smoke 가 맡는다."""
 
+import json
 import os
 import stat
 import subprocess
@@ -13,6 +14,67 @@ from frame.config import Settings
 from frame.tools import demo
 
 KEY = "sk-test-" + "a" * 24
+
+
+def _make_bundle(root: Path) -> Path:
+    """압축을 푼 번들 모양: 표식 파일 + 동봉 python + 빌드된 화면."""
+    info = {"label": "windows-x64", "python": "3.12.16", "frame_version": "0.1.0"}
+    (root / demo.BUNDLE_MARKER).write_text(json.dumps(info), encoding="utf-8")
+    python = demo.bundle_python(root)
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.write_text("", encoding="utf-8")
+    (root / "frontend" / "dist").mkdir(parents=True)
+    (root / "frontend" / "dist" / "index.html").write_text("<title>FRAME</title>", encoding="utf-8")
+    return python
+
+
+def test_bundle_python_layout_per_os(tmp_path):
+    assert demo.bundle_python(tmp_path, "win32") == tmp_path / "python" / "python.exe"
+    assert demo.bundle_python(tmp_path, "darwin") == tmp_path / "python" / "bin" / "python3"
+    assert demo.bundle_python(tmp_path, "linux") == tmp_path / "python" / "bin" / "python3"
+
+
+def test_runtime_python_prefers_the_bundled_runtime(tmp_path):
+    assert not demo.is_bundle(tmp_path)
+    assert demo.runtime_python(tmp_path) == demo.venv_python(tmp_path)
+    python = _make_bundle(tmp_path)
+    assert demo.is_bundle(tmp_path)
+    assert demo.runtime_python(tmp_path) == python
+
+
+def test_bundle_is_ready_without_venv_or_node(tmp_path):
+    _make_bundle(tmp_path)
+    assert demo._ready_to_run(tmp_path) is None
+
+
+def test_broken_bundle_asks_to_extract_again(tmp_path):
+    (tmp_path / demo.BUNDLE_MARKER).write_text("{}", encoding="utf-8")
+    assert "압축" in demo._ready_to_run(tmp_path)
+
+
+def test_setup_in_a_bundle_only_stores_the_key(tmp_path, monkeypatch, capsys):
+    _make_bundle(tmp_path)
+    monkeypatch.setattr(demo, "_run", lambda *a, **k: pytest.fail("번들에서는 설치 명령을 실행하지 않는다"))
+    source = tmp_path / "key.txt"
+    source.write_text(KEY, encoding="utf-8")
+    assert demo.cmd_setup(tmp_path, key_file=str(source), no_key=False, skip_frontend=False) == 0
+    assert demo.key_file_path(tmp_path).read_text(encoding="utf-8") == KEY + "\n"
+    out = capsys.readouterr().out
+    assert "설치가 필요 없습니다" in out and ("run.cmd" in out or "run.sh" in out)
+
+
+def test_hints_point_at_bundle_wrappers():
+    assert demo.runner_hint("win32", bundle=True) == "run.cmd"
+    assert demo.runner_hint("linux", bundle=True) == "sh run.sh"
+    assert demo.setup_hint("darwin", bundle=True) == "sh setup.sh"
+    assert demo.setup_hint("win32", bundle=True) == "setup.cmd"
+
+
+def test_root_option_runs_doctor_for_a_bundle(tmp_path, capsys):
+    _make_bundle(tmp_path)
+    assert demo.main(["--root", str(tmp_path), "doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "번들" in out and "windows-x64" in out and "3.12.16" in out
 
 
 @pytest.mark.parametrize(
@@ -130,9 +192,10 @@ def test_demo_env_is_understood_by_frame_settings(tmp_path):
     assert settings.frontend_dist == str(tmp_path / "frontend" / "dist")
 
 
-def test_uvicorn_command_uses_the_app_factory(tmp_path):
+def test_uvicorn_command_uses_the_app_factory_in_an_isolated_runtime(tmp_path):
     command = demo.uvicorn_command(tmp_path / "python", "127.0.0.1", 8000)
-    assert command[1:4] == ["-m", "uvicorn", "--factory"]
+    # -I: 다른 Python 의 PYTHONHOME·PYTHONPATH 가 동봉 런타임을 깨지 않게, -X utf8: 한글 출력
+    assert command[1:7] == ["-I", "-X", "utf8", "-m", "uvicorn", "--factory"]
     assert "frame.presentation.main:create_default_app" in command
     assert command[-4:] == ["--host", "127.0.0.1", "--port", "8000"]
 

@@ -11,9 +11,14 @@
 
 화면과 API 를 서버 하나로 띄우고 입력 프리셋까지 채워 주는 런처가 있다. 자세한 내용은 [docs/DEMO.md](docs/DEMO.md).
 
+**설치 없이**: OS별 번들(`frame-demo-<대상>.zip|tar.gz`, 휴대용 Python·화면 동봉, 약 30MB)을 Releases 에서 받아
+압축을 풀고 `run.cmd`(Windows) 또는 `sh run.sh`(macOS·Linux)를 실행한다. 번들은 `v*` 태그를 올리면 CI 가 만든다.
+
+**저장소에서** (Python 3.11+, Node.js 18+ 필요):
+
 | OS | 설치 (한 번) | 실행 |
 |---|---|---|
-| Windows | `scripts\setup.cmd` | `scriptsun.cmd` |
+| Windows | `scripts\setup.cmd` | `scripts\run.cmd` |
 | macOS · Linux | `sh scripts/setup.sh` | `sh scripts/run.sh` |
 
 `run --offline` 은 키·인터넷 없이 DSL 프리셋으로, `run --lan` 은 같은 네트워크의 iPhone·iPad 에서 보기용으로 띄운다.

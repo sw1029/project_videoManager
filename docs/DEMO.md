@@ -11,7 +11,44 @@
 > iPhone·iPad(iOS·iPadOS)에서는 서버를 실행할 수 없다 (Python 런타임과 컴파일된 의존성을 설치할 수 없음).
 > 같은 네트워크의 컴퓨터에서 `run --lan` 으로 띄우고 Safari 로 접속해 **보기·조작용**으로 쓴다 ([7절](#7-다른-기기iphoneipad다른-pc에서-보기)).
 
-## 1. 준비물
+실행 방법은 두 가지다. 시연만 할 기기는 **0절 번들**(Python·Node 설치 불필요)을, 코드를 고치는 기기는 1~4절 저장소 방식을 쓴다.
+
+## 0. 설치 없이 실행 — OS별 번들 (권장)
+
+번들은 휴대용 Python 3.12 · FRAME · 의존성 · 빌드된 화면을 한 파일로 묶은 것이다. 받아서 압축만 풀면 실행된다
+(Python·Node.js·Git 설치, 관리자 권한, 인터넷 모두 불필요. LLM 분석만 인터넷과 키가 필요).
+
+| 기기 | 파일 | 실행 |
+|---|---|---|
+| Windows 10/11 (x64) | `frame-demo-windows-x64.zip` | `run.cmd` 더블클릭 |
+| macOS Apple Silicon (M1 이후) | `frame-demo-macos-arm64.tar.gz` | 터미널에서 `sh run.sh` |
+| macOS Intel | `frame-demo-macos-x64.tar.gz` | 터미널에서 `sh run.sh` |
+| Linux x86_64 (Ubuntu 22.04 이상 등 glibc 배포판) | `frame-demo-linux-x64.tar.gz` | `sh run.sh` |
+| Linux ARM64 | `frame-demo-linux-arm64.tar.gz` | `sh run.sh` |
+
+**받는 곳**: 저장소 Releases (`v*` 태그를 올리면 CI 가 첨부) 또는 Actions 의 `bundle` 실행 결과(Artifacts, 30일 보관).
+파일마다 있는 `.sha256` 으로 받은 파일이 맞는지 확인할 수 있다. 크기는 압축 기준 약 30MB 안팎이다 (Windows 28MB).
+
+1. **압축 풀기** — 바탕화면처럼 쓰기 가능한 폴더에 푼다. DB·결과는 풀린 폴더의 `.demo/` 에 저장된다.
+   - Windows: 받은 zip 의 속성에서 **차단 해제** 를 체크한 뒤 "압축 풀기" 하면 첫 실행 경고가 나오지 않는다.
+     "파일 이름이 너무 깁니다" 오류가 나면 `C:\frame` 처럼 짧은 경로에 푼다 (Windows 경로 길이 260자 제한).
+   - macOS · Linux: Finder 에서 더블클릭하거나 `tar -xzf frame-demo-<대상>.tar.gz`
+2. **실행** — Windows 는 `run.cmd`, macOS · Linux 는 풀린 폴더에서 `sh run.sh`. 브라우저가 `http://127.0.0.1:8000` 으로 열린다.
+   옵션은 저장소 방식과 같다 (`--offline`, `--lan`, `--port`, `--reset`, `--no-browser`, [4절](#4-실행)).
+3. **키** — 화면의 키 칸에 넣거나, 저장해 두려면 `setup.cmd` / `sh setup.sh` 를 실행한다 ([5절](#5-openai-api-키-넣는-방법)).
+
+처음 실행할 때 나오는 경고:
+
+- **Windows**: "게시자를 확인할 수 없습니다" 가 나오면 [실행]. 번들은 코드 서명을 하지 않았다.
+- **macOS**: 브라우저로 받은 파일에는 격리 속성(`com.apple.quarantine`)이 붙고, 동봉 Python 은 Apple 공증을 받지 않아 그대로는 막힌다.
+  `run.sh` 가 이 폴더의 격리 속성을 지울지 묻고(`[y/N]`), `y` 일 때만 지운다. 직접 하려면 `xattr -dr com.apple.quarantine <풀린 폴더>`.
+  터미널에서 `curl -LO <파일 주소>` 로 받으면 격리 속성이 붙지 않는다.
+- **Linux**: 경고 없음. Alpine 같은 musl 배포판은 지원하지 않는다.
+
+번들 폴더에서 환경을 점검하려면 Windows `python\python.exe -I -m frame.tools.demo --root . doctor`,
+macOS · Linux `python/bin/python3 -I -m frame.tools.demo --root . doctor`.
+
+## 1. 준비물 (저장소 방식)
 
 - **Python 3.11 이상**
 - **Node.js 18 이상** — 화면을 빌드하는 `setup` 에만 필요하고, 실행(`run`)에는 필요 없다
@@ -146,6 +183,39 @@ sh scripts/run.sh --lan          # Windows: scripts\run.cmd --lan
 | `frontend/dist/` | 빌드된 화면 (`setup` 이 생성) | 제외 |
 | `.demo/frame.db`, `.demo/artifacts/` | 시연 DB 와 산출물 | 제외 |
 | `.demo/openai.key` | 설치 때 저장한 키 | 제외 |
+| `build/frame-bundle/`, `dist/` | 번들 작업 폴더와 결과물 (10절) | 제외 |
 
 직접 실행하고 싶다면 런처가 쓰는 설정은 `src/frame/tools/demo.py` 의 `demo_env()` 에 모여 있다
 (`FRAME_STRUCTURER`, `FRAME_LLM_RUNTIME_KEY=true`, `FRAME_JOBS=inline`, SQLite, `FRAME_FRONTEND_DIST=frontend/dist`).
+
+## 10. 번들 만들기 (관리자용)
+
+- **배포**: `v` 로 시작하는 태그를 올리면 CI(`.github/workflows/bundle.yml`)가 5개 대상을 각 OS 러너에서 만들고,
+  풀어서 점검한 뒤 GitHub Release 에 첨부한다.
+
+  ```bash
+  git tag v0.1.0-demo
+  ```
+
+  ```bash
+  git push origin v0.1.0-demo
+  ```
+
+- **시험 빌드**: Actions 의 `bundle` 워크플로를 수동 실행(Run workflow)하면 Artifacts 로 받을 수 있다.
+  번들 관련 파일을 바꾼 PR 에서도 자동으로 돈다.
+- **직접 만들기**: 번들은 그 OS·CPU 에서만 만들 수 있다 (동봉 Python 으로 그 플랫폼용 휠을 설치). Python 3.11.4 이상과 Node.js 18 이상이 필요하다.
+
+  ```bash
+  python scripts/frame_bundle.py build
+  ```
+
+  ```bash
+  python scripts/frame_bundle.py verify dist
+  ```
+
+  `build` 는 휴대용 Python(astral-sh/python-build-standalone, `src/frame/tools/bundle.py` 에 버전·SHA-256 고정)을 받아 확인하고,
+  화면을 빌드하고, FRAME 과 의존성을 설치한 뒤 `dist/frame-demo-<대상>.zip|tar.gz` 와 `.sha256` 을 만든다.
+  `verify` 는 임시 폴더에 풀어 시스템 PATH 만 둔 채(다른 Python·Node 없이) 래퍼와 자동 점검을 돌린다.
+- **휴대용 Python 버전을 올릴 때**: `bundle.py` 의 `PBS_RELEASE`·`PYTHON_VERSION` 과 대상별 SHA-256 을 그 릴리스의 `SHA256SUMS` 값으로 함께 바꾼다.
+- **알려진 제약**: 코드 서명·Apple 공증이 없어 첫 실행 경고가 나온다 (0절). Windows 는 번들 안 가장 긴 경로를 160자 이하로 유지하도록
+  빌드가 검사한다 (현재 142자). Windows ARM64 와 musl(Alpine) 번들은 아직 없다.
