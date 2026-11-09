@@ -16,7 +16,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from frame.application.errors import AdapterError
+from frame.application.errors import AdapterError, ConfigurationError
 from frame.application.ports.structurer import StructuringRequest
 from frame.config import Settings, build_container
 
@@ -36,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
         container = build_container(settings)
     except AdapterError as exc:
         print(f"설정 오류 {exc.code}: {exc}", file=sys.stderr)
+        return 2
+    except ConfigurationError as exc:
+        print(f"설정 오류: {exc}", file=sys.stderr)
         return 2
     structurer = container.structurer
     print(

@@ -14,6 +14,12 @@ class NotFound(DomainError):
     code = "NOT_FOUND"
 
 
+class MediaNotAvailable(NotFound):
+    """버전은 있지만 결과 영상·클립이 아직 없을 때 (생성 전·실패). API 404."""
+
+    code = "MEDIA_NOT_AVAILABLE"
+
+
 class ValidationError(DomainError):
     code = "VALIDATION_ERROR"
 

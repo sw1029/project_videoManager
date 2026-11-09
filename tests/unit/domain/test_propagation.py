@@ -162,3 +162,44 @@ def test_change_values_are_normalized(ir):
     # current_value 도 정규화되어 'Red' 가 저장된 'red' 와 맞는다
     matched = policy.apply(ir, AttributeChange("cup", "color", "teal", current_value="Red"))
     assert matched.changed_scene_keys == ("intro", "closeup")
+
+
+# ---- 장면 수준 조건 (entity_key=None): 장소·조명·분위기 수정 --------------------------------
+
+
+def _with_scene_level(ir):
+    return replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s, requirements=s.requirements + (RequirementSpec(s.scene_key, "location", "cafe"),)
+            )
+            for s in ir.scenes
+        ),
+    )
+
+
+def test_scene_level_change_applies_to_every_scene(ir):
+    result = policy.apply(_with_scene_level(ir), AttributeChange(None, "장소", "Park"))
+    assert result.changed_scene_keys == ("intro", "closeup", "outro")
+    for scene in result.ir.scenes:
+        loc = [r for r in scene.requirements if r.entity_key is None and r.predicate == "location"]
+        assert [r.expected_value for r in loc] == ["park"]
+    result.ir.validate()
+
+
+def test_scene_level_change_adds_condition_and_respects_scene_scope(ir):
+    result = policy.apply(ir, AttributeChange(None, "mood", "calm", ChangeScope.SCENES, ("outro",)))
+    assert result.changed_scene_keys == ("outro",)
+    assert any(r.key == "outro:-:mood" for r in result.ir.scene("outro").requirements)
+    assert all(r.predicate != "mood" for r in result.ir.scene("intro").requirements)
+
+
+def test_scene_level_change_rejects_relation_predicates(ir):
+    with pytest.raises(ValidationError, match="관계"):
+        policy.apply(ir, AttributeChange(None, "holds", "cup"))
+
+
+def test_scene_level_change_rejects_unknown_scene(ir):
+    with pytest.raises(NotFound):
+        policy.apply(ir, AttributeChange(None, "mood", "calm", ChangeScope.SCENES, ("ghost",)))

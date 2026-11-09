@@ -17,3 +17,20 @@ jobs:
       - run: pip install -e ".[dev,llm]"
       - run: ruff check src tests
       - run: pytest -m "not slow and not gpu" --cov=frame --cov-report=term-missing
+
+  frontend:
+    # frontend/ 가 있는 브랜치에서만 빌드한다 (dev 에는 아직 없어 단계가 건너뛰어진다)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: echo "present=$([ -f frontend/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - if: steps.detect.outputs.present == 'true'
+        working-directory: frontend
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+          npm run build

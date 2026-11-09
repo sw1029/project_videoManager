@@ -12,6 +12,7 @@ from frame.config.container import Container
 
 from .. import mappers
 from ..dependencies import get_container
+from ..rate_limit import enforce_rate_limit
 from ..schemas import CreateProjectIn, CreateProjectOut, ErrorOut, ProjectOut
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -22,7 +23,8 @@ ContainerDep = Annotated[Container, Depends(get_container)]
     "",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=CreateProjectOut,
-    responses={422: {"model": ErrorOut}},
+    responses={422: {"model": ErrorOut}, 429: {"model": ErrorOut}},
+    dependencies=[Depends(enforce_rate_limit)],
     summary="요구사항·참조 이미지를 접수하고 초기 버전의 구조화를 시작한다",
 )
 def create_project(body: CreateProjectIn, container: ContainerDep) -> CreateProjectOut:
