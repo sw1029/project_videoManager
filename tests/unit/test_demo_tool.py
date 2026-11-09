@@ -1,0 +1,222 @@
+"""시연 런처(frame.tools.demo)의 OS 별 분기와 환경 구성. 실제 설치·서버 기동은 CI 의 demo-smoke 가 맡는다."""
+
+import os
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path, PurePosixPath, PureWindowsPath
+
+import pytest
+
+from frame.config import Settings
+from frame.tools import demo
+
+KEY = "sk-test-" + "a" * 24
+
+
+@pytest.mark.parametrize(
+    ("platform", "expected"),
+    [("win32", "win32"), ("darwin", "darwin"), ("linux", "linux"), ("freebsd14", "linux")],
+)
+def test_platform_key(platform, expected):
+    assert demo.platform_key(platform) == expected
+
+
+def test_venv_python_layout_per_os(tmp_path):
+    assert demo.venv_python(tmp_path, "win32") == tmp_path / ".venv" / "Scripts" / "python.exe"
+    assert demo.venv_python(tmp_path, "darwin") == tmp_path / ".venv" / "bin" / "python"
+    assert demo.venv_python(tmp_path, "linux") == tmp_path / ".venv" / "bin" / "python"
+
+
+def test_foreign_venv_is_detected_so_setup_never_wipes_it(tmp_path):
+    assert not demo.foreign_venv(tmp_path, "linux") and not demo.foreign_venv(tmp_path, "win32")
+    (tmp_path / ".venv" / "Scripts").mkdir(parents=True)  # Windows 에서 만든 .venv
+    assert demo.foreign_venv(tmp_path, "linux") and demo.foreign_venv(tmp_path, "darwin")
+    assert not demo.foreign_venv(tmp_path, "win32")
+    (tmp_path / ".venv" / "bin").mkdir()
+    assert not demo.foreign_venv(tmp_path, "linux")
+
+
+def test_setup_stops_on_a_foreign_venv_without_touching_it(tmp_path, monkeypatch, capsys):
+    other = "linux" if demo.platform_key() == "win32" else "win32"
+    (demo.venv_python(tmp_path, other).parent).mkdir(parents=True)
+    marker = demo.venv_python(tmp_path, other).parent / "keep.txt"
+    marker.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(demo, "_run", lambda *a, **k: pytest.fail("명령을 실행하면 안 된다"))
+    assert demo.cmd_setup(tmp_path, key_file=None, no_key=True, skip_frontend=True) == 1
+    assert "다른 운영체제" in capsys.readouterr().err
+    assert marker.is_file()
+
+
+def test_sqlite_url_for_windows_and_posix_paths():
+    windows = PureWindowsPath(r"C:\Users\me\FRAME\.demo\frame.db")
+    posix = PurePosixPath("/home/me/FRAME/.demo/frame.db")
+    assert demo.sqlite_url(windows) == "sqlite+pysqlite:///C:/Users/me/FRAME/.demo/frame.db"
+    assert demo.sqlite_url(posix) == "sqlite+pysqlite:////home/me/FRAME/.demo/frame.db"
+
+
+def test_sqlite_url_opens_a_file_database_on_this_os(tmp_path):
+    from sqlalchemy import create_engine, text
+
+    folder = tmp_path / "시연 폴더"  # 한글·공백이 든 사용자 경로 (예: C:\Users\홍길동\...)
+    folder.mkdir()
+    engine = create_engine(demo.sqlite_url(folder / "frame.db"))
+    with engine.connect() as connection:
+        assert connection.execute(text("select 1")).scalar() == 1
+    engine.dispose()
+    assert (folder / "frame.db").is_file()
+
+
+def test_version_checks():
+    assert demo.python_supported((3, 11, 0)) and demo.python_supported((3, 13, 2))
+    assert not demo.python_supported((3, 10, 12))
+    assert demo.parse_node_major("v20.11.1\n") == 20
+    assert demo.parse_node_major("18.19.0") == 18
+    assert demo.parse_node_major("") is None
+
+
+def test_extract_key_from_bare_or_assignment_lines():
+    assert demo.extract_key(KEY + "\n") == KEY
+    assert demo.extract_key(f"OPENAI_API_KEY={KEY}\r\n") == KEY
+    assert demo.extract_key("sk-short") is None
+    assert demo.extract_key("") is None
+
+
+def test_npm_install_prefers_ci_with_lockfile(tmp_path):
+    assert demo.npm_install_command(tmp_path)[:2] == ["npm", "install"]
+    (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")
+    assert demo.npm_install_command(tmp_path)[:2] == ["npm", "ci"]
+
+
+def test_llm_demo_env_enables_local_key_entry_and_keeps_state_in_repo(tmp_path):
+    key_file = tmp_path / ".demo" / "openai.key"
+    env = demo.demo_env(
+        tmp_path, offline=False, base_env={"PATH": "x", "FRAME_LLM_MODEL": "gpt-x"}, key_file=key_file
+    )
+    assert env["FRAME_STRUCTURER"] == "llm"
+    assert env["FRAME_LLM_RUNTIME_KEY"] == "true"
+    assert "FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE" not in env  # 다른 기기의 키 입력은 절대 켜지 않는다
+    assert env["FRAME_LLM_KEY_FILE"] == str(key_file)
+    assert env["FRAME_JOBS"] == "inline"
+    assert env["FRAME_DB_URL"] == demo.sqlite_url(tmp_path / ".demo" / "frame.db")
+    assert env["FRAME_ARTIFACT_DIR"] == str(tmp_path / ".demo" / "artifacts")
+    assert env["FRAME_FRONTEND_DIST"] == str(tmp_path / "frontend" / "dist")
+    assert env["PATH"] == "x" and env["FRAME_LLM_MODEL"] == "gpt-x"  # 사용자 설정은 그대로 둔다
+
+
+def test_offline_demo_env_needs_no_key(tmp_path):
+    env = demo.demo_env(tmp_path, offline=True, base_env={}, key_file=tmp_path / "k")
+    assert env["FRAME_STRUCTURER"] == "rule_based"
+    assert "FRAME_LLM_RUNTIME_KEY" not in env and "FRAME_LLM_KEY_FILE" not in env
+
+
+def test_lan_mode_adds_rate_limit_unless_user_set_one(tmp_path):
+    def env(lan, base):
+        return demo.demo_env(tmp_path, offline=True, lan=lan, base_env=base, key_file=None)
+
+    assert env(True, {})["FRAME_RATE_LIMIT_PER_MINUTE"] == demo.LAN_RATE_LIMIT_PER_MINUTE
+    assert env(True, {"FRAME_RATE_LIMIT_PER_MINUTE": "5"})["FRAME_RATE_LIMIT_PER_MINUTE"] == "5"
+    assert "FRAME_RATE_LIMIT_PER_MINUTE" not in env(False, {})
+
+
+def test_demo_env_is_understood_by_frame_settings(tmp_path):
+    env = demo.demo_env(tmp_path, offline=False, lan=True, base_env={}, key_file=None)
+    settings = Settings.from_env(env)
+    assert settings.structurer == "llm" and settings.llm_provider == "openai"
+    assert settings.llm_runtime_key and not settings.llm_runtime_key_allow_remote
+    assert settings.persistence == "sqlalchemy" and settings.artifact_store == "local_fs"
+    assert settings.jobs == "inline" and settings.rate_limit_per_minute == 30
+    assert settings.frontend_dist == str(tmp_path / "frontend" / "dist")
+
+
+def test_uvicorn_command_uses_the_app_factory(tmp_path):
+    command = demo.uvicorn_command(tmp_path / "python", "127.0.0.1", 8000)
+    assert command[1:4] == ["-m", "uvicorn", "--factory"]
+    assert "frame.presentation.main:create_default_app" in command
+    assert command[-4:] == ["--host", "127.0.0.1", "--port", "8000"]
+
+
+def test_browser_opens_on_linux_only_with_a_display():
+    assert demo.can_open_browser("win32", {}) and demo.can_open_browser("darwin", {})
+    assert not demo.can_open_browser("linux", {})
+    assert demo.can_open_browser("linux", {"DISPLAY": ":0"})
+    assert demo.can_open_browser("linux", {"WAYLAND_DISPLAY": "wayland-0"})
+
+
+def test_wrapper_hints_per_os():
+    assert demo.runner_hint("win32") == r"scripts\run.cmd"
+    assert demo.setup_hint("win32") == r"scripts\setup.cmd"
+    assert demo.runner_hint("darwin") == demo.runner_hint("linux") == "sh scripts/run.sh"
+    assert demo.setup_hint("linux") == "sh scripts/setup.sh"
+
+
+def test_save_key_writes_trimmed_key_owner_only(tmp_path):
+    path = demo.save_key(tmp_path / ".demo", f"  {KEY}\n")
+    assert path == tmp_path / ".demo" / "openai.key"
+    assert path.read_text(encoding="utf-8") == KEY + "\n"
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_reset_state_removes_demo_data_but_keeps_the_key(tmp_path):
+    demo_dir = tmp_path / ".demo"
+    (demo_dir / "artifacts" / "v1").mkdir(parents=True)
+    (demo_dir / "artifacts" / "v1" / "video.json").write_text("{}", encoding="utf-8")
+    (demo_dir / "frame.db").write_text("", encoding="utf-8")
+    key = demo.save_key(demo_dir, KEY)
+    demo.reset_state(demo_dir)
+    assert not (demo_dir / "frame.db").exists() and not (demo_dir / "artifacts").exists()
+    assert key.is_file()
+
+
+def test_setup_copies_a_key_file_without_printing_it(tmp_path, capsys):
+    source = tmp_path / "key.txt"
+    source.write_text(f"OPENAI_API_KEY={KEY}\n", encoding="utf-8")
+    assert demo._store_key(tmp_path, key_file=str(source), no_key=False) == 0
+    assert demo.key_file_path(tmp_path).read_text(encoding="utf-8") == KEY + "\n"
+    out = capsys.readouterr()
+    assert KEY not in out.out + out.err
+
+
+def test_setup_rejects_a_key_file_without_a_key(tmp_path, capsys):
+    source = tmp_path / "key.txt"
+    source.write_text("nothing here", encoding="utf-8")
+    assert demo._store_key(tmp_path, key_file=str(source), no_key=False) == 1
+    assert not demo.key_file_path(tmp_path).exists()
+
+
+@pytest.mark.parametrize("command", [["run", "--no-browser"], ["smoke"]])
+def test_run_and_smoke_ask_for_setup_first(tmp_path, capsys, command):
+    assert demo.main(command, root=tmp_path) == 1
+    assert "setup" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 작업 개체")
+def test_server_dies_with_the_launcher_on_windows():
+    """런처가 강제 종료되면(작업 개체 핸들이 닫히면) 묶어 둔 서버 프로세스도 끝나야 포트가 남지 않는다."""
+    import ctypes
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        job = demo.kill_on_close_job(child.pid)
+        assert child.poll() is None
+        ctypes.WinDLL("kernel32").CloseHandle(ctypes.c_void_p(job))  # 런처 종료와 같은 효과
+        deadline = time.monotonic() + 10
+        while child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert child.poll() is not None
+    finally:
+        if child.poll() is None:
+            child.kill()
+
+
+def test_a_command_is_required(tmp_path):
+    with pytest.raises(SystemExit):
+        demo.main([], root=tmp_path)
+
+
+def test_entry_script_points_at_the_repository_root():
+    script = Path(__file__).resolve().parents[2] / "scripts" / "frame_demo.py"
+    assert script.is_file()
+    assert "parents[1]" in script.read_text(encoding="utf-8")

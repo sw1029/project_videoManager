@@ -26,7 +26,7 @@ from frame.application.ports import (
     VideoAssembler,
     VideoGenerator,
 )
-from frame.application.ports.llm import LLMClient
+from frame.application.ports.llm import LLMClient, LLMKeySource
 
 from .settings import Settings
 
@@ -40,6 +40,7 @@ class BuildContext:
     clock: Clock
     artifact_store: ArtifactStore | None = None
     handlers: JobHandlerRegistry | None = None
+    llm_keys: LLMKeySource | None = None  # 화면 입력 키를 OpenAI 클라이언트와 설정 API 가 공유
 
 
 Factory = Callable[[BuildContext], Any]
@@ -103,17 +104,20 @@ def default_registry() -> AdapterRegistry:
     reg.register(LLMClient, "fake", lambda ctx: ReplayLLMClient())
 
     def _openai(ctx: BuildContext) -> LLMClient:
+        from frame.adapters.llm.key_store import LLMKeyStore
         from frame.adapters.llm.openai_client import OpenAIJsonClient  # openai 패키지는 llm extra
 
         s = ctx.settings
         try:
             return OpenAIJsonClient(
                 model=s.llm_model,
-                key_file=s.llm_key_file,
                 base_url=s.llm_base_url,
                 timeout_s=s.llm_timeout_s,
                 temperature=s.llm_temperature,
                 strict=s.llm_strict_schema,
+                key_source=ctx.llm_keys or LLMKeyStore(key_file=s.llm_key_file),
+                # 화면 키 입력을 켜면 키 없이 기동하고, 키가 없을 때의 호출만 실패시킨다
+                require_key_at_start=not s.llm_runtime_key,
             )
         except ImportError as exc:
             raise ConfigurationError(

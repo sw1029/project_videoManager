@@ -8,10 +8,24 @@ from urllib.parse import quote
 
 from frame.application.dto import ChecksView, EntityTracksView, ProjectDetail, VersionDetail
 from frame.application.ports.artifact_store import guess_media_type
+from frame.application.ports.llm import LLMKeyStatus
+from frame.config.settings import Settings
 from frame.domain.identifiers import entity_id
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
+
+
+def llm_key_out(
+    status: LLMKeyStatus, settings: Settings, *, entry_allowed: bool
+) -> s.LLMKeyStatusOut:
+    return s.LLMKeyStatusOut(
+        configured=status.configured,
+        source=status.source,  # type: ignore[arg-type]
+        hint=status.hint,
+        runtime_entry=entry_allowed,
+        runtime_entry_enabled=settings.llm_runtime_key,
+    )
 
 
 def _value_kind(predicate: str) -> str | None:

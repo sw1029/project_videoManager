@@ -18,3 +18,6 @@ key.txt
 *.egg-info/
 
 .DS_Store
+
+# 시연 상태 (DB · 산출물 · API 키 파일)
+.demo/

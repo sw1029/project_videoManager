@@ -7,7 +7,19 @@
 - TDD 워크플로: [docs/TDD_WORKFLOW.md](docs/TDD_WORKFLOW.md)
 - 결정 기록: [docs/adr](docs/adr)
 
-## 빠른 시작
+## 새 기기에서 시연 (Windows · macOS · Linux)
+
+화면과 API 를 서버 하나로 띄우고 입력 프리셋까지 채워 주는 런처가 있다. 자세한 내용은 [docs/DEMO.md](docs/DEMO.md).
+
+| OS | 설치 (한 번) | 실행 |
+|---|---|---|
+| Windows | `scripts\setup.cmd` | `scriptsun.cmd` |
+| macOS · Linux | `sh scripts/setup.sh` | `sh scripts/run.sh` |
+
+`run --offline` 은 키·인터넷 없이 DSL 프리셋으로, `run --lan` 은 같은 네트워크의 iPhone·iPad 에서 보기용으로 띄운다.
+OpenAI 키는 설치 때 입력하거나(`.demo/openai.key`, git 제외) 실행 후 화면의 키 칸에 넣는다(서버 메모리에만, 같은 기기에서만).
+
+## 빠른 시작 (개발)
 
 ```bash
 python -m venv .venv
@@ -46,6 +58,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
 | `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 POST 요청 제한 (0 = 꺼짐) |
+| `FRAME_LLM_RUNTIME_KEY` | `true` · `false`(기본) | 화면에서 OpenAI 키 입력 허용 (키 없이 기동, 메모리에만 보관, 같은 기기에서만) |
 
 Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`
 
@@ -82,8 +95,9 @@ docs/{ARCHITECTURE.md,TDD_WORKFLOW.md,adr/}
 ## LLM 구조화 호출 테스트
 
 `FRAME_STRUCTURER=llm` 이면 자연어 브리프를 OpenAI(또는 OpenAI 호환 로컬 서버)로 구조화한다. API 키는 환경 변수
-`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로만 전달하고 저장소에는 넣지 않는다. 키나 `llm` 추가 패키지가 없으면
-서버가 기동 단계에서 실패한다.
+`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로 전달하고 저장소에는 넣지 않는다. 키나 `llm` 추가 패키지가 없으면
+서버가 기동 단계에서 실패한다. 시연용으로 `FRAME_LLM_RUNTIME_KEY=true` 를 켜면 키 없이 기동하고, 같은 기기에서 연 화면의
+키 칸(`PUT /api/settings/llm-key`)으로 넣은 키를 메모리에만 둔다 ([ADR-0010](docs/adr/0010-demo-runtime-key-and-launcher.md)).
 
 ```bash
 pip install -e ".[dev,llm]"

@@ -22,6 +22,7 @@ from frame.domain.errors import (
     IntegrityViolation,
     InvalidStateTransition,
     NotFound,
+    PermissionDenied,
     ValidationError,
 )
 
@@ -29,6 +30,7 @@ log = logging.getLogger(__name__)
 
 STATUS_BY_ERROR: tuple[tuple[type[DomainError], int], ...] = (
     (NotFound, 404),  # MEDIA_NOT_AVAILABLE 포함
+    (PermissionDenied, 403),
     (InvalidStateTransition, 409),  # VERSION_NOT_GENERATABLE / VERSION_NOT_REVISABLE 포함
     (IntegrityViolation, 409),
     (ValidationError, 422),

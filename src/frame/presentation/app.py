@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -19,9 +19,11 @@ from frame.application.errors import ConfigurationError
 from frame.config.container import Container
 from frame.config.settings import Settings
 
+from . import mappers
 from .errors import register_error_handlers
 from .rate_limit import SlidingWindowRateLimiter
 from .routers import projects, versions, vocabulary
+from .routers import settings as settings_router
 from .schemas import HealthAdaptersOut, HealthOut
 
 STRUCTURING_INPUT = {"rule_based": "dsl", "llm": "natural_language"}
@@ -53,11 +55,12 @@ def create_app(container: Container) -> FastAPI:
     app.include_router(projects.router, prefix=prefix)
     app.include_router(versions.router, prefix=prefix)
     app.include_router(vocabulary.router, prefix=prefix)
+    app.include_router(settings_router.router, prefix=prefix)
     register_error_handlers(app)
 
     @app.get("/health", tags=["ops"], response_model=HealthOut)
-    def health() -> HealthOut:
-        return _health(settings)
+    def health(request: Request) -> HealthOut:
+        return _health(container, request)
 
     if settings.frontend_dist:  # 라우트 뒤에 붙여야 /api·/health 를 가리지 않는다
         dist = Path(settings.frontend_dist)
@@ -67,9 +70,16 @@ def create_app(container: Container) -> FastAPI:
     return app
 
 
-def _health(s: Settings) -> HealthOut:
+def _health(container: Container, request: Request) -> HealthOut:
+    s: Settings = container.settings
     uses_llm = s.structurer == "llm"
+    keys = container.llm_keys
+    key_status = None
+    if keys is not None:  # 입력 가능 여부는 요청한 기기 기준 (다른 기기에는 '서버 기기에서 입력' 안내)
+        allowed = settings_router.entry_allowed(request, s)
+        key_status = mappers.llm_key_out(keys.status(), s, entry_allowed=allowed)
     return HealthOut(
+        llm_key=key_status,
         status="ok",
         version=__version__,
         structuring_input=STRUCTURING_INPUT.get(s.structurer, "any"),  # type: ignore[arg-type]

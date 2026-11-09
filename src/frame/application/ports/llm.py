@@ -14,6 +14,38 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class LLMKeyStatus:
+    """키 상태. 키 자체는 담지 않는다 (hint 는 끝 4자리만)."""
+
+    configured: bool
+    source: str | None = None  # runtime(화면 입력) | config | env | file
+    hint: str | None = None
+
+
+class LLMKeySource(ABC):
+    """LLM API 키를 어디서 얻을지 결정한다. 화면 입력 키는 메모리에만 둔다.
+
+    계약: resolve() 는 키 문자열 또는 None. 키를 로그·예외·repr 에 남기지 않는다.
+    """
+
+    @abstractmethod
+    def resolve(self) -> str | None: ...
+
+    @abstractmethod
+    def status(self) -> LLMKeyStatus: ...
+
+    @abstractmethod
+    def set_runtime_key(self, key: str) -> None: ...
+
+    @abstractmethod
+    def clear_runtime_key(self) -> None: ...
+
+    @abstractmethod
+    def describe_missing(self) -> str:
+        """키가 없을 때 사용자에게 보여줄 안내 (키 내용 없음)."""
+
+
+@dataclass(frozen=True)
 class JsonCompletion:
     text: str  # JSON 문자열
     model: str

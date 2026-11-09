@@ -33,4 +33,24 @@ jobs:
         working-directory: frontend
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+          npm test
           npm run build
+
+  demo-smoke:
+    # 새 기기 시연 경로(docs/DEMO.md)를 세 OS 에서 그대로 따라 한다: setup → smoke (키·외부 호출 없음)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: python scripts/frame_demo.py setup --no-key
+      - run: python scripts/frame_demo.py smoke

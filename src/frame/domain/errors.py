@@ -24,6 +24,12 @@ class ValidationError(DomainError):
     code = "VALIDATION_ERROR"
 
 
+class PermissionDenied(DomainError):
+    """허용되지 않은 요청 (예: 다른 기기에서 API 키 입력). API 403."""
+
+    code = "FORBIDDEN"
+
+
 class IntegrityViolation(DomainError):
     code = "INTEGRITY_VIOLATION"
 

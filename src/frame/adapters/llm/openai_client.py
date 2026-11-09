@@ -1,6 +1,9 @@
 """OpenAI Chat Completions 기반 JSON 클라이언트 (구조화 출력 json_schema, strict).
 
-- 키 해석 순서: 명시 인자 → OPENAI_API_KEY 환경 변수 → 키 파일(FRAME_LLM_KEY_FILE). 키는 로그·예외에 남기지 않는다.
+- 키는 LLMKeySource 에서 호출 시점에 얻는다: 화면 입력 키 > 설정 키 > OPENAI_API_KEY > 키 파일.
+  키가 바뀌면 SDK 클라이언트를 새로 만든다. 키는 로그·예외에 남기지 않는다.
+- require_key_at_start=True(기본)면 생성 시점에 키가 없을 때 바로 실패한다 (서버 기동 단계 조기 실패).
+  화면 키 입력(FRAME_LLM_RUNTIME_KEY)을 쓰면 False 로 두어 키 없이 기동하고, 키가 없을 때의 호출만 실패시킨다.
 - base_url 을 주면 OpenAI 호환 서버(vLLM, Ollama 등 로컬 3090 환경)를 같은 코드로 호출한다.
   로컬 서버가 strict json_schema 를 지원하지 않으면 strict=False 로 두고 호출자(LLMStructurer)의 검증·재시도에 맡긴다.
 - 추론 모델(o*, gpt-5*)은 temperature 를 받지 않으므로 보내지 않는다.
@@ -8,16 +11,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-import re
-from collections.abc import Mapping
+import threading
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from frame.application.errors import LLMBadResponse, LLMRateLimited, LLMTimeout, LLMUnavailable
-from frame.application.ports.llm import JsonCompletion, LLMClient
+from frame.application.ports.llm import JsonCompletion, LLMClient, LLMKeySource
 
-_KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]+")
+from .key_store import LLMKeyStore
+from .keys import mask_key, read_key_file
+
+__all__ = ["OpenAIJsonClient", "is_reasoning_model", "mask_key", "resolve_api_key"]
+
 _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
 
 
@@ -37,27 +45,21 @@ def resolve_api_key(
         path = Path(key_file)
         if not path.is_file():
             raise LLMUnavailable(f"키 파일이 없습니다: {path}")
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        match = _KEY_TOKEN.search(text)
-        if match:
-            return match.group(0)
-        for line in text.splitlines():
-            if "=" in line:
-                value = line.split("=", 1)[1].strip().strip("\"'")
-                if value:
-                    return value
+        found = read_key_file(path)
+        if found:
+            return found
         raise LLMUnavailable(f"키 파일에서 API 키를 찾지 못했습니다: {path}")
     raise LLMUnavailable(
         "OpenAI API 키가 없습니다. OPENAI_API_KEY 환경 변수 또는 FRAME_LLM_KEY_FILE 을 설정하세요"
     )
 
 
-def mask_key(key: str) -> str:
-    return f"{key[:3]}...{key[-4:]}" if len(key) > 8 else "***"
-
-
 def is_reasoning_model(model: str) -> bool:
     return model.lower().startswith(_REASONING_PREFIXES)
+
+
+def _fingerprint(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 class OpenAIJsonClient(LLMClient):
@@ -73,21 +75,49 @@ class OpenAIJsonClient(LLMClient):
         strict: bool = True,
         sdk_client: Any | None = None,
         env: Mapping[str, str] | None = None,
+        key_source: LLMKeySource | None = None,
+        sdk_factory: Callable[[str], Any] | None = None,
+        require_key_at_start: bool = True,
     ) -> None:
         self.model = model
         self.base_url = base_url
         self.timeout_s = timeout_s
         self.temperature = temperature
         self.strict = strict
-        if sdk_client is None:
-            import openai  # 지연 import: openai 패키지는 llm extra
+        self._fixed_sdk = sdk_client  # 테스트용 주입: 키 해석을 건너뛴다
+        self._cached: tuple[str, Any] | None = None  # (키 지문, SDK 클라이언트)
+        self._lock = threading.Lock()
+        self.key_source: LLMKeySource | None = None
+        if sdk_client is not None:
+            return
+        import openai  # 지연 import: openai 패키지는 llm extra (없으면 ImportError)
 
-            key = resolve_api_key(api_key, env, key_file)
-            sdk_client = openai.OpenAI(api_key=key, base_url=base_url, timeout=timeout_s)
-            self.key_hint = mask_key(key)  # 진단 출력용 (키 자체는 보관하지 않는다)
-        else:
-            self.key_hint = "(injected)"
-        self._sdk = sdk_client
+        self.key_source = key_source or LLMKeyStore(key_file=key_file, env=env, explicit=api_key)
+        self._sdk_factory = sdk_factory or (
+            lambda key: openai.OpenAI(api_key=key, base_url=base_url, timeout=timeout_s)
+        )
+        if require_key_at_start:
+            self._sdk()
+
+    @property
+    def key_hint(self) -> str:
+        if self._fixed_sdk is not None:
+            return "(injected)"
+        status = self.key_source.status() if self.key_source else None
+        return status.hint if status and status.hint else "(미설정)"
+
+    def _sdk(self) -> Any:
+        if self._fixed_sdk is not None:
+            return self._fixed_sdk
+        assert self.key_source is not None
+        key = self.key_source.resolve()
+        if not key:
+            raise LLMUnavailable(self.key_source.describe_missing())
+        fingerprint = _fingerprint(key)
+        with self._lock:
+            if self._cached is None or self._cached[0] != fingerprint:
+                self._cached = (fingerprint, self._sdk_factory(key))
+            return self._cached[1]
 
     def complete_json(
         self,
@@ -100,6 +130,7 @@ class OpenAIJsonClient(LLMClient):
     ) -> JsonCompletion:
         import openai
 
+        sdk = self._sdk()
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -121,7 +152,7 @@ class OpenAIJsonClient(LLMClient):
             kwargs["timeout"] = timeout_s
 
         try:
-            response = self._sdk.chat.completions.create(**kwargs)
+            response = sdk.chat.completions.create(**kwargs)
         except openai.APITimeoutError as exc:
             raise LLMTimeout(f"OpenAI 응답 시간 초과 ({timeout_s or self.timeout_s}s)") from exc
         except openai.APIConnectionError as exc:
