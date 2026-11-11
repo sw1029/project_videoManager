@@ -6,6 +6,8 @@ Strategy 패턴: 전파 규칙을 바꾸고 싶으면 ChangePropagationPolicy �
 - 속성 술어: 대상 장면의 (객체, 술어) 조건 값을 교체하거나 없으면 추가한다. 값은 어휘 규칙으로 정규화된다.
 - 관계 술어: 상대 객체를 바꾼다. 새 상대 객체는 그 장면에 연결되어 있어야 하며, 값과 상대 객체 키를 함께 바꾼다.
 - 같은 (객체, 술어) 조건이 여러 개(관계)면 current_value 로 바꿀 대상을 지정해야 한다.
+- entity_key=None 은 장면 수준 조건(장소·조명·분위기·카메라)이다. 모든 장면 또는 지정 장면에 적용하며
+  관계 술어는 쓸 수 없다.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from ..vocabulary import DEFAULT_VOCABULARY
 
 @dataclass(frozen=True)
 class AttributeChange:
-    entity_key: str
+    entity_key: str | None  # None = 장면 수준 조건
     predicate: str
     new_value: str  # 속성이면 새 값, 관계면 새 상대 객체 키
     scope: ChangeScope = ChangeScope.ALL_APPEARANCES
@@ -57,9 +59,19 @@ class ChangePropagationPolicy(ABC):
 
 class DefaultPropagationPolicy(ChangePropagationPolicy):
     def apply(self, ir: IntermediateRepresentation, change: AttributeChange) -> PropagationResult:
-        if not ir.has_entity(change.entity_key):
-            raise NotFound(f"객체 '{change.entity_key}' 가 없습니다", entity_key=change.entity_key)
-        appearances = {s.scene_key for s in ir.scenes_with_entity(change.entity_key)}
+        if change.entity_key is None:
+            if DEFAULT_VOCABULARY.is_relational(change.predicate) is True:
+                raise ValidationError(
+                    f"'{change.predicate}' 는 관계 술어라 장면 수준 조건으로 바꿀 수 없습니다 "
+                    "(entity_key 를 지정하세요)"
+                )
+            appearances = {s.scene_key for s in ir.scenes}
+        else:
+            if not ir.has_entity(change.entity_key):
+                raise NotFound(
+                    f"객체 '{change.entity_key}' 가 없습니다", entity_key=change.entity_key
+                )
+            appearances = {s.scene_key for s in ir.scenes_with_entity(change.entity_key)}
         targets = self._resolve_targets(ir, change, appearances)
 
         new_scenes: list[SceneSpec] = []

@@ -23,7 +23,9 @@ class Settings:
     generator_retries: int = 0
     generator_cache: bool = False
     # --- LLM (FRAME_STRUCTURER=llm 일 때) ---
-    llm_provider: str = "fake"  # fake | openai (OpenAI 호환 로컬 서버도 openai + base_url)
+    # openai(기본, OpenAI 호환 로컬 서버도 base_url 로) | fake(테스트용 재생 클라이언트).
+    # 키나 패키지가 없으면 서버 기동 시점에 실패한다 (요청마다 조용히 실패하지 않도록).
+    llm_provider: str = "openai"
     llm_model: str = "gpt-4.1-mini"
     llm_key_file: str | None = None  # 키 파일 경로. 없으면 OPENAI_API_KEY 환경 변수
     llm_base_url: str | None = None  # 로컬 3090: http://localhost:8001/v1
@@ -32,6 +34,12 @@ class Settings:
     llm_strict_schema: bool = True
     llm_max_attempts: int = 3  # 검증 실패 시 자기수정 재시도 횟수
     api_prefix: str = "/api"
+    # --- 프론트 연동·배포 ---
+    cors_origins: tuple[
+        str, ...
+    ] = ()  # 비어 있으면 CORS 꺼짐 (개발은 Vite 프록시, 배포는 같은 출처 권장)
+    frontend_dist: str | None = None  # 빌드된 화면 폴더. 지정하면 "/" 에서 서빙
+    rate_limit_per_minute: int = 0  # 0 이면 꺼짐. IP 별 변경 요청(POST) 수 제한
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -70,6 +78,9 @@ class Settings:
             llm_strict_schema=flag("LLM_STRICT_SCHEMA", base.llm_strict_schema),
             llm_max_attempts=int(text("LLM_MAX_ATTEMPTS", str(base.llm_max_attempts))),
             api_prefix=text("API_PREFIX", base.api_prefix),
+            cors_origins=tuple(o.strip() for o in text("CORS_ORIGINS", "").split(",") if o.strip()),
+            frontend_dist=text("FRONTEND_DIST", "") or None,
+            rate_limit_per_minute=int(text("RATE_LIMIT_PER_MINUTE", "0")),
         )
 
 

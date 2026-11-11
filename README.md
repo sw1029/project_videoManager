@@ -36,15 +36,38 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 
 | 키 | 값 | 의미 |
 |---|---|---|
-| `FRAME_STRUCTURER` | `rule_based` · `fake` · `llm` | 요구사항 구조화 모델 |
+| `FRAME_STRUCTURER` | `rule_based`(DSL 입력) · `llm`(자연어 입력) · `fake` | 요구사항 구조화 모델 |
 | `FRAME_GENERATOR` | `fake` · `diffusers` · `external_api` | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`) |
 | `FRAME_TRACKER` | `fake` · `opencv` | 객체 추적 모델 |
 | `FRAME_CHECKERS` | 쉼표 목록 | 검수기 (요구사항·일관성·보존) |
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |
+| `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
+| `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
+| `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 POST 요청 제한 (0 = 꺼짐) |
 
 Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`
+
+## 프론트엔드 연동
+
+API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바꾸면 `python -m frame.tools.export_openapi` 로 갱신해야
+테스트가 통과하며, PR 에 변경을 적어 프론트 담당자가 알 수 있게 한다.
+
+- **오류 형식**: 모든 오류는 `{error_code, error_message}` 이고, 요청 형식 오류(422)만 `details[{loc, message}]` 를 더한다.
+- **상태 갱신**: 구조화·생성은 비동기다. 화면은 상태가 STRUCTURING·QUEUED·PROCESSING 인 동안 `GET /api/versions/{id}` 를 주기적으로 조회한다.
+- **영상**: `video_url`, `clip_url` 을 `<video src>` 에 그대로 쓴다. `*_media_type` 이 `video/` 가 아니면 Fake 매니페스트(JSON)이므로 대체 화면을 보여준다.
+- **입력 예시**: `/health` 의 `structuring_input` 이 `dsl` 이면 DSL 예시를, `natural_language` 이면 자연어 예시를 보여준다.
+- **장면 수준 조건 수정**: `POST /revisions` 에서 `entity_key` 를 생략하면 장소·조명·분위기 같은 장면 조건을 바꾼다.
+
+화면 개발용 백엔드 실행 예시 (데이터 유지 + 비동기 실행 + 영상 Range 지원):
+
+```bash
+FRAME_JOBS=thread FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_ARTIFACT_STORE=local_fs python -m uvicorn --factory frame.presentation.main:create_default_app --reload
+```
+
+배포는 화면을 빌드한 뒤 `FRAME_FRONTEND_DIST=./frontend/dist` 로 같은 출처에서 서빙하는 방식을 권장한다. 화면을 다른 출처에 두면
+`FRAME_CORS_ORIGINS` 를 설정한다. 공개 데모에서는 `FRAME_RATE_LIMIT_PER_MINUTE` 로 요청 수를 제한한다.
 
 ## 저장소 구조
 
@@ -59,18 +82,19 @@ docs/{ARCHITECTURE.md,TDD_WORKFLOW.md,adr/}
 ## LLM 구조화 호출 테스트
 
 `FRAME_STRUCTURER=llm` 이면 자연어 브리프를 OpenAI(또는 OpenAI 호환 로컬 서버)로 구조화한다. API 키는 환경 변수
-`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로만 전달하고 저장소에는 넣지 않는다.
+`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로만 전달하고 저장소에는 넣지 않는다. 키나 `llm` 추가 패키지가 없으면
+서버가 기동 단계에서 실패한다.
 
 ```bash
 pip install -e ".[dev,llm]"
 ```
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_PROVIDER=openai FRAME_LLM_KEY_FILE=F:/key.txt python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
+FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
 ```
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_PROVIDER=openai FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -m slow -s
+FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -m slow -s
 ```
 
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,

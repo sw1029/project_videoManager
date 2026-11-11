@@ -341,12 +341,18 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 |---|---|---|---|---|
 | POST | `/api/projects` | `CreateProject` | 202 `{project_id, version_id, STRUCTURING}` | 422 |
 | GET | `/api/projects/{project_id}` | `ProjectQueries.get_project` | 200 버전 목록 | 404 |
-| GET | `/api/versions/{version_id}` | `get_version` | 200 IR·상태·영상 (FAILED 면 `error_code`/`error_message`) | 404 |
-| POST | `/api/versions/{version_id}/revisions` | `CreateRevision` | 201 `{version_id, parent_version_id, DRAFT, changed_scene_keys}` | 404 / 409 `VERSION_NOT_REVISABLE` / 422 |
-| POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` |
+| GET | `/api/versions/{version_id}` | `get_version` | 200 IR·상태·`video_url`/`clip_url`·미디어 형식 (FAILED 면 `error_code`/`error_message`) | 404 |
+| GET | `/api/versions/{version_id}/video` | `get_video_uri` | 200 결과 영상 (파일 저장소는 Range 206) | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
+| GET | `/api/versions/{version_id}/scenes/{scene_key}/clip` | `get_clip_uri` | 200 장면 클립 | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
+| POST | `/api/versions/{version_id}/revisions` | `CreateRevision` | 201 `{version_id, parent_version_id, DRAFT, changed_scene_keys}`. `entity_key` 생략 시 장면 수준 조건 | 404 / 409 `VERSION_NOT_REVISABLE` / 422 / 429 |
+| POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
 | GET | `/api/versions/{version_id}/entities/{entity_id}/tracks` | `get_entity_tracks` | 200 등장 구간·박스·상태 (`entity_key` 또는 `project_id:entity_key`) | 404 |
 | GET | `/api/vocabulary/predicates` | (어휘 조회) | 200 술어 이름·값 종류·관계 여부·별칭 (화면의 속성 블록용) | — |
+| GET | `/health` | (상태 확인) | 200 버전·어댑터·`structuring_input`(dsl / natural_language)·LLM 공급자 | — |
+
+모든 오류 응답은 `{error_code, error_message}` 이고, 요청 스키마 검증 오류(422)만 `details[{loc, message}]` 를 더한다 (ADR-0009).
+명세 전문은 `docs/openapi.json` 이며 `tests/api/test_openapi_contract.py` 가 앱과의 필드 구조 일치를 검사한다.
 
 ---
 
@@ -415,3 +421,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0006](adr/0006-error-model.md) | 실행 오류(FAILED) 와 검수 판정(FAIL/UNDETERMINED) 분리 |
 | [0007](adr/0007-predicate-vocabulary-and-relations.md) | 술어 어휘 · 관계 조건 규칙 · 요구조건 키 · 장면 타임라인 검증 |
 | [0008](adr/0008-value-normalization-and-relation-kinds.md) | 값 정규화 · ANIMAL 종류 · 관계의 배경 객체 금지 (실호출 결과 반영) |
+| [0009](adr/0009-frontend-integration-contract.md) | 프론트 연동 계약: 오류 형식 통일 · 영상 조회 경로 · 상태 확인 정보 · CORS·같은 출처 서빙 · 요청 제한 |

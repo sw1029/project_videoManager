@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from frame.domain.errors import NotFound
+from frame.domain.errors import MediaNotAvailable, NotFound
 from frame.domain.identifiers import entity_id as make_entity_id
 from frame.domain.metrics import summarize
 from frame.domain.models import VideoVersion
@@ -47,6 +47,31 @@ class ProjectQueries:
             entity_key = self._resolve_entity_key(version, entity_ref)
             records = tuple(uow.tracks.list_by_entity(version_id, entity_key))
             return EntityTracksView(version_id=version_id, entity_key=entity_key, records=records)
+
+    def get_video_uri(self, version_id: str) -> str:
+        """결과 영상의 저장소 URI. 생성 전이거나 실패한 버전은 MediaNotAvailable."""
+        with self._uow_factory() as uow:
+            version = self._require_version(uow, version_id)
+            if not version.video_uri:
+                raise MediaNotAvailable(
+                    f"버전 {version_id} 의 결과 영상이 아직 없습니다 (상태 {version.state})",
+                    version_id=version_id,
+                )
+            return version.video_uri
+
+    def get_clip_uri(self, version_id: str, scene_key: str) -> str:
+        """장면 클립의 저장소 URI. 장면이 없으면 NotFound, 클립이 아직 없으면 MediaNotAvailable."""
+        with self._uow_factory() as uow:
+            version = self._require_version(uow, version_id)
+            if version.ir is None or not version.ir.has_scene(scene_key):
+                raise NotFound(f"장면 {scene_key} 을 찾을 수 없습니다", scene_key=scene_key)
+            clip = version.clips.get(scene_key)
+            if clip is None:
+                raise MediaNotAvailable(
+                    f"장면 {scene_key} 의 클립이 아직 없습니다 (상태 {version.state})",
+                    scene_key=scene_key,
+                )
+            return clip.uri
 
     @staticmethod
     def _require_version(uow, version_id: str) -> VideoVersion:  # type: ignore[no-untyped-def]

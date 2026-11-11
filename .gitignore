@@ -5,6 +5,9 @@ __pycache__/
 .coverage
 htmlcov/
 artifacts/
+# 프론트엔드 빌드 산출물 (frontend/ 병합 대비)
+node_modules/
+frontend/dist/
 *.db
 .env
 .ruff_cache/

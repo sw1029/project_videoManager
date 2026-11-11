@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
+from urllib.parse import quote
 
 from frame.application.dto import ChecksView, EntityTracksView, ProjectDetail, VersionDetail
+from frame.application.ports.artifact_store import guess_media_type
 from frame.domain.identifiers import entity_id
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
@@ -47,8 +50,26 @@ def project_out(detail: ProjectDetail) -> s.ProjectOut:
     )
 
 
-def version_out(detail: VersionDetail) -> s.VersionOut:
+def version_out(
+    detail: VersionDetail,
+    *,
+    api_prefix: str = "/api",
+    media_type_of: Callable[[str], str] = guess_media_type,
+) -> s.VersionOut:
+    """api_prefix·media_type_of 로 내부 URI 대신 재생 가능한 HTTP 경로와 미디어 형식을 채운다."""
     v = detail.version
+    base = f"{api_prefix}/versions/{quote(v.version_id, safe='')}"
+
+    def clip_fields(scene_key: str) -> dict[str, str | None]:
+        clip = v.clips.get(scene_key)
+        if clip is None:
+            return {"clip_uri": None, "clip_url": None, "clip_media_type": None}
+        return {
+            "clip_uri": clip.uri,
+            "clip_url": f"{base}/scenes/{quote(scene_key, safe='')}/clip",
+            "clip_media_type": media_type_of(clip.uri),
+        }
+
     ir_out = None
     if v.ir is not None:
         ir_out = s.IROut(
@@ -81,7 +102,7 @@ def version_out(detail: VersionDetail) -> s.VersionOut:
                         )
                         for r in sc.requirements
                     ],
-                    clip_uri=v.clips[sc.scene_key].uri if sc.scene_key in v.clips else None,
+                    **clip_fields(sc.scene_key),
                 )
                 for sc in v.ir.scenes
             ],
@@ -96,6 +117,8 @@ def version_out(detail: VersionDetail) -> s.VersionOut:
         frozen_fingerprint=v.frozen_fingerprint,
         ir=ir_out,
         video_uri=v.video_uri,
+        video_url=f"{base}/video" if v.video_uri else None,
+        video_media_type=media_type_of(v.video_uri) if v.video_uri else None,
         error_code=v.error_code,
         error_message=v.error_message,
         reference_images=[

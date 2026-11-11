@@ -7,37 +7,74 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# ---- 입력 제한 (공개 데모에서 LLM 비용·저장 용량을 지키기 위한 상한) ----------------
+
+MAX_PROMPT_CHARS = 4000
+MAX_REFERENCE_IMAGES = 10
+MAX_TARGET_DURATION_MS = 300_000  # 5분 (숏폼 대상)
+
 # ---- 요청 ----------------------------------------------------------------
 
 
 class ReferenceImageIn(BaseModel):
-    image_uri: str = Field(min_length=1)
-    entity_key: str | None = None
+    image_uri: str = Field(min_length=1, max_length=1024)
+    entity_key: str | None = Field(default=None, max_length=64)
 
 
 class CreateProjectIn(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    prompt: str = Field(min_length=1)
-    reference_images: list[ReferenceImageIn] = Field(default_factory=list)
-    target_duration_ms: int | None = Field(default=None, gt=0)
+    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    reference_images: list[ReferenceImageIn] = Field(
+        default_factory=list, max_length=MAX_REFERENCE_IMAGES
+    )
+    target_duration_ms: int | None = Field(default=None, gt=0, le=MAX_TARGET_DURATION_MS)
     seed: int | None = None
 
 
 class CreateRevisionIn(BaseModel):
-    entity_key: str = Field(min_length=1)
-    predicate: str = Field(min_length=1)
-    new_value: str = Field(min_length=1)
+    # None 이면 장면 수준 조건(장소·조명·분위기·카메라)을 바꾼다
+    entity_key: str | None = Field(default=None, min_length=1, max_length=64)
+    predicate: str = Field(min_length=1, max_length=64)
+    new_value: str = Field(min_length=1, max_length=300)
     scope: Literal["SCENES", "ALL_APPEARANCES"] = "ALL_APPEARANCES"
-    scene_keys: list[str] = Field(default_factory=list)
-    current_value: str | None = None  # 같은 술어 조건이 여러 개(관계)일 때 바꿀 대상의 현재 값
+    scene_keys: list[str] = Field(default_factory=list, max_length=50)
+    # 같은 술어 조건이 여러 개(관계)일 때 바꿀 대상의 현재 값
+    current_value: str | None = Field(default=None, max_length=300)
 
 
 # ---- 응답 ----------------------------------------------------------------
 
 
+class ErrorDetailOut(BaseModel):
+    loc: str  # 예: body.title
+    message: str
+
+
 class ErrorOut(BaseModel):
+    """모든 오류 응답의 공통 형식."""
+
     error_code: str
     error_message: str
+    details: list[ErrorDetailOut] | None = None  # 요청 스키마 검증 오류일 때만
+
+
+class HealthAdaptersOut(BaseModel):
+    structurer: str
+    generator: str
+    tracker: str
+    checkers: list[str]
+    persistence: str
+    jobs: str
+    llm_provider: str | None  # structurer=llm 일 때만
+    llm_model: str | None
+
+
+class HealthOut(BaseModel):
+    status: str
+    version: str
+    # 화면이 예시 입력을 고를 때 쓴다: dsl(규칙 기반) / natural_language(LLM) / any
+    structuring_input: Literal["dsl", "natural_language", "any"]
+    adapters: HealthAdaptersOut
 
 
 class PredicateOut(BaseModel):
@@ -89,7 +126,9 @@ class SceneOut(BaseModel):
     description: str
     entity_keys: list[str]
     requirements: list[RequirementOut]
-    clip_uri: str | None
+    clip_uri: str | None  # 내부 저장소 URI (디버깅용)
+    clip_url: str | None  # 브라우저가 재생·다운로드할 HTTP 경로
+    clip_media_type: str | None
 
 
 class EntityOut(BaseModel):
@@ -119,7 +158,9 @@ class VersionOut(BaseModel):
     seed: int | None
     frozen_fingerprint: str | None
     ir: IROut | None
-    video_uri: str | None
+    video_uri: str | None  # 내부 저장소 URI (디버깅용)
+    video_url: str | None  # 브라우저가 재생할 HTTP 경로 (GET 시 Range 지원)
+    video_media_type: str | None  # 실제 모델: video/mp4, Fake: application/json
     error_code: str | None
     error_message: str | None
     reference_images: list[ReferenceImageOut]

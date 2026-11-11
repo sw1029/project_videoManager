@@ -1,7 +1,6 @@
-"""실제 OpenAI 호출 테스트 (slow). 환경이 갖춰졌을 때만 실행된다.
+"""실제 OpenAI 호출 테스트 (slow). FRAME_STRUCTURER=llm 을 명시했을 때만 실행된다 (비용 발생 방지).
 
-    FRAME_LLM_PROVIDER=openai FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt \
-        pytest tests/live -m slow -s
+    FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt pytest tests/live -m slow -s
 
 로컬(3090) OpenAI 호환 서버(vLLM 등)는 FRAME_LLM_BASE_URL=http://localhost:8001/v1 과
 FRAME_LLM_MODEL=<서빙 모델명>, FRAME_LLM_STRICT_SCHEMA=false 로 같은 테스트를 돌린다.
@@ -13,7 +12,7 @@ from dataclasses import replace
 import pytest
 
 from frame.adapters.llm.openai_client import resolve_api_key
-from frame.application.errors import LLMUnavailable
+from frame.application.errors import ConfigurationError, LLMUnavailable
 from frame.application.ports.structurer import StructuringRequest
 from frame.config import Settings, build_container
 from frame.domain.enums import EntityKind
@@ -31,17 +30,19 @@ BRIEF = (
 
 @pytest.fixture
 def live_settings():
+    if os.environ.get("FRAME_STRUCTURER") != "llm":
+        pytest.skip("FRAME_STRUCTURER=llm 을 명시하지 않으면 실제 호출을 건너뜀")
     settings = Settings.from_env()
     if settings.llm_provider != "openai":
-        pytest.skip("FRAME_LLM_PROVIDER=openai 가 아니면 건너뜀")
-    return replace(settings, structurer="llm", jobs="recording", persistence="memory")
+        pytest.skip("FRAME_LLM_PROVIDER 가 openai 가 아니면 건너뜀")
+    return replace(settings, jobs="recording", persistence="memory")
 
 
 def test_openai_structures_a_korean_brief(live_settings):
     try:
         container = build_container(live_settings)
-    except LLMUnavailable as exc:
-        pytest.skip(f"OpenAI 키를 찾을 수 없음: {exc}")
+    except (LLMUnavailable, ConfigurationError) as exc:
+        pytest.skip(f"OpenAI 를 쓸 수 없음: {exc}")
 
     ir = container.structurer.structure(StructuringRequest(BRIEF, target_duration_ms=12000))
     ir.validate()
