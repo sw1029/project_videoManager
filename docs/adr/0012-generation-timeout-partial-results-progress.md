@@ -78,9 +78,12 @@
 - 비용과 한계
   - 버려진 스레드는 외부 작업·CPU 를 계속 쓴다 (강제 종료 불가). 늦게 끝난 결과는 버리고 로그로만 남는다.
   - FAILED 버전도 `video_url`·`clip_url` 을 가질 수 있다. 화면은 `state` 로 구분해야 한다.
-  - DB 스키마에 `video_versions.progress_json` 이 추가됐다. Alembic 이 없어 기존 SQLite 파일(시연용 `frame.db` 등)에는 컬럼이 없으므로
-    다시 만들어야 한다 (`create_all` 은 기존 테이블에 컬럼을 더하지 않는다). MySQL 은 `ALTER TABLE video_versions ADD COLUMN progress_json TEXT NULL`.
-  - 진행 저장은 버전 행을 읽어 다시 쓴다 (get → save). 처리 중인 버전을 다른 곳에서 동시에 쓰지 않는다고 가정한다.
+  - DB 스키마에 `video_versions.progress_json`(널 허용)이 추가됐다. Alembic 이 없어 기존 DB 에는 이 열이 없다.
+    `create_all` 은 기존 테이블에 열을 더하지 않으므로, 이 변경만으로는 기존 SQLite 파일(시연용 `frame.db` 등)을 다시 만들어야 한다.
+    이슈 #2 작업이 `create_schema` 에서 빠진 널 허용 열을 더하게 하므로, 함께 합치면 SQLite 개발 DB 에는 자동으로 더해진다.
+    MySQL 은 `ALTER TABLE video_versions ADD COLUMN progress_json TEXT NULL`.
+  - 진행 저장은 버전 행을 읽어 다시 쓴다 (get → save). SQL 저장소는 바뀐 열만 UPDATE 하므로 그 사이 다른 곳이 바꾼 상태를
+    되돌리지 않지만, 메모리 저장소는 객체 전체를 바꾼다. 처리 중인 버전을 다른 곳에서 동시에 쓰지 않는다고 가정한다.
 - 남은 일: 늦게 끝난 결과를 실패 버전이나 캐시에 붙이는 훅, 어댑터가 버려진 작업을 알아채 폴링을 일찍 멈추는 신호(OpenRouter 폴링 루프),
   재시작 뒤 같은 버전을 이어 실행할 때 이미 만든 자기 클립 재사용(이슈 #2 와 함께), 진행 상황 푸시(SSE).
 
