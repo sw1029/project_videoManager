@@ -98,3 +98,26 @@ def test_retrying_decorator_retries_transient_failures(store, ir):
     exhausted = RetryingVideoGenerator(Flaky(3), retries=2)
     with pytest.raises(GenerationError):
         exhausted.generate_scene(_request(ir))
+
+
+def test_retrying_decorator_does_not_retry_non_retryable_failures(store, ir):
+    """외부 API 가 이미 작업을 받은 뒤의 실패는 다시 제출하면 또 과금되므로 retryable=False 로 보고된다."""
+
+    class Billed(VideoGenerator):
+        calls = 0
+
+        def generate_scene(self, request):
+            self.calls += 1
+            raise GenerationError("작업 실패 (이미 과금됐을 수 있음)", retryable=False)
+
+    inner = Billed()
+    retrying = RetryingVideoGenerator(inner, retries=3)
+    with pytest.raises(GenerationError) as excinfo:
+        retrying.generate_scene(_request(ir))
+    assert excinfo.value.retryable is False
+    assert inner.calls == 1 and retrying.attempts == 1
+
+
+def test_generation_errors_are_retryable_by_default():
+    assert GenerationError("일시 오류").retryable is True
+    assert GenerationError().args == ()  # 기존 생성 방식 그대로

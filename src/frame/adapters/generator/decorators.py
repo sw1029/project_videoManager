@@ -49,6 +49,8 @@ class RetryingVideoGenerator(VideoGenerator):
             try:
                 return self._inner.generate_scene(request)
             except GenerationError as exc:
+                if not exc.retryable:  # 이미 과금된 외부 작업 등: 다시 제출하지 않는다
+                    raise
                 last = exc
                 if attempt < self._retries:
                     self._sleep(self._backoff * (attempt + 1))
