@@ -47,6 +47,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |
+| `FRAME_GENERATOR_TIMEOUT_S` | 초 (0·빈 값 = 끔, 기본 끔) | 장면 하나 생성의 범용 시간 제한. 넘으면 `GENERATION_TIMEOUT` 으로 실패하고 재시도하지 않는다. `external_api` 는 `FRAME_VIDEO_TIMEOUT_S` + 300초 이상 ([ADR-0012](docs/adr/0012-generation-timeout-partial-results-progress.md)) |
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
 | `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 POST 요청 제한 (0 = 꺼짐) |
