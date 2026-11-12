@@ -462,6 +462,23 @@
             ],
             "title": "Entity Key"
           },
+          "keep": {
+            "items": {
+              "$ref": "#/components/schemas/KeepItemIn"
+            },
+            "maxItems": 20,
+            "title": "Keep",
+            "type": "array"
+          },
+          "kind": {
+            "default": "CHANGE",
+            "enum": [
+              "CHANGE",
+              "REPAIR"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "new_value": {
             "maxLength": 300,
             "minLength": 1,
@@ -473,6 +490,18 @@
             "minLength": 1,
             "title": "Predicate",
             "type": "string"
+          },
+          "request_text": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Text"
           },
           "scene_keys": {
             "items": {
@@ -507,6 +536,11 @@
             },
             "title": "Changed Scene Keys",
             "type": "array"
+          },
+          "kind": {
+            "default": "CHANGE",
+            "title": "Kind",
+            "type": "string"
           },
           "parent_version_id": {
             "title": "Parent Version Id",
@@ -639,6 +673,16 @@
               }
             ],
             "title": "Parent Version Id"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionIntentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "scene_count": {
             "anyOf": [
@@ -953,6 +997,66 @@
           "scenes"
         ],
         "title": "IROut",
+        "type": "object"
+      },
+      "KeepItemIn": {
+        "description": "다시 만드는 장면에서 그대로 둘 요소 (ADR-0017).\n\n객체 요소(APPEARANCE 모습 · ACTION 동작 · SHAPE 형태)는 entity_key 가 필요하고,\n장면 요소(BACKGROUND 배경 · LIGHTING 조명 · COMPOSITION 구도)는 entity_key 를 비운다.",
+        "properties": {
+          "aspect": {
+            "enum": [
+              "APPEARANCE",
+              "ACTION",
+              "SHAPE",
+              "BACKGROUND",
+              "LIGHTING",
+              "COMPOSITION"
+            ],
+            "title": "Aspect",
+            "type": "string"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          }
+        },
+        "required": [
+          "aspect"
+        ],
+        "title": "KeepItemIn",
+        "type": "object"
+      },
+      "KeepItemOut": {
+        "properties": {
+          "aspect": {
+            "title": "Aspect",
+            "type": "string"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          }
+        },
+        "required": [
+          "aspect",
+          "entity_key"
+        ],
+        "title": "KeepItemOut",
         "type": "object"
       },
       "LLMKeyIn": {
@@ -1436,6 +1540,87 @@
         "title": "RequirementOut",
         "type": "object"
       },
+      "RevisionIntentOut": {
+        "description": "수정 버전이 하려는 것 (ADR-0017). 원본 버전에는 없다.",
+        "properties": {
+          "entity_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          },
+          "keep": {
+            "items": {
+              "$ref": "#/components/schemas/KeepItemOut"
+            },
+            "title": "Keep",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "predicate": {
+            "title": "Predicate",
+            "type": "string"
+          },
+          "previous_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Value"
+          },
+          "request_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Text"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "target_scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Scene Keys",
+            "type": "array"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity_key",
+          "predicate",
+          "value",
+          "previous_value",
+          "scope",
+          "target_scene_keys",
+          "keep",
+          "request_text"
+        ],
+        "title": "RevisionIntentOut",
+        "type": "object"
+      },
       "SceneComparisonOut": {
         "properties": {
           "after": {
@@ -1852,6 +2037,16 @@
             "title": "Reference Images",
             "type": "array"
           },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionIntentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "seed": {
             "anyOf": [
               {
@@ -1980,6 +2175,16 @@
               }
             ],
             "title": "Parent Version Id"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionIntentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "state": {
             "title": "State",
@@ -2793,7 +2998,7 @@
             "description": "Too Many Requests"
           }
         },
-        "summary": "선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾼 새 DRAFT 버전을 만든다 (원본 보존)",
+        "summary": "선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾸거나(CHANGE), 요구조건은 그대로 두고 그 장면을 다시 만드는(REPAIR) 새 DRAFT 버전을 만든다 (원본 보존)",
         "tags": [
           "versions"
         ]

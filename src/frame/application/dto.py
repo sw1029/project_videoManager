@@ -6,9 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from frame.domain.checks import CheckResult
-from frame.domain.enums import Verdict, VersionState
+from frame.domain.enums import RevisionKind, Verdict, VersionState
 from frame.domain.metrics import CheckSummary
 from frame.domain.models import Project, ReferenceImage, VideoVersion
+from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RateDelta, VersionComparison
 from frame.domain.services.propagation import AttributeChange
 from frame.domain.tracking import TrackRecord
@@ -36,6 +37,10 @@ class CreateProjectResult:
 class CreateRevisionCommand:
     version_id: str
     change: AttributeChange
+    # CHANGE: 값을 바꾼다 / REPAIR: 값은 그대로 두고 그 요구조건이 걸린 장면을 다시 만든다 (ADR-0017)
+    kind: RevisionKind = RevisionKind.CHANGE
+    keep: tuple[KeepItem, ...] = ()  # 다시 만드는 장면에서 그대로 둘 요소
+    request_text: str | None = None  # 사용자가 쓴 요청 원문 (기록·표시용)
 
 
 @dataclass(frozen=True)
@@ -43,7 +48,9 @@ class CreateRevisionResult:
     version_id: str
     parent_version_id: str
     state: VersionState
+    # 다시 만들 장면. CHANGE: 조건이 바뀐 장면 / REPAIR: 다시 맞출 장면
     changed_scene_keys: tuple[str, ...]
+    kind: RevisionKind = RevisionKind.CHANGE
 
 
 @dataclass(frozen=True)

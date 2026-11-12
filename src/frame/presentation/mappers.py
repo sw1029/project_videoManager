@@ -24,6 +24,7 @@ from frame.domain.enums import Verdict
 from frame.domain.identifiers import entity_id
 from frame.domain.ir import RequirementSpec, SceneSpec
 from frame.domain.progress import PipelineProgress
+from frame.domain.revision import RevisionIntent
 from frame.domain.services.comparison import RequirementComparison
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
@@ -85,6 +86,25 @@ def progress_out(progress: PipelineProgress | None) -> s.ProgressOut | None:
         stage=progress.current.stage if progress.current is not None else None,
         elapsed_ms=progress.elapsed_ms,
         stages=[s.StageProgressOut(**stage.to_dict()) for stage in progress.stages],
+    )
+
+
+def revision_out(intent: RevisionIntent | None) -> s.RevisionIntentOut | None:
+    if intent is None:
+        return None
+    return s.RevisionIntentOut(
+        kind=str(intent.kind),
+        entity_key=intent.entity_key,
+        predicate=intent.predicate,
+        value=intent.value,
+        previous_value=intent.previous_value,
+        scope=str(intent.scope),
+        target_scene_keys=list(intent.target_scene_keys),
+        keep=[
+            s.KeepItemOut(aspect=str(item.aspect), entity_key=item.entity_key)
+            for item in intent.keep
+        ],
+        request_text=intent.request_text,
     )
 
 
@@ -172,6 +192,7 @@ def version_out(
         ],
         created_at=v.created_at,
         progress=progress_out(v.progress),
+        revision=revision_out(v.intent),
     )
 
 
@@ -244,6 +265,7 @@ def _overview_fields(
         "video_url": f"{_version_path(api_prefix, v.version_id)}/video" if v.video_uri else None,
         "video_media_type": media_type_of(v.video_uri) if v.video_uri else None,
         "checks": s.CheckSummaryOut(**asdict(overview.summary)),
+        "revision": revision_out(v.intent),
     }
 
 

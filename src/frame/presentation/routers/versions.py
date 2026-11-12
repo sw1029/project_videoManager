@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 
 from frame.application.dto import CreateRevisionCommand
 from frame.config.container import Container
-from frame.domain.enums import ChangeScope
+from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
+from frame.domain.revision import KeepItem
 from frame.domain.services.propagation import AttributeChange
 
 from .. import mappers
@@ -85,7 +86,8 @@ def get_clip(version_id: str, scene_key: str, container: ContainerDep) -> Respon
         429: {"model": ErrorOut},
     },
     dependencies=[Depends(enforce_rate_limit)],
-    summary="선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾼 새 DRAFT 버전을 만든다 (원본 보존)",
+    summary="선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾸거나(CHANGE), "
+    "요구조건은 그대로 두고 그 장면을 다시 만드는(REPAIR) 새 DRAFT 버전을 만든다 (원본 보존)",
 )
 def create_revision(
     version_id: str, body: CreateRevisionIn, container: ContainerDep
@@ -101,6 +103,9 @@ def create_revision(
                 scene_keys=tuple(body.scene_keys),
                 current_value=body.current_value,
             ),
+            kind=RevisionKind(body.kind),
+            keep=tuple(KeepItem(KeepAspect(k.aspect), k.entity_key) for k in body.keep),
+            request_text=body.request_text,
         )
     )
     return CreateRevisionOut(
@@ -108,6 +113,7 @@ def create_revision(
         parent_version_id=result.parent_version_id,
         state=str(result.state),
         changed_scene_keys=list(result.changed_scene_keys),
+        kind=str(result.kind),
     )
 
 

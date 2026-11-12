@@ -321,3 +321,41 @@ def test_list_by_state_returns_versions_in_creation_order(seeded, ir):
         assert [v.version_id for v in processing] == ["ver_3"]
         assert processing[0].ir == ir
         assert uow.versions.list_by_state(VersionState.COMPLETED) == []
+
+
+def test_revision_intent_and_scene_seeds_roundtrip(seeded, ir):
+    """수정 버전의 의도(종류·유지할 요소·요청 원문)와 장면별 seed 재지정이 저장소를 거쳐도 그대로다 (ADR-0017)."""
+    from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
+    from frame.domain.revision import KeepItem, RevisionIntent
+
+    intent = RevisionIntent(
+        RevisionKind.REPAIR,
+        "color",
+        "red",
+        entity_key="cup",
+        scope=ChangeScope.SCENES,
+        target_scene_keys=("closeup",),
+        keep=(KeepItem(KeepAspect.ACTION, "barista"), KeepItem(KeepAspect.LIGHTING)),
+        request_text="컵 색상만 다시 맞춰줘",
+    )
+    with seeded() as uow:
+        uow.versions.add(
+            VideoVersion(
+                "ver_2",
+                "prj_1",
+                VersionState.DRAFT,
+                NOW,
+                parent_version_id="ver_1",
+                ir=ir,
+                seed=7,
+                scene_seeds={"closeup": 8},
+                intent=intent,
+            )
+        )
+        uow.commit()
+
+    with seeded() as uow:
+        loaded, original = uow.versions.get("ver_2"), uow.versions.get("ver_1")
+    assert loaded.intent == intent and loaded.scene_seeds == {"closeup": 8}
+    assert (loaded.seed_for("closeup"), loaded.seed_for("intro")) == (8, 7)
+    assert original.intent is None and original.scene_seeds == {}

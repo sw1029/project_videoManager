@@ -31,15 +31,36 @@ class CreateProjectIn(BaseModel):
     seed: int | None = None
 
 
+KeepAspectName = Literal["APPEARANCE", "ACTION", "SHAPE", "BACKGROUND", "LIGHTING", "COMPOSITION"]
+MAX_REQUEST_TEXT_CHARS = 500
+
+
+class KeepItemIn(BaseModel):
+    """다시 만드는 장면에서 그대로 둘 요소 (ADR-0017).
+
+    객체 요소(APPEARANCE 모습 · ACTION 동작 · SHAPE 형태)는 entity_key 가 필요하고,
+    장면 요소(BACKGROUND 배경 · LIGHTING 조명 · COMPOSITION 구도)는 entity_key 를 비운다.
+    """
+
+    aspect: KeepAspectName
+    entity_key: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class CreateRevisionIn(BaseModel):
     # None 이면 장면 수준 조건(장소·조명·분위기·카메라)을 바꾼다
     entity_key: str | None = Field(default=None, min_length=1, max_length=64)
     predicate: str = Field(min_length=1, max_length=64)
+    # CHANGE: 새 값 / REPAIR: 지켜져야 하는 값 (지금 요구조건의 값과 같아야 한다)
     new_value: str = Field(min_length=1, max_length=300)
     scope: Literal["SCENES", "ALL_APPEARANCES"] = "ALL_APPEARANCES"
     scene_keys: list[str] = Field(default_factory=list, max_length=50)
     # 같은 술어 조건이 여러 개(관계)일 때 바꿀 대상의 현재 값
     current_value: str | None = Field(default=None, max_length=300)
+    # CHANGE: 요구조건의 값을 바꾼다 / REPAIR: 값은 그대로 두고 그 요구조건이 걸린 장면을 다시 만든다
+    kind: Literal["CHANGE", "REPAIR"] = "CHANGE"
+    keep: list[KeepItemIn] = Field(default_factory=list, max_length=20)
+    # 사용자가 쓴 요청 원문. 기록·표시용이며 생성에는 쓰지 않는다
+    request_text: str | None = Field(default=None, max_length=MAX_REQUEST_TEXT_CHARS)
 
 
 class LLMKeyIn(BaseModel):
@@ -169,6 +190,25 @@ class ReferenceImageOut(BaseModel):
     description: str | None = None  # 기준 이미지에서 읽은 외형 설명
 
 
+class KeepItemOut(BaseModel):
+    aspect: str  # APPEARANCE | ACTION | SHAPE | BACKGROUND | LIGHTING | COMPOSITION
+    entity_key: str | None  # 장면 요소면 null
+
+
+class RevisionIntentOut(BaseModel):
+    """수정 버전이 하려는 것 (ADR-0017). 원본 버전에는 없다."""
+
+    kind: str  # CHANGE | REPAIR
+    entity_key: str | None  # null 이면 장면 수준 조건
+    predicate: str
+    value: str  # CHANGE: 새 값 / REPAIR: 지켜져야 하는 값
+    previous_value: str | None  # CHANGE: 이전 값 (장면마다 다르면 null)
+    scope: str  # SCENES | ALL_APPEARANCES
+    target_scene_keys: list[str]  # 다시 만드는 장면
+    keep: list[KeepItemOut]
+    request_text: str | None
+
+
 class StageProgressOut(BaseModel):
     stage: str  # generate | track | check
     status: Literal["RUNNING", "COMPLETED", "FAILED"]
@@ -203,13 +243,15 @@ class VersionOut(BaseModel):
     reference_images: list[ReferenceImageOut]
     created_at: datetime
     progress: ProgressOut | None  # 실패한 버전도 어느 단계·장면까지 했는지 남는다 (이슈 #3)
+    revision: RevisionIntentOut | None = None  # 수정 버전이면 무엇을 하려는 수정인지 (ADR-0017)
 
 
 class CreateRevisionOut(BaseModel):
     version_id: str
     parent_version_id: str
     state: str
-    changed_scene_keys: list[str]
+    changed_scene_keys: list[str]  # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
+    kind: str = "CHANGE"  # CHANGE | REPAIR
 
 
 class AcceptGenerationOut(BaseModel):
@@ -296,6 +338,7 @@ class VersionOverviewOut(BaseModel):
     video_url: str | None  # 결과 영상이 없으면(생성 전·실패) null
     video_media_type: str | None
     checks: CheckSummaryOut  # 검수 전이면 total=0, 지표 null
+    revision: RevisionIntentOut | None = None  # 수정 버전이면 무엇을 하려는 수정인지 (ADR-0017)
 
 
 class CheckDeltaOut(BaseModel):
