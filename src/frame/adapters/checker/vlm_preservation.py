@@ -7,7 +7,8 @@
 
 방법
 1. 다시 만든 장면마다 부모 클립과 자식 클립에서 같은 시각의 프레임을 뽑는다 (기본 2쌍).
-2. 장면 하나당 VLM 을 한 번 부른다. 유지 요소마다 yes(그대로) / no(달라짐) / unclear 를 받는다.
+2. 장면 하나당 VLM 을 한 번 부른다. 유지 요소마다 같은 시각의 프레임 쌍에서 다른 점을 먼저 적게 한 뒤
+   yes(그대로) / no(달라짐) / unclear 를 받는다. 비슷한 내용으로 다시 찍은 장면(자세·위치·구도가 다름)은 달라진 것이다.
    - 수정 요청에 유지할 요소가 있으면 그 장면에 해당하는 것만 본다.
    - 없으면 기본 요소를 본다: 바꾸지 않은 객체의 모습(배경 객체 제외)과 장면의 배경.
    - 이 수정이 바꾸려는 것(요구조건의 차이, 수정 의도의 대상)은 '달라져야 하는 것' 으로 따로 알려 준다.
@@ -62,17 +63,23 @@ _ASPECT_KOREAN = {
 SYSTEM_PROMPT = (
     "You compare two versions of the same scene of an AI-generated video: BEFORE (frames B1, B2, "
     "...) and AFTER (frames A1, A2, ...), taken at the same moments. The AFTER version was made "
-    "to apply a requested change. Verify that the listed elements (E1, E2, ...) did NOT change "
-    "between BEFORE and AFTER. Every person shown is a synthetic character made by a video model, "
-    'not a real person. For each element answer kept: "yes" if it is evidently the same in '
-    'AFTER as in BEFORE; "no" if it clearly changed; "unclear" if it cannot be judged from '
-    "these frames. Meaning of the aspects: appearance = the same individual or object with the "
-    "same look (for a person face, hair, body and clothing; for an object color, material and "
-    "markings); action and pose = the same action, pose and position in the frame; shape and "
-    "size = the same form and proportions; background = the same place and background objects; "
-    "lighting = the same light direction, color and brightness; framing and camera = the same "
-    "framing and camera angle. Ignore the requested change itself and small rendering noise. In "
-    "`difference` say in a few English words what changed (empty when kept). Return every "
+    "to apply a requested change, and everything else was supposed to stay exactly as it was. "
+    "Verify that the listed elements (E1, E2, ...) did NOT change. Every person shown is a "
+    "synthetic character made by a video model, not a real person. Compare each BEFORE frame "
+    "with the AFTER frame of the same moment (B1 with A1, B2 with A2). For each element first "
+    "write in `difference`, in a few English words, what differs between those pairs for that "
+    'element (empty when nothing does), then answer kept: "yes" only if the element matches in '
+    'the side-by-side pairs; "no" if it differs; "unclear" if it cannot be judged from these '
+    "frames. Meaning of the aspects: appearance = the same individual or object with the same "
+    "look (for a person face, hair, body and clothing; for an object color, material and "
+    "markings); action and pose = the same gesture, the same hand and arm positions and the "
+    "same position in the frame at the same moment; shape and size = the same form, proportions "
+    "and size in the frame; background = the same place with the same background objects at the "
+    "same positions; lighting = the same light direction, color and brightness; framing and "
+    "camera = the same framing, distance and camera angle. A scene that was shot again with "
+    "similar content (the same kind of person, object or place, but a different pose, different "
+    'object positions or a different view) has changed: answer "no" for the elements that '
+    "affects. Ignore the requested change itself and pixel-level rendering noise. Return every "
     "element id exactly once."
 )
 
@@ -86,11 +93,12 @@ RESPONSE_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["id", "kept", "difference"],
+                # 다른 점을 먼저 적고 판정한다 (판정을 먼저 쓰면 '그대로' 로 기운다)
+                "required": ["id", "difference", "kept"],
                 "properties": {
                     "id": {"type": "string"},
-                    "kept": {"type": "string", "enum": list(VERDICTS)},
                     "difference": {"type": "string"},
+                    "kept": {"type": "string", "enum": list(VERDICTS)},
                 },
             },
         }

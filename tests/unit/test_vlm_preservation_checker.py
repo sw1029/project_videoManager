@@ -11,6 +11,7 @@ from dataclasses import replace
 import pytest
 
 from frame.adapters.checker import VlmPreservationChecker
+from frame.adapters.checker.vlm_preservation import RESPONSE_SCHEMA, SYSTEM_PROMPT
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import LLMTimeout
@@ -239,3 +240,14 @@ def test_clips_that_cannot_be_compared_are_undetermined_without_asking(store, ir
     assert [o.verdict for o in no_parent] == [Verdict.UNDETERMINED]
     assert [o.verdict for o in json_intro] == [Verdict.UNDETERMINED]
     assert len(llm.calls) == 1  # 견줄 수 있는 closeup 만 한 번 물었다
+
+
+def test_differences_are_written_down_before_the_verdict():
+    """2차 실호출: 편집하지 못해 새로 만든 장면(자세·구도·컵 모양이 달라짐)도 요소가 모두 '그대로' 로 나왔다.
+
+    같은 시각의 프레임을 짝지어 다른 점을 먼저 적게 하고, 비슷하게 다시 찍은 장면은 달라진 것으로 보게 한다.
+    """
+    element = RESPONSE_SCHEMA["properties"]["elements"]["items"]
+    assert list(element["properties"]) == ["id", "difference", "kept"]
+    assert element["required"] == ["id", "difference", "kept"]
+    assert "B1 with A1" in SYSTEM_PROMPT and "shot again" in SYSTEM_PROMPT
