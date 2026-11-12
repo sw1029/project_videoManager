@@ -60,6 +60,17 @@ def test_max_side_only_shrinks(clips):
     assert video_size(FFMPEG, untouched.data) == (64, 114)
 
 
+def test_min_side_only_enlarges(clips):
+    grown = extract_frame(FFMPEG, clips["pattern"], 1000, min_side=128)
+    assert video_size(FFMPEG, grown.data) == (128, 228)
+    untouched = extract_frame(FFMPEG, clips["large"], 1000, min_side=64)
+    assert video_size(FFMPEG, untouched.data) == (128, 228)
+    cropped = extract_frame(
+        FFMPEG, clips["pattern"], 1000, crop=Box(0.0, 0.0, 0.5, 0.5), min_side=96
+    )
+    assert min(video_size(FFMPEG, cropped.data)) == 96
+
+
 def test_box_padding_grows_and_stays_inside_the_frame():
     box = Box(0.4, 0.4, 0.2, 0.2).padded(0.5)
     assert (round(box.x, 3), round(box.y, 3), round(box.w, 3), round(box.h, 3)) == (

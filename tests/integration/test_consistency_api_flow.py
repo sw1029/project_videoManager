@@ -99,7 +99,7 @@ def test_identity_anchors_and_parent_clip_editing_through_the_api(tmp_path, upst
     assert len(upstream.image_references(closeup)) == 1
     assert len(upstream.image_references(outro)) == 1
     assert upstream.image_references(outro)[0].startswith("data:image/jpeg;base64,")
-    assert "- barista (person, reference image 1)" in outro["prompt"]
+    assert "- barista (person, Image 1)" in outro["prompt"]
     assert outro["prompt"].splitlines()[-1].startswith("Consistency:")
     anchors = [r for r in original["reference_images"] if r["origin"] == "DERIVED"]
     assert sorted((r["entity_key"], r["source_scene_key"]) for r in anchors) == [
@@ -134,8 +134,8 @@ def test_identity_anchors_and_parent_clip_editing_through_the_api(tmp_path, upst
     regen_intro, regen_closeup = upstream.submits[5:]
     assert not upstream.video_references(regen_intro)
     assert len(upstream.image_references(regen_intro)) == 1  # 부모 intro 에서 뽑은 바리스타
-    assert "- barista (person, reference image 1)" in regen_intro["prompt"]
-    assert "cup (prop, reference image" not in regen_intro["prompt"]  # 색이 바뀐 컵은 기준 없음
+    assert "- barista (person, Image 1)" in regen_intro["prompt"]
+    assert "cup (prop, Image" not in regen_intro["prompt"]  # 색이 바뀐 컵은 기준 없음
     assert len(upstream.image_references(regen_closeup)) == 1  # 새 intro 에서 뽑은 청록 컵
     changed = _preservation(plain, regenerated_id)
     assert changed["outro"]["score"] == 1.0

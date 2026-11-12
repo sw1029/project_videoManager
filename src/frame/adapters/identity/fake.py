@@ -48,7 +48,9 @@ class FakeIdentityExtractor(IdentityReferenceExtractor):
             if entity.entity_key in self._missing:
                 continue
             uri = self._store.put(
-                identity_key(request.clip.uri, entity.entity_key, "png"), PNG_1X1, "image/png"
+                identity_key(request.clip.uri, entity.entity_key, "png", PNG_1X1),
+                PNG_1X1,
+                "image/png",
             )
             images.append(
                 IdentityImage(

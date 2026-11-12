@@ -73,10 +73,14 @@ def extract_frame(
     *,
     crop: Box | None = None,
     max_side: int | None = None,
+    min_side: int | None = None,
     image_format: str = "jpg",
     timeout_s: float = 120.0,
 ) -> Image:
-    """video 의 at_ms 시각 프레임. crop 은 정규화 좌표, max_side 는 긴 변의 상한(픽셀)."""
+    """video 의 at_ms 시각 프레임. crop 은 정규화 좌표, max_side 는 긴 변의 상한(픽셀).
+
+    min_side 를 주면 짧은 변이 그보다 작은 이미지를 비율을 지켜 키운다 (참조 이미지 최소 크기를 맞출 때).
+    """
     media_type, codec = _FORMATS[image_format]
     filters: list[str] = []
     if crop is not None:
@@ -86,6 +90,12 @@ def extract_frame(
         filters.append(
             f"scale='if(gt(max(iw,ih),{max_side}),if(gt(iw,ih),{max_side},-2),iw)'"
             f":'if(gt(max(iw,ih),{max_side}),if(gt(iw,ih),-2,{max_side}),ih)'"
+        )
+    if min_side is not None:
+        # 짧은 변이 min_side 보다 작을 때만 키운다
+        filters.append(
+            f"scale='if(lt(min(iw,ih),{min_side}),if(lt(iw,ih),{min_side},-2),iw)'"
+            f":'if(lt(min(iw,ih),{min_side}),if(lt(iw,ih),-2,{min_side}),ih)':flags=lanczos"
         )
     with tempfile.TemporaryDirectory(prefix="frame-frames-") as tmp:
         source = Path(tmp) / "clip.mp4"

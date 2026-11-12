@@ -6,6 +6,10 @@
   그래도 없으면 돌려주지 않는다 (나중 장면의 클립에서 다시 뽑는다). 확인된 모습만 기준으로 삼는다.
 - 외형 설명(머리·옷·색·형태)은 기준 이미지와 함께 저장돼 다음 장면 프롬프트에 글로도 들어간다.
 - 박스는 추적 결과가 아니라 한 프레임에서 VLM 이 짚은 대략의 위치다 (US-03 추적 어댑터가 생기면 그 박스로 바꿀 수 있다).
+- 인물은 머리·어깨까지만 자른다 (손에 든 물건·배경이 기준 이미지에 딸려 가지 않게). 참조 이미지 한 장에는
+  인물이 한 명만 있어야 한다는 모델 제약(Wan)과도 맞는다.
+- 잘라 낸 이미지가 작으면 짧은 변을 min_output_side 까지 키운다. 영상 모델은 참조 이미지에 최소 크기를 요구한다
+  (Wan: 가로·세로 240~8000 px). 2026-11-12 실호출에서 154x178 컵 이미지가 접수 뒤 'image resolution' 오류로 실패했다.
 """
 
 from __future__ import annotations
@@ -34,8 +38,9 @@ SYSTEM_PROMPT = (
     "You locate subjects in one frame of an AI-generated video so that each subject can be cropped "
     "and reused as a visual reference. Every person shown is a synthetic character made by a video "
     "model, not a real person. For every requested subject decide whether it is clearly "
-    "visible. If it is, return a bounding box that contains the whole visible subject: for a person "
-    "include the head, hair and upper body with clothing; for an object include the entire object. "
+    "visible. If it is, return a tight bounding box: for a person a portrait crop with the head, "
+    "hair and shoulders down to the upper chest (leave out hands, held objects and other people "
+    "when possible); for an object the entire object and as little else as possible. "
     "Coordinates are normalized to the image: x and y are the top-left corner, w and h are the "
     "size, all between 0 and 1 (x and w relative to image width, y and h relative to image height). "
     "Also describe the subject's stable visual appearance in one short English phrase: for a person "
@@ -84,8 +89,9 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         positions: Sequence[float] = (0.5, 0.2),
         padding: float = 0.12,
         min_area: float = 0.005,
-        min_side: int = 48,
-        max_side: int = 768,
+        min_side: int = 96,
+        max_side: int = 1024,
+        min_output_side: int = 480,
         timeout_s: float | None = 90.0,
     ) -> None:
         self._store = store
@@ -98,8 +104,11 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             padding  # 박스를 가로·세로 이 비율만큼 넓혀 자른다 (VLM 박스가 조금 어긋나도 담기게)
         )
         self.min_area = min_area  # 화면 넓이 대비 이보다 작은 박스는 기준으로 쓰지 않는다
-        self.min_side = min_side  # 잘라 낸 이미지의 짧은 변 하한(픽셀)
+        self.min_side = (
+            min_side  # 잘라 낸 원본의 짧은 변 하한(픽셀). 이보다 작으면 기준으로 쓰지 않는다
+        )
         self.max_side = max_side
+        self.min_output_side = min_output_side  # 저장할 이미지의 짧은 변 하한. 작으면 키운다
         self.timeout_s = timeout_s
 
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
@@ -176,14 +185,24 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         box: Box,
         answer: Mapping[str, Any],
     ) -> IdentityImage | None:
+        region = box.padded(self.padding)
+        native = extract_frame(self._ffmpeg, video, at_ms, crop=region)
+        native_size = video_size(self._ffmpeg, native.data)
+        if min(native_size) < self.min_side:
+            return None  # 너무 작게 잡힌 객체는 기준이 되기 어렵다
         crop = extract_frame(
-            self._ffmpeg, video, at_ms, crop=box.padded(self.padding), max_side=self.max_side
+            self._ffmpeg,
+            video,
+            at_ms,
+            crop=region,
+            max_side=self.max_side,
+            min_side=self.min_output_side,
         )
         width, height = video_size(self._ffmpeg, crop.data)
-        if min(width, height) < self.min_side:
-            return None  # 너무 작게 잡힌 객체는 기준이 되기 어렵다
         uri = self._store.put(
-            identity_key(request.clip.uri, entity.entity_key, "jpg"), crop.data, crop.media_type
+            identity_key(request.clip.uri, entity.entity_key, "jpg", crop.data),
+            crop.data,
+            crop.media_type,
         )
         return IdentityImage(
             entity_key=entity.entity_key,
@@ -194,6 +213,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 "frame_ms": at_ms,
                 "box": box.as_dict(),
                 "size": [width, height],
+                "native_size": list(native_size),
             },
         )
 

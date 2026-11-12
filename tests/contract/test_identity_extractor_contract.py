@@ -116,6 +116,23 @@ def test_same_clip_and_entity_give_the_same_uri(extractor, store, ir, clip_bytes
     assert [i.image_uri for i in first] == [i.image_uri for i in second]
 
 
+@needs_ffmpeg
+def test_a_different_crop_of_the_same_clip_gets_a_different_uri(store, ir, clip_bytes):
+    """URI 가 같으면 내용도 같아야 한다 (생성 캐시·원장 키가 기준 이미지 URI 로 만들어진다)."""
+
+    def crop(box):
+        answer = json.loads(_located("barista"))
+        answer["entities"][0]["box"] = box
+        llm = ReplayLLMClient([json.dumps(answer)])
+        extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+        return extractor.extract(_request(store, ir, clip_bytes, "barista"))[0].image_uri
+
+    left = crop({"x": 0.0, "y": 0.0, "w": 0.5, "h": 1.0})
+    right = crop({"x": 0.5, "y": 0.0, "w": 0.5, "h": 1.0})
+    assert left != right
+    assert crop({"x": 0.0, "y": 0.0, "w": 0.5, "h": 1.0}) == left
+
+
 def test_different_clips_do_not_share_an_identity_image(extractor, store, ir, clip_bytes):
     """조건 fingerprint 가 같아도 클립이 다르면 기준 이미지를 덮어쓰지 않는다."""
     one = extractor.extract(_request(store, ir, clip_bytes, "barista"))
@@ -140,13 +157,40 @@ def test_fake_can_miss_entities_and_fail(store, ir, clip_bytes):
 
 @needs_ffmpeg
 def test_frame_extractor_shares_one_full_frame_between_entities(store, ir, clip_bytes):
-    images = FrameIdentityExtractor(store, FFMPEG).extract(
+    images = FrameIdentityExtractor(store, FFMPEG, min_output_side=64).extract(
         _request(store, ir, clip_bytes, "barista", "cup")
     )
 
     assert len({i.image_uri for i in images}) == 1  # 화면 전체 한 장을 함께 쓴다
     assert _size(store.get(images[0].image_uri)) == (64, 114)
     assert images[0].detail["frame_ms"] == 2000  # 4초 클립의 가운데
+
+
+@needs_ffmpeg
+def test_small_identity_images_are_enlarged_to_the_minimum_reference_size(store, ir, clip_bytes):
+    """영상 모델은 참조 이미지에 최소 크기를 요구한다 (Wan: 가로·세로 240 px 이상)."""
+    (frame,) = FrameIdentityExtractor(store, FFMPEG).extract(
+        _request(store, ir, clip_bytes, "barista")
+    )
+    llm = ReplayLLMClient([_located("cup")])
+    (crop,) = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup")
+    )
+
+    for image in (frame, crop):
+        width, height = _size(store.get(image.image_uri))
+        assert min(width, height) == 480
+    assert crop.detail["native_size"][0] < 64  # 잘라 낸 원본은 작았다
+
+
+@needs_ffmpeg
+def test_vlm_crop_skips_subjects_that_are_too_small_in_the_frame(store, ir, clip_bytes):
+    llm = ReplayLLMClient([_located("cup"), _located("cup")])
+    # 64x114 프레임의 절반 크기 박스 -> 약 40x70 px: 기본 하한(96 px)보다 작다
+    assert (
+        VlmCropIdentityExtractor(store, FFMPEG, llm).extract(_request(store, ir, clip_bytes, "cup"))
+        == ()
+    )
 
 
 @needs_ffmpeg
@@ -164,7 +208,9 @@ def test_vlm_crop_cuts_each_entity_out_of_the_frame(store, ir, clip_bytes):
         ]
     }
     llm = ReplayLLMClient([json.dumps(first), json.dumps({"entities": [hidden_cup]})])
-    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, padding=0.0, min_side=8)
+    extractor = VlmCropIdentityExtractor(
+        store, FFMPEG, llm, padding=0.0, min_side=8, min_output_side=8
+    )
 
     images = extractor.extract(_request(store, ir, clip_bytes, "barista", "cup"))
 

@@ -24,23 +24,31 @@ class FrameIdentityExtractor(IdentityReferenceExtractor):
         ffmpeg: str | None,
         *,
         position: float = 0.5,
-        max_side: int = 768,
+        max_side: int = 1024,
+        min_output_side: int = 480,
     ) -> None:
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.position = min(1.0, max(0.0, position))  # 클립 길이 중 프레임을 뽑을 위치 (0..1)
         self.max_side = max_side
+        self.min_output_side = min_output_side  # 영상 모델이 받는 참조 이미지의 최소 크기를 넘긴다
 
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         if not request.entities:
             return ()
         at_ms = int(request.clip.duration_ms * self.position)
         frame = extract_frame(
-            self._ffmpeg, self._store.get(request.clip.uri), at_ms, max_side=self.max_side
+            self._ffmpeg,
+            self._store.get(request.clip.uri),
+            at_ms,
+            max_side=self.max_side,
+            min_side=self.min_output_side,
         )
         # 화면 전체 한 장을 그 장면의 모든 객체가 함께 쓴다 (생성기는 같은 이미지를 한 번만 보낸다)
         uri = self._store.put(
-            identity_key(request.clip.uri, "frame", "jpg"), frame.data, frame.media_type
+            identity_key(request.clip.uri, "frame", "jpg", frame.data),
+            frame.data,
+            frame.media_type,
         )
         return tuple(
             IdentityImage(

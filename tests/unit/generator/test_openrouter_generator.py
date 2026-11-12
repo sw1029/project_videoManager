@@ -109,7 +109,7 @@ def test_prompt_includes_scene_level_conditions():
 
 def test_prompt_points_entities_to_their_reference_images(ir):
     prompt = compile_video_prompt(_request(ir), {"cup": [1]})
-    assert "- cup (prop, reference image 1): 세라믹 머그컵; color: red" in prompt.splitlines()
+    assert "- cup (prop, Image 1): 세라믹 머그컵; color: red" in prompt.splitlines()
 
 
 # ---- 길이 선택 ----------------------------------------------------------------------
@@ -587,8 +587,8 @@ def test_identity_references_are_sent_after_user_references(store, ir):
         "data:image/png;base64," + base64.b64encode(PNG_BYTES + b"-barista").decode("ascii"),
     ]
     lines = body["prompt"].splitlines()
-    assert any(line.startswith("- cup (prop, reference image 1)") for line in lines)
-    assert any(line.startswith("- barista (person, reference image 2)") for line in lines)
+    assert any(line.startswith("- cup (prop, Image 1)") for line in lines)
+    assert any(line.startswith("- barista (person, Image 2)") for line in lines)
     assert lines[-1] == CONSISTENCY_LINE
     assert (clip.metadata["reference_count"], clip.metadata["identity_reference_count"]) == (2, 1)
     assert clip.fingerprint == request.fingerprint
@@ -604,7 +604,7 @@ def test_prompt_carries_the_appearance_read_from_the_identity_image(store, ir):
     prompt = compile_video_prompt(request, {"barista": [1]})
 
     assert (
-        "- barista (person, reference image 1): 흰 셔츠를 입은 바리스타; "
+        "- barista (person, Image 1): 흰 셔츠를 입은 바리스타; "
         "looks like: short black hair, round glasses; shirt color: white"
     ) in prompt.splitlines()
 
@@ -625,8 +625,8 @@ def test_entities_sharing_one_identity_image_send_it_once(store, ir):
     body = api.submits[0].json()
     assert len(body["input_references"]) == 1
     lines = body["prompt"].splitlines()
-    assert any(line.startswith("- barista (person, reference image 1)") for line in lines)
-    assert any(line.startswith("- cup (prop, reference image 1)") for line in lines)
+    assert any(line.startswith("- barista (person, Image 1)") for line in lines)
+    assert any(line.startswith("- cup (prop, Image 1)") for line in lines)
 
 
 def test_ledger_key_follows_the_identity_references(store, ir):
@@ -641,3 +641,31 @@ def test_ledger_key_follows_the_identity_references(store, ir):
 
     assert len(api.submits) == 2
     assert again.metadata["ledger"] == "reused"
+
+
+def test_several_references_of_one_entity_are_named_in_order(ir):
+    prompt = compile_video_prompt(_request(ir), {"cup": [1, 3], None: [2]})
+    lines = prompt.splitlines()
+    assert "- cup (prop, Image 1 and Image 3): 세라믹 머그컵; color: red" in lines
+    assert "Overall look: follow Image 2" in lines
+
+
+def test_provider_messages_keep_only_the_host_of_any_url(store, ir):
+    """제공자가 올려 받은 참조 이미지의 서명 URL 을 오류에 섞어 보내도 기록에는 호스트만 남긴다."""
+    signed = (
+        "http://files.example-oss.com/restful/data-uri/123/abc?Expires=1794627566"
+        "&OSSAccessKeyId=LTAI-SECRET&Signature=SIG-SECRET"
+    )
+    api = FakeOpenRouterApi().on(
+        "GET",
+        STATUS_PATH,
+        status("failed", error=f"Error validating image resolution: image {signed} is too small"),
+    )
+
+    with pytest.raises(GenerationError) as excinfo:
+        make_openrouter_generator(store, api).generate_scene(_request(ir))
+
+    message = str(excinfo.value)
+    assert "Error validating image resolution" in message and "is too small" in message
+    assert "http://files.example-oss.com/..." in message
+    assert "SECRET" not in message and "Expires" not in message

@@ -77,6 +77,7 @@ KEY_ENV = "OPENROUTER_API_KEY"
 LEDGER_TTL_SECONDS = 24 * 3600.0  # 제출 뒤 이 시간이 지난 원장 항목은 이어 받지 않는다
 
 _KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
+_URL = re.compile(r"(https?)://([^/\s\"'<>?]+)[^\s\"'<>]*")
 _RETRY_SUBMIT = frozenset({429, 502})  # 접수 전 거절: 과금 없음
 _TRANSIENT_GET = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 _FAILED_STATES = frozenset({"failed", "cancelled", "expired"})
@@ -305,9 +306,10 @@ def compile_video_prompt(
 
 # 참조 이미지가 있는 객체: 모습은 참조에서, 자세·행동·구도·배경은 이 장면의 글에서 가져오게 한다
 CONSISTENCY_LINE = (
-    "Consistency: each subject with a reference image is the same individual or object as in its "
-    "reference. Keep its face, hair, body, clothing, colors, shape and markings identical to the "
-    "reference; take pose, action, framing and background from this scene, not from the reference."
+    "Consistency: each subject marked with an Image number is the same individual or object as in "
+    "that reference image. Keep its face, hair, body, clothing, colors, shape and markings "
+    "identical to the reference; take pose, action, framing and background from this scene, not "
+    "from the reference."
 )
 
 
@@ -369,8 +371,12 @@ def _words(predicate: str) -> str:
 
 
 def _reference_phrase(numbers: Sequence[int]) -> str:
-    joined = ", ".join(str(n) for n in numbers)
-    return f"reference image {joined}" if len(numbers) == 1 else f"reference images {joined}"
+    """input_references 의 순서 번호로 참조 이미지를 가리킨다: 'Image 1', 'Image 1 and Image 2'.
+
+    Wan 의 참조 영상 생성 문서가 정한 지칭이다 (첫 글자 대문자, 낱말과 숫자 사이 한 칸, 배열 순서와 같은 번호).
+    다른 모델도 자연어로 읽을 수 있는 표현이다.
+    """
+    return " and ".join(f"Image {n}" for n in numbers)
 
 
 # ---- 출력 규격 -----------------------------------------------------------------------
@@ -1165,7 +1171,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         """서버 메시지에 키가 섞여 와도 그대로 옮기지 않는다."""
         cleaned = text.replace(self._api_key, "***")
         cleaned = _KEY_TOKEN.sub("sk-or-***", cleaned)
-        return " ".join(cleaned.split())[:300]
+        # 제공자 메시지에 섞여 오는 주소(올려 보낸 참조 이미지의 서명 URL 등)는 호스트만 남긴다
+        cleaned = _URL.sub(lambda m: f"{m.group(1)}://{m.group(2)}/...", cleaned)
+        return " ".join(cleaned.split())[:400]
 
 
 def _hint(status: int) -> str:
