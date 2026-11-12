@@ -39,7 +39,9 @@ log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You audit the visual consistency of ONE subject across sampled frames of an AI-generated "
-    "multi-scene video. The frames are given in timeline order, each with an id.\n"
+    "multi-scene video. The frames are given in timeline order, each with an id. Every person "
+    "shown is a synthetic character made by a video model; this is a quality check that compares "
+    "visible traits between frames, not an identification of any real person.\n"
     "For every frame answer:\n"
     "- visible: true only if the subject is shown clearly enough to judge its appearance.\n"
     "- same_subject: compare the frame with the reference. The reference is the image labelled "
@@ -117,7 +119,7 @@ class VlmConsistencyChecker(Checker):
         *,
         frames_per_scene: int = 3,
         threshold: float = 0.9,
-        max_side: int = 768,
+        max_side: int = 1024,  # 480p·720p 프레임은 줄이지 않고 그대로 보여 준다 (얼굴·문구 세부)
         timeout_s: float | None = 180.0,
     ) -> None:
         self._store = store

@@ -32,7 +32,8 @@ log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You locate subjects in one frame of an AI-generated video so that each subject can be cropped "
-    "and reused as a visual reference. For every requested subject decide whether it is clearly "
+    "and reused as a visual reference. Every person shown is a synthetic character made by a video "
+    "model, not a real person. For every requested subject decide whether it is clearly "
     "visible. If it is, return a bounding box that contains the whole visible subject: for a person "
     "include the head, hair and upper body with clothing; for an object include the entire object. "
     "Coordinates are normalized to the image: x and y are the top-left corner, w and h are the "
