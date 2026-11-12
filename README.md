@@ -49,6 +49,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |
+| `FRAME_GENERATOR_TIMEOUT_S` | 초 (0·빈 값 = 끔, 기본 끔) | 장면 하나 생성의 범용 시간 제한. 넘으면 `GENERATION_TIMEOUT` 으로 실패하고 재시도하지 않는다. `external_api` 는 `FRAME_VIDEO_TIMEOUT_S` + 300초 이상 ([ADR-0012](docs/adr/0012-generation-timeout-partial-results-progress.md)) |
 | `FRAME_WORKER_LEASE_S` / `FRAME_WORKER_MAX_ATTEMPTS` / `FRAME_RECOVERY_INTERVAL_S` | 초(1800) / 횟수(3) / 초(60, 0 = 기동 때만) | 재시작 복구 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)): 기동 때 QUEUED·STRUCTURING 은 다시 실행하고 PROCESSING 은 재시도, 실행 중에는 리스를 넘긴 PROCESSING 을 재시도. 시도 상한이면 `FAILED(WORKER_LOST)` |
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |

@@ -31,6 +31,7 @@ from frame.domain.errors import IntegrityViolation
 from frame.domain.identifiers import entity_id, requirement_id, scene_id
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import Project, ReferenceImage, VideoVersion
+from frame.domain.progress import PipelineProgress
 from frame.domain.state_machine import assert_transition
 from frame.domain.tracking import TrackRecord
 
@@ -158,6 +159,11 @@ class SqlAlchemyVersionRepository(VersionRepository):
         row.error_message = version.error_message
         row.frozen_fingerprint = version.frozen_fingerprint
         row.created_at = version.created_at
+        row.progress_json = (
+            json.dumps(version.progress.to_dict(), ensure_ascii=False)
+            if version.progress is not None
+            else None
+        )
         return row
 
     def _to_domain(self, row: VersionRow) -> VideoVersion:
@@ -190,6 +196,11 @@ class SqlAlchemyVersionRepository(VersionRepository):
             error_message=row.error_message,
             frozen_fingerprint=row.frozen_fingerprint,
             clips=clips,
+            progress=(
+                PipelineProgress.from_dict(json.loads(row.progress_json))
+                if row.progress_json
+                else None
+            ),
         )
 
     def _sync_ir_rows(self, version: VideoVersion) -> None:

@@ -1,4 +1,4 @@
-from .decorators import CachingVideoGenerator, RetryingVideoGenerator
+from .decorators import CachingVideoGenerator, RetryingVideoGenerator, TimeoutVideoGenerator
 from .fake import FakeVideoAssembler, FakeVideoGenerator
 from .ffmpeg import FfmpegVideoAssembler
 from .openrouter import OpenRouterVideoGenerator
@@ -12,4 +12,5 @@ __all__ = [
     "FfmpegVideoAssembler",
     "OpenRouterVideoGenerator",
     "RetryingVideoGenerator",
+    "TimeoutVideoGenerator",
 ]

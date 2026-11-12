@@ -21,6 +21,7 @@ from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import Verdict
 from frame.domain.identifiers import entity_id
 from frame.domain.ir import RequirementSpec, SceneSpec
+from frame.domain.progress import PipelineProgress
 from frame.domain.services.comparison import RequirementComparison
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
@@ -60,6 +61,16 @@ def project_out(detail: ProjectDetail) -> s.ProjectOut:
             )
             for v in detail.versions
         ],
+    )
+
+
+def progress_out(progress: PipelineProgress | None) -> s.ProgressOut | None:
+    if progress is None:
+        return None
+    return s.ProgressOut(
+        stage=progress.current.stage if progress.current is not None else None,
+        elapsed_ms=progress.elapsed_ms,
+        stages=[s.StageProgressOut(**stage.to_dict()) for stage in progress.stages],
     )
 
 
@@ -143,6 +154,7 @@ def version_out(
             for r in detail.reference_images
         ],
         created_at=v.created_at,
+        progress=progress_out(v.progress),
     )
 
 

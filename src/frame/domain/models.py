@@ -9,6 +9,7 @@ from .artifacts import GeneratedClip
 from .enums import VersionState
 from .errors import ValidationError
 from .ir import IntermediateRepresentation
+from .progress import PipelineProgress
 from .state_machine import assert_transition
 
 
@@ -49,6 +50,8 @@ class VideoVersion:
     error_message: str | None = None
     frozen_fingerprint: str | None = None  # 생성 접수 시 고정된 IR 해시
     clips: dict[str, GeneratedClip] = field(default_factory=dict)  # scene_key -> clip (ERD 확장)
+    # 생성·추적·검수 단계와 장면 진행 (ERD 확장). 파이프라인이 처리 도중과 끝에 저장한다. 실행 전에는 None
+    progress: PipelineProgress | None = None
 
     # ---- 상태 규칙 ----------------------------------------------------------
     def transition_to(self, new_state: VersionState) -> None:

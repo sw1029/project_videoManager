@@ -57,6 +57,7 @@ class VersionRow(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     frozen_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확장
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 확장 (단계·장면 진행)
 
 
 class EntityRow(Base):

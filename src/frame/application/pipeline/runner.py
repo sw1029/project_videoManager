@@ -25,10 +25,17 @@ class PipelineRunner:
     def __init__(self, observers: Sequence[PipelineObserver] = ()) -> None:
         self._observers = tuple(observers)
 
-    def run(self, stages: Sequence[PipelineStage], ctx: PipelineContext) -> PipelineContext:
+    def run(
+        self,
+        stages: Sequence[PipelineStage],
+        ctx: PipelineContext,
+        observers: Sequence[PipelineObserver] = (),
+    ) -> PipelineContext:
+        """observers: 이번 실행에만 붙일 관찰자 (예: 이 버전의 진행 상황을 저장하는 관찰자)."""
+        everyone = (*self._observers, *observers)
         for stage in stages:
             try:
-                stage.run(ctx, self._observers)
+                stage.run(ctx, everyone)
             except PipelineFailure:
                 raise
             except AdapterError as exc:

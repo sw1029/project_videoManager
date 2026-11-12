@@ -20,6 +20,8 @@ class Settings:
     db_url: str = "sqlite+pysqlite:///:memory:"
     db_create_schema: bool = False  # 개발용. 운영 스키마는 Alembic 마이그레이션으로 관리
     jobs: str = "inline"  # inline | recording | thread
+    # 장면 하나 생성의 범용 시간 제한(초). 0·빈 값이면 끔. external_api 는 FRAME_VIDEO_TIMEOUT_S 보다 길게 (ADR-0012)
+    generator_timeout_s: float = 0.0
     generator_retries: int = 0
     generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
     # --- 재시작 복구 (ADR-0013) ---
@@ -86,6 +88,7 @@ class Settings:
             db_url=text("DB_URL", base.db_url),
             db_create_schema=flag("DB_CREATE_SCHEMA", base.db_create_schema),
             jobs=text("JOBS", base.jobs),
+            generator_timeout_s=_optional_float(text("GENERATOR_TIMEOUT_S", "")) or 0.0,
             generator_retries=int(text("GENERATOR_RETRIES", str(base.generator_retries))),
             generator_cache=flag("GENERATOR_CACHE", base.generator_cache),
             worker_lease_s=float(text("WORKER_LEASE_S", "") or base.worker_lease_s),
