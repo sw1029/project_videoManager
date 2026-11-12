@@ -205,6 +205,7 @@ def default_registry() -> AdapterRegistry:
             normalizer=FfmpegVideoNormalizer(resolve_ffmpeg(s.video_ffmpeg)),
             edit_mode=s.video_edit_mode,
             edit_model=s.video_edit_model,
+            edit_parent_wait_seconds=s.video_edit_parent_wait_s,
         )
 
     reg.register(VideoGenerator, "external_api", _external_api)

@@ -18,6 +18,7 @@ from frame.adapters.generator.openrouter import (
     VideoModelInfo,
     compile_edit_prompt,
 )
+from frame.adapters.http_transport import TransportError
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import (
@@ -36,6 +37,7 @@ from tests.support.openrouter import (
     SIGNED_URL,
     WAN_30,
     FakeOpenRouterApi,
+    FakeTime,
     accepted,
     completed,
     error_response,
@@ -267,24 +269,121 @@ def test_signed_parent_url_is_never_recorded(ir, store):
     assert ledger and all(b"SIGNED-SECRET" not in blob for blob in ledger)
 
 
+NO_URLS = status("completed", PARENT_JOB, usage={"cost": 0.2})  # 끝났지만 응답에 저장본 주소가 없다
+
+
 @pytest.mark.parametrize(
-    "parent_status",
+    ("parent_status", "lookups"),
     [
-        status("completed", PARENT_JOB, usage={"cost": 0.2}),  # 저장본이 없다 (urls 없음)
-        status("expired", PARENT_JOB),
-        error_response(404, "Resource not found"),
+        (NO_URLS, 6),  # 주소가 끝내 오지 않는다: 기본 10초 동안 0·2·4·6·8·10초에 묻는다
+        (status("expired", PARENT_JOB), 1),  # 없어진 작업은 다시 묻지 않는다
+        (error_response(404, "Resource not found"), 1),
     ],
 )
-def test_parent_job_without_a_stored_copy_means_regeneration(ir, store, parent_status):
+def test_parent_job_without_a_stored_copy_means_regeneration(ir, store, parent_status, lookups):
     api = _api(parent_status=parent_status)
     generator = make_openrouter_generator(store, api, edit_mode="video_reference")
 
     clip = generator.generate_scene(_request(ir, store))
 
-    (submit,) = api.submits  # 편집 요청은 보내지 않고 바로 새로 만든다
+    (submit,) = api.submits  # 편집 요청은 보내지 않고 새로 만든다
     assert "input_references" not in submit.json() and submit.json()["prompt"].startswith("Scene:")
+    edit = clip.metadata["edit"]
+    assert edit["applied"] is False
+    assert "저장본" in edit["fallback_reason"] and f"{lookups}회" in edit["fallback_reason"]
+    assert edit["parent_url_lookups"] == lookups
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == lookups
+
+
+def test_parent_url_missing_from_a_response_is_asked_again(ir, store):
+    """끝난 작업의 상태 응답에 저장본 주소가 빠져 올 때가 있다 (2차 실호출: 같은 작업을 10번 물으면 2~3번)."""
+    api = _api()
+    api.on("GET", f"/api/v1/videos/{PARENT_JOB}", NO_URLS, NO_URLS, completed(PARENT_JOB))
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store,
+        api,
+        clock=clock,
+        edit_mode="video_reference",
+        edit_model="black-forest-labs/flux-video-edit",
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == 3
+    reference = api.submits[0].json()["input_references"][0]
+    assert reference["video_url"]["url"] == SIGNED_URL
+    assert clip.metadata["edit"]["applied"] is True
+    assert clip.metadata["edit"]["parent_url_lookups"] == 3
+    assert clock.sleeps[:2] == [2.0, 2.0]  # 그 뒤의 sleep 은 편집 작업의 폴링이다
+
+
+def test_lookup_failures_that_may_pass_are_asked_again(ir, store):
+    api = _api()
+    api.on(
+        "GET",
+        f"/api/v1/videos/{PARENT_JOB}",
+        TransportError("connection reset"),
+        error_response(503, "upstream busy"),
+        error_response(429, "slow down"),
+        completed(PARENT_JOB),
+    )
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is True
+    assert clip.metadata["edit"]["parent_url_lookups"] == 4
+
+
+def test_a_longer_wait_slows_down_to_the_polling_interval(ir, store):
+    """오래 기다리게 설정하면 처음 여섯 번만 촘촘히 묻고 그 뒤로는 폴링 간격으로 묻는다."""
+    api = _api(parent_status=NO_URLS)
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store, api, clock=clock, edit_mode="video_reference", edit_parent_wait_seconds=60
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clock.sleeps[:8] == [2.0, 2.0, 2.0, 2.0, 2.0, 20.0, 20.0, 10.0]
+    assert clip.metadata["edit"]["parent_url_lookups"] == 9
     assert clip.metadata["edit"]["applied"] is False
-    assert "저장본" in clip.metadata["edit"]["fallback_reason"]
+
+
+def test_a_wait_of_zero_asks_once(ir, store):
+    api = _api(parent_status=NO_URLS)
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_parent_wait_seconds=0
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == 1
+    assert clip.metadata["edit"]["parent_url_lookups"] == 1
+
+
+def test_a_parent_clip_with_its_own_address_needs_no_lookup(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+    request = _request(ir, store)
+    remote = replace(
+        request,
+        parent=replace(
+            request.parent,
+            clip=replace(request.parent.clip, uri="https://cdn.example/clips/intro.mp4"),
+        ),
+    )
+
+    clip = generator.generate_scene(remote)
+
+    assert not api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")
+    assert "parent_url_lookups" not in clip.metadata["edit"]
+
+
+def test_a_negative_wait_is_a_configuration_error(store):
+    with pytest.raises(ConfigurationError, match="FRAME_VIDEO_EDIT_PARENT_WAIT_S"):
+        make_openrouter_generator(store, edit_parent_wait_seconds=-1)
 
 
 def test_parent_clip_that_is_not_an_openrouter_job_is_regenerated(ir, store):
@@ -494,8 +593,13 @@ def test_edit_settings_reach_the_adapter(tmp_path):
         "video_reference",
         "black-forest-labs/flux-video-edit",
     )
+    assert generator.edit_parent_wait_seconds == 10.0
     defaults = Settings.from_env({})
     assert (defaults.video_edit_mode, defaults.video_edit_model) == ("off", None)
+    assert defaults.video_edit_parent_wait_s == 10.0
+
+    waiting = Settings.from_env({**env, "FRAME_VIDEO_EDIT_PARENT_WAIT_S": "300"})
+    assert build_container(waiting).generator.edit_parent_wait_seconds == 300.0
 
 
 # ---- 수정 지시: 유지할 요소와 REPAIR (ADR-0017) ------------------------------------------

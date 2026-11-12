@@ -19,6 +19,9 @@
 - 영상 참조는 HTTPS 주소만 받는다 (data URI 는 "Only HTTPS URLs are allowed" 로 거절된다, 2026-11-12 실호출).
   그래서 부모 클립을 만든 OpenRouter 작업의 저장본 서명 URL(urls)을 그 자리에서 받아 넘긴다. 이 주소는 요청 본문에만
   쓰고 기록하지 않는다. 저장본이 없거나 만료됐으면 편집하지 않고 새로 생성한다.
+- 끝난 작업의 상태 응답에 저장본 주소가 빠져 올 때가 있다 (2026-11-12 실호출: 같은 작업을 10번 물으면 2~3번,
+  끝난 지 몇 분 안 된 작업은 한동안 주소가 아예 없었다). 그래서 주소가 없으면
+  FRAME_VIDEO_EDIT_PARENT_WAIT_S(기본 10초) 동안 다시 묻고, 그래도 없으면 새로 생성한다.
 - 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다.
 - 편집 결과는 부모 클립에 달려 있으므로 캐시·원장 키(result_key)에 부모 클립을 넣는다.
 
@@ -43,7 +46,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote, urlsplit
 
 from frame.adapters.http_transport import (
@@ -146,6 +149,19 @@ class _EditPlan:
     parent_clip_uri: str
     previous_job_id: str | None = None  # previous_job: 이어 갈 작업
     parent_job_id: str | None = None  # video_reference: 저장본 주소를 받아 올 부모 작업
+
+
+class _ParentUrl(NamedTuple):
+    """영상 참조로 보낼 부모 클립 주소와, 그것을 얻으려고 부모 작업을 조회한 횟수 (주소가 None 이면 못 얻었다)."""
+
+    url: str | None
+    lookups: int
+
+
+# 부모 작업의 저장본 주소를 다시 물을 때: 처음 몇 번은 촘촘히 묻고(응답마다 주소가 빠지는 것을 넘긴다),
+# 그 뒤로는 폴링 간격으로 묻는다
+_PARENT_URL_QUICK_SECONDS = 2.0
+_PARENT_URL_QUICK_LOOKUPS = 6
 
 
 # ---- 키 -------------------------------------------------------------------------------
@@ -521,6 +537,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         ledger_ttl_seconds: float = LEDGER_TTL_SECONDS,
         edit_mode: str = EDIT_OFF,
         edit_model: str | None = None,
+        edit_parent_wait_seconds: float = 10.0,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
@@ -534,9 +551,15 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 f"FRAME_VIDEO_EDIT_MODE 값이 잘못되었습니다: {edit_mode} "
                 f"(사용 가능: {', '.join(EDIT_MODES)})"
             )
+        if edit_parent_wait_seconds < 0:
+            raise ConfigurationError(
+                "FRAME_VIDEO_EDIT_PARENT_WAIT_S 는 0 이상이어야 합니다 (0 이면 한 번만 묻는다)"
+            )
         # 부모 클립 편집 (ADR-0016). edit_model 은 video_reference 에서만 쓰고, 비우면 생성 모델을 쓴다
         self.edit_mode = edit_mode
         self.edit_model = (edit_model or "").strip() or None
+        # 부모 작업의 저장본 주소가 상태 응답에 없을 때 다시 묻는 시간
+        self.edit_parent_wait_seconds = float(edit_parent_wait_seconds)
         self._api_key = api_key.strip()
         self.key_hint = mask_key(self._api_key)
         self.base_url = _checked_base_url(base_url)
@@ -584,14 +607,19 @@ class OpenRouterVideoGenerator(VideoGenerator):
         rejected: dict[str, Any] | None = None
         plan = self._edit_plan(request)
         if plan is not None:
-            prepared = self._edit_body(request, plan)
-            if prepared is None:
-                # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료): 제출하지 않고 새로 만든다
+            source = (
+                self._parent_video_url(plan)
+                if plan.mode == EDIT_VIDEO_REFERENCE
+                else _ParentUrl(None, 0)
+            )
+            if plan.mode == EDIT_VIDEO_REFERENCE and source.url is None:
+                # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료·아직 안 나옴): 제출하지 않고 새로 만든다
                 log.warning(
                     "부모 클립의 저장본 주소를 얻지 못해 편집하지 않고 새로 생성합니다 "
-                    "(부모 작업 %s, 장면 %s)",
+                    "(부모 작업 %s, 장면 %s, 조회 %d회)",
                     plan.parent_job_id,
                     request.scene.scene_key,
+                    source.lookups,
                 )
                 rejected = {
                     "mode": plan.mode,
@@ -599,10 +627,14 @@ class OpenRouterVideoGenerator(VideoGenerator):
                     "applied": False,
                     "parent_version_id": plan.parent_version_id,
                     "parent_clip_uri": plan.parent_clip_uri,
-                    "fallback_reason": "부모 작업의 저장본 주소를 얻지 못함 (없거나 만료됨)",
+                    "parent_url_lookups": source.lookups,
+                    "fallback_reason": (
+                        f"부모 작업의 저장본 주소를 얻지 못함 ({source.lookups}회 조회: "
+                        "없거나 만료됐거나 아직 나오지 않음)"
+                    ),
                 }
             else:
-                body, details = prepared
+                body, details = self._edit_body(request, plan, source)
                 try:
                     job = self._submit(body)
                 except _SubmitRejected as exc:
@@ -803,40 +835,68 @@ class OpenRouterVideoGenerator(VideoGenerator):
             and urlsplit(self.base_url).hostname in local
         )
 
-    def _parent_video_url(self, plan: _EditPlan) -> str | None:
-        """부모 클립을 내려받을 수 있는 주소. 못 구하면 None (편집하지 않는다). 주소는 기록하지 않는다."""
+    def _parent_video_url(self, plan: _EditPlan) -> _ParentUrl:
+        """부모 클립을 내려받을 수 있는 주소. 못 구하면 주소가 None (편집하지 않는다). 주소는 기록하지 않는다.
+
+        끝난 작업의 상태 응답에 저장본 주소(urls)가 빠져 올 때가 있어, 끝났는데 주소가 없는 응답과 일시적인 조회
+        실패는 edit_parent_wait_seconds 동안 다시 묻는다. 없어졌거나 끝나지 않은 작업은 다시 묻지 않는다.
+        """
         if self._usable_video_url(plan.parent_clip_uri):
-            return plan.parent_clip_uri
+            return _ParentUrl(plan.parent_clip_uri, 0)
         if plan.parent_job_id is None:
-            return None
+            return _ParentUrl(None, 0)
+        deadline = self._monotonic() + self.edit_parent_wait_seconds
+        lookups = 0
+        while True:
+            lookups += 1
+            url, ask_again = self._lookup_parent_url(plan.parent_job_id)
+            if url is not None or not ask_again:
+                return _ParentUrl(url, lookups)
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return _ParentUrl(None, lookups)
+            delay = (
+                _PARENT_URL_QUICK_SECONDS
+                if lookups < _PARENT_URL_QUICK_LOOKUPS
+                else self.poll_interval_seconds
+            )
+            self._sleep(min(delay, remaining))
+
+    def _lookup_parent_url(self, job_id: str) -> tuple[str | None, bool]:
+        """부모 작업을 한 번 조회한다: (저장본 주소, 주소가 없을 때 다시 물어볼 만한가)."""
         try:
             resp = self._http.request(
                 "GET",
-                self._job_url(plan.parent_job_id),
+                self._job_url(job_id),
                 headers=self._auth_headers(),
                 timeout=self.request_timeout_seconds,
             )
-            data = self._json(resp) if resp.status == 200 else {}
-        except (TransportError, GenerationError):
-            return None
+        except TransportError:
+            return None, True
+        if resp.status != 200:
+            return None, resp.status == 429 or resp.status >= 500
+        try:
+            data = self._json(resp)
+        except GenerationError:
+            return None, True
+        if data.get("status") != "completed":
+            return None, False
         urls = data.get("urls")
-        if data.get("status") != "completed" or not isinstance(urls, list) or not urls:
-            return None
+        if not isinstance(urls, list) or not urls:
+            return None, True  # 끝났는데 주소가 없다: 이 응답에만 빠졌거나 아직 나오지 않았다
         url = urls[0]
-        return url if isinstance(url, str) and self._usable_video_url(url) else None
+        if isinstance(url, str) and self._usable_video_url(url):
+            return url, False
+        return None, False
 
     def _edit_body(
-        self, request: SceneGenerationRequest, plan: _EditPlan
-    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        self, request: SceneGenerationRequest, plan: _EditPlan, source: _ParentUrl
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """편집 요청 본문. 모델 메타데이터에 없는 선택 값은 보내지 않는다 (목록에 없는 값은 거부된다).
 
-        영상 참조로 보낼 부모 클립 주소를 구하지 못하면 None (편집할 수 없다).
+        source 는 영상 참조로 보낼 부모 클립 주소다 (video_reference 에서만 쓴다).
         """
-        video_url: str | None = None
-        if plan.mode == EDIT_VIDEO_REFERENCE:
-            video_url = self._parent_video_url(plan)
-            if video_url is None:
-                return None
+        video_url = source.url
         info = self.model_info(plan.model)
         scene = request.scene
         seconds = info.pick_duration(scene.duration_ms) if info.durations else None
@@ -869,6 +929,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
             edit["previous_job_id"] = plan.previous_job_id
         if plan.parent_job_id is not None:
             edit["parent_job_id"] = plan.parent_job_id
+        if source.lookups:
+            # 저장본 주소를 얻기까지 부모 작업을 조회한 횟수
+            edit["parent_url_lookups"] = source.lookups
         details: dict[str, Any] = {
             "model": plan.model,
             "estimated_cost_usd": round(price * billed, 6) if price is not None else None,

@@ -70,6 +70,9 @@ class Settings:
     # off | previous_job(부모 작업을 previous_job_id 로 이어서 편집) | video_reference(부모 클립을 영상 참조로 보냄)
     video_edit_mode: str = "off"
     video_edit_model: str | None = None  # video_reference 의 편집 모델. 비우면 FRAME_VIDEO_MODEL
+    # video_reference: 부모 작업의 저장본 주소가 상태 응답에 없을 때 다시 묻는 시간(초). 넘기면 새로 생성한다.
+    # 끝난 지 몇 분 안 된 작업은 주소가 늦게 나온다 (2차 실호출). 늘리면 편집을 더 자주 쓰지만 그만큼 기다린다
+    video_edit_parent_wait_s: float = 10.0
     # --- LLM (FRAME_STRUCTURER=llm 일 때) ---
     # openai(기본, OpenAI 호환 로컬 서버도 base_url 로) | fake(테스트용 재생 클라이언트).
     # 키나 패키지가 없으면 서버 기동 시점에 실패한다 (요청마다 조용히 실패하지 않도록).
@@ -163,6 +166,9 @@ class Settings:
             video_ffmpeg=text("VIDEO_FFMPEG", "") or None,
             video_edit_mode=text("VIDEO_EDIT_MODE", "") or base.video_edit_mode,
             video_edit_model=text("VIDEO_EDIT_MODEL", "") or None,
+            video_edit_parent_wait_s=float(
+                text("VIDEO_EDIT_PARENT_WAIT_S", "") or base.video_edit_parent_wait_s
+            ),
             llm_provider=text("LLM_PROVIDER", base.llm_provider),
             llm_model=text("LLM_MODEL", base.llm_model),
             llm_key_file=text("LLM_KEY_FILE", "") or None,
