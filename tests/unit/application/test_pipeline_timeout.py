@@ -18,7 +18,8 @@ from frame.domain.enums import VersionState
 from frame.domain.services.propagation import AttributeChange
 from tests.support.factories import create_draft, generate, make_container, version_of
 
-TIMEOUT_S = 0.05
+# 느린 장면만 마감을 넘기고, 나머지 장면(Fake, 1ms 미만)은 느린 CI 에서도 넉넉히 끝나는 값
+TIMEOUT_S = 0.5
 
 
 class SlowSceneGenerator(VideoGenerator):
@@ -63,7 +64,7 @@ def test_generation_timeout_fails_the_version_and_skips_later_stages(release):
 
     assert version.state is VersionState.FAILED
     assert version.error_code == "GENERATION_TIMEOUT"
-    assert version.error_message.startswith("[generate] 장면 'closeup' 생성이 0.05초 안에")
+    assert version.error_message.startswith("[generate] 장면 'closeup' 생성이 0.5초 안에")
     assert version.video_uri is None
     assert tracker.requests == []  # 추적 미실행
     assert container.queries.get_checks(draft.version_id).results == ()  # 검수 미실행
