@@ -57,6 +57,24 @@ class ChangeScope(StrEnum):
     ALL_APPEARANCES = "ALL_APPEARANCES"  # 객체가 등장하는 모든 장면에 반영
 
 
+class RevisionKind(StrEnum):
+    """수정 버전이 하려는 것 (ADR-0017)."""
+
+    CHANGE = "CHANGE"  # 요구조건의 값을 바꾼다
+    REPAIR = "REPAIR"  # 요구조건은 그대로 두고, 반영되지 않은 장면을 다시 만든다
+
+
+class KeepAspect(StrEnum):
+    """수정에서 그대로 두라고 요청할 수 있는 요소 (ADR-0017)."""
+
+    APPEARANCE = "APPEARANCE"  # 객체의 모습 (인물: 얼굴·머리·옷, 물건: 색·무늬)
+    ACTION = "ACTION"  # 객체의 동작·자세
+    SHAPE = "SHAPE"  # 객체의 형태·크기
+    BACKGROUND = "BACKGROUND"  # 장면의 배경
+    LIGHTING = "LIGHTING"  # 장면의 조명
+    COMPOSITION = "COMPOSITION"  # 장면의 구도·카메라
+
+
 class ReferenceOrigin(StrEnum):
     """REFERENCE_IMAGE 의 출처 (ERD 확장, ADR-0015)."""
 

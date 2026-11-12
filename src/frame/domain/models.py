@@ -10,6 +10,7 @@ from .enums import ReferenceOrigin, VersionState
 from .errors import ValidationError
 from .ir import IntermediateRepresentation
 from .progress import PipelineProgress
+from .revision import RevisionIntent
 from .state_machine import assert_transition
 
 
@@ -62,6 +63,15 @@ class VideoVersion:
     clips: dict[str, GeneratedClip] = field(default_factory=dict)  # scene_key -> clip (ERD 확장)
     # 생성·추적·검수 단계와 장면 진행 (ERD 확장). 파이프라인이 처리 도중과 끝에 저장한다. 실행 전에는 None
     progress: PipelineProgress | None = None
+    # 장면별 seed 재지정 (ERD 확장, ADR-0017). 요구조건은 그대로 두고 다시 만드는 장면(REPAIR)에 쓴다.
+    # seed 처럼 생성 조건의 일부이고 수정 버전이 물려받는다 (그래야 그 장면이 다음 버전에서 재사용된다)
+    scene_seeds: dict[str, int] = field(default_factory=dict)
+    # 이 수정 버전이 하려는 것과 그대로 둘 요소 (ERD 확장, ADR-0017). 원본 버전은 None
+    intent: RevisionIntent | None = None
+
+    def seed_for(self, scene_key: str) -> int | None:
+        """그 장면을 생성할 때 쓰는 seed: 장면별로 다시 지정했으면 그 값, 아니면 버전의 seed."""
+        return self.scene_seeds.get(scene_key, self.seed)
 
     # ---- 상태 규칙 ----------------------------------------------------------
     def transition_to(self, new_state: VersionState) -> None:

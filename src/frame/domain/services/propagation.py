@@ -51,6 +51,32 @@ class PropagationResult:
     changed_scene_keys: tuple[str, ...]
 
 
+def target_scenes(ir: IntermediateRepresentation, change: AttributeChange) -> list[str]:
+    """변경(또는 REPAIR)의 범위에 드는 장면 키. 객체가 등장하는 장면 안에서 scope 로 고른다."""
+    if change.entity_key is None:
+        appearances = {s.scene_key for s in ir.scenes}
+    else:
+        if not ir.has_entity(change.entity_key):
+            raise NotFound(f"객체 '{change.entity_key}' 가 없습니다", entity_key=change.entity_key)
+        appearances = {s.scene_key for s in ir.scenes_with_entity(change.entity_key)}
+    if change.scope is ChangeScope.SCENES:
+        if not change.scene_keys:
+            raise ValidationError("scope=SCENES 이면 적용할 장면을 하나 이상 지정해야 합니다")
+        unknown = [k for k in change.scene_keys if not ir.has_scene(k)]
+        if unknown:
+            raise NotFound(f"존재하지 않는 장면: {unknown}", scene_keys=tuple(unknown))
+        absent = [k for k in change.scene_keys if k not in appearances]
+        if absent:
+            raise ValidationError(
+                f"객체 '{change.entity_key}' 가 등장하지 않는 장면에는 적용할 수 없습니다: {absent}"
+            )
+        return list(change.scene_keys)
+    targets = [s.scene_key for s in ir.scenes if s.scene_key in appearances]
+    if not targets:
+        raise ValidationError(f"객체 '{change.entity_key}' 가 등장하는 장면이 없습니다")
+    return targets
+
+
 class ChangePropagationPolicy(ABC):
     @abstractmethod
     def apply(self, ir: IntermediateRepresentation, change: AttributeChange) -> PropagationResult:
@@ -65,14 +91,7 @@ class DefaultPropagationPolicy(ChangePropagationPolicy):
                     f"'{change.predicate}' 는 관계 술어라 장면 수준 조건으로 바꿀 수 없습니다 "
                     "(entity_key 를 지정하세요)"
                 )
-            appearances = {s.scene_key for s in ir.scenes}
-        else:
-            if not ir.has_entity(change.entity_key):
-                raise NotFound(
-                    f"객체 '{change.entity_key}' 가 없습니다", entity_key=change.entity_key
-                )
-            appearances = {s.scene_key for s in ir.scenes_with_entity(change.entity_key)}
-        targets = self._resolve_targets(ir, change, appearances)
+        targets = target_scenes(ir, change)
 
         new_scenes: list[SceneSpec] = []
         changed: list[str] = []
@@ -149,24 +168,3 @@ class DefaultPropagationPolicy(ChangePropagationPolicy):
             change.entity_key,
             related_entity_key=change.new_value,
         )
-
-    @staticmethod
-    def _resolve_targets(
-        ir: IntermediateRepresentation, change: AttributeChange, appearances: set[str]
-    ) -> list[str]:
-        if change.scope is ChangeScope.SCENES:
-            if not change.scene_keys:
-                raise ValidationError("scope=SCENES 이면 적용할 장면을 하나 이상 지정해야 합니다")
-            unknown = [k for k in change.scene_keys if not ir.has_scene(k)]
-            if unknown:
-                raise NotFound(f"존재하지 않는 장면: {unknown}", scene_keys=tuple(unknown))
-            absent = [k for k in change.scene_keys if k not in appearances]
-            if absent:
-                raise ValidationError(
-                    f"객체 '{change.entity_key}' 가 등장하지 않는 장면에는 적용할 수 없습니다: {absent}"
-                )
-            return list(change.scene_keys)
-        targets = [s.scene_key for s in ir.scenes if s.scene_key in appearances]
-        if not targets:
-            raise ValidationError(f"객체 '{change.entity_key}' 가 등장하는 장면이 없습니다")
-        return targets
