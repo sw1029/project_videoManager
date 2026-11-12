@@ -52,6 +52,51 @@
         "title": "BoxOut",
         "type": "object"
       },
+      "CheckDeltaOut": {
+        "description": "검수 요약 지표의 차이 (after − before). 어느 한쪽이라도 값이 없으면 null.",
+        "properties": {
+          "consistency_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consistency Rate"
+          },
+          "preservation_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preservation Rate"
+          },
+          "requirement_reflection_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requirement Reflection Rate"
+          }
+        },
+        "required": [
+          "requirement_reflection_rate",
+          "consistency_rate",
+          "preservation_rate"
+        ],
+        "title": "CheckDeltaOut",
+        "type": "object"
+      },
       "CheckResultOut": {
         "properties": {
           "check_id": {
@@ -231,6 +276,88 @@
         "title": "ChecksOut",
         "type": "object"
       },
+      "ComparedSceneOut": {
+        "description": "비교의 한쪽 장면. 그 버전에 장면이 없으면 SceneComparisonOut.before/after 자체가 null.",
+        "properties": {
+          "clip_media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip Media Type"
+          },
+          "clip_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip Url"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "planned_end_ms": {
+            "title": "Planned End Ms",
+            "type": "integer"
+          },
+          "planned_start_ms": {
+            "title": "Planned Start Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "planned_start_ms",
+          "planned_end_ms",
+          "description",
+          "clip_url",
+          "clip_media_type"
+        ],
+        "title": "ComparedSceneOut",
+        "type": "object"
+      },
+      "ComparisonSummaryOut": {
+        "properties": {
+          "changed_scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Scene Keys",
+            "type": "array"
+          },
+          "requirement_change_count": {
+            "title": "Requirement Change Count",
+            "type": "integer"
+          },
+          "scene_count": {
+            "title": "Scene Count",
+            "type": "integer"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          }
+        },
+        "required": [
+          "scene_count",
+          "status_counts",
+          "changed_scene_keys",
+          "requirement_change_count"
+        ],
+        "title": "ComparisonSummaryOut",
+        "type": "object"
+      },
       "CreateProjectIn": {
         "properties": {
           "prompt": {
@@ -401,6 +528,176 @@
           "changed_scene_keys"
         ],
         "title": "CreateRevisionOut",
+        "type": "object"
+      },
+      "DashboardSummaryOut": {
+        "properties": {
+          "latest_completed_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Completed Version Id"
+          },
+          "latest_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Version Id"
+          },
+          "state_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "State Counts",
+            "type": "object"
+          },
+          "version_count": {
+            "title": "Version Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version_count",
+          "state_counts",
+          "latest_version_id",
+          "latest_completed_version_id"
+        ],
+        "title": "DashboardSummaryOut",
+        "type": "object"
+      },
+      "DashboardVersionOut": {
+        "properties": {
+          "changed_scene_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed Scene Count"
+          },
+          "checks": {
+            "$ref": "#/components/schemas/CheckSummaryOut"
+          },
+          "child_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Child Version Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "parent_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Version Id"
+          },
+          "scene_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Count"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          },
+          "video_media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Media Type"
+          },
+          "video_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Url"
+          }
+        },
+        "required": [
+          "version_id",
+          "parent_version_id",
+          "state",
+          "error_code",
+          "error_message",
+          "created_at",
+          "video_url",
+          "video_media_type",
+          "checks",
+          "depth",
+          "child_version_ids",
+          "scene_count",
+          "changed_scene_count"
+        ],
+        "title": "DashboardVersionOut",
         "type": "object"
       },
       "EntityOut": {
@@ -758,6 +1055,77 @@
         "title": "PredicateOut",
         "type": "object"
       },
+      "ProgressOut": {
+        "description": "생성·추적·검수 진행. 처리 중에도 장면 단위로 갱신되어 폴링으로 볼 수 있다 (실행 전 버전은 null).",
+        "properties": {
+          "elapsed_ms": {
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageProgressOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stage",
+          "elapsed_ms",
+          "stages"
+        ],
+        "title": "ProgressOut",
+        "type": "object"
+      },
+      "ProjectDashboardOut": {
+        "description": "GET /api/projects/{project_id}/dashboard — 버전 트리와 버전별 요약 (US-04 AC-41).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DashboardSummaryOut"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardVersionOut"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "title",
+          "created_at",
+          "summary",
+          "versions"
+        ],
+        "title": "ProjectDashboardOut",
+        "type": "object"
+      },
       "ProjectOut": {
         "properties": {
           "project_id": {
@@ -841,6 +1209,128 @@
         "title": "ReferenceImageOut",
         "type": "object"
       },
+      "RequirementComparisonOut": {
+        "properties": {
+          "after_requirement_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Requirement Key"
+          },
+          "after_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Value"
+          },
+          "after_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "대상 버전의 REQUIREMENT 판정 (없으면 null)",
+            "title": "After Verdict"
+          },
+          "before_requirement_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Requirement Key"
+          },
+          "before_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Value"
+          },
+          "before_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "기준 버전의 REQUIREMENT 판정 (없으면 null)",
+            "title": "Before Verdict"
+          },
+          "change": {
+            "description": "UNCHANGED | CHANGED | ADDED | REMOVED",
+            "title": "Change",
+            "type": "string"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          },
+          "predicate": {
+            "title": "Predicate",
+            "type": "string"
+          },
+          "relational": {
+            "title": "Relational",
+            "type": "boolean"
+          },
+          "value_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Kind"
+          }
+        },
+        "required": [
+          "change",
+          "entity_key",
+          "predicate",
+          "value_kind",
+          "relational",
+          "before_requirement_key",
+          "after_requirement_key",
+          "before_value",
+          "after_value",
+          "before_verdict",
+          "after_verdict"
+        ],
+        "title": "RequirementComparisonOut",
+        "type": "object"
+      },
       "RequirementOut": {
         "properties": {
           "entity_key": {
@@ -908,6 +1398,60 @@
           "relational"
         ],
         "title": "RequirementOut",
+        "type": "object"
+      },
+      "SceneComparisonOut": {
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComparedSceneOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComparedSceneOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conditions_changed": {
+            "title": "Conditions Changed",
+            "type": "boolean"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementComparisonOut"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "scene_key": {
+            "title": "Scene Key",
+            "type": "string"
+          },
+          "status": {
+            "description": "REUSED | REGENERATED | ADDED | REMOVED | UNAVAILABLE",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scene_key",
+          "status",
+          "conditions_changed",
+          "before",
+          "after",
+          "requirements"
+        ],
+        "title": "SceneComparisonOut",
         "type": "object"
       },
       "SceneOut": {
@@ -988,6 +1532,56 @@
           "clip_media_type"
         ],
         "title": "SceneOut",
+        "type": "object"
+      },
+      "StageProgressOut": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "RUNNING",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stage",
+          "status",
+          "elapsed_ms",
+          "done",
+          "total",
+          "current"
+        ],
+        "title": "StageProgressOut",
         "type": "object"
       },
       "TrackRecordOut": {
@@ -1092,6 +1686,54 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VersionComparisonOut": {
+        "description": "GET /api/versions/{version_id}/comparison — 전후 비교 화면 한 장에 필요한 값 (US-04 AC-43).",
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/VersionOverviewOut"
+          },
+          "against_is_parent": {
+            "title": "Against Is Parent",
+            "type": "boolean"
+          },
+          "against_version_id": {
+            "title": "Against Version Id",
+            "type": "string"
+          },
+          "before": {
+            "$ref": "#/components/schemas/VersionOverviewOut"
+          },
+          "checks_delta": {
+            "$ref": "#/components/schemas/CheckDeltaOut"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/SceneComparisonOut"
+            },
+            "title": "Scenes",
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ComparisonSummaryOut"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "against_version_id",
+          "against_is_parent",
+          "before",
+          "after",
+          "checks_delta",
+          "summary",
+          "scenes"
+        ],
+        "title": "VersionComparisonOut",
+        "type": "object"
+      },
       "VersionOut": {
         "properties": {
           "created_at": {
@@ -1152,6 +1794,16 @@
               }
             ],
             "title": "Parent Version Id"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "project_id": {
             "title": "Project Id",
@@ -1243,9 +1895,99 @@
           "error_code",
           "error_message",
           "reference_images",
-          "created_at"
+          "created_at",
+          "progress"
         ],
         "title": "VersionOut",
+        "type": "object"
+      },
+      "VersionOverviewOut": {
+        "description": "전후 비교의 양쪽과 대시보드의 각 버전이 함께 쓰는 버전 요약.",
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/CheckSummaryOut"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "parent_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Version Id"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          },
+          "video_media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Media Type"
+          },
+          "video_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Url"
+          }
+        },
+        "required": [
+          "version_id",
+          "parent_version_id",
+          "state",
+          "error_code",
+          "error_message",
+          "created_at",
+          "video_url",
+          "video_media_type",
+          "checks"
+        ],
+        "title": "VersionOverviewOut",
         "type": "object"
       },
       "VersionSummaryOut": {
@@ -1435,6 +2177,58 @@
           }
         },
         "summary": "프로젝트와 버전 목록을 조회한다",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/dashboard": {
+      "get": {
+        "operationId": "get_dashboard_api_projects__project_id__dashboard_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDashboardOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "버전 트리와 버전별 상태·검수 요약·바뀐 장면 수, 프로젝트 집계를 한 번에 조회한다",
         "tags": [
           "projects"
         ]
@@ -1668,6 +2462,87 @@
           }
         },
         "summary": "요구사항 반영·일관성·비대상 보존 판정과 경고 구간을 조회한다",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/versions/{version_id}/comparison": {
+      "get": {
+        "operationId": "compare_versions_api_versions__version_id__comparison_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "비교 기준 버전 ID. 생략하면 부모 버전과 비교한다",
+            "in": "query",
+            "name": "against",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "비교 기준 버전 ID. 생략하면 부모 버전과 비교한다",
+              "title": "Against"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionComparisonOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "NOT_FOUND (버전 또는 비교 기준 버전)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "VERSION_NOT_COMPARABLE (중간표현이 없는 버전)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "부모 없는 원본에 against 생략, 다른 프로젝트 버전"
+          }
+        },
+        "summary": "두 버전(기본: 부모)을 장면별 클립 재사용·바뀐 요구조건·검수 요약 차이로 비교한다",
         "tags": [
           "versions"
         ]

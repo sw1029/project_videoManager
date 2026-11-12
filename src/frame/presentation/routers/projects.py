@@ -1,4 +1,4 @@
-"""POST /api/projects (US-06), GET /api/projects/{project_id} (US-04)"""
+"""POST /api/projects (US-06), GET /api/projects/{project_id} · /dashboard (US-04)"""
 
 from __future__ import annotations
 
@@ -13,7 +13,13 @@ from frame.config.container import Container
 from .. import mappers
 from ..dependencies import get_container
 from ..rate_limit import enforce_rate_limit
-from ..schemas import CreateProjectIn, CreateProjectOut, ErrorOut, ProjectOut
+from ..schemas import (
+    CreateProjectIn,
+    CreateProjectOut,
+    ErrorOut,
+    ProjectDashboardOut,
+    ProjectOut,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 ContainerDep = Annotated[Container, Depends(get_container)]
@@ -53,3 +59,17 @@ def create_project(body: CreateProjectIn, container: ContainerDep) -> CreateProj
 )
 def get_project(project_id: str, container: ContainerDep) -> ProjectOut:
     return mappers.project_out(container.queries.get_project(project_id))
+
+
+@router.get(
+    "/{project_id}/dashboard",
+    response_model=ProjectDashboardOut,
+    responses={404: {"model": ErrorOut}},
+    summary="버전 트리와 버전별 상태·검수 요약·바뀐 장면 수, 프로젝트 집계를 한 번에 조회한다",
+)
+def get_dashboard(project_id: str, container: ContainerDep) -> ProjectDashboardOut:
+    return mappers.dashboard_out(
+        container.queries.get_dashboard(project_id),
+        api_prefix=container.settings.api_prefix,
+        media_type_of=container.artifact_store.content_type,
+    )

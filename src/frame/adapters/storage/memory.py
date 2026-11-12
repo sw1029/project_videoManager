@@ -24,6 +24,9 @@ class InMemoryArtifactStore(ArtifactStore):
     def exists(self, uri: str) -> bool:
         return uri in self._blobs
 
+    def uri_for(self, key: str) -> str:
+        return f"{self.SCHEME}{key}"
+
     def content_type(self, uri: str) -> str:
         blob = self._blobs.get(uri)
         return blob[1] if blob is not None else guess_media_type(uri)

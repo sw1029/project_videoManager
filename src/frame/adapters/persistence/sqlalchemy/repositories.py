@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -30,6 +31,7 @@ from frame.domain.errors import IntegrityViolation
 from frame.domain.identifiers import entity_id, requirement_id, scene_id
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import Project, ReferenceImage, VideoVersion
+from frame.domain.progress import PipelineProgress
 from frame.domain.state_machine import assert_transition
 from frame.domain.tracking import TrackRecord
 
@@ -52,6 +54,13 @@ def _flush(session: Session) -> None:
     except IntegrityError as exc:
         session.rollback()
         raise IntegrityViolation(f"DB 무결성 제약 위반: {exc.orig}") from exc
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """SQLite·MySQL DATETIME 은 시간대를 버리고 돌려준다. 늘 UTC 로 쓰므로 UTC 로 되붙인다 (리스 계산용)."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
 
 
 class SqlAlchemyProjectRepository(ProjectRepository):
@@ -123,6 +132,14 @@ class SqlAlchemyVersionRepository(VersionRepository):
         ).all()
         return [self._to_domain(r) for r in rows]
 
+    def list_by_state(self, state: VersionState) -> list[VideoVersion]:
+        rows = self._session.scalars(
+            select(VersionRow)
+            .where(VersionRow.state == str(state))
+            .order_by(VersionRow.created_at, VersionRow.version_id)
+        ).all()
+        return [self._to_domain(r) for r in rows]
+
     # ---- 매핑 -------------------------------------------------------------
     @staticmethod
     def _to_row(version: VideoVersion, row: VersionRow) -> VersionRow:
@@ -130,6 +147,9 @@ class SqlAlchemyVersionRepository(VersionRepository):
         row.project_id = version.project_id
         row.parent_version_id = version.parent_version_id
         row.state = str(version.state)
+        row.queued_at = version.queued_at
+        row.started_at = version.started_at
+        row.attempt = version.attempt
         row.source_prompt = version.source_prompt
         row.target_duration_ms = version.target_duration_ms
         row.seed = version.seed
@@ -139,6 +159,11 @@ class SqlAlchemyVersionRepository(VersionRepository):
         row.error_message = version.error_message
         row.frozen_fingerprint = version.frozen_fingerprint
         row.created_at = version.created_at
+        row.progress_json = (
+            json.dumps(version.progress.to_dict(), ensure_ascii=False)
+            if version.progress is not None
+            else None
+        )
         return row
 
     def _to_domain(self, row: VersionRow) -> VideoVersion:
@@ -157,6 +182,9 @@ class SqlAlchemyVersionRepository(VersionRepository):
             version_id=row.version_id,
             project_id=row.project_id,
             state=VersionState(row.state),
+            queued_at=_utc(row.queued_at),
+            started_at=_utc(row.started_at),
+            attempt=row.attempt or 0,
             created_at=row.created_at,
             parent_version_id=row.parent_version_id,
             source_prompt=row.source_prompt,
@@ -168,6 +196,11 @@ class SqlAlchemyVersionRepository(VersionRepository):
             error_message=row.error_message,
             frozen_fingerprint=row.frozen_fingerprint,
             clips=clips,
+            progress=(
+                PipelineProgress.from_dict(json.loads(row.progress_json))
+                if row.progress_json
+                else None
+            ),
         )
 
     def _sync_ir_rows(self, version: VideoVersion) -> None:

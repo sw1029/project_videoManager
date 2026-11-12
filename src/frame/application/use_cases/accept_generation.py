@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from frame.domain.enums import VersionState
 from frame.domain.errors import NotFound, VersionNotGeneratable
 
 from ..dto import AcceptGenerationResult
 from ..jobs import RUN_GENERATION_PIPELINE
+from ..ports.common import Clock
 from ..ports.jobs import Job, JobDispatcher
 from ..ports.unit_of_work import UnitOfWorkFactory
 
 
 class AcceptGeneration:
-    def __init__(self, uow_factory: UnitOfWorkFactory, dispatcher: JobDispatcher) -> None:
+    def __init__(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        dispatcher: JobDispatcher,
+        clock: Clock | None = None,
+    ) -> None:
         self._uow_factory = uow_factory
         self._dispatcher = dispatcher
+        self._now = clock.now if clock is not None else (lambda: datetime.now(UTC))
 
     def execute(self, version_id: str) -> AcceptGenerationResult:
         with self._uow_factory() as uow:
@@ -32,6 +41,7 @@ class AcceptGeneration:
             version = uow.versions.get(version_id)
             assert version is not None
             version.freeze_conditions()
+            version.record_queued(self._now())  # 접수 시각 (#2)
             uow.versions.save(version)
             uow.commit()
 

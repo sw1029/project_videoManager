@@ -1,4 +1,7 @@
-"""VideoGenerator 계약 테스트 (Fake + Decorator 조합). 실제 모델 어댑터는 slow/gpu 마커로 같은 스위트에 추가한다."""
+"""VideoGenerator 계약 테스트 (Fake + Decorator 조합). 실제 모델 어댑터는 slow/gpu 마커로 같은 스위트에 추가한다.
+
+OpenRouter 어댑터는 가짜 HTTP 전송·가짜 정규화기를 꽂아 네트워크 없이 같은 계약을 확인한다 (실제 호출은 tests/live).
+"""
 
 import pytest
 
@@ -7,16 +10,22 @@ from frame.adapters.generator import (
     FakeVideoAssembler,
     FakeVideoGenerator,
     RetryingVideoGenerator,
+    TimeoutVideoGenerator,
 )
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.generator.cache import ArtifactClipCache
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError
 from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
 from frame.application.ports.structurer import ReferenceImageInput
+from tests.support.openrouter import PNG_BYTES, make_openrouter_generator
 
 
 @pytest.fixture
 def store():
-    return InMemoryArtifactStore()
+    s = InMemoryArtifactStore()
+    # 요청에 들어 있는 참조 이미지 (실제 생성기는 저장소에서 내용을 읽는다)
+    s.put("refs/cup.png", PNG_BYTES, "image/png")
+    return s
 
 
 GENERATORS = [
@@ -25,9 +34,20 @@ GENERATORS = [
         lambda store: CachingVideoGenerator(FakeVideoGenerator(store)), id="caching(fake)"
     ),
     pytest.param(
+        lambda store: CachingVideoGenerator(
+            FakeVideoGenerator(store), cache=ArtifactClipCache(store, {"generator": "fake"})
+        ),
+        id="caching(fake, artifact-store)",
+    ),
+    pytest.param(
         lambda store: RetryingVideoGenerator(FakeVideoGenerator(store), retries=2),
         id="retrying(fake)",
     ),
+    pytest.param(
+        lambda store: TimeoutVideoGenerator(FakeVideoGenerator(store), timeout_seconds=30),
+        id="timeout(fake)",
+    ),
+    pytest.param(make_openrouter_generator, id="openrouter(fake-http)"),
 ]
 
 
@@ -77,7 +97,34 @@ def test_caching_decorator_generates_once_per_condition(store, ir):
     cached = CachingVideoGenerator(inner)
     first = cached.generate_scene(_request(ir, version_id="ver_1"))
     second = cached.generate_scene(_request(ir, version_id="ver_2"))
-    assert first == second and len(inner.requests) == 1 and cached.hits == 1
+    assert len(inner.requests) == 1 and cached.hits == 1
+    assert (second.uri, second.fingerprint) == (first.uri, first.fingerprint)
+    assert second.metadata["cache_hit"] is True  # 적중은 복사본의 메타데이터에 남는다
+
+
+def test_persistent_cache_does_not_regenerate_after_restart(tmp_path, ir):
+    """#7: 같은 생성 조건은 프로세스를 다시 시작해도 한 번만 생성된다 (같은 산출물 폴더, 새 인스턴스)."""
+    profile = {"generator": "fake"}
+    before_store = LocalFileArtifactStore(tmp_path)
+    before_inner = FakeVideoGenerator(before_store)
+    before = CachingVideoGenerator(before_inner, cache=ArtifactClipCache(before_store, profile))
+    first = before.generate_scene(_request(ir, version_id="ver_1"))
+
+    after_store = LocalFileArtifactStore(tmp_path)  # 재시작: 메모리에 남은 것이 없다
+    after_inner = FakeVideoGenerator(after_store)
+    after = CachingVideoGenerator(after_inner, cache=ArtifactClipCache(after_store, profile))
+    second = after.generate_scene(_request(ir, version_id="ver_2"))
+
+    assert len(before_inner.requests) == 1 and after_inner.requests == []
+    assert (second.uri, second.fingerprint, second.duration_ms) == (
+        first.uri,
+        first.fingerprint,
+        first.duration_ms,
+    )
+    assert after_store.exists(second.uri) and second.metadata["cache_hit"] is True
+    # 조건이 다른 장면은 그대로 생성한다
+    after.generate_scene(_request(ir, scene_key="closeup", version_id="ver_2"))
+    assert len(after_inner.requests) == 1
 
 
 def test_retrying_decorator_retries_transient_failures(store, ir):
@@ -98,3 +145,26 @@ def test_retrying_decorator_retries_transient_failures(store, ir):
     exhausted = RetryingVideoGenerator(Flaky(3), retries=2)
     with pytest.raises(GenerationError):
         exhausted.generate_scene(_request(ir))
+
+
+def test_retrying_decorator_does_not_retry_non_retryable_failures(store, ir):
+    """외부 API 가 이미 작업을 받은 뒤의 실패는 다시 제출하면 또 과금되므로 retryable=False 로 보고된다."""
+
+    class Billed(VideoGenerator):
+        calls = 0
+
+        def generate_scene(self, request):
+            self.calls += 1
+            raise GenerationError("작업 실패 (이미 과금됐을 수 있음)", retryable=False)
+
+    inner = Billed()
+    retrying = RetryingVideoGenerator(inner, retries=3)
+    with pytest.raises(GenerationError) as excinfo:
+        retrying.generate_scene(_request(ir))
+    assert excinfo.value.retryable is False
+    assert inner.calls == 1 and retrying.attempts == 1
+
+
+def test_generation_errors_are_retryable_by_default():
+    assert GenerationError("일시 오류").retryable is True
+    assert GenerationError().args == ()  # 기존 생성 방식 그대로

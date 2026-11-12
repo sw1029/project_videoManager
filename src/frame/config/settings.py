@@ -20,8 +20,29 @@ class Settings:
     db_url: str = "sqlite+pysqlite:///:memory:"
     db_create_schema: bool = False  # 개발용. 운영 스키마는 Alembic 마이그레이션으로 관리
     jobs: str = "inline"  # inline | recording | thread
+    # 장면 하나 생성의 범용 시간 제한(초). 0·빈 값이면 끔. external_api 는 FRAME_VIDEO_TIMEOUT_S 보다 길게 (ADR-0012)
+    generator_timeout_s: float = 0.0
     generator_retries: int = 0
-    generator_cache: bool = False
+    generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
+    # --- 재시작 복구 (ADR-0013) ---
+    # 기동 때 QUEUED·STRUCTURING 은 다시 디스패치하고 PROCESSING 은 워커 유실로 본다 (서버 프로세스 하나 전제).
+    # 실행 중에는 recovery_interval_s 마다 worker_lease_s 를 넘긴 PROCESSING 을 워커 유실로 본다.
+    # 리스는 버전 하나의 최대 처리 시간(장면 수 x 생성 시간 + 여유)보다 길게 둔다.
+    # 워커 유실 뒤 재시도를 포함한 실행이 worker_max_attempts 번에 닿으면 FAILED(WORKER_LOST).
+    worker_lease_s: float = 1800.0
+    worker_max_attempts: int = 3
+    recovery_interval_s: float = 60.0  # 0 이면 기동 때만 복구
+    # --- 영상 생성 API (FRAME_GENERATOR=external_api 일 때, OpenRouter /api/v1/videos) ---
+    # 키나 ffmpeg 가 없으면 서버 기동 시점에 실패한다. 허용 길이·화면비·해상도는 모델 메타데이터를 따른다.
+    video_model: str = "alibaba/wan-3.0"  # OpenRouter 영상 모델 id
+    video_resolution: str = "720p"  # 시험은 480p (Wan 3.0: 480p $0.05/s, 720p $0.10/s)
+    video_aspect_ratio: str = "9:16"
+    video_fps: int = 30  # 정규화한 클립 fps. Wan 3.0 원본이 30fps (조립 시 모든 장면이 같은 규격)
+    video_key_file: str | None = None  # 키 파일 경로. 없으면 OPENROUTER_API_KEY 환경 변수
+    video_base_url: str = "https://openrouter.ai/api/v1"
+    video_timeout_s: float = 600.0  # 제출부터 완료까지 기다리는 시간 (넘으면 GENERATION_TIMEOUT)
+    video_poll_interval_s: float = 20.0
+    video_ffmpeg: str | None = None  # ffmpeg 실행 파일. 없으면 PATH -> imageio-ffmpeg(video extra)
     # --- LLM (FRAME_STRUCTURER=llm 일 때) ---
     # openai(기본, OpenAI 호환 로컬 서버도 base_url 로) | fake(테스트용 재생 클라이언트).
     # 키나 패키지가 없으면 서버 기동 시점에 실패한다 (요청마다 조용히 실패하지 않도록).
@@ -70,8 +91,24 @@ class Settings:
             db_url=text("DB_URL", base.db_url),
             db_create_schema=flag("DB_CREATE_SCHEMA", base.db_create_schema),
             jobs=text("JOBS", base.jobs),
+            generator_timeout_s=_optional_float(text("GENERATOR_TIMEOUT_S", "")) or 0.0,
             generator_retries=int(text("GENERATOR_RETRIES", str(base.generator_retries))),
             generator_cache=flag("GENERATOR_CACHE", base.generator_cache),
+            worker_lease_s=float(text("WORKER_LEASE_S", "") or base.worker_lease_s),
+            worker_max_attempts=int(text("WORKER_MAX_ATTEMPTS", "") or base.worker_max_attempts),
+            recovery_interval_s=float(text("RECOVERY_INTERVAL_S", "") or base.recovery_interval_s),
+            # .env 에 빈 값으로 남겨 둔 항목은 기본값을 쓴다
+            video_model=text("VIDEO_MODEL", "") or base.video_model,
+            video_resolution=text("VIDEO_RESOLUTION", "") or base.video_resolution,
+            video_aspect_ratio=text("VIDEO_ASPECT_RATIO", "") or base.video_aspect_ratio,
+            video_fps=int(text("VIDEO_FPS", "") or base.video_fps),
+            video_key_file=text("VIDEO_KEY_FILE", "") or None,
+            video_base_url=text("VIDEO_BASE_URL", "") or base.video_base_url,
+            video_timeout_s=float(text("VIDEO_TIMEOUT_S", "") or base.video_timeout_s),
+            video_poll_interval_s=float(
+                text("VIDEO_POLL_INTERVAL_S", "") or base.video_poll_interval_s
+            ),
+            video_ffmpeg=text("VIDEO_FFMPEG", "") or None,
             llm_provider=text("LLM_PROVIDER", base.llm_provider),
             llm_model=text("LLM_MODEL", base.llm_model),
             llm_key_file=text("LLM_KEY_FILE", "") or None,

@@ -10,7 +10,16 @@ class StructuringError(AdapterError):
 
 
 class GenerationError(AdapterError):
+    """retryable=False: 다시 호출해도 소용없거나, 외부 API 가 이미 작업을 받아 다시 제출하면 또 과금되는 실패.
+
+    RetryingVideoGenerator 는 retryable=False 인 오류를 재시도하지 않는다 (ADR-0011).
+    """
+
     code = "GENERATION_ERROR"
+
+    def __init__(self, *args: object, retryable: bool = True) -> None:
+        super().__init__(*args)
+        self.retryable = retryable
 
 
 class GenerationTimeout(GenerationError):

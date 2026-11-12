@@ -2,14 +2,14 @@
 
 장면(Scene) 단위로 생성하고 조립(Assemble)한다. 장면 단위이므로 수정 버전에서는
 조건이 바뀐 장면만 재생성하고 나머지 장면 클립은 그대로 재사용할 수 있다 (비대상 보존).
-구현 후보: diffusers 로컬 추론(CogVideoX/Wan 등), 외부 API(Runway/Veo/Kling), Fake.
+구현: Fake, 외부 API(OpenRouter 영상 API, ADR-0011). 후보: diffusers 로컬 추론(CogVideoX/Wan 등).
 각 어댑터는 IR -> 모델별 프롬프트/파라미터 변환(PromptCompiler)을 내부에 캡슐화한다.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from frame.domain.artifacts import GeneratedClip, VideoArtifact
@@ -62,6 +62,15 @@ class VideoGenerator(ABC):
 
     @abstractmethod
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip: ...
+
+    def profile(self) -> Mapping[str, object]:
+        """생성 결과를 바꾸는 생성기 설정 (종류·모델·해상도·화면비·fps 등, ADR-0013).
+
+        fingerprint 는 IR 조건만 담으므로 생성 캐시·작업 원장의 키에 이 값을 함께 넣는다.
+        기본값은 클래스 이름뿐이다. 모델이나 출력 규격을 설정으로 바꾸는 어댑터는 그 값을 모두 넣어야
+        설정을 바꿨을 때 이전 결과가 재사용되지 않는다. 데코레이터는 감싼 생성기의 값을 그대로 돌려준다.
+        """
+        return {"generator": type(self).__name__}
 
 
 class VideoAssembler(ABC):

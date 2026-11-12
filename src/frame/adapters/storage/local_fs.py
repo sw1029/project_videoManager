@@ -33,6 +33,10 @@ class LocalFileArtifactStore(ArtifactStore):
     def exists(self, uri: str) -> bool:
         return self._path_for(self._key_of(uri)).is_file()
 
+    def uri_for(self, key: str) -> str:
+        self._path_for(key)  # 저장 루트를 벗어나는 키는 StorageError
+        return f"{self.SCHEME}{key}"
+
     def local_path(self, uri: str) -> Path | None:
         try:
             path = self._path_for(self._key_of(uri))

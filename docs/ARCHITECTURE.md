@@ -58,7 +58,7 @@ flowchart LR
   end
   subgraph AD["Adapters (교체 가능)"]
     ST["Structurer: rule_based · fake · llm"]
-    GE["Generator: fake · diffusers · external_api (+Retry/Cache)"]
+    GE["Generator: fake · external_api(OpenRouter) · diffusers (+Retry/Cache)"]
     TR["Tracker: fake · opencv"]
     CK["Checker: requirement · consistency · preservation"]
     PS["Persistence: memory · sqlalchemy (MySQL/SQLite)"]
@@ -129,7 +129,8 @@ sequenceDiagram
 ```
 
 수정 흐름(Core Flow 2)은 `POST /revisions` → `CreateRevision`(원본 IR 복제 + 변경 전파 → 새 DRAFT, `parent_version_id` 연결) 뒤에
-위와 같은 생성 흐름을 탄다. 전후 비교는 두 버전을 각각 `GET /versions/{id}` 로 조회하면 된다.
+위와 같은 생성 흐름을 탄다. 전후 비교는 `GET /versions/{id}/comparison`(기본: 부모 대비) 한 번으로 장면별 클립 재사용·바뀐 요구조건과
+판정·검수 지표 차이를 받고, 프로젝트 대시보드는 `GET /projects/{id}/dashboard` 로 버전 트리와 버전별 요약을 받는다 (ADR-0014).
 
 ### 3.3 버전 상태 기계
 
@@ -142,7 +143,8 @@ stateDiagram-v2
   QUEUED --> PROCESSING : 워커 시작
   QUEUED --> FAILED : 실행 불가
   PROCESSING --> COMPLETED : 생성·추적·검수 완료 (검수 FAIL/UNDETERMINED 여도)
-  PROCESSING --> FAILED : 실행 오류·시간초과
+  PROCESSING --> FAILED : 실행 오류·시간초과·워커 유실 상한(WORKER_LOST)
+  PROCESSING --> QUEUED : 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
   note right of DRAFT
     POST /revisions 는 DRAFT·COMPLETED·FAILED(IR 보유) 버전에서
     새 DRAFT 를 분기한다. 원본은 어떤 상태도 바뀌지 않는다.
@@ -228,7 +230,7 @@ FRAME/
 │   │   ├── dto.py / jobs.py / errors.py
 │   ├── adapters/                   # [교체 가능 구현]
 │   │   ├── structurer/             #   rule_based(DSL) · fake · llm_stub
-│   │   ├── generator/              #   fake · decorators(Caching/Retrying) · stubs(diffusers/external_api/ffmpeg + compile_prompt)
+│   │   ├── generator/              #   fake · decorators(Caching/Retrying) · openrouter(external_api) · ffmpeg(클립 정규화·조립) · stubs(diffusers + compile_prompt)
 │   │   ├── tracker/                #   fake · opencv_stub
 │   │   ├── checker/                #   fake(요구사항/일관성/보존)
 │   │   ├── persistence/            #   memory(깊은 복사) · sqlalchemy(models/repositories/uow/engine)
@@ -252,7 +254,7 @@ FRAME/
 │   ├── contract/                   # 포트별 계약 (구현을 params 로 추가)
 │   ├── integration/                # SQLAlchemy(SQLite) 정규화·FK·전체 흐름
 │   ├── api/                        # TestClient 로 Endpoint Catalog 7개
-│   └── acceptance/                 # US-06 / US-01 / US-03 AC 시나리오
+│   └── acceptance/                 # US-06 / US-01 / US-03 / US-04 AC 시나리오
 ├── docker/ Dockerfile · docker-compose.yml (api + MySQL 8.4)
 └── .github/workflows/ci.yml       # ruff + pytest
 ```
@@ -264,8 +266,8 @@ FRAME/
 | 요소 | 포트 (application/ports) | 기본·테스트 구현 | 실제 구현 후보 | 설정 키 | 계약 테스트 |
 |---|---|---|---|---|---|
 | 요구사항 구조화 모델 | `RequirementStructurer` | `rule_based`(DSL) · `fake` | `llm`(OpenAI/Anthropic/vLLM, `LLMStructurer._complete` 구현) · VLM(참조 이미지 → 속성) | `FRAME_STRUCTURER` | `tests/contract/test_structurer_contract.py` |
-| 영상 생성 모델 | `VideoGenerator` | `fake` | `diffusers`(CogVideoX/Wan 로컬) · `external_api`(Runway/Veo/Kling) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE` | `test_generator_contract.py` |
-| 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg` | `FRAME_ASSEMBLER` | 〃 |
+| 영상 생성 모델 | `VideoGenerator` | `fake` | `external_api`(OpenRouter 영상 API, 기본 Wan 3.0 · ADR-0011) · `diffusers`(CogVideoX/Wan 로컬, 뼈대) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`, `FRAME_VIDEO_*` | `test_generator_contract.py` |
+| 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
 | 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
 | 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | CLIP/VLM 속성 판정 · 색상 히스토그램 시계열 · 프레임 차분/SSIM | `FRAME_CHECKERS` (쉼표 목록) | 인수 테스트 재사용 |
 | DB | `UnitOfWork` + 5개 `Repository` | `memory` | `sqlalchemy` (MySQL 8.4 / SQLite) | `FRAME_PERSISTENCE`, `FRAME_DB_URL` | `test_repository_contract.py` |
@@ -312,7 +314,7 @@ FRAME/
 | ERD | 도메인 객체 | SQL 테이블 (확장 컬럼) |
 |---|---|---|
 | PROJECT | `Project` | `projects` |
-| VIDEO_VERSION | `VideoVersion` (+ `ir`, `clips`) | `video_versions` (+ `source_prompt`, `target_duration_ms`, `seed`, `ir_json`, `frozen_fingerprint`) |
+| VIDEO_VERSION | `VideoVersion` (+ `ir`, `clips`) | `video_versions` (+ `source_prompt`, `target_duration_ms`, `seed`, `ir_json`, `frozen_fingerprint`, `queued_at`, `started_at`, `attempt`) |
 | SCENE | `SceneSpec` (IR 안) | `scenes` (+ `description`, `clip_uri`, `clip_fingerprint`, `clip_duration_ms`) |
 | ENTITY | `EntitySpec` (IR 안, 프로젝트 범위) | `entities` (+ `kind`, `description`) |
 | SCENE_ENTITY | `TrackRecord` | `scene_entities` (+ `track_json`) |
@@ -348,6 +350,8 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
 | GET | `/api/versions/{version_id}/entities/{entity_id}/tracks` | `get_entity_tracks` | 200 등장 구간·박스·상태 (`entity_key` 또는 `project_id:entity_key`) | 404 |
+| GET | `/api/versions/{version_id}/comparison?against=` | `compare_versions` | 200 양쪽 요약·장면별 `REUSED`/`REGENERATED`/`ADDED`/`REMOVED`/`UNAVAILABLE`·요구조건 변경과 판정·`checks_delta` (`against` 생략 시 부모) | 404 / 409 `VERSION_NOT_COMPARABLE` / 422 |
+| GET | `/api/projects/{project_id}/dashboard` | `get_dashboard` | 200 버전 트리·버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전 | 404 |
 | GET | `/api/vocabulary/predicates` | (어휘 조회) | 200 술어 이름·값 종류·관계 여부·별칭 (화면의 속성 블록용) | — |
 | GET | `/health` | (상태 확인) | 200 버전·어댑터·`structuring_input`(dsl / natural_language)·LLM 공급자 | — |
 
@@ -385,14 +389,15 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T7 선택 재생성 도구 Spike | `adapters/generator/stubs.py` (`compile_prompt`) | 뼈대 |
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
-| T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | 뼈대 (`diffusers`/`external_api`) |
-| T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks` | API 제공 |
+| T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |
+| T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks`, `GET /comparison`, `GET /dashboard` | API 제공 |
 | T12 선택 변경·비대상 보존 평가 | `evaluation/edit_metrics.py` | 제공 |
 | T13 원본 보존·상태·오류 통합 테스트 | `tests/integration`, `tests/api` | 제공 |
 | T14 README·시연 절차 | `README.md` | 제공 |
 
 Sprint 2 확장 포인트: `opencv`/SAM2 추적 어댑터(US-03), 실제 검수기 3종, 마스크 산출물(`TrackRecord.boxes` → 마스크 URI), Celery 디스패처,
-Alembic 마이그레이션, 대시보드용 집계 쿼리(프로젝트 단위 버전 비교) — 모두 **포트 추가 없이** 어댑터·유스케이스 추가로 끝난다.
+Alembic 마이그레이션 — 모두 **포트 추가 없이** 어댑터·유스케이스 추가로 끝난다. 대시보드용 집계(프로젝트 단위 버전 비교)는
+ADR-0014 에서 포트 추가 없이 조회 유스케이스로 제공했다.
 
 ---
 
@@ -422,3 +427,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0007](adr/0007-predicate-vocabulary-and-relations.md) | 술어 어휘 · 관계 조건 규칙 · 요구조건 키 · 장면 타임라인 검증 |
 | [0008](adr/0008-value-normalization-and-relation-kinds.md) | 값 정규화 · ANIMAL 종류 · 관계의 배경 객체 금지 (실호출 결과 반영) |
 | [0009](adr/0009-frontend-integration-contract.md) | 프론트 연동 계약: 오류 형식 통일 · 영상 조회 경로 · 상태 확인 정보 · CORS·같은 출처 서빙 · 요청 제한 |
+| [0013](adr/0013-restart-recovery-and-persistent-generation-cache.md) | 재시작 복구(기동 복구·워커 리스·시도 상한) · 생성 결과 캐시 영속화 · 외부 작업 원장 |

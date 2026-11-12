@@ -30,6 +30,10 @@ class VersionRepository(ABC):
     def list_by_project(self, project_id: str) -> list[VideoVersion]: ...
 
     @abstractmethod
+    def list_by_state(self, state: VersionState) -> list[VideoVersion]:
+        """그 상태인 버전 전부 (만든 순). 재시작 복구가 QUEUED·PROCESSING 을 찾을 때 쓴다 (#2)."""
+
+    @abstractmethod
     def save(self, version: VideoVersion) -> None:
         """상태·IR·결과·오류 필드를 저장한다. (IR 은 조건 고정 전까지만 바뀐다)"""
 

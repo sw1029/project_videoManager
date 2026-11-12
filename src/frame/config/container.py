@@ -6,18 +6,26 @@ overrides 로 어떤 구성 요소든 직접 주입할 수 있어, 테스트는 
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.common import SystemClock, UuidIdGenerator
-from frame.adapters.generator.decorators import CachingVideoGenerator, RetryingVideoGenerator
+from frame.adapters.generator.cache import ClipCache, build_clip_cache
+from frame.adapters.generator.decorators import (
+    CachingVideoGenerator,
+    RetryingVideoGenerator,
+    TimeoutVideoGenerator,
+    pause_before_retry,
+)
 from frame.adapters.llm.key_store import LLMKeyStore
 from frame.application.checks import CheckSuite
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
 from frame.application.pipeline import (
     CheckStage,
     GenerateStage,
+    LoggingObserver,
     PipelineObserver,
     PipelineRunner,
     TrackStage,
@@ -42,6 +50,7 @@ from frame.application.use_cases import (
     CreateProject,
     CreateRevision,
     ProjectQueries,
+    RecoverPendingVersions,
     RunGenerationPipeline,
     StructureRequirements,
 )
@@ -49,6 +58,8 @@ from frame.domain.services.propagation import ChangePropagationPolicy, DefaultPr
 
 from .registry import AdapterRegistry, BuildContext, default_registry
 from .settings import Settings
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -72,16 +83,37 @@ class Container:
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
+    # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
+    recover_pending_versions: RecoverPendingVersions
     llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
+
+
+def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
+    """범용 시간 제한은 OpenRouter 어댑터의 자체 제한(폴링)에 제출·다운로드·정규화를 더한 시간보다 길어야 한다.
+
+    짧으면 범용 제한이 먼저 끊어 job id 없는 오류가 남고, 버려진 스레드는 어댑터 제한까지 폴링을 계속한다 (ADR-0012).
+    """
+    if settings.generator == "external_api" and (
+        settings.generator_timeout_s <= settings.video_timeout_s
+    ):
+        log.warning(
+            "FRAME_GENERATOR_TIMEOUT_S(%gs) 가 FRAME_VIDEO_TIMEOUT_S(%gs) 보다 길지 않습니다. "
+            "어댑터가 job id 를 담아 GENERATION_TIMEOUT 을 내기 전에 범용 시간 제한이 먼저 끊습니다 "
+            "(권장: FRAME_VIDEO_TIMEOUT_S + 300초 이상)",
+            settings.generator_timeout_s,
+            settings.video_timeout_s,
+        )
 
 
 def build_container(
     settings: Settings | None = None,
     registry: AdapterRegistry | None = None,
     overrides: Mapping[str, Any] | None = None,
-    observers: tuple[PipelineObserver, ...] = (),
+    observers: tuple[PipelineObserver, ...] | None = None,
 ) -> Container:
+    """observers 를 주지 않으면 LoggingObserver 하나를 붙인다 (주면 그것만 쓴다)."""
     settings = settings or Settings()
+    observers = (LoggingObserver(),) if observers is None else tuple(observers)
     registry = registry or default_registry()
     ov: dict[str, Any] = dict(overrides or {})
 
@@ -104,10 +136,21 @@ def build_container(
     generator: VideoGenerator = pick(
         "generator", lambda: registry.build(VideoGenerator, settings.generator, ctx)
     )
-    if settings.generator_retries > 0:  # Decorator 체인은 설정으로 켠다
-        generator = RetryingVideoGenerator(generator, retries=settings.generator_retries)
+    # 생성 결과 캐시 (#7, ADR-0013): 키에 넣을 프로필은 데코레이터로 감싸기 전의 생성기에서 받는다
+    clip_cache: ClipCache = pick(
+        "clip_cache", lambda: build_clip_cache(ctx.artifact_store, generator.profile())
+    )
+    # Decorator 체인은 설정으로 켠다. 안쪽 -> 바깥: Retry -> Timeout -> Cache (ADR-0012)
+    # 캐시 적중은 시간 제한을 거치지 않고, 시간 초과는 Retry 바깥에서 나므로 재시도되지 않는다.
+    if settings.generator_retries > 0:
+        generator = RetryingVideoGenerator(
+            generator, retries=settings.generator_retries, sleep=pause_before_retry
+        )
+    if settings.generator_timeout_s > 0:
+        _warn_if_timeout_cuts_before_adapter(settings)
+        generator = TimeoutVideoGenerator(generator, settings.generator_timeout_s)
     if settings.generator_cache:
-        generator = CachingVideoGenerator(generator)
+        generator = CachingVideoGenerator(generator, cache=clip_cache)
     assembler = pick("assembler", lambda: registry.build(VideoAssembler, settings.assembler, ctx))
     tracker = pick("tracker", lambda: registry.build(ObjectTracker, settings.tracker, ctx))
     checkers: tuple[Checker, ...] = pick(
@@ -132,7 +175,7 @@ def build_container(
     )
     structure_requirements = StructureRequirements(uow_factory, structurer)
     run_generation_pipeline = RunGenerationPipeline(
-        uow_factory, stages, PipelineRunner(observers), ids
+        uow_factory, stages, PipelineRunner(observers), ids, clock=clock
     )
     handlers.register(
         STRUCTURE_REQUIREMENTS,
@@ -160,8 +203,15 @@ def build_container(
         create_project=CreateProject(uow_factory, dispatcher, ids, clock),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
-        accept_generation=AcceptGeneration(uow_factory, dispatcher),
+        accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
         llm_keys=ctx.llm_keys,
+        recover_pending_versions=RecoverPendingVersions(
+            uow_factory,
+            dispatcher,
+            clock,
+            lease_seconds=settings.worker_lease_s,
+            max_attempts=settings.worker_max_attempts,
+        ),
     )

@@ -4,6 +4,7 @@ import sys
 
 import pytest
 
+from frame.adapters.generator import CachingVideoGenerator
 from frame.application.errors import ConfigurationError, LLMUnavailable
 from frame.config import Settings, build_container
 
@@ -63,3 +64,37 @@ def test_llm_structurer_with_runtime_entry_starts_without_a_key(monkeypatch, tmp
     )
     container = build_container(settings)
     assert container.llm_keys is not None and container.llm_keys.status().configured is False
+
+
+def test_generator_cache_is_on_by_default():
+    """#7: 같은 조건의 장면을 다시 만들지 않도록 생성 결과 캐시는 기본으로 켠다."""
+    assert Settings().generator_cache is True
+    assert Settings.from_env({}).generator_cache is True
+    assert Settings.from_env({"FRAME_GENERATOR_CACHE": "false"}).generator_cache is False
+    assert isinstance(build_container(Settings()).generator, CachingVideoGenerator)
+    assert not isinstance(
+        build_container(Settings(generator_cache=False)).generator, CachingVideoGenerator
+    )
+
+
+def test_recovery_settings_have_defaults_and_are_parsed_from_env():
+    """#2: 워커 리스·시도 상한·주기 검사 간격 (0 이면 기동 때만 복구)."""
+    defaults = Settings.from_env({})
+    assert (
+        defaults.worker_lease_s,
+        defaults.worker_max_attempts,
+        defaults.recovery_interval_s,
+    ) == (
+        1800.0,
+        3,
+        60.0,
+    )
+    settings = Settings.from_env(
+        {
+            "FRAME_WORKER_LEASE_S": "900",
+            "FRAME_WORKER_MAX_ATTEMPTS": "2",
+            "FRAME_RECOVERY_INTERVAL_S": "0",
+        }
+    )
+    assert (settings.worker_lease_s, settings.worker_max_attempts) == (900.0, 2)
+    assert settings.recovery_interval_s == 0.0

@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -38,6 +39,15 @@ class VersionRow(Base):
         ForeignKey("video_versions.version_id"), nullable=True
     )
     state: Mapped[str] = mapped_column(String(16), nullable=False)
+    queued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # 확장 (#2 재시작 복구)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # 확장 (#2)
+    attempt: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )  # 확장 (#2)
     source_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)  # 확장
     target_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 확장
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 확장 (생성 조건)
@@ -47,6 +57,7 @@ class VersionRow(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     frozen_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확장
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 확장 (단계·장면 진행)
 
 
 class EntityRow(Base):
