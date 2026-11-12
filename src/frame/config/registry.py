@@ -183,6 +183,8 @@ def default_registry() -> AdapterRegistry:
             timeout_seconds=s.video_timeout_s,
             poll_interval_seconds=s.video_poll_interval_s,
             normalizer=FfmpegVideoNormalizer(resolve_ffmpeg(s.video_ffmpeg)),
+            edit_mode=s.video_edit_mode,
+            edit_model=s.video_edit_model,
         )
 
     reg.register(VideoGenerator, "external_api", _external_api)

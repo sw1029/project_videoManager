@@ -56,6 +56,10 @@ class Settings:
     video_timeout_s: float = 600.0  # 제출부터 완료까지 기다리는 시간 (넘으면 GENERATION_TIMEOUT)
     video_poll_interval_s: float = 20.0
     video_ffmpeg: str | None = None  # ffmpeg 실행 파일. 없으면 PATH -> imageio-ffmpeg(video extra)
+    # 수정 버전에서 다시 만드는 장면을 부모 클립 편집으로 만든다 (ADR-0016). 거절되면 새로 생성한다.
+    # off | previous_job(부모 작업을 previous_job_id 로 이어서 편집) | video_reference(부모 클립을 영상 참조로 보냄)
+    video_edit_mode: str = "off"
+    video_edit_model: str | None = None  # video_reference 의 편집 모델. 비우면 FRAME_VIDEO_MODEL
     # --- LLM (FRAME_STRUCTURER=llm 일 때) ---
     # openai(기본, OpenAI 호환 로컬 서버도 base_url 로) | fake(테스트용 재생 클라이언트).
     # 키나 패키지가 없으면 서버 기동 시점에 실패한다 (요청마다 조용히 실패하지 않도록).
@@ -138,6 +142,8 @@ class Settings:
                 text("VIDEO_POLL_INTERVAL_S", "") or base.video_poll_interval_s
             ),
             video_ffmpeg=text("VIDEO_FFMPEG", "") or None,
+            video_edit_mode=text("VIDEO_EDIT_MODE", "") or base.video_edit_mode,
+            video_edit_model=text("VIDEO_EDIT_MODEL", "") or None,
             llm_provider=text("LLM_PROVIDER", base.llm_provider),
             llm_model=text("LLM_MODEL", base.llm_model),
             llm_key_file=text("LLM_KEY_FILE", "") or None,
