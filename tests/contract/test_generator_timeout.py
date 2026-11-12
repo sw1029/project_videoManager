@@ -169,3 +169,17 @@ def test_wait_abandoned_reports_workers_still_running(store, release, ir):
     assert generator.wait_abandoned(0.01) is False  # 아직 내부 호출이 끝나지 않았다
     release.set()
     assert generator.wait_abandoned(WAIT) is True
+
+
+def test_profile_is_the_wrapped_generators():
+    """다른 데코레이터처럼 감싼 생성기의 생성 프로필(생성 캐시 키에 쓰임)을 그대로 돌려준다."""
+
+    class Profiled(VideoGenerator):
+        def generate_scene(self, request):
+            raise NotImplementedError
+
+        def profile(self):
+            return {"generator": "openrouter", "resolution": "480p"}
+
+    generator = TimeoutVideoGenerator(Profiled(), timeout_seconds=WAIT)
+    assert generator.profile() == {"generator": "openrouter", "resolution": "480p"}

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from contextvars import ContextVar
 from typing import Any
 
@@ -108,6 +108,10 @@ class TimeoutVideoGenerator(VideoGenerator):
         self.timeouts = 0
         self._lock = threading.Lock()
         self._abandoned: set[threading.Thread] = set()
+
+    def profile(self) -> Mapping[str, object]:
+        """감싼 생성기의 생성 프로필을 그대로 돌려준다 (다른 데코레이터와 같은 규칙, 생성 캐시 키에 쓰인다)."""
+        return self._inner.profile()
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         abandoned = threading.Event()
