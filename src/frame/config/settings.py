@@ -54,6 +54,9 @@ class Settings:
     llm_temperature: float | None = 0.0  # None 이면 보내지 않음 (추론 모델은 자동 생략)
     llm_strict_schema: bool = True
     llm_max_attempts: int = 3  # 검증 실패 시 자기수정 재시도 횟수
+    # 화면에서 API 키 입력 허용. 켜면 키 없이 기동하고, 키는 메모리에만 둔다 (재시작 시 사라짐)
+    llm_runtime_key: bool = False
+    llm_runtime_key_allow_remote: bool = False  # 기본은 서버와 같은 기기(loopback) 요청만 허용
     api_prefix: str = "/api"
     # --- 프론트 연동·배포 ---
     cors_origins: tuple[
@@ -114,6 +117,10 @@ class Settings:
             llm_temperature=_optional_float(text("LLM_TEMPERATURE", "0")),
             llm_strict_schema=flag("LLM_STRICT_SCHEMA", base.llm_strict_schema),
             llm_max_attempts=int(text("LLM_MAX_ATTEMPTS", str(base.llm_max_attempts))),
+            llm_runtime_key=flag("LLM_RUNTIME_KEY", base.llm_runtime_key),
+            llm_runtime_key_allow_remote=flag(
+                "LLM_RUNTIME_KEY_ALLOW_REMOTE", base.llm_runtime_key_allow_remote
+            ),
             api_prefix=text("API_PREFIX", base.api_prefix),
             cors_origins=tuple(o.strip() for o in text("CORS_ORIGINS", "").split(",") if o.strip()),
             frontend_dist=text("FRONTEND_DIST", "") or None,

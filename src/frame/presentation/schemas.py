@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 # ---- 입력 제한 (공개 데모에서 LLM 비용·저장 용량을 지키기 위한 상한) ----------------
 
@@ -42,7 +42,21 @@ class CreateRevisionIn(BaseModel):
     current_value: str | None = Field(default=None, max_length=300)
 
 
+class LLMKeyIn(BaseModel):
+    """화면에서 입력한 OpenAI API 키. SecretStr 이라 repr·로그에 값이 나오지 않는다."""
+
+    api_key: SecretStr
+
+
 # ---- 응답 ----------------------------------------------------------------
+
+
+class LLMKeyStatusOut(BaseModel):
+    configured: bool
+    source: Literal["runtime", "config", "env", "file"] | None  # runtime = 화면 입력(메모리)
+    hint: str | None  # 끝 4자리만 (예: sk-...abcd)
+    runtime_entry: bool  # 이 요청을 보낸 기기에서 키를 입력할 수 있는지 (켜져 있고 같은 기기·원격 허용)
+    runtime_entry_enabled: bool  # 서버가 화면 키 입력을 켰는지 (FRAME_LLM_RUNTIME_KEY)
 
 
 class ErrorDetailOut(BaseModel):
@@ -75,6 +89,7 @@ class HealthOut(BaseModel):
     # 화면이 예시 입력을 고를 때 쓴다: dsl(규칙 기반) / natural_language(LLM) / any
     structuring_input: Literal["dsl", "natural_language", "any"]
     adapters: HealthAdaptersOut
+    llm_key: LLMKeyStatusOut | None  # LLM 구조화(openai)를 쓸 때만
 
 
 class PredicateOut(BaseModel):

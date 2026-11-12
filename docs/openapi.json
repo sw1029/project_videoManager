@@ -888,6 +888,16 @@
           "adapters": {
             "$ref": "#/components/schemas/HealthAdaptersOut"
           },
+          "llm_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMKeyStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -910,7 +920,8 @@
           "status",
           "version",
           "structuring_input",
-          "adapters"
+          "adapters",
+          "llm_key"
         ],
         "title": "HealthOut",
         "type": "object"
@@ -937,6 +948,75 @@
           "scenes"
         ],
         "title": "IROut",
+        "type": "object"
+      },
+      "LLMKeyIn": {
+        "description": "화면에서 입력한 OpenAI API 키. SecretStr 이라 repr·로그에 값이 나오지 않는다.",
+        "properties": {
+          "api_key": {
+            "format": "password",
+            "title": "Api Key",
+            "type": "string",
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "api_key"
+        ],
+        "title": "LLMKeyIn",
+        "type": "object"
+      },
+      "LLMKeyStatusOut": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "runtime_entry": {
+            "title": "Runtime Entry",
+            "type": "boolean"
+          },
+          "runtime_entry_enabled": {
+            "title": "Runtime Entry Enabled",
+            "type": "boolean"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "runtime",
+                  "config",
+                  "env",
+                  "file"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "configured",
+          "source",
+          "hint",
+          "runtime_entry",
+          "runtime_entry_enabled"
+        ],
+        "title": "LLMKeyStatusOut",
         "type": "object"
       },
       "PredicateOut": {
@@ -2151,6 +2231,135 @@
         "summary": "버전 트리와 버전별 상태·검수 요약·바뀐 장면 수, 프로젝트 집계를 한 번에 조회한다",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/settings/llm-key": {
+      "delete": {
+        "operationId": "clear_llm_key_api_settings_llm_key_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMKeyStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "키 입력이 꺼져 있거나 다른 기기에서 온 요청"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "LLM 구조화를 쓰지 않는 설정"
+          }
+        },
+        "summary": "화면에서 입력한 키를 지운다 (파일·환경 변수 키는 그대로)",
+        "tags": [
+          "settings"
+        ]
+      },
+      "get": {
+        "operationId": "get_llm_key_api_settings_llm_key_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMKeyStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "LLM 구조화를 쓰지 않는 설정"
+          }
+        },
+        "summary": "OpenAI API 키 설정 상태(출처·끝 4자리)를 조회한다",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "operationId": "set_llm_key_api_settings_llm_key_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMKeyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LLMKeyStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "키 입력이 꺼져 있거나 다른 기기에서 온 요청"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "LLM 구조화를 쓰지 않는 설정"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "화면에서 입력한 OpenAI API 키를 서버 메모리에 설정한다 (재시작 시 사라짐)",
+        "tags": [
+          "settings"
         ]
       }
     },

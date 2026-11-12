@@ -17,6 +17,8 @@ from frame.application.dto import (
     VersionOverview,
 )
 from frame.application.ports.artifact_store import guess_media_type
+from frame.application.ports.llm import LLMKeyStatus
+from frame.config.settings import Settings
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import Verdict
 from frame.domain.identifiers import entity_id
@@ -26,6 +28,18 @@ from frame.domain.services.comparison import RequirementComparison
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
+
+
+def llm_key_out(
+    status: LLMKeyStatus, settings: Settings, *, entry_allowed: bool
+) -> s.LLMKeyStatusOut:
+    return s.LLMKeyStatusOut(
+        configured=status.configured,
+        source=status.source,  # type: ignore[arg-type]
+        hint=status.hint,
+        runtime_entry=entry_allowed,
+        runtime_entry_enabled=settings.llm_runtime_key,
+    )
 
 
 def _value_kind(predicate: str) -> str | None:

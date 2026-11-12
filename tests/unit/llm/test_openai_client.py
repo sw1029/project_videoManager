@@ -133,3 +133,44 @@ def test_sdk_errors_map_to_llm_error_codes(error, code):
     with pytest.raises(LLMError) as excinfo:
         client.complete_json("s", "u", {"type": "object"})
     assert excinfo.value.code == code
+
+
+# ---- 호출 시점 키 해석 (화면 입력 키 지원) -------------------------------------------------
+
+
+def test_key_is_resolved_at_call_time_when_startup_check_is_off():
+    from frame.adapters.llm.key_store import LLMKeyStore
+
+    store = LLMKeyStore(env={})
+    created = []
+
+    def factory(key):
+        created.append(key)
+        return _sdk(_response('{"ok": true}'))
+
+    client = OpenAIJsonClient(
+        model="gpt-4.1-mini", key_source=store, sdk_factory=factory, require_key_at_start=False
+    )
+    with pytest.raises(LLMUnavailable, match="키"):
+        client.complete_json("s", "u", {"type": "object"})
+    assert created == []
+
+    first = "sk-run-" + "a" * 20 + "1111"
+    store.set_runtime_key(first)
+    assert client.complete_json("s", "u", {"type": "object"}).text == '{"ok": true}'
+    client.complete_json("s", "u", {"type": "object"})
+    assert created == [first]  # 같은 키면 SDK 클라이언트를 다시 만들지 않는다
+
+    second = "sk-run-" + "b" * 20 + "2222"
+    store.set_runtime_key(second)
+    client.complete_json("s", "u", {"type": "object"})
+    assert created == [first, second]
+
+
+def test_startup_check_still_fails_fast_by_default():
+    from frame.adapters.llm.key_store import LLMKeyStore
+
+    with pytest.raises(LLMUnavailable):
+        OpenAIJsonClient(
+            model="gpt-4.1-mini", key_source=LLMKeyStore(env={}), sdk_factory=lambda key: None
+        )

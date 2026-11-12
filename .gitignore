@@ -16,3 +16,12 @@ frontend/dist/
 key.txt
 *.key
 *.egg-info/
+
+.DS_Store
+
+# 시연 상태 (DB · 산출물 · API 키 파일)
+.demo/
+
+# OS별 시연 번들 빌드 (작업 폴더 · 결과물)
+/build/
+/dist/

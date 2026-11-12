@@ -19,6 +19,7 @@ from frame.adapters.generator.decorators import (
     TimeoutVideoGenerator,
     pause_before_retry,
 )
+from frame.adapters.llm.key_store import LLMKeyStore
 from frame.application.checks import CheckSuite
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
 from frame.application.pipeline import (
@@ -43,6 +44,7 @@ from frame.application.ports import (
     VideoAssembler,
     VideoGenerator,
 )
+from frame.application.ports.llm import LLMKeySource
 from frame.application.use_cases import (
     AcceptGeneration,
     CreateProject,
@@ -83,6 +85,7 @@ class Container:
     queries: ProjectQueries
     # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
     recover_pending_versions: RecoverPendingVersions
+    llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
 
 
 def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
@@ -120,6 +123,10 @@ def build_container(
     ids: IdGenerator = pick("ids", UuidIdGenerator)
     clock: Clock = pick("clock", SystemClock)
     ctx = BuildContext(settings=settings, ids=ids, clock=clock)
+    uses_openai = settings.structurer == "llm" and settings.llm_provider == "openai"
+    ctx.llm_keys = pick(
+        "llm_keys", lambda: LLMKeyStore(key_file=settings.llm_key_file) if uses_openai else None
+    )
     ctx.artifact_store = pick(
         "artifact_store", lambda: registry.build(ArtifactStore, settings.artifact_store, ctx)
     )
@@ -199,6 +206,7 @@ def build_container(
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
+        llm_keys=ctx.llm_keys,
         recover_pending_versions=RecoverPendingVersions(
             uow_factory,
             dispatcher,

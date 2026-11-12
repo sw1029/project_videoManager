@@ -47,6 +47,25 @@ def test_llm_structurer_without_openai_package_fails_with_install_hint(monkeypat
         build_container(Settings(structurer="llm"))
 
 
+def test_runtime_key_entry_is_opt_in():
+    assert Settings().llm_runtime_key is False
+    assert Settings().llm_runtime_key_allow_remote is False
+    on = Settings.from_env(
+        {"FRAME_LLM_RUNTIME_KEY": "true", "FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE": "1"}
+    )
+    assert on.llm_runtime_key and on.llm_runtime_key_allow_remote
+
+
+def test_llm_structurer_with_runtime_entry_starts_without_a_key(monkeypatch, tmp_path):
+    pytest.importorskip("openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    settings = Settings(
+        structurer="llm", llm_runtime_key=True, llm_key_file=str(tmp_path / "none.txt")
+    )
+    container = build_container(settings)
+    assert container.llm_keys is not None and container.llm_keys.status().configured is False
+
+
 def test_generator_cache_is_on_by_default():
     """#7: 같은 조건의 장면을 다시 만들지 않도록 생성 결과 캐시는 기본으로 켠다."""
     assert Settings().generator_cache is True
