@@ -25,6 +25,7 @@ from frame.domain.state_machine import (
         (S.QUEUED, S.FAILED),
         (S.PROCESSING, S.COMPLETED),
         (S.PROCESSING, S.FAILED),
+        (S.PROCESSING, S.QUEUED),  # 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
     ],
 )
 def test_allowed_transitions(src, dst):

@@ -30,14 +30,16 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 1. 응답의 `version_id` 로 `GET /api/versions/{id}` → `DRAFT` 와 IR 확인
 2. `POST /api/versions/{id}/generations` → `202 QUEUED` → 잠시 후 `COMPLETED`
 3. `GET /api/versions/{id}/checks`, `GET /api/versions/{id}/entities/cup/tracks`
-4. `POST /api/versions/{id}/revisions` `{"entity_key":"cup","predicate":"color","new_value":"teal"}` → 새 DRAFT → 2~3 반복 → 두 버전 비교
+4. `POST /api/versions/{id}/revisions` `{"entity_key":"cup","predicate":"color","new_value":"teal"}` → 새 DRAFT → 2~3 반복
+5. `GET /api/versions/{새 id}/comparison` → 부모 대비 장면별 재사용(`REUSED`)·재생성, 바뀐 요구조건과 판정, 검수 지표 차이
+6. `GET /api/projects/{project_id}/dashboard` → 버전 트리, 버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전
 
 ## 구성 (환경 변수 `FRAME_*`, `.env.example` 참고)
 
 | 키 | 값 | 의미 |
 |---|---|---|
 | `FRAME_STRUCTURER` | `rule_based`(DSL 입력) · `llm`(자연어 입력) · `fake` | 요구사항 구조화 모델 |
-| `FRAME_GENERATOR` | `fake` · `external_api`(OpenRouter) · `diffusers`(뼈대) | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`) |
+| `FRAME_GENERATOR` | `fake` · `external_api`(OpenRouter) · `diffusers`(뼈대) | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`: 기본 켜짐, 같은 조건·설정의 장면은 재시작 뒤에도 한 번만 생성) |
 | `FRAME_VIDEO_MODEL` / `FRAME_VIDEO_RESOLUTION` | OpenRouter 영상 모델 id (기본 `alibaba/wan-3.0`) / `480p` · `720p`(기본) · `1080p` | `external_api` 의 모델과 해상도 (화면비 `FRAME_VIDEO_ASPECT_RATIO`=`9:16`, 클립 fps `FRAME_VIDEO_FPS`=30) |
 | `FRAME_VIDEO_KEY_FILE` | 키 파일 경로 (또는 환경 변수 `OPENROUTER_API_KEY`) | OpenRouter 키 (`sk-or-...`). 저장소에 넣지 않는다 |
 | `FRAME_VIDEO_FFMPEG` | 실행 파일 경로 (비우면 PATH → `video` extra 의 imageio-ffmpeg) | 클립 정규화·조립용 ffmpeg |
@@ -48,6 +50,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |
 | `FRAME_GENERATOR_TIMEOUT_S` | 초 (0·빈 값 = 끔, 기본 끔) | 장면 하나 생성의 범용 시간 제한. 넘으면 `GENERATION_TIMEOUT` 으로 실패하고 재시도하지 않는다. `external_api` 는 `FRAME_VIDEO_TIMEOUT_S` + 300초 이상 ([ADR-0012](docs/adr/0012-generation-timeout-partial-results-progress.md)) |
+| `FRAME_WORKER_LEASE_S` / `FRAME_WORKER_MAX_ATTEMPTS` / `FRAME_RECOVERY_INTERVAL_S` | 초(1800) / 횟수(3) / 초(60, 0 = 기동 때만) | 재시작 복구 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)): 기동 때 QUEUED·STRUCTURING 은 다시 실행하고 PROCESSING 은 재시도, 실행 중에는 리스를 넘긴 PROCESSING 을 재시도. 시도 상한이면 `FAILED(WORKER_LOST)` |
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
 | `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 POST 요청 제한 (0 = 꺼짐) |
@@ -62,6 +65,10 @@ API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바�
 - **오류 형식**: 모든 오류는 `{error_code, error_message}` 이고, 요청 형식 오류(422)만 `details[{loc, message}]` 를 더한다.
 - **상태 갱신**: 구조화·생성은 비동기다. 화면은 상태가 STRUCTURING·QUEUED·PROCESSING 인 동안 `GET /api/versions/{id}` 를 주기적으로 조회한다.
 - **영상**: `video_url`, `clip_url` 을 `<video src>` 에 그대로 쓴다. `*_media_type` 이 `video/` 가 아니면 Fake 매니페스트(JSON)이므로 대체 화면을 보여준다.
+- **전후 비교**: `GET /api/versions/{id}/comparison` (`?against=` 생략 시 부모) 한 번으로 양쪽 영상, 장면별 `status`
+  (`REUSED`·`REGENERATED`·`ADDED`·`REMOVED`·`UNAVAILABLE`=클립 없음)와 양쪽 `clip_url`, 요구조건별 변경·판정, `checks_delta` 를 받는다 ([ADR-0014](docs/adr/0014-comparison-and-dashboard-api.md)).
+- **대시보드**: `GET /api/projects/{id}/dashboard` 가 버전 트리(`parent_version_id`·`child_version_ids`·`depth`)와 버전별 상태·오류·영상·검수 요약·
+  `changed_scene_count`, 상태별 개수·최신 버전을 한 번에 준다.
 - **입력 예시**: `/health` 의 `structuring_input` 이 `dsl` 이면 DSL 예시를, `natural_language` 이면 자연어 예시를 보여준다.
 - **장면 수준 조건 수정**: `POST /revisions` 에서 `entity_key` 를 생략하면 장소·조명·분위기 같은 장면 조건을 바꾼다.
 
@@ -123,4 +130,6 @@ FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOL
 
 카페 예시의 4초 장면 하나를 만들고(Wan 3.0 480p 약 $0.20, 720p 약 $0.40) 비용(`usage.cost`)·소요 시간·출력 규격을 출력한다.
 결과는 `./artifacts/clips/live-<시각>/intro.mp4` 에 남는다. 접수된 작업이 실패하거나 시간을 넘기면 과금 여부를 알 수 없어
-다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건 장면의 재과금을 막으려면 `FRAME_GENERATOR_CACHE=true` 를 권한다.
+다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건·같은 설정의 장면은 생성 캐시(`FRAME_GENERATOR_CACHE`, 기본 켜짐)와
+작업 원장으로 재시작 뒤에도 다시 제출하지 않는다 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)).
+이 테스트를 같은 조건으로 24시간 안에 다시 돌리면 원장이 이전 결과를 다시 쓰고 실패하므로, 실제 호출을 다시 보려면 `./artifacts/ledger/openrouter` 를 지운다.

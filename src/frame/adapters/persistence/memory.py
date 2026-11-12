@@ -66,6 +66,10 @@ class InMemoryVersionRepository(VersionRepository):
             copy.deepcopy(v) for v in self._store.versions.values() if v.project_id == project_id
         ]
 
+    def list_by_state(self, state: VersionState) -> list[VideoVersion]:
+        found = [v for v in self._store.versions.values() if v.state is state]
+        return [copy.deepcopy(v) for v in sorted(found, key=lambda v: (v.created_at, v.version_id))]
+
     def save(self, version: VideoVersion) -> None:
         if version.version_id not in self._store.versions:
             raise IntegrityViolation(f"저장되지 않은 version_id: {version.version_id}")

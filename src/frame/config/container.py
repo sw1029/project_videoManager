@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.common import SystemClock, UuidIdGenerator
+from frame.adapters.generator.cache import ClipCache, build_clip_cache
 from frame.adapters.generator.decorators import (
     CachingVideoGenerator,
     RetryingVideoGenerator,
@@ -47,6 +48,7 @@ from frame.application.use_cases import (
     CreateProject,
     CreateRevision,
     ProjectQueries,
+    RecoverPendingVersions,
     RunGenerationPipeline,
     StructureRequirements,
 )
@@ -79,6 +81,8 @@ class Container:
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
+    # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
+    recover_pending_versions: RecoverPendingVersions
 
 
 def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
@@ -125,6 +129,10 @@ def build_container(
     generator: VideoGenerator = pick(
         "generator", lambda: registry.build(VideoGenerator, settings.generator, ctx)
     )
+    # 생성 결과 캐시 (#7, ADR-0013): 키에 넣을 프로필은 데코레이터로 감싸기 전의 생성기에서 받는다
+    clip_cache: ClipCache = pick(
+        "clip_cache", lambda: build_clip_cache(ctx.artifact_store, generator.profile())
+    )
     # Decorator 체인은 설정으로 켠다. 안쪽 -> 바깥: Retry -> Timeout -> Cache (ADR-0012)
     # 캐시 적중은 시간 제한을 거치지 않고, 시간 초과는 Retry 바깥에서 나므로 재시도되지 않는다.
     if settings.generator_retries > 0:
@@ -135,7 +143,7 @@ def build_container(
         _warn_if_timeout_cuts_before_adapter(settings)
         generator = TimeoutVideoGenerator(generator, settings.generator_timeout_s)
     if settings.generator_cache:
-        generator = CachingVideoGenerator(generator)
+        generator = CachingVideoGenerator(generator, cache=clip_cache)
     assembler = pick("assembler", lambda: registry.build(VideoAssembler, settings.assembler, ctx))
     tracker = pick("tracker", lambda: registry.build(ObjectTracker, settings.tracker, ctx))
     checkers: tuple[Checker, ...] = pick(
@@ -160,7 +168,7 @@ def build_container(
     )
     structure_requirements = StructureRequirements(uow_factory, structurer)
     run_generation_pipeline = RunGenerationPipeline(
-        uow_factory, stages, PipelineRunner(observers), ids
+        uow_factory, stages, PipelineRunner(observers), ids, clock=clock
     )
     handlers.register(
         STRUCTURE_REQUIREMENTS,
@@ -188,7 +196,14 @@ def build_container(
         create_project=CreateProject(uow_factory, dispatcher, ids, clock),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
-        accept_generation=AcceptGeneration(uow_factory, dispatcher),
+        accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
+        recover_pending_versions=RecoverPendingVersions(
+            uow_factory,
+            dispatcher,
+            clock,
+            lease_seconds=settings.worker_lease_s,
+            max_attempts=settings.worker_max_attempts,
+        ),
     )

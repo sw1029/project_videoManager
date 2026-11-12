@@ -23,7 +23,15 @@ class Settings:
     # 장면 하나 생성의 범용 시간 제한(초). 0·빈 값이면 끔. external_api 는 FRAME_VIDEO_TIMEOUT_S 보다 길게 (ADR-0012)
     generator_timeout_s: float = 0.0
     generator_retries: int = 0
-    generator_cache: bool = False
+    generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
+    # --- 재시작 복구 (ADR-0013) ---
+    # 기동 때 QUEUED·STRUCTURING 은 다시 디스패치하고 PROCESSING 은 워커 유실로 본다 (서버 프로세스 하나 전제).
+    # 실행 중에는 recovery_interval_s 마다 worker_lease_s 를 넘긴 PROCESSING 을 워커 유실로 본다.
+    # 리스는 버전 하나의 최대 처리 시간(장면 수 x 생성 시간 + 여유)보다 길게 둔다.
+    # 워커 유실 뒤 재시도를 포함한 실행이 worker_max_attempts 번에 닿으면 FAILED(WORKER_LOST).
+    worker_lease_s: float = 1800.0
+    worker_max_attempts: int = 3
+    recovery_interval_s: float = 60.0  # 0 이면 기동 때만 복구
     # --- 영상 생성 API (FRAME_GENERATOR=external_api 일 때, OpenRouter /api/v1/videos) ---
     # 키나 ffmpeg 가 없으면 서버 기동 시점에 실패한다. 허용 길이·화면비·해상도는 모델 메타데이터를 따른다.
     video_model: str = "alibaba/wan-3.0"  # OpenRouter 영상 모델 id
@@ -83,6 +91,9 @@ class Settings:
             generator_timeout_s=_optional_float(text("GENERATOR_TIMEOUT_S", "")) or 0.0,
             generator_retries=int(text("GENERATOR_RETRIES", str(base.generator_retries))),
             generator_cache=flag("GENERATOR_CACHE", base.generator_cache),
+            worker_lease_s=float(text("WORKER_LEASE_S", "") or base.worker_lease_s),
+            worker_max_attempts=int(text("WORKER_MAX_ATTEMPTS", "") or base.worker_max_attempts),
+            recovery_interval_s=float(text("RECOVERY_INTERVAL_S", "") or base.recovery_interval_s),
             # .env 에 빈 값으로 남겨 둔 항목은 기본값을 쓴다
             video_model=text("VIDEO_MODEL", "") or base.video_model,
             video_resolution=text("VIDEO_RESOLUTION", "") or base.video_resolution,

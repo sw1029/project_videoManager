@@ -9,10 +9,18 @@ from frame.adapters.tracker import FakeObjectTracker
 from frame.application.dto import CreateRevisionCommand
 from frame.application.errors import TrackingError
 from frame.application.ports.checker import Checker
+from frame.application.ports.generator import VideoGenerator
 from frame.domain.enums import CheckType, TrackingStatus, Verdict, VersionState
 from frame.domain.errors import InvalidStateTransition
 from frame.domain.services.propagation import AttributeChange
-from tests.support.factories import create_draft, generate, make_container, version_of
+from tests.support.clock import ManualClock
+from tests.support.factories import (
+    create_draft,
+    dispatcher_of,
+    generate,
+    make_container,
+    version_of,
+)
 
 
 def test_pipeline_completes_and_persists_video_tracks_and_checks(container, draft):
@@ -161,3 +169,46 @@ def test_requirement_checker_fail_still_completes_version():
     assert version.state is VersionState.COMPLETED
     summary = container.queries.get_checks(draft.version_id).summary
     assert summary.failed == 1 and summary.requirement_reflection_rate == 7 / 8
+
+
+def test_run_records_the_start_time_and_counts_the_attempt():
+    """#2: QUEUED -> PROCESSING 때 시작 시각을 남기고 시도 횟수를 1 늘린다."""
+    clock = ManualClock()
+    container = make_container(clock=clock)
+    draft = create_draft(container)
+    container.accept_generation.execute(draft.version_id)
+    queued_at = clock.current
+    started_at = clock.advance(seconds=30)
+
+    dispatcher_of(container).run_all()
+
+    version = version_of(container, draft.version_id)
+    assert version.state is VersionState.COMPLETED
+    assert (version.queued_at, version.started_at, version.attempt) == (queued_at, started_at, 1)
+
+
+class _ProcessDied(BaseException):
+    """작업 도중 프로세스가 죽었다 (어떤 처리기도 잡지 않는다)."""
+
+
+class _DyingGenerator(VideoGenerator):
+    def generate_scene(self, request):
+        raise _ProcessDied
+
+
+def test_start_is_committed_before_the_stages_run():
+    """생성 도중 프로세스가 죽어도 '언제 몇 번째로 시작했는지' 는 남아 복구가 판단할 수 있다."""
+    clock = ManualClock()
+    container = make_container(clock=clock, generator=_DyingGenerator())
+    draft = create_draft(container)
+    container.accept_generation.execute(draft.version_id)
+
+    with pytest.raises(_ProcessDied):
+        dispatcher_of(container).run_all()
+
+    version = version_of(container, draft.version_id)
+    assert (version.state, version.started_at, version.attempt) == (
+        VersionState.PROCESSING,
+        clock.current,
+        1,
+    )

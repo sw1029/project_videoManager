@@ -33,6 +33,12 @@ class VideoVersion:
     version_id: str
     project_id: str
     state: VersionState
+    # 실행 기록 (ERD 확장, #2). 키워드 전용이라 위치 인자 순서(..., state, created_at, ...)는 그대로다
+    # queued_at: 마지막으로 QUEUED 가 된 시각 / started_at: 마지막 실행(PROCESSING) 시작 시각
+    # attempt: 실행 시도 횟수 (워커 유실 뒤 재시도 포함)
+    queued_at: datetime | None = field(default=None, kw_only=True)
+    started_at: datetime | None = field(default=None, kw_only=True)
+    attempt: int = field(default=0, kw_only=True)
     created_at: datetime
     parent_version_id: str | None = None
     source_prompt: str | None = None  # 원문 요구사항 (재현성·재구조화용, ERD 확장)
@@ -56,6 +62,15 @@ class VideoVersion:
         self.transition_to(VersionState.FAILED)
         self.error_code = error_code
         self.error_message = error_message
+
+    def record_queued(self, at: datetime) -> None:
+        """생성 접수(DRAFT->QUEUED) 또는 복구 재시도(PROCESSING->QUEUED) 시각."""
+        self.queued_at = at
+
+    def record_started(self, at: datetime) -> None:
+        """실행 시작(QUEUED->PROCESSING): 시각을 남기고 시도 횟수를 1 늘린다 (재시도 상한·리스 판단의 근거)."""
+        self.started_at = at
+        self.attempt += 1
 
     def freeze_conditions(self) -> None:
         """생성 접수 시 조건(IR)을 고정한다. 이후 IR 변경은 새 버전으로만 가능하다."""

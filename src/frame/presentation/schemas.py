@@ -259,3 +259,107 @@ class EntityTracksOut(BaseModel):
     version_id: str
     entity_key: str
     records: list[TrackRecordOut]
+
+
+# ---- US-04 전후 비교·대시보드 (ADR-0014) ----------------------------------------------
+
+
+class VersionOverviewOut(BaseModel):
+    """전후 비교의 양쪽과 대시보드의 각 버전이 함께 쓰는 버전 요약."""
+
+    version_id: str
+    parent_version_id: str | None
+    state: str
+    error_code: str | None
+    error_message: str | None
+    created_at: datetime
+    video_url: str | None  # 결과 영상이 없으면(생성 전·실패) null
+    video_media_type: str | None
+    checks: CheckSummaryOut  # 검수 전이면 total=0, 지표 null
+
+
+class CheckDeltaOut(BaseModel):
+    """검수 요약 지표의 차이 (after − before). 어느 한쪽이라도 값이 없으면 null."""
+
+    requirement_reflection_rate: float | None
+    consistency_rate: float | None
+    preservation_rate: float | None
+
+
+class ComparedSceneOut(BaseModel):
+    """비교의 한쪽 장면. 그 버전에 장면이 없으면 SceneComparisonOut.before/after 자체가 null."""
+
+    planned_start_ms: int
+    planned_end_ms: int
+    description: str
+    clip_url: str | None  # 클립이 없으면(생성 전·처리 중·실패) null
+    clip_media_type: str | None
+
+
+class RequirementComparisonOut(BaseModel):
+    change: str = Field(description="UNCHANGED | CHANGED | ADDED | REMOVED")
+    entity_key: str | None  # null 이면 장면 수준 조건 (장소·조명·분위기·카메라)
+    predicate: str
+    value_kind: str | None
+    relational: bool
+    before_requirement_key: str | None  # 관계 상대가 바뀌면 양쪽 키가 다르다
+    after_requirement_key: str | None
+    before_value: str | None
+    after_value: str | None
+    before_verdict: str | None = Field(description="기준 버전의 REQUIREMENT 판정 (없으면 null)")
+    after_verdict: str | None = Field(description="대상 버전의 REQUIREMENT 판정 (없으면 null)")
+
+
+class SceneComparisonOut(BaseModel):
+    scene_key: str
+    status: str = Field(description="REUSED | REGENERATED | ADDED | REMOVED | UNAVAILABLE")
+    conditions_changed: bool  # 장면 조건·등장 객체 정의가 바뀌었는가 (생성 전에도 계산)
+    before: ComparedSceneOut | None
+    after: ComparedSceneOut | None
+    requirements: list[
+        RequirementComparisonOut
+    ]  # 그 장면의 모든 요구조건 (바뀐 것은 change 로 표시)
+
+
+class ComparisonSummaryOut(BaseModel):
+    scene_count: int
+    status_counts: dict[str, int]  # 모든 장면 상태를 키로 둔다 (0 포함)
+    changed_scene_keys: list[str]  # conditions_changed 인 장면
+    requirement_change_count: int
+
+
+class VersionComparisonOut(BaseModel):
+    """GET /api/versions/{version_id}/comparison — 전후 비교 화면 한 장에 필요한 값 (US-04 AC-43)."""
+
+    version_id: str  # 비교 대상 (after)
+    against_version_id: str  # 비교 기준 (before, 생략하면 부모)
+    against_is_parent: bool
+    before: VersionOverviewOut
+    after: VersionOverviewOut
+    checks_delta: CheckDeltaOut
+    summary: ComparisonSummaryOut
+    scenes: list[SceneComparisonOut]  # 대상 버전의 장면 순서, 기준에만 있는 장면은 뒤에
+
+
+class DashboardVersionOut(VersionOverviewOut):
+    depth: int  # 원본 = 0
+    child_version_ids: list[str]
+    scene_count: int | None  # IR 이 없으면 null
+    changed_scene_count: int | None  # 부모 대비 조건이 바뀐 장면 수 (원본·IR 없음이면 null)
+
+
+class DashboardSummaryOut(BaseModel):
+    version_count: int
+    state_counts: dict[str, int]  # 모든 버전 상태를 키로 둔다 (0 포함)
+    latest_version_id: str | None
+    latest_completed_version_id: str | None
+
+
+class ProjectDashboardOut(BaseModel):
+    """GET /api/projects/{project_id}/dashboard — 버전 트리와 버전별 요약 (US-04 AC-41)."""
+
+    project_id: str
+    title: str
+    created_at: datetime
+    summary: DashboardSummaryOut
+    versions: list[DashboardVersionOut]  # 생성 순. 트리는 parent_version_id / child_version_ids

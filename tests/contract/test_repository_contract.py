@@ -3,7 +3,7 @@
 MySQL 로 돌리려면 FRAME_TEST_DB_URL=mysql+pymysql://... 를 주고 아래 params 에 추가하면 된다.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -227,3 +227,41 @@ def test_check_result_must_reference_requirement_of_same_version(seeded):
     with pytest.raises(IntegrityViolation), seeded() as uow:
         uow.checks.add_all([bad])
         uow.commit()
+
+
+def test_execution_record_roundtrip(seeded):
+    """#2: 접수·시작 시각과 시도 횟수. SQLite 도 시간대(UTC)가 있는 값으로 돌려준다."""
+    queued_at = datetime(2026, 11, 12, 9, 0, tzinfo=UTC)
+    started_at = queued_at + timedelta(seconds=5)
+    with seeded() as uow:
+        version = uow.versions.get("ver_1")
+        version.transition_to(VersionState.QUEUED)
+        version.record_queued(queued_at)
+        version.transition_to(VersionState.PROCESSING)
+        version.record_started(started_at)
+        uow.versions.save(version)
+        uow.commit()
+    with seeded() as uow:
+        loaded = uow.versions.get("ver_1")
+        assert (loaded.queued_at, loaded.started_at, loaded.attempt) == (queued_at, started_at, 1)
+        assert loaded.started_at.utcoffset() == timedelta(0)
+
+
+def test_list_by_state_returns_versions_in_creation_order(seeded, ir):
+    with seeded() as uow:
+        for n, state in enumerate(
+            [VersionState.QUEUED, VersionState.PROCESSING, VersionState.QUEUED], start=2
+        ):
+            uow.versions.add(
+                VideoVersion(f"ver_{n}", "prj_1", state, NOW + timedelta(seconds=n), ir=ir)
+            )
+        uow.commit()
+    with seeded() as uow:
+        assert [v.version_id for v in uow.versions.list_by_state(VersionState.QUEUED)] == [
+            "ver_2",
+            "ver_4",
+        ]
+        processing = uow.versions.list_by_state(VersionState.PROCESSING)
+        assert [v.version_id for v in processing] == ["ver_3"]
+        assert processing[0].ir == ir
+        assert uow.versions.list_by_state(VersionState.COMPLETED) == []

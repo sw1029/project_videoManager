@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 
 from frame.adapters.persistence.sqlalchemy import (
     create_engine_from_url,
@@ -81,3 +81,26 @@ def test_full_flow_runs_on_sqlalchemy_persistence():
     assert checks.summary.requirement_reflection_rate == 1.0
     tracks = container.queries.get_entity_tracks(draft.version_id, "cup").records
     assert [t.scene_key for t in tracks] == ["intro", "closeup"]
+
+
+def test_existing_sqlite_database_gains_new_version_columns(tmp_path, ir):
+    """#2: queued_at·started_at·attempt 가 없던 예전 개발 DB 도 기동 때 열이 더해져 그대로 쓸 수 있다."""
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.commit()
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        for column in ("queued_at", "started_at", "attempt"):
+            conn.exec_driver_sql(f"ALTER TABLE video_versions DROP COLUMN {column}")
+
+    create_schema(engine)
+
+    columns = {c["name"] for c in inspect(engine).get_columns("video_versions")}
+    assert {"queued_at", "started_at", "attempt"} <= columns
+    with uow_factory() as uow:
+        version = uow.versions.get("ver_1")
+        assert (version.queued_at, version.started_at, version.attempt) == (None, None, 0)
+        assert version.ir == ir

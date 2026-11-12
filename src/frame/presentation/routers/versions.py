@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from frame.application.dto import CreateRevisionCommand
 from frame.config.container import Container
@@ -22,6 +22,7 @@ from ..schemas import (
     CreateRevisionOut,
     EntityTracksOut,
     ErrorOut,
+    VersionComparisonOut,
     VersionOut,
 )
 
@@ -141,3 +142,31 @@ def get_checks(version_id: str, container: ContainerDep) -> ChecksOut:
 )
 def get_entity_tracks(version_id: str, entity_id: str, container: ContainerDep) -> EntityTracksOut:
     return mappers.tracks_out(container.queries.get_entity_tracks(version_id, entity_id))
+
+
+@router.get(
+    "/{version_id}/comparison",
+    response_model=VersionComparisonOut,
+    responses={
+        404: {"model": ErrorOut, "description": "NOT_FOUND (버전 또는 비교 기준 버전)"},
+        409: {"model": ErrorOut, "description": "VERSION_NOT_COMPARABLE (중간표현이 없는 버전)"},
+        422: {
+            "model": ErrorOut,
+            "description": "부모 없는 원본에 against 생략, 다른 프로젝트 버전",
+        },
+    },
+    summary="두 버전(기본: 부모)을 장면별 클립 재사용·바뀐 요구조건·검수 요약 차이로 비교한다",
+)
+def compare_versions(
+    version_id: str,
+    container: ContainerDep,
+    against: Annotated[
+        str | None,
+        Query(min_length=1, description="비교 기준 버전 ID. 생략하면 부모 버전과 비교한다"),
+    ] = None,
+) -> VersionComparisonOut:
+    return mappers.comparison_out(
+        container.queries.compare_versions(version_id, against),
+        api_prefix=container.settings.api_prefix,
+        media_type_of=container.artifact_store.content_type,
+    )
