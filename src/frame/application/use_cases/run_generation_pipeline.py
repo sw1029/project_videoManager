@@ -56,14 +56,16 @@ class RunGenerationPipeline:
         try:
             self._runner.run(self._stages, ctx)
         except PipelineFailure as failure:
-            return self._record_failure(version_id, failure)
+            return self._record_failure(version_id, failure, ctx)
         return self._record_success(version_id, ctx)
 
-    def _record_failure(self, version_id: str, failure: PipelineFailure) -> VideoVersion:
+    def _record_failure(
+        self, version_id: str, failure: PipelineFailure, ctx: PipelineContext
+    ) -> VideoVersion:
         with self._uow_factory() as uow:
             version = uow.versions.get(version_id)
             assert version is not None
-            version.mark_failed(failure.error_code, f"[{failure.stage}] {failure.message}")
+            version.mark_failed(failure.error_code, _failure_message(failure, ctx))
             uow.versions.save(version)
             uow.commit()
             return version
@@ -97,3 +99,16 @@ class RunGenerationPipeline:
             uow.versions.save(version)
             uow.commit()
             return version
+
+
+def _failure_message(failure: PipelineFailure, ctx: PipelineContext) -> str:
+    """'[단계] 원인 · 소요: generate 1.2s, track 30ms' 처럼 실패 단계와 단계별 소요 시간을 남긴다."""
+    parts = [f"[{failure.stage}] {failure.message}"]
+    if ctx.timings_ms:
+        timings = ", ".join(f"{name} {_duration(ms)}" for name, ms in ctx.timings_ms.items())
+        parts.append(f"소요: {timings}")
+    return " · ".join(parts)
+
+
+def _duration(ms: float) -> str:
+    return f"{ms:.0f}ms" if ms < 1000 else f"{ms / 1000:.1f}s"

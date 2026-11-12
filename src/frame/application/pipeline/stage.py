@@ -36,6 +36,7 @@ class PipelineStage(ABC):
         try:
             self.execute(ctx)
         except BaseException as exc:
+            ctx.timings_ms[self.name] = (perf_counter() - started) * 1000.0  # 실패한 단계도 남긴다
             for observer in observers:
                 observer.on_stage_failed(self, ctx, exc)
             raise
