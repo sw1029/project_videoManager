@@ -11,7 +11,12 @@ from dataclasses import replace
 from typing import Any
 
 from frame.application.errors import GenerationError, GenerationTimeout
-from frame.application.ports.generator import GeneratedClip, SceneGenerationRequest, VideoGenerator
+from frame.application.ports.generator import (
+    GeneratedClip,
+    ProductionPreview,
+    SceneGenerationRequest,
+    VideoGenerator,
+)
 
 from .cache import ClipCache, InMemoryClipCache, KeyedLocks
 
@@ -39,6 +44,10 @@ class CachingVideoGenerator(VideoGenerator):
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         return self._inner.result_key(request)
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        """감싼 생성기의 미리보기 그대로다. 캐시에 있는 결과면 실제로는 더 빨리·과금 없이 끝난다."""
+        return self._inner.preview(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         # 키의 요청 쪽 값은 생성기가 정한다: 조건 + 정체성 기준 이미지 (+ 편집하는 생성기는 부모 클립)
@@ -89,6 +98,9 @@ class RetryingVideoGenerator(VideoGenerator):
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         return self._inner.result_key(request)
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        return self._inner.preview(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         last: GenerationError | None = None
@@ -156,6 +168,10 @@ class TimeoutVideoGenerator(VideoGenerator):
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         return self._inner.result_key(request)
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        """미리보기는 생성이 아니므로 시간 제한을 걸지 않는다 (감싼 생성기가 스스로 짧게 끝낸다)."""
+        return self._inner.preview(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         abandoned = threading.Event()

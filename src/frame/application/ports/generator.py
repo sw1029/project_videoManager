@@ -13,6 +13,10 @@
   부모 클립을 고쳐서 만들고, 지원하지 않는 생성기는 무시하고 새로 만든다.
 - 수정 지시(directive, ADR-0017): 이 장면을 왜 다시 만드는지. 꼭 지켜야 할 요구조건(바꾼 값 / 반영되지 않았던 값)과
   그대로 둘 요소. 생성기는 편집 지시문·프롬프트에 쓴다. 그대로 둘 요소만 생성 캐시·작업 원장 키에 들어간다.
+
+만들기 전 미리보기 (ADR-0020)
+- preview(request): 이 요청을 지금 만들면 새로 생성할지 부모 클립을 편집할지와 그 어림 비용·시간.
+  아무것도 제출하지 않는다.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 
 from frame.domain.artifacts import GeneratedClip, VideoArtifact
 from frame.domain.enums import RevisionKind
@@ -122,6 +127,29 @@ class SceneGenerationRequest:
         return canonical_hash(payload)
 
 
+class ProductionMethod(StrEnum):
+    """장면 클립을 만드는 방식."""
+
+    GENERATE = "GENERATE"  # 새로 생성
+    EDIT = "EDIT"  # 부모 클립을 편집 (ADR-0016)
+
+
+@dataclass(frozen=True)
+class ProductionPreview:
+    """이 장면을 지금 만들면 어떻게 만들어질지 (ADR-0020). 변경 계획 미리보기가 쓴다.
+
+    어림값은 아는 것만 채운다. cost_usd 는 그 방식의 단가로 계산한 값이고,
+    seconds 는 같은 방식으로 만든 기록이 있을 때의 값이다.
+    """
+
+    method: ProductionMethod
+    model: str | None = None
+    cost_usd: float | None = None
+    seconds: float | None = None
+    # 편집하도록 설정됐지만 지금은 편집할 수 없어 새로 생성하게 되는 사유 (method 가 GENERATE 일 때만)
+    edit_unavailable_reason: str | None = None
+
+
 class VideoGenerator(ABC):
     """계약
     - 반환 클립의 scene_key 는 요청의 scene_key 와 같고, fingerprint 는 request.fingerprint 와 같다.
@@ -143,6 +171,16 @@ class VideoGenerator(ABC):
         데코레이터는 감싼 생성기의 값을 그대로 돌려준다.
         """
         return request.generation_fingerprint
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        """이 요청을 지금 만든다면 어떤 방식·비용이 될지 (ADR-0020). 알 수 없으면 None.
+
+        아무것도 제출하지 않는다 (과금 없음). 변경 계획 미리보기가 다시 만들 장면마다 부른다.
+        편집하는 생성기는 여기서 편집에 필요한 것(부모 클립의 주소 등)을 미리 구해 둘 수 있다:
+        계획을 확인한 사용자는 곧 실행하므로, 구해 둔 것을 그때 쓴다.
+        데코레이터는 감싼 생성기의 값을 그대로 돌려준다.
+        """
+        return None
 
     def profile(self) -> Mapping[str, object]:
         """생성 결과를 바꾸는 생성기 설정 (종류·모델·해상도·화면비·fps 등, ADR-0013).

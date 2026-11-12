@@ -6,6 +6,7 @@
 - 수정 지시(ADR-0017): 요청에 수정 지시가 오면 산출물에 기록한다 (directive).
 - 부모 클립(ADR-0016): 요청에 부모 클립이 오면 기록만 하고(parent_clip_uri) 새로 만든다.
   edits_parent=True 면 부모 클립을 편집하는 생성기 흉내를 낸다: 결과 키에 부모 클립이 들어가고 edited_parent 가 참이다.
+- 미리보기(ADR-0020): 편집 흉내를 내고 부모 클립이 있으면 EDIT, 아니면 GENERATE. 어림값은 없다. previews 에 기록한다.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from frame.application.errors import GenerationError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.generator import (
     GeneratedClip,
+    ProductionMethod,
+    ProductionPreview,
     SceneGenerationRequest,
     VideoArtifact,
     VideoAssembler,
@@ -38,6 +41,7 @@ class FakeVideoGenerator(VideoGenerator):
         self._error = error
         self._edits_parent = edits_parent
         self.requests: list[SceneGenerationRequest] = []
+        self.previews: list[SceneGenerationRequest] = []
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         """편집 흉내를 낼 때는 결과가 부모 클립에도 달려 있다 (ADR-0016)."""
@@ -46,6 +50,11 @@ class FakeVideoGenerator(VideoGenerator):
                 {"base": request.generation_fingerprint, "parent_clip": request.parent.clip.uri}
             )
         return request.generation_fingerprint
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview:
+        self.previews.append(request)
+        edits = self._edits_parent and request.parent is not None
+        return ProductionPreview(ProductionMethod.EDIT if edits else ProductionMethod.GENERATE)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         self.requests.append(request)

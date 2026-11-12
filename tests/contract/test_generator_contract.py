@@ -20,6 +20,8 @@ from frame.application.errors import GenerationError
 from frame.application.ports.generator import (
     GeneratedClip,
     ParentClip,
+    ProductionMethod,
+    ProductionPreview,
     SceneGenerationRequest,
     VideoGenerator,
 )
@@ -309,3 +311,62 @@ def test_cache_follows_the_result_key_of_an_editing_generator(store, ir):
     cached.generate_scene(_with_parent(request, ir, store, "mem://clips/ver_a/intro.mp4"))
 
     assert len(inner.requests) == 2 and cached.hits == 1  # 부모가 다르면 편집 결과도 다르다
+
+
+# ---- 만들기 전 미리보기 (ADR-0020) -------------------------------------------------------
+
+
+def test_preview_tells_how_a_scene_would_be_made_without_making_it(generator, store, ir):
+    """변경 계획 미리보기가 쓴다: 방식과 어림값만 돌려주고 아무것도 만들지 않는다 (과금 없음). 모르면 None."""
+    request = _with_parent(_request(_recolored(ir)), ir, store)
+    before = set(store._blobs)
+
+    for asked in (request, replace(request, parent=None)):
+        preview = generator.preview(asked)
+        assert preview is None or isinstance(preview, ProductionPreview)
+        if preview is not None:
+            assert preview.method in (ProductionMethod.GENERATE, ProductionMethod.EDIT)
+            # 편집할 수 없는 사유는 새로 생성으로 바뀔 때만 있다
+            assert preview.edit_unavailable_reason is None or (
+                preview.method is ProductionMethod.GENERATE
+            )
+
+    assert set(store._blobs) == before  # 클립도 작업 기록도 생기지 않았다
+
+
+def test_generators_that_cannot_tell_have_no_preview(store, ir):
+    class Plain(VideoGenerator):
+        def generate_scene(self, request):
+            raise AssertionError("미리보기는 생성하지 않는다")
+
+    assert Plain().preview(_request(ir)) is None
+
+
+def test_fake_generator_previews_generation_or_an_edit_of_the_parent(store, ir):
+    request = _request(_recolored(ir))
+    with_parent = _with_parent(request, ir, store)
+    plain, editing = FakeVideoGenerator(store), FakeVideoGenerator(store, edits_parent=True)
+
+    assert plain.preview(with_parent) == ProductionPreview(ProductionMethod.GENERATE)
+    assert editing.preview(with_parent) == ProductionPreview(ProductionMethod.EDIT)
+    assert editing.preview(request) == ProductionPreview(
+        ProductionMethod.GENERATE
+    )  # 부모 클립이 없다
+    assert editing.previews == [with_parent, request] and not editing.requests
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda inner: CachingVideoGenerator(inner),
+        lambda inner: RetryingVideoGenerator(inner, retries=2),
+        lambda inner: TimeoutVideoGenerator(inner, timeout_seconds=30),
+    ],
+    ids=["caching", "retrying", "timeout"],
+)
+def test_decorators_pass_the_preview_through(wrap, store, ir):
+    inner = FakeVideoGenerator(store, edits_parent=True)
+    request = _with_parent(_request(_recolored(ir)), ir, store)
+
+    assert wrap(inner).preview(request) == ProductionPreview(ProductionMethod.EDIT)
+    assert inner.previews == [request] and not inner.requests
