@@ -65,3 +65,48 @@ def test_video_reading_extractors_fail_at_startup_without_ffmpeg(tmp_path):
 def test_unknown_identity_key_fails_at_startup():
     with pytest.raises(ConfigurationError, match="IdentityReferenceExtractor"):
         build_container(Settings(identity="telepathy"))
+
+
+# ---- 실제 검수기 (FRAME_CHECKERS) ------------------------------------------------------
+
+
+def test_real_checkers_are_built_from_their_keys(fake_ffmpeg):
+    from frame.adapters.checker import SsimPreservationChecker, VlmConsistencyChecker
+
+    settings = Settings(
+        checkers=("fake_requirement", "vlm_consistency", "ssim_preservation"),
+        llm_provider="fake",
+        video_ffmpeg=str(fake_ffmpeg),
+        consistency_frames=5,
+        consistency_threshold=0.8,
+        preservation_threshold=0.7,
+    )
+    _, consistency, preservation = build_container(settings).checkers
+
+    assert isinstance(consistency, VlmConsistencyChecker)
+    assert (consistency.frames_per_scene, consistency.threshold) == (5, 0.8)
+    assert isinstance(preservation, SsimPreservationChecker) and preservation.threshold == 0.7
+
+
+def test_checker_settings_are_read_from_the_environment():
+    settings = Settings.from_env(
+        {
+            "FRAME_CHECKERS": "fake_requirement, vlm_consistency ,ssim_preservation",
+            "FRAME_CONSISTENCY_FRAMES": "4",
+            "FRAME_CONSISTENCY_THRESHOLD": "0.85",
+            "FRAME_PRESERVATION_THRESHOLD": "0.6",
+        }
+    )
+    assert settings.checkers == ("fake_requirement", "vlm_consistency", "ssim_preservation")
+    assert settings.consistency_frames == 4
+    assert (settings.consistency_threshold, settings.preservation_threshold) == (0.85, 0.6)
+    defaults = Settings.from_env({})
+    assert (defaults.consistency_frames, defaults.consistency_threshold) == (3, 0.9)
+
+
+def test_real_checkers_fail_at_startup_without_ffmpeg(tmp_path):
+    settings = Settings(
+        checkers=("ssim_preservation",), video_ffmpeg=str(tmp_path / "no-ffmpeg.exe")
+    )
+    with pytest.raises(ConfigurationError, match="ffmpeg"):
+        build_container(settings)

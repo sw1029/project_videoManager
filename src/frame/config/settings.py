@@ -33,6 +33,10 @@ class Settings:
     # 이미지를 읽는 모델(VLM): 정체성 기준 추출(vlm_crop)과 일관성 검수(vlm_consistency)가 쓴다.
     # 공급자·키·주소는 FRAME_LLM_* 를 그대로 쓰고 모델만 따로 정할 수 있다 (비우면 FRAME_LLM_MODEL).
     vlm_model: str | None = None
+    # 실제 검수기 (FRAME_CHECKERS 에 vlm_consistency · ssim_preservation 을 넣으면 쓴다)
+    consistency_frames: int = 3  # 일관성 검수가 장면마다 뽑는 표본 프레임 수
+    consistency_threshold: float = 0.9  # 고정 속성 유지율 목표 (지표 3)
+    preservation_threshold: float = 0.9  # 부모 클립 대비 SSIM 하한 (비대상 변경률 10% 이하)
     # --- 재시작 복구 (ADR-0013) ---
     # 기동 때 QUEUED·STRUCTURING 은 다시 디스패치하고 PROCESSING 은 워커 유실로 본다 (서버 프로세스 하나 전제).
     # 실행 중에는 recovery_interval_s 마다 worker_lease_s 를 넘긴 PROCESSING 을 워커 유실로 본다.
@@ -112,6 +116,13 @@ class Settings:
                 text("IDENTITY_MAX_REFERENCES", "") or base.identity_max_references
             ),
             vlm_model=text("VLM_MODEL", "") or None,
+            consistency_frames=int(text("CONSISTENCY_FRAMES", "") or base.consistency_frames),
+            consistency_threshold=float(
+                text("CONSISTENCY_THRESHOLD", "") or base.consistency_threshold
+            ),
+            preservation_threshold=float(
+                text("PRESERVATION_THRESHOLD", "") or base.preservation_threshold
+            ),
             worker_lease_s=float(text("WORKER_LEASE_S", "") or base.worker_lease_s),
             worker_max_attempts=int(text("WORKER_MAX_ATTEMPTS", "") or base.worker_max_attempts),
             recovery_interval_s=float(text("RECOVERY_INTERVAL_S", "") or base.recovery_interval_s),

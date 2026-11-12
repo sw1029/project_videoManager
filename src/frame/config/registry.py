@@ -74,6 +74,8 @@ def default_registry() -> AdapterRegistry:
         FakeConsistencyChecker,
         FakePreservationChecker,
         FakeRequirementChecker,
+        SsimPreservationChecker,
+        VlmConsistencyChecker,
     )
     from frame.adapters.generator import (
         DiffusersVideoGenerator,
@@ -221,6 +223,25 @@ def default_registry() -> AdapterRegistry:
     reg.register(Checker, "fake_requirement", lambda ctx: FakeRequirementChecker())
     reg.register(Checker, "fake_consistency", lambda ctx: FakeConsistencyChecker())
     reg.register(Checker, "fake_preservation", lambda ctx: FakePreservationChecker())
+    # 실제 검수기 (ADR-0015, 0016): ffmpeg 로 클립을 읽는다. 일관성은 VLM(FRAME_VLM_MODEL)이 프레임을 판정한다
+    reg.register(
+        Checker,
+        "vlm_consistency",
+        lambda ctx: VlmConsistencyChecker(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            frames_per_scene=ctx.settings.consistency_frames,
+            threshold=ctx.settings.consistency_threshold,
+        ),
+    )
+    reg.register(
+        Checker,
+        "ssim_preservation",
+        lambda ctx: SsimPreservationChecker(
+            _store(ctx), _ffmpeg(ctx), threshold=ctx.settings.preservation_threshold
+        ),
+    )
 
     # --- 산출물 저장 ---
     reg.register(ArtifactStore, "memory", lambda ctx: InMemoryArtifactStore())
