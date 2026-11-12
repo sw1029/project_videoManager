@@ -1,17 +1,20 @@
 """수정 요청 하나를 '무엇을 하는 수정인가' 로 풀어낸다 (ADR-0017, 0019).
 
 수정 버전을 만들 때(CreateRevision)와 계획을 미리 보여 줄 때(PlanRevision)가 같은 규칙을 쓴다.
+revision_draft 는 그 결과로 수정 버전을 만든다 (저장은 하지 않는다).
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
-from ..enums import RevisionKind
+from ..enums import RevisionKind, VersionState
 from ..errors import ValidationError
 from ..ir import IntermediateRepresentation
-from ..revision import KeepItem, normalize_keep, repair_targets
+from ..models import VideoVersion
+from ..revision import KeepItem, RevisionIntent, next_seed, normalize_keep, repair_targets
 from .propagation import AttributeChange, ChangePropagationPolicy
 
 
@@ -52,6 +55,53 @@ def resolve_revision(
             "그 장면을 다시 만들려면 kind=REPAIR 로 요청하세요"
         )
     return ResolvedRevision(RevisionKind.REPAIR, ir, repair_targets(ir, change), None, kept)
+
+
+def revision_draft(
+    source: VideoVersion,
+    resolved: ResolvedRevision,
+    change: AttributeChange,
+    *,
+    version_id: str,
+    created_at: datetime,
+    request_text: str | None = None,
+) -> VideoVersion:
+    """수정 요청을 푼 결과로 수정 버전(DRAFT)을 만든다. 저장은 부르는 쪽이 한다.
+
+    조건·장면별 seed·수정 의도가 여기서 정해진다. 수정 버전을 만들 때와 계획을 미리 볼 때가 같은 버전을 보므로,
+    계획이 알려 준 것과 실제로 만들어지는 것이 어긋나지 않는다.
+    - REPAIR 는 요구조건이 그대로라 부모 클립이 재사용된다. 대상 장면의 seed 를 다시 지정해 새로 만들어지게 한다.
+    - 장면별 seed 는 물려받는다 (다시 만든 장면이 다음 수정 버전에서 재사용되게).
+    """
+    scene_seeds = dict(source.scene_seeds)
+    if resolved.kind is RevisionKind.REPAIR:
+        for scene_key in resolved.target_scene_keys:
+            scene_seeds[scene_key] = next_seed(source.seed_for(scene_key))
+    text = (request_text or "").strip()
+    intent = RevisionIntent(
+        kind=resolved.kind,
+        predicate=change.predicate,
+        value=change.new_value,
+        entity_key=change.entity_key,
+        scope=change.scope,
+        target_scene_keys=resolved.target_scene_keys,
+        previous_value=resolved.previous_value,
+        keep=resolved.keep,
+        request_text=text or None,
+    )
+    return VideoVersion(
+        version_id=version_id,
+        project_id=source.project_id,
+        state=VersionState.DRAFT,
+        created_at=created_at,
+        parent_version_id=source.version_id,
+        source_prompt=source.source_prompt,
+        target_duration_ms=source.target_duration_ms,
+        seed=source.seed,  # 같은 seed -> 바뀌지 않은 장면은 같은 결과를 기대할 수 있다
+        ir=resolved.ir,
+        scene_seeds=scene_seeds,
+        intent=intent,
+    )
 
 
 def _previous_value(

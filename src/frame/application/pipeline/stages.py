@@ -32,6 +32,7 @@ from ..ports.identity import IdentityExtractionRequest, IdentityReferenceExtract
 from ..ports.structurer import ReferenceImageInput
 from ..ports.tracker import ObjectTracker, TrackingRequest
 from .context import PipelineContext
+from .requests import condition_request, parent_clip_of, revision_directive
 from .stage import PipelineStage
 
 log = logging.getLogger(__name__)
@@ -115,18 +116,7 @@ class GenerateStage(PipelineStage):
     ) -> SceneGenerationRequest:
         """with_extras=False 면 조건만 담는다 (재사용 판단용 fingerprint 계산)."""
         ir = ctx.ir
-        request = SceneGenerationRequest(
-            version_id=ctx.version.version_id,
-            scene=scene,
-            entities=tuple(ir.entity(key) for key in scene.entity_keys),
-            references=tuple(
-                ReferenceImageInput(image_uri=r.image_uri, entity_key=r.entity_key)
-                for r in ctx.references
-                if r.origin is ReferenceOrigin.USER
-                and (r.entity_key is None or r.entity_key in scene.entity_keys)
-            ),
-            seed=ctx.version.seed_for(scene.scene_key),
-        )
+        request = condition_request(ctx.version, ir, scene, ctx.references)
         if not with_extras:
             return request
         identity: tuple[ReferenceImageInput, ...] = ()
@@ -155,37 +145,11 @@ class GenerateStage(PipelineStage):
     @staticmethod
     def _directive(ctx: PipelineContext, scene: SceneSpec) -> RevisionDirective | None:
         """수정 버전이 이 장면을 다시 만들기로 했으면 그 지시. 그 밖의 장면·원본 버전은 None."""
-        intent = ctx.version.intent
-        if intent is None or not intent.targets(scene.scene_key):
-            return None
-        return RevisionDirective(
-            kind=intent.kind,
-            enforce=tuple(
-                r
-                for r in scene.requirements
-                if r.entity_key == intent.entity_key
-                and r.predicate == intent.predicate
-                and r.expected_value == intent.value
-            ),
-            previous_value=intent.previous_value,
-            keep=intent.keep_for(scene),
-        )
+        return revision_directive(ctx.version.intent, scene)
 
     @staticmethod
     def _parent_clip(ctx: PipelineContext, scene: SceneSpec) -> ParentClip | None:
-        parent = ctx.parent
-        if parent is None or parent.ir is None or not parent.ir.has_scene(scene.scene_key):
-            return None
-        clip = parent.clips.get(scene.scene_key)
-        if clip is None:
-            return None
-        parent_scene = parent.ir.scene(scene.scene_key)
-        return ParentClip(
-            version_id=parent.version_id,
-            clip=clip,
-            scene=parent_scene,
-            entities=tuple(parent.ir.entity(key) for key in parent_scene.entity_keys),
-        )
+        return parent_clip_of(ctx.parent, scene)
 
     def _ready_clip(self, ctx: PipelineContext, scene: SceneSpec) -> _Ready | None:
         fingerprint = self._request(ctx, scene, with_extras=False).fingerprint

@@ -11,12 +11,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from frame.domain.enums import RevisionKind, VersionState
 from frame.domain.errors import NotFound, VersionNotRevisable
-from frame.domain.models import VideoVersion
-from frame.domain.revision import RevisionIntent, next_seed
 from frame.domain.services.propagation import ChangePropagationPolicy
-from frame.domain.services.revision_planning import resolve_revision
+from frame.domain.services.revision_planning import resolve_revision, revision_draft
 from frame.domain.state_machine import REVISABLE_STATES
 
 from ..dto import CreateRevisionCommand, CreateRevisionResult
@@ -51,35 +48,13 @@ class CreateRevision:
             resolved = resolve_revision(
                 source.ir, change, self._policy, kind=command.kind, keep=command.keep
             )
-            scene_seeds = dict(source.scene_seeds)  # 물려받는다 (다시 만든 장면이 계속 재사용되게)
-            if resolved.kind is RevisionKind.REPAIR:
-                for scene_key in resolved.target_scene_keys:
-                    scene_seeds[scene_key] = next_seed(source.seed_for(scene_key))
-            text = (command.request_text or "").strip()
-            intent = RevisionIntent(
-                kind=resolved.kind,
-                predicate=change.predicate,
-                value=change.new_value,
-                entity_key=change.entity_key,
-                scope=change.scope,
-                target_scene_keys=resolved.target_scene_keys,
-                previous_value=resolved.previous_value,
-                keep=resolved.keep,
-                request_text=text or None,
-            )
-
-            revision = VideoVersion(
+            revision = revision_draft(
+                source,
+                resolved,
+                change,
                 version_id=self._ids.new_id("ver"),
-                project_id=source.project_id,
-                state=VersionState.DRAFT,
                 created_at=self._clock.now(),
-                parent_version_id=source.version_id,
-                source_prompt=source.source_prompt,
-                target_duration_ms=source.target_duration_ms,
-                seed=source.seed,  # 같은 seed -> 바뀌지 않은 장면은 같은 결과를 기대할 수 있다
-                ir=resolved.ir,
-                scene_seeds=scene_seeds,
-                intent=intent,
+                request_text=command.request_text,
             )
             uow.versions.add(revision)
             # 참조 이미지를 물려준다. 정체성 기준 이미지(ADR-0015)는 출처·기준 장면·외형 해시까지 그대로 옮겨야
