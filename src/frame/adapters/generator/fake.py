@@ -76,6 +76,7 @@ class FakeVideoGenerator(VideoGenerator):
             payload["parent_clip_uri"] = request.parent.clip.uri
             metadata["parent_clip_uri"] = request.parent.clip.uri
             metadata["edited_parent"] = self._edits_parent
+            metadata["edit"] = {"applied": self._edits_parent}  # 공통 기록 (포트 문서)
         uri = self._store.put(
             f"clips/{request.version_id}/{request.scene.scene_key}.json",
             json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"),

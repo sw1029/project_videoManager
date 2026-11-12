@@ -127,6 +127,9 @@ class VideoGenerator(ABC):
     - 반환 클립의 scene_key 는 요청의 scene_key 와 같고, fingerprint 는 request.fingerprint 와 같다.
     - duration_ms 는 요청 장면 길이와 같아야 한다 (조립 시 타임라인이 어긋나지 않도록).
     - 실패/시간초과는 GenerationError / GenerationTimeout 으로 보고한다.
+    - 클립 메타데이터에 남기는 공통 기록 (있는 것만. 계획의 어림값과 장면 응답의 clip_production 이 읽는다):
+      model, cost_usd, generation_seconds, 그리고 부모 클립 편집을 시도했다면
+      edit = {applied: 편집으로 만들었는가, fallback_reason: 편집하지 못하고 새로 생성한 사유}.
     """
 
     @abstractmethod

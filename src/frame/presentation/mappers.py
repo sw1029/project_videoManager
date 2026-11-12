@@ -157,6 +157,31 @@ def revision_plan_out(plan: RevisionPlan) -> s.RevisionPlanOut:
     )
 
 
+def clip_production_out(clip: GeneratedClip) -> s.ClipProductionOut | None:
+    """클립 메타데이터의 공통 기록(model·cost_usd·generation_seconds·edit)을 화면용으로 옮긴다. 기록이 없으면 None."""
+    metadata = clip.metadata
+    if not metadata:
+        return None
+    edit = metadata.get("edit")
+    edit = edit if isinstance(edit, Mapping) else {}
+    applied = edit.get("applied") is True
+    model = metadata.get("model")
+    reason = edit.get("fallback_reason")
+    return s.ClipProductionOut(
+        method="EDITED" if applied else "GENERATED",
+        model=model if isinstance(model, str) else None,
+        cost_usd=_number(metadata.get("cost_usd")),
+        seconds=_number(metadata.get("generation_seconds")),
+        edit_fallback_reason=reason if isinstance(reason, str) and not applied else None,
+    )
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 def version_out(
     detail: VersionDetail,
     *,
@@ -171,7 +196,7 @@ def version_out(
     v = detail.version
     base = f"{api_prefix}/versions/{quote(v.version_id, safe='')}"
 
-    def clip_fields(scene_key: str) -> dict[str, str | None]:
+    def clip_fields(scene_key: str) -> dict[str, Any]:
         clip = v.clips.get(scene_key)
         if clip is None:
             return {"clip_uri": None, "clip_url": None, "clip_media_type": None}
@@ -179,6 +204,7 @@ def version_out(
             "clip_uri": clip.uri,
             "clip_url": f"{base}/scenes/{quote(scene_key, safe='')}/clip",
             "clip_media_type": media_type_of(clip.uri),
+            "clip_production": clip_production_out(clip),
         }
 
     ir_out = None

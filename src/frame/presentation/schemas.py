@@ -175,6 +175,18 @@ class RequirementOut(BaseModel):
     relational: bool
 
 
+class ClipProductionOut(BaseModel):
+    """이 장면의 클립이 어떻게 만들어졌는가 (생성기가 남긴 기록). 부모 클립을 그대로 쓴 장면은 부모 때의 기록이다."""
+
+    # GENERATED: 새로 생성 / EDITED: 부모 클립을 편집해서 만듦 (ADR-0016)
+    method: Literal["GENERATED", "EDITED"]
+    model: str | None = None
+    cost_usd: float | None = None
+    seconds: float | None = None  # 제공자 쪽에서 만드는 데 걸린 시간
+    # 편집하려 했지만 새로 생성했을 때의 사유 (예: 부모 작업의 저장본 주소를 얻지 못함). 화면이 알려 줄 수 있다
+    edit_fallback_reason: str | None = None
+
+
 class SceneOut(BaseModel):
     scene_key: str
     planned_start_ms: int
@@ -185,6 +197,7 @@ class SceneOut(BaseModel):
     clip_uri: str | None  # 내부 저장소 URI (디버깅용)
     clip_url: str | None  # 브라우저가 재생·다운로드할 HTTP 경로
     clip_media_type: str | None
+    clip_production: ClipProductionOut | None = None  # 기록이 없으면 null
 
 
 class EntityOut(BaseModel):

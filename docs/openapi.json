@@ -276,6 +276,68 @@
         "title": "ChecksOut",
         "type": "object"
       },
+      "ClipProductionOut": {
+        "description": "이 장면의 클립이 어떻게 만들어졌는가 (생성기가 남긴 기록). 부모 클립을 그대로 쓴 장면은 부모 때의 기록이다.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "edit_fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Fallback Reason"
+          },
+          "method": {
+            "enum": [
+              "GENERATED",
+              "EDITED"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "ClipProductionOut",
+        "type": "object"
+      },
       "ComparedSceneOut": {
         "description": "비교의 한쪽 장면. 그 버전에 장면이 없으면 SceneComparisonOut.before/after 자체가 null.",
         "properties": {
@@ -2020,6 +2082,16 @@
               }
             ],
             "title": "Clip Media Type"
+          },
+          "clip_production": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClipProductionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "clip_uri": {
             "anyOf": [

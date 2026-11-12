@@ -62,6 +62,8 @@ def test_generation_is_accepted_then_completed(api):
     body = client.get(f"/api/versions/{version_id}").json()
     assert body["state"] == "COMPLETED" and body["video_uri"]
     assert all(s["clip_uri"] for s in body["ir"]["scenes"])
+    # 장면마다 클립이 어떻게 만들어졌는지 (Fake 생성기는 늘 새로 생성)
+    assert {s["clip_production"]["method"] for s in body["ir"]["scenes"]} == {"GENERATED"}
 
 
 @pytest.mark.ac("AC-12")
