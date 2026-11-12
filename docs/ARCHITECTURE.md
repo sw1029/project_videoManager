@@ -129,7 +129,8 @@ sequenceDiagram
 ```
 
 수정 흐름(Core Flow 2)은 `POST /revisions` → `CreateRevision`(원본 IR 복제 + 변경 전파 → 새 DRAFT, `parent_version_id` 연결) 뒤에
-위와 같은 생성 흐름을 탄다. 전후 비교는 두 버전을 각각 `GET /versions/{id}` 로 조회하면 된다.
+위와 같은 생성 흐름을 탄다. 전후 비교는 `GET /versions/{id}/comparison`(기본: 부모 대비) 한 번으로 장면별 클립 재사용·바뀐 요구조건과
+판정·검수 지표 차이를 받고, 프로젝트 대시보드는 `GET /projects/{id}/dashboard` 로 버전 트리와 버전별 요약을 받는다 (ADR-0014).
 
 ### 3.3 버전 상태 기계
 
@@ -253,7 +254,7 @@ FRAME/
 │   ├── contract/                   # 포트별 계약 (구현을 params 로 추가)
 │   ├── integration/                # SQLAlchemy(SQLite) 정규화·FK·전체 흐름
 │   ├── api/                        # TestClient 로 Endpoint Catalog 7개
-│   └── acceptance/                 # US-06 / US-01 / US-03 AC 시나리오
+│   └── acceptance/                 # US-06 / US-01 / US-03 / US-04 AC 시나리오
 ├── docker/ Dockerfile · docker-compose.yml (api + MySQL 8.4)
 └── .github/workflows/ci.yml       # ruff + pytest
 ```
@@ -349,6 +350,8 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
 | GET | `/api/versions/{version_id}/entities/{entity_id}/tracks` | `get_entity_tracks` | 200 등장 구간·박스·상태 (`entity_key` 또는 `project_id:entity_key`) | 404 |
+| GET | `/api/versions/{version_id}/comparison?against=` | `compare_versions` | 200 양쪽 요약·장면별 `REUSED`/`REGENERATED`/`ADDED`/`REMOVED`/`UNAVAILABLE`·요구조건 변경과 판정·`checks_delta` (`against` 생략 시 부모) | 404 / 409 `VERSION_NOT_COMPARABLE` / 422 |
+| GET | `/api/projects/{project_id}/dashboard` | `get_dashboard` | 200 버전 트리·버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전 | 404 |
 | GET | `/api/vocabulary/predicates` | (어휘 조회) | 200 술어 이름·값 종류·관계 여부·별칭 (화면의 속성 블록용) | — |
 | GET | `/health` | (상태 확인) | 200 버전·어댑터·`structuring_input`(dsl / natural_language)·LLM 공급자 | — |
 
@@ -387,13 +390,14 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
 | T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |
-| T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks` | API 제공 |
+| T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks`, `GET /comparison`, `GET /dashboard` | API 제공 |
 | T12 선택 변경·비대상 보존 평가 | `evaluation/edit_metrics.py` | 제공 |
 | T13 원본 보존·상태·오류 통합 테스트 | `tests/integration`, `tests/api` | 제공 |
 | T14 README·시연 절차 | `README.md` | 제공 |
 
 Sprint 2 확장 포인트: `opencv`/SAM2 추적 어댑터(US-03), 실제 검수기 3종, 마스크 산출물(`TrackRecord.boxes` → 마스크 URI), Celery 디스패처,
-Alembic 마이그레이션, 대시보드용 집계 쿼리(프로젝트 단위 버전 비교) — 모두 **포트 추가 없이** 어댑터·유스케이스 추가로 끝난다.
+Alembic 마이그레이션 — 모두 **포트 추가 없이** 어댑터·유스케이스 추가로 끝난다. 대시보드용 집계(프로젝트 단위 버전 비교)는
+ADR-0014 에서 포트 추가 없이 조회 유스케이스로 제공했다.
 
 ---
 

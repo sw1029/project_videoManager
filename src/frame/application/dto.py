@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from frame.domain.checks import CheckResult
-from frame.domain.enums import VersionState
+from frame.domain.enums import Verdict, VersionState
 from frame.domain.metrics import CheckSummary
 from frame.domain.models import Project, ReferenceImage, VideoVersion
+from frame.domain.services.comparison import RateDelta, VersionComparison
 from frame.domain.services.propagation import AttributeChange
 from frame.domain.tracking import TrackRecord
 
@@ -75,3 +77,39 @@ class EntityTracksView:
     version_id: str
     entity_key: str
     records: tuple[TrackRecord, ...]
+
+
+@dataclass(frozen=True)
+class VersionOverview:
+    """전후 비교와 대시보드가 함께 쓰는 버전 요약 (상태·결과 영상·검수 요약)."""
+
+    version: VideoVersion
+    summary: CheckSummary
+    requirement_verdicts: Mapping[str, Verdict]  # requirement_key -> REQUIREMENT 검수 판정
+
+
+@dataclass(frozen=True)
+class VersionComparisonView:
+    before: VersionOverview  # 비교 기준 (against, 생략하면 부모)
+    after: VersionOverview  # 비교 대상 (요청한 버전)
+    against_is_parent: bool
+    comparison: VersionComparison
+    checks_delta: RateDelta  # after − before
+
+
+@dataclass(frozen=True)
+class DashboardVersion:
+    overview: VersionOverview
+    depth: int  # 원본(루트) = 0
+    child_version_ids: tuple[str, ...]
+    scene_count: int | None  # IR 이 없으면 None
+    changed_scene_count: int | None  # 부모 대비 조건이 바뀐 장면 수 (원본이거나 IR 이 없으면 None)
+
+
+@dataclass(frozen=True)
+class ProjectDashboardView:
+    project: Project
+    versions: tuple[DashboardVersion, ...]  # 생성 순
+    state_counts: Mapping[VersionState, int]  # 모든 상태를 키로 둔다 (0 포함)
+    latest_version_id: str | None
+    latest_completed_version_id: str | None

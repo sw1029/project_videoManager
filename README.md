@@ -30,7 +30,9 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 1. 응답의 `version_id` 로 `GET /api/versions/{id}` → `DRAFT` 와 IR 확인
 2. `POST /api/versions/{id}/generations` → `202 QUEUED` → 잠시 후 `COMPLETED`
 3. `GET /api/versions/{id}/checks`, `GET /api/versions/{id}/entities/cup/tracks`
-4. `POST /api/versions/{id}/revisions` `{"entity_key":"cup","predicate":"color","new_value":"teal"}` → 새 DRAFT → 2~3 반복 → 두 버전 비교
+4. `POST /api/versions/{id}/revisions` `{"entity_key":"cup","predicate":"color","new_value":"teal"}` → 새 DRAFT → 2~3 반복
+5. `GET /api/versions/{새 id}/comparison` → 부모 대비 장면별 재사용(`REUSED`)·재생성, 바뀐 요구조건과 판정, 검수 지표 차이
+6. `GET /api/projects/{project_id}/dashboard` → 버전 트리, 버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전
 
 ## 구성 (환경 변수 `FRAME_*`, `.env.example` 참고)
 
@@ -62,6 +64,10 @@ API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바�
 - **오류 형식**: 모든 오류는 `{error_code, error_message}` 이고, 요청 형식 오류(422)만 `details[{loc, message}]` 를 더한다.
 - **상태 갱신**: 구조화·생성은 비동기다. 화면은 상태가 STRUCTURING·QUEUED·PROCESSING 인 동안 `GET /api/versions/{id}` 를 주기적으로 조회한다.
 - **영상**: `video_url`, `clip_url` 을 `<video src>` 에 그대로 쓴다. `*_media_type` 이 `video/` 가 아니면 Fake 매니페스트(JSON)이므로 대체 화면을 보여준다.
+- **전후 비교**: `GET /api/versions/{id}/comparison` (`?against=` 생략 시 부모) 한 번으로 양쪽 영상, 장면별 `status`
+  (`REUSED`·`REGENERATED`·`ADDED`·`REMOVED`·`UNAVAILABLE`=클립 없음)와 양쪽 `clip_url`, 요구조건별 변경·판정, `checks_delta` 를 받는다 ([ADR-0014](docs/adr/0014-comparison-and-dashboard-api.md)).
+- **대시보드**: `GET /api/projects/{id}/dashboard` 가 버전 트리(`parent_version_id`·`child_version_ids`·`depth`)와 버전별 상태·오류·영상·검수 요약·
+  `changed_scene_count`, 상태별 개수·최신 버전을 한 번에 준다.
 - **입력 예시**: `/health` 의 `structuring_input` 이 `dsl` 이면 DSL 예시를, `natural_language` 이면 자연어 예시를 보여준다.
 - **장면 수준 조건 수정**: `POST /revisions` 에서 `entity_key` 를 생략하면 장소·조명·분위기 같은 장면 조건을 바꾼다.
 
