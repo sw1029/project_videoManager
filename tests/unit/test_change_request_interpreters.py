@@ -159,6 +159,28 @@ def test_llm_keeps_only_what_exists_in_this_video(ir):
     assert "장면 ending" in reading.notes and "dog" in reading.notes
 
 
+def test_llm_reads_the_look_of_the_scene_as_its_background(ir):
+    """실제 모델(gpt-4.1-mini)이 '배경은 유지' 를 객체 없는 APPEARANCE 로 돌려줬다 (2차 e2e 1회차).
+
+    그대로 버리면 사용자가 말한 유지 요소가 사라진다. 장면의 모습, 곧 배경으로 읽는다.
+    """
+    keep = [
+        {"aspect": "APPEARANCE", "entity_key": "barista"},
+        {"aspect": "APPEARANCE", "entity_key": None},
+        {"aspect": "BACKGROUND", "entity_key": None},
+    ]
+    interpreter, client = _llm(_answer(keep=keep))
+
+    reading = interpreter.interpret(ir, REQUEST)
+
+    assert reading.keep == (
+        KeepItem(KeepAspect.APPEARANCE, "barista"),
+        KeepItem(KeepAspect.BACKGROUND),
+    )
+    assert "이 영상에 없어" not in reading.notes
+    assert "BACKGROUND" in client.calls[0]["system"]
+
+
 def test_llm_scope_without_a_known_scene_is_left_open(ir):
     interpreter, _ = _llm(_answer(scope="SCENES", scene_keys=["ending"]))
     assert interpreter.interpret(ir, REQUEST).scope is None

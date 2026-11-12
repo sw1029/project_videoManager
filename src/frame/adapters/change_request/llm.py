@@ -50,7 +50,9 @@ SYSTEM_PROMPT = (
     "(form and size). For the scene use entity_key null with BACKGROUND, LIGHTING or COMPOSITION "
     "(framing and camera). 'Keep the person' means APPEARANCE and ACTION of each person; 'keep "
     "the background' means BACKGROUND. Never list the aspect that the change itself alters. "
-    "Leave empty if the user asks to keep nothing.\n"
+    "Leave empty if the user asks to keep nothing. Example: for '인물과 배경은 유지해줘' with one "
+    "person `barista`, keep is [{aspect: APPEARANCE, entity_key: barista}, {aspect: ACTION, "
+    "entity_key: barista}, {aspect: BACKGROUND, entity_key: null}].\n"
     "- notes: one short Korean sentence saying how you read the request."
 )
 
@@ -189,8 +191,13 @@ class LLMChangeRequestInterpreter(ChangeRequestInterpreter):
                 continue
             target = raw.get("entity_key")
             target = str(target).strip() if target else None
+            aspect = str(raw.get("aspect"))
+            if target is None and aspect == str(KeepAspect.APPEARANCE):
+                # 객체 없이 '모습' 을 유지하라는 답은 장면의 모습, 곧 배경으로 읽는다.
+                # 실제 모델이 '배경은 유지해줘' 를 이렇게 돌려준 적이 있다 (2차 e2e 1회차)
+                aspect = str(KeepAspect.BACKGROUND)
             try:
-                item = KeepItem(KeepAspect(str(raw.get("aspect"))), target)
+                item = KeepItem(KeepAspect(aspect), target)
             except (ValueError, ValidationError):
                 dropped.append(f"유지 요소 {raw.get('aspect')}")
                 continue
