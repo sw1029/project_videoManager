@@ -7,19 +7,21 @@
 - base_url 을 주면 OpenAI 호환 서버(vLLM, Ollama 등 로컬 3090 환경)를 같은 코드로 호출한다.
   로컬 서버가 strict json_schema 를 지원하지 않으면 strict=False 로 두고 호출자(LLMStructurer)의 검증·재시도에 맡긴다.
 - 추론 모델(o*, gpt-5*)은 temperature 를 받지 않으므로 보내지 않는다.
+- images 를 주면 user 메시지를 글 + 이미지(data URI) 조각으로 보낸다 (이미지를 읽는 모델이어야 한다).
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from frame.application.errors import LLMBadResponse, LLMRateLimited, LLMTimeout, LLMUnavailable
-from frame.application.ports.llm import JsonCompletion, LLMClient, LLMKeySource
+from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient, LLMKeySource
 
 from .key_store import LLMKeyStore
 from .keys import mask_key, read_key_file
@@ -78,8 +80,10 @@ class OpenAIJsonClient(LLMClient):
         key_source: LLMKeySource | None = None,
         sdk_factory: Callable[[str], Any] | None = None,
         require_key_at_start: bool = True,
+        image_detail: str = "high",
     ) -> None:
         self.model = model
+        self.image_detail = image_detail  # 이미지 해상도 수준 (high: 얼굴·문구 같은 세부를 본다)
         self.base_url = base_url
         self.timeout_s = timeout_s
         self.temperature = temperature
@@ -119,6 +123,12 @@ class OpenAIJsonClient(LLMClient):
                 self._cached = (fingerprint, self._sdk_factory(key))
             return self._cached[1]
 
+    def _user_content(self, user: str, images: Sequence[ImageInput]) -> Any:
+        """이미지가 없으면 예전처럼 문자열, 있으면 글 + 이미지 조각."""
+        if not images:
+            return user
+        return [{"type": "text", "text": user}, *_image_parts(images, self.image_detail)]
+
     def complete_json(
         self,
         system: str,
@@ -127,6 +137,7 @@ class OpenAIJsonClient(LLMClient):
         *,
         schema_name: str = "response",
         timeout_s: float | None = None,
+        images: Sequence[ImageInput] = (),
     ) -> JsonCompletion:
         import openai
 
@@ -135,7 +146,7 @@ class OpenAIJsonClient(LLMClient):
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {"role": "user", "content": self._user_content(user, images)},
             ],
             "response_format": {
                 "type": "json_schema",
@@ -178,6 +189,21 @@ class OpenAIJsonClient(LLMClient):
             input_tokens=getattr(usage, "prompt_tokens", None),
             output_tokens=getattr(usage, "completion_tokens", None),
         )
+
+
+def _image_parts(images: Sequence[ImageInput], detail: str) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    for image in images:
+        if image.label:
+            parts.append({"type": "text", "text": image.label})
+        encoded = base64.b64encode(image.data).decode("ascii")
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.media_type};base64,{encoded}", "detail": detail},
+            }
+        )
+    return parts
 
 
 def _safe_message(exc: Exception) -> str:

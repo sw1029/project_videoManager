@@ -174,3 +174,45 @@ def test_startup_check_still_fails_fast_by_default():
         OpenAIJsonClient(
             model="gpt-4.1-mini", key_source=LLMKeyStore(env={}), sdk_factory=lambda key: None
         )
+
+
+# ---- 이미지 입력 (VLM, ADR-0015) --------------------------------------------------------
+
+
+def test_images_are_sent_as_labelled_data_uri_parts():
+    from frame.application.ports.llm import ImageInput
+
+    sdk = _sdk(_response("{}"))
+    client = OpenAIJsonClient(model="gpt-4.1", sdk_client=sdk)
+
+    client.complete_json(
+        "sys",
+        "두 프레임을 비교하라",
+        {"type": "object"},
+        images=(
+            ImageInput(b"JPEG-A", "image/jpeg", "Frame A"),
+            ImageInput(b"PNG-B", "image/png"),
+        ),
+    )
+
+    content = sdk.chat.completions.calls[0]["messages"][1]["content"]
+    assert content == [
+        {"type": "text", "text": "두 프레임을 비교하라"},
+        {"type": "text", "text": "Frame A"},
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/jpeg;base64,SlBFRy1B", "detail": "high"},
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,UE5HLUI=", "detail": "high"},
+        },
+    ]
+
+
+def test_text_only_requests_keep_a_plain_string_message():
+    sdk = _sdk(_response("{}"))
+    OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=sdk).complete_json(
+        "sys", "user", {"type": "object"}
+    )
+    assert sdk.chat.completions.calls[0]["messages"][1]["content"] == "user"
