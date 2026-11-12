@@ -22,6 +22,15 @@
 - 끝난 작업의 상태 응답에 저장본 주소가 빠져 올 때가 있다 (2026-11-12 실호출: 같은 작업을 10번 물으면 2~3번,
   끝난 지 몇 분 안 된 작업은 한동안 주소가 아예 없었다). 그래서 주소가 없으면
   FRAME_VIDEO_EDIT_PARENT_WAIT_S(기본 10초) 동안 다시 묻고, 그래도 없으면 새로 생성한다.
+
+만들기 전 미리보기 (ADR-0020)
+- preview(request) 는 그 장면이 지금 편집으로 만들어질지 새로 생성될지와 어림 비용·시간을 돌려준다. 제출하지 않는다.
+- video_reference 편집이면 그때 부모 작업의 저장본 주소를 구해 **프로세스 메모리에만** 잠시 들고 있는다
+  (기본 30분, 저장본 만료 1분 전까지). 변경 계획을 확인한 사용자가 실행하면 그 주소로 편집한다.
+  서명 주소는 조회할 때마다 새로 서명돼 오고 작업이 만료될 때까지 유효하다 (2026-11-12 무료 조회로 확인).
+  원장·메타데이터·로그에는 남기지 않는다.
+- 시간 어림은 기록이 있을 때만 준다: 그 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간, 없으면 이 프로세스가
+  그 모델로 만든 작업들의 중앙값.
 - 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다.
 - 편집 결과는 부모 클립에 달려 있으므로 캐시·원장 키(result_key)에 부모 클립을 넣는다.
 
@@ -42,7 +51,10 @@ import logging
 import math
 import os
 import re
+import statistics
+import threading
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -64,6 +76,8 @@ from frame.application.errors import (
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.generator import (
     GeneratedClip,
+    ProductionMethod,
+    ProductionPreview,
     RevisionDirective,
     SceneGenerationRequest,
     VideoGenerator,
@@ -71,6 +85,7 @@ from frame.application.ports.generator import (
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.hashing import canonical_hash
+from frame.domain.ir import SceneSpec
 from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
@@ -156,12 +171,27 @@ class _ParentUrl(NamedTuple):
 
     url: str | None
     lookups: int
+    held: bool = False  # 앞서 구해 들고 있던 주소인가 (미리보기 때 받아 둔 것 등)
+    may_appear: bool = (
+        False  # 주소가 없을 때: 나중에는 나올 수 있는가 (끝난 작업인데 아직 주소가 없음)
+    )
+
+
+class _HeldUrl(NamedTuple):
+    """프로세스 메모리에만 들고 있는 부모 클립 주소. until(monotonic) 까지만 쓴다."""
+
+    url: str
+    until: float
 
 
 # 부모 작업의 저장본 주소를 다시 물을 때: 처음 몇 번은 촘촘히 묻고(응답마다 주소가 빠지는 것을 넘긴다),
 # 그 뒤로는 폴링 간격으로 묻는다
 _PARENT_URL_QUICK_SECONDS = 2.0
 _PARENT_URL_QUICK_LOOKUPS = 6
+# 들고 있는 주소는 저장본이 만료되기 이만큼 전까지만 쓴다 (편집 모델이 내려받을 시간)
+_HELD_URL_MARGIN_SECONDS = 60.0
+# 시간 어림에 쓰는, 모델별로 기억하는 최근 작업 수
+_SEEN_SECONDS_KEPT = 20
 
 
 # ---- 키 -------------------------------------------------------------------------------
@@ -538,6 +568,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
         edit_mode: str = EDIT_OFF,
         edit_model: str | None = None,
         edit_parent_wait_seconds: float = 10.0,
+        edit_preview_wait_seconds: float = 3.0,
+        parent_url_hold_seconds: float = 1800.0,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
@@ -555,11 +587,21 @@ class OpenRouterVideoGenerator(VideoGenerator):
             raise ConfigurationError(
                 "FRAME_VIDEO_EDIT_PARENT_WAIT_S 는 0 이상이어야 합니다 (0 이면 한 번만 묻는다)"
             )
+        if edit_preview_wait_seconds < 0 or parent_url_hold_seconds < 0:
+            raise ConfigurationError(
+                "미리보기에서 부모 주소를 다시 묻는 시간과 주소를 들고 있는 시간은 0 이상이어야 합니다"
+            )
         # 부모 클립 편집 (ADR-0016). edit_model 은 video_reference 에서만 쓰고, 비우면 생성 모델을 쓴다
         self.edit_mode = edit_mode
         self.edit_model = (edit_model or "").strip() or None
         # 부모 작업의 저장본 주소가 상태 응답에 없을 때 다시 묻는 시간
         self.edit_parent_wait_seconds = float(edit_parent_wait_seconds)
+        # 미리보기(ADR-0020): 계획 응답이 늦지 않게 짧게만 다시 묻고, 받은 주소는 메모리에 잠시 들고 있는다
+        self.edit_preview_wait_seconds = float(edit_preview_wait_seconds)
+        self.parent_url_hold_seconds = float(parent_url_hold_seconds)
+        self._held_urls: dict[str, _HeldUrl] = {}
+        self._seen_seconds: dict[str, deque[float]] = {}
+        self._memo_lock = threading.Lock()
         self._api_key = api_key.strip()
         self.key_hint = mask_key(self._api_key)
         self.base_url = _checked_base_url(base_url)
@@ -696,7 +738,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         info = self.model_info()
         self._check_supported(info)
         scene = request.scene
-        seconds = info.pick_duration(scene.duration_ms)
+        seconds, estimated_cost = self._generation_billing(info, scene)
         # 사용자 참조 다음에 정체성 기준 이미지를 보낸다 (ADR-0015). 같은 이미지는 한 번만 보낸다
         references, numbers = self._input_references(
             (*request.references, *request.identity_references)
@@ -717,10 +759,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         if references:
             # frame_images 와 함께 보내면 참조가 무시되고 image-to-video 로 처리되므로 frame_images 는 쓰지 않는다
             body["input_references"] = references
-        price = info.price_per_second(self.resolution)
         details: dict[str, Any] = {
             "model": self.model,
-            "estimated_cost_usd": round(price * seconds, 6) if price is not None else None,
+            "estimated_cost_usd": estimated_cost,
             "billed_seconds": seconds,
             "seed": seed,
             "reference_count": len(references),
@@ -835,26 +876,36 @@ class OpenRouterVideoGenerator(VideoGenerator):
             and urlsplit(self.base_url).hostname in local
         )
 
-    def _parent_video_url(self, plan: _EditPlan) -> _ParentUrl:
+    def _parent_video_url(
+        self, plan: _EditPlan, *, wait_seconds: float | None = None
+    ) -> _ParentUrl:
         """부모 클립을 내려받을 수 있는 주소. 못 구하면 주소가 None (편집하지 않는다). 주소는 기록하지 않는다.
 
         끝난 작업의 상태 응답에 저장본 주소(urls)가 빠져 올 때가 있어, 끝났는데 주소가 없는 응답과 일시적인 조회
-        실패는 edit_parent_wait_seconds 동안 다시 묻는다. 없어졌거나 끝나지 않은 작업은 다시 묻지 않는다.
+        실패는 edit_parent_wait_seconds(wait_seconds 를 주면 그 시간) 동안 다시 묻는다. 없어졌거나 끝나지 않은
+        작업은 다시 묻지 않는다. 앞서 구해 들고 있는 주소가 있으면 묻지 않고 그것을 쓴다 (ADR-0020).
         """
         if self._usable_video_url(plan.parent_clip_uri):
             return _ParentUrl(plan.parent_clip_uri, 0)
         if plan.parent_job_id is None:
             return _ParentUrl(None, 0)
-        deadline = self._monotonic() + self.edit_parent_wait_seconds
+        held = self._held_url(plan.parent_job_id)
+        if held is not None:
+            return _ParentUrl(held, 0, held=True)
+        wait = self.edit_parent_wait_seconds if wait_seconds is None else wait_seconds
+        deadline = self._monotonic() + wait
         lookups = 0
         while True:
             lookups += 1
-            url, ask_again = self._lookup_parent_url(plan.parent_job_id)
-            if url is not None or not ask_again:
+            url, ask_again, expires_at = self._lookup_parent_url(plan.parent_job_id)
+            if url is not None:
+                self._hold_url(plan.parent_job_id, url, expires_at)
                 return _ParentUrl(url, lookups)
+            if not ask_again:
+                return _ParentUrl(None, lookups)
             remaining = deadline - self._monotonic()
             if remaining <= 0:
-                return _ParentUrl(None, lookups)
+                return _ParentUrl(None, lookups, may_appear=True)
             delay = (
                 _PARENT_URL_QUICK_SECONDS
                 if lookups < _PARENT_URL_QUICK_LOOKUPS
@@ -862,8 +913,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
             )
             self._sleep(min(delay, remaining))
 
-    def _lookup_parent_url(self, job_id: str) -> tuple[str | None, bool]:
-        """부모 작업을 한 번 조회한다: (저장본 주소, 주소가 없을 때 다시 물어볼 만한가)."""
+    def _lookup_parent_url(self, job_id: str) -> tuple[str | None, bool, float | None]:
+        """부모 작업을 한 번 조회한다: (저장본 주소, 주소가 없을 때 다시 물어볼 만한가, 저장본 만료 시각)."""
         try:
             resp = self._http.request(
                 "GET",
@@ -872,22 +923,130 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 timeout=self.request_timeout_seconds,
             )
         except TransportError:
-            return None, True
+            return None, True, None
         if resp.status != 200:
-            return None, resp.status == 429 or resp.status >= 500
+            return None, resp.status == 429 or resp.status >= 500, None
         try:
             data = self._json(resp)
         except GenerationError:
-            return None, True
+            return None, True, None
         if data.get("status") != "completed":
-            return None, False
+            return None, False, None
         urls = data.get("urls")
         if not isinstance(urls, list) or not urls:
-            return None, True  # 끝났는데 주소가 없다: 이 응답에만 빠졌거나 아직 나오지 않았다
+            # 끝났는데 주소가 없다: 이 응답에만 빠졌거나 아직 나오지 않았다
+            return None, True, None
         url = urls[0]
         if isinstance(url, str) and self._usable_video_url(url):
-            return url, False
-        return None, False
+            expires_at = data.get("expires_at")
+            known = isinstance(expires_at, int | float) and not isinstance(expires_at, bool)
+            return url, False, float(expires_at) if known else None
+        return None, False, None
+
+    # ---- 부모 주소 보관 (ADR-0020): 프로세스 메모리에만, 잠시 ----
+    def _hold_url(self, job_id: str, url: str, expires_at: float | None) -> None:
+        hold = self.parent_url_hold_seconds
+        if expires_at is not None:  # 저장본이 만료되기 조금 전까지만
+            hold = min(hold, expires_at - self._wall_clock() - _HELD_URL_MARGIN_SECONDS)
+        if hold <= 0:
+            return
+        now = self._monotonic()
+        with self._memo_lock:
+            stale = [key for key, item in self._held_urls.items() if item.until <= now]
+            for key in stale:
+                del self._held_urls[key]
+            self._held_urls[job_id] = _HeldUrl(url, now + hold)
+
+    def _held_url(self, job_id: str) -> str | None:
+        with self._memo_lock:
+            item = self._held_urls.get(job_id)
+            if item is None:
+                return None
+            if item.until <= self._monotonic():
+                del self._held_urls[job_id]
+                return None
+            return item.url
+
+    # ---- 만들기 전 미리보기 (ADR-0020) ----
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview:
+        """이 장면을 지금 만들면 편집으로 만들지 새로 생성할지와 그 어림값. 아무것도 제출하지 않는다.
+
+        video_reference 편집이면 부모 작업의 저장본 주소를 여기서 구해 들고 있는다. 계획을 확인한 사용자가 실행할 때
+        상태 응답에서 주소가 빠져도 그 주소로 편집한다. 주소가 아직 없으면 새로 생성될 것이라고 사유와 함께 알린다.
+        """
+        scene = request.scene
+        plan = self._edit_plan(request)
+        reason: str | None = None
+        if plan is not None:
+            if plan.mode == EDIT_VIDEO_REFERENCE:
+                source = self._parent_video_url(plan, wait_seconds=self.edit_preview_wait_seconds)
+                if source.url is None:
+                    reason = (
+                        "부모 영상의 저장본 주소가 아직 나오지 않아 지금은 편집할 수 없습니다 "
+                        f"({source.lookups}회 조회). 잠시 뒤 계획을 다시 확인하면 편집으로 만들 수 있습니다"
+                        if source.may_appear
+                        else "부모 영상의 저장본이 없거나 만료돼 편집할 수 없습니다"
+                    )
+            if reason is None:
+                cost = None
+                try:
+                    cost = self._edit_billing(self.model_info(plan.model), scene)[2]
+                except GenerationError as exc:
+                    log.warning("편집 모델의 가격을 읽지 못해 어림 비용을 비웁니다: %s", exc)
+                return ProductionPreview(
+                    ProductionMethod.EDIT,
+                    model=plan.model,
+                    cost_usd=cost,
+                    seconds=self._typical_seconds(plan.model, request),
+                )
+        cost = None
+        try:
+            cost = self._generation_billing(self.model_info(), scene)[1]
+        except GenerationError as exc:
+            log.warning("생성 모델의 가격·길이를 읽지 못해 어림 비용을 비웁니다: %s", exc)
+        return ProductionPreview(
+            ProductionMethod.GENERATE,
+            model=self.model,
+            cost_usd=cost,
+            seconds=self._typical_seconds(self.model, request),
+            edit_unavailable_reason=reason,
+        )
+
+    def _generation_billing(
+        self, info: VideoModelInfo, scene: SceneSpec
+    ) -> tuple[int, float | None]:
+        """새로 생성할 때 (보낼 길이(초), 어림 비용)."""
+        seconds = info.pick_duration(scene.duration_ms)
+        price = info.price_per_second(self.resolution)
+        return seconds, round(price * seconds, 6) if price is not None else None
+
+    def _edit_billing(
+        self, info: VideoModelInfo, scene: SceneSpec
+    ) -> tuple[int | None, int, float | None]:
+        """편집할 때 (보낼 길이(초, 모델이 받지 않으면 None), 과금되는 초, 어림 비용)."""
+        seconds = info.pick_duration(scene.duration_ms) if info.durations else None
+        billed = seconds if seconds is not None else max(1, math.ceil(scene.duration_ms / 1000))
+        price = info.price_per_second(self.resolution)
+        return seconds, billed, round(price * billed, 6) if price is not None else None
+
+    def _typical_seconds(self, model: str, request: SceneGenerationRequest) -> float | None:
+        """그 모델로 이 장면을 만드는 데 걸릴 시간의 어림. 기록이 없으면 None.
+
+        그 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간이 가장 가깝다. 없으면 이 프로세스가 그 모델로 만든
+        작업들의 중앙값을 쓴다.
+        """
+        parent = request.parent
+        if parent is not None and parent.clip.metadata.get("model") == model:
+            recorded = parent.clip.metadata.get("generation_seconds")
+            if isinstance(recorded, int | float) and not isinstance(recorded, bool):
+                return float(recorded)
+        with self._memo_lock:
+            seen = list(self._seen_seconds.get(model, ()))
+        return round(statistics.median(seen), 1) if seen else None
+
+    def _note_seconds(self, model: str, seconds: float) -> None:
+        with self._memo_lock:
+            self._seen_seconds.setdefault(model, deque(maxlen=_SEEN_SECONDS_KEPT)).append(seconds)
 
     def _edit_body(
         self, request: SceneGenerationRequest, plan: _EditPlan, source: _ParentUrl
@@ -899,7 +1058,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         video_url = source.url
         info = self.model_info(plan.model)
         scene = request.scene
-        seconds = info.pick_duration(scene.duration_ms) if info.durations else None
+        seconds, billed, estimated_cost = self._edit_billing(info, scene)
         seed = request.seed % _MAX_SEED if info.seed and request.seed is not None else None
         body: dict[str, Any] = {"model": plan.model, "prompt": plan.prompt}
         if seconds is not None:
@@ -916,8 +1075,6 @@ class OpenRouterVideoGenerator(VideoGenerator):
             body["previous_job_id"] = plan.previous_job_id
         else:
             body["input_references"] = [{"type": "video_url", "video_url": {"url": video_url}}]
-        billed = seconds if seconds is not None else max(1, math.ceil(scene.duration_ms / 1000))
-        price = info.price_per_second(self.resolution)
         edit: dict[str, Any] = {
             "mode": plan.mode,
             "model": plan.model,
@@ -932,9 +1089,12 @@ class OpenRouterVideoGenerator(VideoGenerator):
         if source.lookups:
             # 저장본 주소를 얻기까지 부모 작업을 조회한 횟수
             edit["parent_url_lookups"] = source.lookups
+        if source.held:
+            # 앞서(변경 계획을 볼 때 등) 구해 들고 있던 주소를 썼다. 주소 자체는 남기지 않는다
+            edit["parent_url_held"] = True
         details: dict[str, Any] = {
             "model": plan.model,
-            "estimated_cost_usd": round(price * billed, 6) if price is not None else None,
+            "estimated_cost_usd": estimated_cost,
             "billed_seconds": billed,
             "seed": seed,
             "reference_count": 0 if plan.mode == EDIT_PREVIOUS_JOB else 1,
@@ -1011,6 +1171,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
         )
         self._remember(done)
         self._share_regenerated(request, done)
+        if not resumed:  # 이어 받은 작업의 시간은 남은 대기 시간일 뿐이다
+            self._note_seconds(str(metadata["model"]), generation_seconds)
         log.info(
             "OpenRouter 영상 완료: job=%s cost=%s polls=%d %.1fs",
             job_id,

@@ -24,6 +24,7 @@ from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import (
     GeneratedClip,
     ParentClip,
+    ProductionMethod,
     RevisionDirective,
     SceneGenerationRequest,
 )
@@ -689,3 +690,162 @@ def test_keep_items_separate_the_results_of_otherwise_equal_edits(ir, store):
     )
 
     assert generator.result_key(keeping) != generator.result_key(request)
+
+
+# ---- 만들기 전 미리보기와 부모 주소 보관 (ADR-0020) ---------------------------------------
+
+EDITING = {"edit_mode": "video_reference", "edit_model": "black-forest-labs/flux-video-edit"}
+PARENT_STATUS = f"/api/v1/videos/{PARENT_JOB}"
+
+
+def test_preview_says_the_scene_will_be_edited_and_what_it_costs(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.model) == (
+        ProductionMethod.EDIT,
+        "black-forest-labs/flux-video-edit",
+    )
+    assert preview.cost_usd == pytest.approx(0.12)  # 4초 x $0.03
+    assert preview.edit_unavailable_reason is None
+    assert not api.submits  # 아무것도 제출하지 않는다
+    assert not [uri for uri in store._blobs if "/ledger/" in uri]
+
+
+def test_the_address_found_by_the_preview_is_used_when_the_scene_is_made(ir, store):
+    """계획을 확인하는 사이에 상태 응답에서 주소가 빠져도, 미리 받아 둔 주소로 편집한다.
+
+    2차 실호출: 주소는 보인 뒤에도 몇 분씩 응답에서 빠졌다. 주소 자체는 작업이 만료될 때까지 유효하다.
+    """
+    api = _api()
+    api.on("GET", PARENT_STATUS, completed(PARENT_JOB), NO_URLS)  # 처음 한 번만 주소가 있다
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    generator.preview(_request(ir, store))
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 1  # 만들 때 다시 묻지 않았다
+    reference = api.submits[0].json()["input_references"][0]
+    assert reference["video_url"]["url"] == SIGNED_URL
+    edit = clip.metadata["edit"]
+    assert edit["applied"] is True and edit["parent_url_held"] is True
+    assert "parent_url_lookups" not in edit
+    # 들고 있던 주소도 기록하지 않는다
+    assert "SIGNED-SECRET" not in json.dumps(clip.metadata, default=str)
+    ledger = [store.get(uri) for uri in store._blobs if "/ledger/" in uri]
+    assert ledger and all(b"SIGNED-SECRET" not in blob for blob in ledger)
+
+
+def test_a_held_address_is_dropped_after_a_while(ir, store):
+    api = _api()
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store, api, clock=clock, parent_url_hold_seconds=600, **EDITING
+    )
+
+    generator.preview(_request(ir, store))
+    clock.sleep(601)
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 2  # 다시 물었다
+    assert clip.metadata["edit"]["parent_url_lookups"] == 1
+    assert "parent_url_held" not in clip.metadata["edit"]
+
+
+def test_a_held_address_is_not_used_once_the_stored_copy_is_about_to_expire(ir, store):
+    clock = FakeTime()
+    expiring = status(
+        "completed",
+        PARENT_JOB,
+        urls=[SIGNED_URL],
+        expires_at=int(clock.time()) + 100,  # 100초 뒤 만료: 여유 60초를 빼고 40초만 들고 있는다
+    )
+    api = _api(parent_status=expiring)
+    generator = make_openrouter_generator(store, api, clock=clock, **EDITING)
+
+    generator.preview(_request(ir, store))
+    clock.sleep(41)
+    generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 2
+
+
+def test_preview_says_why_the_scene_cannot_be_edited_right_now(ir, store):
+    """방금 만든 영상: 끝난 작업인데 저장본 주소가 아직 없다. 새로 생성될 것이고, 잠시 뒤에는 편집할 수 있다."""
+    api = _api(parent_status=NO_URLS)
+    clock = FakeTime()
+    generator = make_openrouter_generator(store, api, clock=clock, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.model) == (ProductionMethod.GENERATE, "alibaba/wan-3.0")
+    assert preview.cost_usd == pytest.approx(0.2)  # 4초 x $0.05
+    assert "저장본" in preview.edit_unavailable_reason
+    assert "다시" in preview.edit_unavailable_reason  # 잠시 뒤 다시 확인하라고 알려 준다
+    assert clock.sleeps == [2.0, 1.0]  # 미리보기는 3초만 다시 묻는다 (0·2·3초)
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 3 and not api.submits
+
+
+@pytest.mark.parametrize(
+    "parent_status",
+    [status("expired", PARENT_JOB), error_response(404, "Resource not found")],
+)
+def test_preview_does_not_suggest_waiting_for_a_copy_that_is_gone(ir, store, parent_status):
+    api = _api(parent_status=parent_status)
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert preview.method is ProductionMethod.GENERATE
+    assert "만료" in preview.edit_unavailable_reason
+    assert "다시 확인" not in preview.edit_unavailable_reason
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 1
+
+
+def test_preview_without_editing_is_plain_generation(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api)  # 편집을 켜지 않았다
+    recorded = _request(ir, store, generation_seconds=163.7)
+
+    preview = generator.preview(recorded)
+
+    assert (preview.method, preview.model, preview.edit_unavailable_reason) == (
+        ProductionMethod.GENERATE,
+        "alibaba/wan-3.0",
+        None,
+    )
+    assert preview.cost_usd == pytest.approx(0.2)
+    assert preview.seconds == 163.7  # 이 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간
+    assert not api.calls_to("GET", PARENT_STATUS) and not api.submits
+
+
+def test_preview_estimates_the_edit_time_from_edits_this_process_has_made(ir, store):
+    """편집에 걸리는 시간은 그 모델로 만든 기록이 있을 때만 어림한다 (부모 클립은 생성 모델로 만든 것이다)."""
+    api = _api()
+    generator = make_openrouter_generator(store, api, **EDITING)
+    assert generator.preview(_request(ir, store)).seconds is None
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    preview = generator.preview(_request(ir, store, scene_key="closeup"))
+    assert preview.method is ProductionMethod.EDIT
+    assert preview.seconds == pytest.approx(clip.metadata["generation_seconds"], abs=0.1)
+
+
+def test_preview_still_answers_when_the_price_list_cannot_be_read(ir, store):
+    api = _api()
+    api.on("GET", "/api/v1/videos/models", error_response(503, "upstream busy"))
+    generator = make_openrouter_generator(store, api)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.cost_usd) == (ProductionMethod.GENERATE, None)
+
+
+def test_negative_preview_settings_are_configuration_errors(store):
+    with pytest.raises(ConfigurationError, match="0 이상"):
+        make_openrouter_generator(store, edit_preview_wait_seconds=-1)
+    with pytest.raises(ConfigurationError, match="0 이상"):
+        make_openrouter_generator(store, parent_url_hold_seconds=-1)
