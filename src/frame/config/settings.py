@@ -20,6 +20,8 @@ class Settings:
     db_url: str = "sqlite+pysqlite:///:memory:"
     db_create_schema: bool = False  # 개발용. 운영 스키마는 Alembic 마이그레이션으로 관리
     jobs: str = "inline"  # inline | recording | thread
+    # 장면 하나 생성의 범용 시간 제한(초). 0·빈 값이면 끔. external_api 는 FRAME_VIDEO_TIMEOUT_S 보다 길게 (ADR-0012)
+    generator_timeout_s: float = 0.0
     generator_retries: int = 0
     generator_cache: bool = False
     # --- 영상 생성 API (FRAME_GENERATOR=external_api 일 때, OpenRouter /api/v1/videos) ---
@@ -78,6 +80,7 @@ class Settings:
             db_url=text("DB_URL", base.db_url),
             db_create_schema=flag("DB_CREATE_SCHEMA", base.db_create_schema),
             jobs=text("JOBS", base.jobs),
+            generator_timeout_s=_optional_float(text("GENERATOR_TIMEOUT_S", "")) or 0.0,
             generator_retries=int(text("GENERATOR_RETRIES", str(base.generator_retries))),
             generator_cache=flag("GENERATOR_CACHE", base.generator_cache),
             # .env 에 빈 값으로 남겨 둔 항목은 기본값을 쓴다

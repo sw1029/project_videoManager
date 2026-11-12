@@ -6,12 +6,18 @@ overrides 로 어떤 구성 요소든 직접 주입할 수 있어, 테스트는 
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.common import SystemClock, UuidIdGenerator
-from frame.adapters.generator.decorators import CachingVideoGenerator, RetryingVideoGenerator
+from frame.adapters.generator.decorators import (
+    CachingVideoGenerator,
+    RetryingVideoGenerator,
+    TimeoutVideoGenerator,
+    pause_before_retry,
+)
 from frame.application.checks import CheckSuite
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
 from frame.application.pipeline import (
@@ -48,6 +54,8 @@ from frame.domain.services.propagation import ChangePropagationPolicy, DefaultPr
 from .registry import AdapterRegistry, BuildContext, default_registry
 from .settings import Settings
 
+log = logging.getLogger(__name__)
+
 
 @dataclass
 class Container:
@@ -70,6 +78,23 @@ class Container:
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
+
+
+def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
+    """범용 시간 제한은 OpenRouter 어댑터의 자체 제한(폴링)에 제출·다운로드·정규화를 더한 시간보다 길어야 한다.
+
+    짧으면 범용 제한이 먼저 끊어 job id 없는 오류가 남고, 버려진 스레드는 어댑터 제한까지 폴링을 계속한다 (ADR-0012).
+    """
+    if settings.generator == "external_api" and (
+        settings.generator_timeout_s <= settings.video_timeout_s
+    ):
+        log.warning(
+            "FRAME_GENERATOR_TIMEOUT_S(%gs) 가 FRAME_VIDEO_TIMEOUT_S(%gs) 보다 길지 않습니다. "
+            "어댑터가 job id 를 담아 GENERATION_TIMEOUT 을 내기 전에 범용 시간 제한이 먼저 끊습니다 "
+            "(권장: FRAME_VIDEO_TIMEOUT_S + 300초 이상)",
+            settings.generator_timeout_s,
+            settings.video_timeout_s,
+        )
 
 
 def build_container(
@@ -97,8 +122,15 @@ def build_container(
     generator: VideoGenerator = pick(
         "generator", lambda: registry.build(VideoGenerator, settings.generator, ctx)
     )
-    if settings.generator_retries > 0:  # Decorator 체인은 설정으로 켠다
-        generator = RetryingVideoGenerator(generator, retries=settings.generator_retries)
+    # Decorator 체인은 설정으로 켠다. 안쪽 -> 바깥: Retry -> Timeout -> Cache (ADR-0012)
+    # 캐시 적중은 시간 제한을 거치지 않고, 시간 초과는 Retry 바깥에서 나므로 재시도되지 않는다.
+    if settings.generator_retries > 0:
+        generator = RetryingVideoGenerator(
+            generator, retries=settings.generator_retries, sleep=pause_before_retry
+        )
+    if settings.generator_timeout_s > 0:
+        _warn_if_timeout_cuts_before_adapter(settings)
+        generator = TimeoutVideoGenerator(generator, settings.generator_timeout_s)
     if settings.generator_cache:
         generator = CachingVideoGenerator(generator)
     assembler = pick("assembler", lambda: registry.build(VideoAssembler, settings.assembler, ctx))

@@ -10,6 +10,7 @@ from frame.adapters.generator import (
     FakeVideoAssembler,
     FakeVideoGenerator,
     RetryingVideoGenerator,
+    TimeoutVideoGenerator,
 )
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError
@@ -34,6 +35,10 @@ GENERATORS = [
     pytest.param(
         lambda store: RetryingVideoGenerator(FakeVideoGenerator(store), retries=2),
         id="retrying(fake)",
+    ),
+    pytest.param(
+        lambda store: TimeoutVideoGenerator(FakeVideoGenerator(store), timeout_seconds=30),
+        id="timeout(fake)",
     ),
     pytest.param(make_openrouter_generator, id="openrouter(fake-http)"),
 ]
