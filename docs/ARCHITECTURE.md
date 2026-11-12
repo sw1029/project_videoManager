@@ -182,6 +182,8 @@ RunGenerationPipeline
   그대로 둘 요소(`keep`)는 다시 만드는 장면의 생성 요청(`directive`)에 실려 편집 지시문에 들어가고, 재검수가 요소별로 판정한다.
 - **변경 계획 미리보기** (ADR-0019): `POST /versions/{id}/revision-plans` 가 글로 쓴 요청을 구조화하고(해석기), 수정의 종류·다시 만들 장면·
   어림 비용을 돌려준다. 상태는 바꾸지 않는다. 확인한 계획(`revision_request`)을 그대로 `POST /revisions` 에 보낸다.
+  다시 만들 장면마다 생성기의 미리보기(`VideoGenerator.preview`, ADR-0020)를 실어, 편집으로 만들어질지 새로 생성될지와
+  그 어림 비용을 알려 준다. 계획과 생성 단계는 같은 요청 구성 규칙(`application/pipeline/requests.py`)을 쓴다.
 
 ### 3.5 조건 고정과 재현성
 
@@ -446,3 +448,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0017](adr/0017-revision-intent-repair-and-keep.md) | 수정 의도: 다시 맞추기(REPAIR, 장면별 seed 재지정) · 그대로 둘 요소 · 생성기에 넘기는 수정 지시 |
 | [0018](adr/0018-requirement-and-keep-checkers.md) | 실제 요구 반영 검수기(요구조건별 판정, 부모 판정 상속) · 유지 요소 검수기 |
 | [0019](adr/0019-revision-plan-and-change-request.md) | 변경 계획 미리보기 · 글로 쓴 변경 요청의 해석 · 참조 이미지 HTTP 경로 |
+| [0020](adr/0020-production-preview-and-held-parent-url.md) | 생성기의 만들기 전 미리보기(편집·새로 생성, 어림값) · 계획 때 받은 부모 주소를 메모리에 들고 있다가 편집 |
