@@ -678,6 +678,40 @@
         "title": "PredicateOut",
         "type": "object"
       },
+      "ProgressOut": {
+        "description": "생성·추적·검수 진행. 처리 중에도 장면 단위로 갱신되어 폴링으로 볼 수 있다 (실행 전 버전은 null).",
+        "properties": {
+          "elapsed_ms": {
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/StageProgressOut"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "stage",
+          "elapsed_ms",
+          "stages"
+        ],
+        "title": "ProgressOut",
+        "type": "object"
+      },
       "ProjectOut": {
         "properties": {
           "project_id": {
@@ -910,6 +944,56 @@
         "title": "SceneOut",
         "type": "object"
       },
+      "StageProgressOut": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "RUNNING",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stage",
+          "status",
+          "elapsed_ms",
+          "done",
+          "total",
+          "current"
+        ],
+        "title": "StageProgressOut",
+        "type": "object"
+      },
       "TrackRecordOut": {
         "properties": {
           "entity_key": {
@@ -1073,6 +1157,16 @@
             ],
             "title": "Parent Version Id"
           },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -1163,7 +1257,8 @@
           "error_code",
           "error_message",
           "reference_images",
-          "created_at"
+          "created_at",
+          "progress"
         ],
         "title": "VersionOut",
         "type": "object"

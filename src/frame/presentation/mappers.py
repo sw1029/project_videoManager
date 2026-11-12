@@ -9,6 +9,7 @@ from urllib.parse import quote
 from frame.application.dto import ChecksView, EntityTracksView, ProjectDetail, VersionDetail
 from frame.application.ports.artifact_store import guess_media_type
 from frame.domain.identifiers import entity_id
+from frame.domain.progress import PipelineProgress
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
@@ -47,6 +48,16 @@ def project_out(detail: ProjectDetail) -> s.ProjectOut:
             )
             for v in detail.versions
         ],
+    )
+
+
+def progress_out(progress: PipelineProgress | None) -> s.ProgressOut | None:
+    if progress is None:
+        return None
+    return s.ProgressOut(
+        stage=progress.current.stage if progress.current is not None else None,
+        elapsed_ms=progress.elapsed_ms,
+        stages=[s.StageProgressOut(**stage.to_dict()) for stage in progress.stages],
     )
 
 
@@ -130,6 +141,7 @@ def version_out(
             for r in detail.reference_images
         ],
         created_at=v.created_at,
+        progress=progress_out(v.progress),
     )
 
 

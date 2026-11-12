@@ -149,6 +149,23 @@ class ReferenceImageOut(BaseModel):
     entity_key: str | None
 
 
+class StageProgressOut(BaseModel):
+    stage: str  # generate | track | check
+    status: Literal["RUNNING", "COMPLETED", "FAILED"]
+    elapsed_ms: int  # 단계 시작부터 마지막 기록까지 (끝났으면 단계 소요 시간)
+    done: int  # 끝낸 항목(장면) 수
+    total: int  # 전체 항목 수. 0 이면 항목 단위 진행이 없는 단계 (check)
+    current: str | None  # 처리 중인 장면 키. 실패했으면 실패한 장면
+
+
+class ProgressOut(BaseModel):
+    """생성·추적·검수 진행. 처리 중에도 장면 단위로 갱신되어 폴링으로 볼 수 있다 (실행 전 버전은 null)."""
+
+    stage: str | None  # 마지막으로 시작한 단계 (처리 중·완료·실패)
+    elapsed_ms: int  # 시작한 단계들의 소요 시간 합
+    stages: list[StageProgressOut]  # 시작한 단계만, 순서대로
+
+
 class VersionOut(BaseModel):
     version_id: str
     project_id: str
@@ -165,6 +182,7 @@ class VersionOut(BaseModel):
     error_message: str | None
     reference_images: list[ReferenceImageOut]
     created_at: datetime
+    progress: ProgressOut | None  # 실패한 버전도 어느 단계·장면까지 했는지 남는다 (이슈 #3)
 
 
 class CreateRevisionOut(BaseModel):
