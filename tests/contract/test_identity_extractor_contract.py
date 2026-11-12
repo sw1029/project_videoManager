@@ -446,6 +446,47 @@ def test_vlm_crop_only_counts_verdicts_on_the_attributes_it_asked_about(store, i
 
 
 @needs_ffmpeg
+def test_vlm_crop_reads_an_answer_whose_key_repeats_the_whole_subject_line(store, ir, clip_bytes):
+    """실제 모델(gpt-4.1)이 entity_key 에 객체 키 대신 질의의 한 줄을 통째로 돌려줬다 (2026-11-12 실호출).
+
+    그 답을 못 읽으면 '찾지 못함' 이 되어 한 번 더 묻고, 거절도 기록되지 않는다.
+    """
+    wrong = _judged("cup", {"color: red": "no"})
+    wrong["entity_key"] = "cup (prop): 세라믹 머그컵; color: red"
+    llm = ReplayLLMClient([_answer(wrong)])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+
+    assert extractor.extract(_request(store, ir, clip_bytes, "cup")) == ()
+    assert len(llm.calls) == 1  # 거절로 읽었다: 다른 프레임을 다시 보지 않는다
+    assert extractor.extract(_request(store, ir, clip_bytes, "cup")) == ()
+    assert len(llm.calls) == 1  # 거절이 기록됐다: 다시 묻지 않는다
+
+    fine = _judged("barista", {"shirt color: white": "yes"})
+    fine["entity_key"] = "- barista (person): 흰 셔츠를 입은 바리스타; shirt color: white"
+    (image,) = VlmCropIdentityExtractor(
+        store, FFMPEG, ReplayLLMClient([_answer(fine)]), min_side=8
+    ).extract(_request(store, ir, clip_bytes, "barista"))
+    assert image.entity_key == "barista" and store.exists(image.image_uri)
+
+
+@needs_ffmpeg
+def test_vlm_crop_does_not_mix_up_answers_between_subjects(store, ir, clip_bytes):
+    """키가 다른 객체의 답을 끌어다 쓰지 않는다. 하나만 묻고 하나만 받았을 때만 키가 달라도 그 답으로 본다."""
+    stranger = _judged("cupboard", {"color: red": "yes"})
+    both = ReplayLLMClient([_answer(stranger)] * 2)
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, both, min_side=8)
+
+    # 둘을 물었는데 누구의 답인지 알 수 없는 항목 하나: 어느 쪽에도 쓰지 않는다
+    assert extractor.extract(_request(store, ir, clip_bytes, "barista", "cup")) == ()
+
+    only = ReplayLLMClient([_answer(stranger)])
+    (image,) = VlmCropIdentityExtractor(store, FFMPEG, only, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup", clip_key="clips/ver_2/intro.mp4")
+    )
+    assert image.entity_key == "cup"
+
+
+@needs_ffmpeg
 def test_vlm_crop_looks_again_when_the_subject_is_not_visible(store, ir, clip_bytes):
     """보이지 않는다는 답은 거절이 아니다. 예전처럼 다른 프레임을 한 번 더 본다."""
     hidden = _answer(_judged("cup", {"color: red": "no"}, visible=False))
