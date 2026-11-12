@@ -1,13 +1,14 @@
 """OpenRouter 어댑터의 부모 클립 편집 (ADR-0016). 네트워크와 ffmpeg 없이 돈다.
 
 - previous_job: 부모 클립을 만든 작업을 previous_job_id 로 이어서 편집 (같은 모델·엔드포인트).
-- video_reference: 부모 클립을 input_references 의 video_url 로 편집 모델에 보낸다.
+- video_reference: 부모 클립을 input_references 의 video_url 로 편집 모델에 보낸다. 영상 참조는 HTTPS 주소만
+  받으므로(data URI 는 거절된다) 부모 작업의 저장본 서명 URL 을 그 자리에서 받아 넘긴다.
 - 제출이 접수 전에 거절되면(400 등) 과금 없이 지금처럼 새로 생성한다.
 """
 
 from __future__ import annotations
 
-import base64
+import json
 from dataclasses import replace
 
 import pytest
@@ -25,11 +26,14 @@ from frame.domain.ir import RequirementSpec
 from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
 from tests.support.openrouter import (
     JOB_ID,
+    SIGNED_URL,
     WAN_30,
     FakeOpenRouterApi,
     accepted,
+    completed,
     error_response,
     make_openrouter_generator,
+    status,
 )
 
 PARENT_JOB = "gen-vid-1794447860-lGgNR4uyOp895PnVYmFg"
@@ -73,8 +77,10 @@ def _request(ir, store, change=("cup", "color", "teal"), scene_key="intro", **me
     )
 
 
-def _api(*post_responses):
+def _api(*post_responses, parent_status=None):
+    """부모 작업(PARENT_JOB)은 끝났고 저장본의 서명 URL 이 있다 (parent_status 로 바꿀 수 있다)."""
     api = FakeOpenRouterApi(models=(WAN_30, FLUX_EDIT))
+    api.on("GET", f"/api/v1/videos/{PARENT_JOB}", parent_status or completed(PARENT_JOB))
     if post_responses:
         api.on("POST", "/api/v1/videos", *post_responses)
     return api
@@ -197,13 +203,15 @@ def test_video_reference_mode_sends_the_parent_clip_to_the_edit_model(ir, store)
 
     clip = generator.generate_scene(_request(ir, store))
 
-    data_uri = "data:video/mp4;base64," + base64.b64encode(PARENT_BYTES).decode("ascii")
-    # 편집 전용 모델은 길이·해상도·화면비·seed·오디오 옵션을 받지 않는다: 목록에 없는 값은 보내지 않는다
+    # 편집 전용 모델은 길이·해상도·화면비·seed·오디오 옵션을 받지 않는다: 목록에 없는 값은 보내지 않는다.
+    # 영상 참조는 부모 작업 저장본의 서명 URL 이다 (data URI 는 "Only HTTPS URLs are allowed" 로 거절된다)
     assert api.submits[0].json() == {
         "model": "black-forest-labs/flux-video-edit",
         "prompt": compile_edit_prompt(_request(ir, store)),
-        "input_references": [{"type": "video_url", "video_url": {"url": data_uri}}],
+        "input_references": [{"type": "video_url", "video_url": {"url": SIGNED_URL}}],
     }
+    assert api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")  # 그 자리에서 받아 온다
+    assert clip.metadata["edit"]["parent_job_id"] == PARENT_JOB
     assert clip.metadata["model"] == "black-forest-labs/flux-video-edit"
     assert clip.metadata["edit"]["mode"] == "video_reference"
     assert clip.metadata["edit"]["applied"] is True
@@ -239,20 +247,69 @@ def test_scenes_whose_shape_changed_are_regenerated_not_edited(ir, store):
     assert api.submits[0].json()["prompt"].startswith("Scene:")
 
 
-def test_missing_parent_clip_file_means_regeneration(ir, store):
+def test_signed_parent_url_is_never_recorded(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model="black-forest-labs/flux-video-edit"
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert "SIGNED-SECRET" not in json.dumps(clip.metadata, default=str)
+    ledger = [store.get(uri) for uri in store._blobs if "/ledger/" in uri]
+    assert ledger and all(b"SIGNED-SECRET" not in blob for blob in ledger)
+
+
+@pytest.mark.parametrize(
+    "parent_status",
+    [
+        status("completed", PARENT_JOB, usage={"cost": 0.2}),  # 저장본이 없다 (urls 없음)
+        status("expired", PARENT_JOB),
+        error_response(404, "Resource not found"),
+    ],
+)
+def test_parent_job_without_a_stored_copy_means_regeneration(ir, store, parent_status):
+    api = _api(parent_status=parent_status)
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    (submit,) = api.submits  # 편집 요청은 보내지 않고 바로 새로 만든다
+    assert "input_references" not in submit.json() and submit.json()["prompt"].startswith("Scene:")
+    assert clip.metadata["edit"]["applied"] is False
+    assert "저장본" in clip.metadata["edit"]["fallback_reason"]
+
+
+def test_parent_clip_that_is_not_an_openrouter_job_is_regenerated(ir, store):
+    """부모 클립에 작업 id 가 없고 원격 주소도 아니면 영상 참조로 보낼 방법이 없다."""
     api = _api()
     generator = make_openrouter_generator(store, api, edit_mode="video_reference")
-    request = _request(ir, store)
-    gone = replace(
+    request = _request(ir, store, job_id=None)
+
+    assert generator.result_key(request) == request.generation_fingerprint
+    clip = generator.generate_scene(request)
+    assert "input_references" not in api.submits[0].json() and "edit" not in clip.metadata
+
+
+def test_parent_clip_already_at_an_https_address_is_sent_as_is(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+    request = _request(ir, store, job_id=None)
+    remote = replace(
         request,
         parent=replace(
-            request.parent, clip=replace(request.parent.clip, uri="mem://clips/ver_0/gone.mp4")
+            request.parent,
+            clip=replace(request.parent.clip, uri="https://cdn.example/clips/intro.mp4"),
         ),
     )
 
-    generator.generate_scene(gone)
+    generator.generate_scene(remote)
 
-    assert "input_references" not in api.submits[0].json()
+    reference = api.submits[0].json()["input_references"][0]
+    assert reference == {
+        "type": "video_url",
+        "video_url": {"url": "https://cdn.example/clips/intro.mp4"},
+    }
 
 
 # ---- 거절되면 새로 생성 -----------------------------------------------------------------
@@ -311,6 +368,7 @@ def test_result_key_includes_the_parent_only_when_the_request_will_be_edited(ir,
     request = _request(ir, store)
     plain = make_openrouter_generator(store, _api())
     editing = make_openrouter_generator(store, _api(), edit_mode="video_reference")
+    other_job = {**request.parent.clip.metadata, "job_id": "gen-vid-1794450000-" + "Z" * 20}
     other_parent = replace(
         request,
         parent=replace(
@@ -318,6 +376,7 @@ def test_result_key_includes_the_parent_only_when_the_request_will_be_edited(ir,
             clip=replace(
                 request.parent.clip,
                 uri=store.put("clips/ver_9/intro.mp4", b"OTHER", "video/mp4"),
+                metadata=other_job,
             ),
         ),
     )

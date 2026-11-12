@@ -16,6 +16,9 @@
 - 수정 버전에서 다시 만드는 장면은 요청에 부모 클립이 실려 온다. 편집 모드를 켜면 장면을 통째로 다시 만드는 대신
   부모 클립을 고친다: previous_job(부모 작업을 previous_job_id 로 이어서 편집, 같은 모델·엔드포인트) 또는
   video_reference(부모 클립을 input_references 의 video_url 로 편집 모델에 보냄).
+- 영상 참조는 HTTPS 주소만 받는다 (data URI 는 "Only HTTPS URLs are allowed" 로 거절된다, 2026-11-12 실호출).
+  그래서 부모 클립을 만든 OpenRouter 작업의 저장본 서명 URL(urls)을 그 자리에서 받아 넘긴다. 이 주소는 요청 본문에만
+  쓰고 기록하지 않는다. 저장본이 없거나 만료됐으면 편집하지 않고 새로 생성한다.
 - 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다.
 - 편집 결과는 부모 클립에 달려 있으므로 캐시·원장 키(result_key)에 부모 클립을 넣는다.
 
@@ -138,7 +141,8 @@ class _EditPlan:
     prompt: str
     parent_version_id: str
     parent_clip_uri: str
-    previous_job_id: str | None = None
+    previous_job_id: str | None = None  # previous_job: 이어 갈 작업
+    parent_job_id: str | None = None  # video_reference: 저장본 주소를 받아 올 부모 작업
 
 
 # ---- 키 -------------------------------------------------------------------------------
@@ -513,22 +517,44 @@ class OpenRouterVideoGenerator(VideoGenerator):
         rejected: dict[str, Any] | None = None
         plan = self._edit_plan(request)
         if plan is not None:
-            body, details = self._edit_body(request, plan)
-            try:
-                job = self._submit(body)
-            except _SubmitRejected as exc:
-                if exc.status not in _EDIT_FALLBACK:
-                    raise
-                # 접수 전 거절이라 과금되지 않았다. 편집을 포기하고 지금까지처럼 장면을 새로 만든다
+            prepared = self._edit_body(request, plan)
+            if prepared is None:
+                # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료): 제출하지 않고 새로 만든다
                 log.warning(
-                    "OpenRouter 가 부모 클립 편집 요청(%s, model=%s)을 거절해 새로 생성합니다: %s",
-                    plan.mode,
-                    plan.model,
-                    exc,
+                    "부모 클립의 저장본 주소를 얻지 못해 편집하지 않고 새로 생성합니다 "
+                    "(부모 작업 %s, 장면 %s)",
+                    plan.parent_job_id,
+                    request.scene.scene_key,
                 )
-                rejected = {**details["edit"], "applied": False, "fallback_reason": str(exc)[:300]}
+                rejected = {
+                    "mode": plan.mode,
+                    "model": plan.model,
+                    "applied": False,
+                    "parent_version_id": plan.parent_version_id,
+                    "parent_clip_uri": plan.parent_clip_uri,
+                    "fallback_reason": "부모 작업의 저장본 주소를 얻지 못함 (없거나 만료됨)",
+                }
             else:
-                return self._accepted(request, key, job, details)
+                body, details = prepared
+                try:
+                    job = self._submit(body)
+                except _SubmitRejected as exc:
+                    if exc.status not in _EDIT_FALLBACK:
+                        raise
+                    # 접수 전 거절이라 과금되지 않았다. 편집을 포기하고 지금까지처럼 장면을 새로 만든다
+                    log.warning(
+                        "OpenRouter 가 부모 클립 편집 요청(%s, model=%s)을 거절해 새로 생성합니다: %s",
+                        plan.mode,
+                        plan.model,
+                        exc,
+                    )
+                    rejected = {
+                        **details["edit"],
+                        "applied": False,
+                        "fallback_reason": str(exc)[:300],
+                    }
+                else:
+                    return self._accepted(request, key, job, details)
         if rejected is not None:
             reused = self._reuse_regenerated(request, key, rejected)
             if reused is not None:
@@ -654,7 +680,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 "edit": {
                     "mode": plan.mode,
                     "model": plan.model,
-                    "parent": plan.previous_job_id or plan.parent_clip_uri,
+                    "parent": plan.previous_job_id or plan.parent_job_id or plan.parent_clip_uri,
                 },
             }
         )
@@ -683,22 +709,66 @@ class OpenRouterVideoGenerator(VideoGenerator):
             return _EditPlan(
                 EDIT_PREVIOUS_JOB, self.model, prompt, parent.version_id, clip.uri, job_id
             )
-        try:
-            is_video = self._store.exists(clip.uri) and self._store.content_type(
-                clip.uri
-            ).startswith("video/")
-        except StorageError:
-            is_video = False
-        if not is_video:
+        # 영상 참조는 HTTPS 주소만 받는다: 클립이 이미 원격 주소이거나, 부모 작업의 저장본 주소를 받아 올 수 있어야 한다
+        job_id = clip.metadata.get("job_id")
+        has_job = isinstance(job_id, str) and bool(_JOB_ID.match(job_id))
+        if not has_job and not self._usable_video_url(clip.uri):
             return None
         return _EditPlan(
-            EDIT_VIDEO_REFERENCE, self.edit_model or self.model, prompt, parent.version_id, clip.uri
+            EDIT_VIDEO_REFERENCE,
+            self.edit_model or self.model,
+            prompt,
+            parent.version_id,
+            clip.uri,
+            parent_job_id=job_id if has_job else None,
         )
+
+    def _usable_video_url(self, url: str) -> bool:
+        """영상 참조로 보낼 수 있는 주소인가: https, 또는 로컬 시험 서버를 쓸 때의 로컬 http."""
+        parts = urlsplit(url)
+        if parts.scheme == "https" and parts.netloc:
+            return True
+        local = {"localhost", "127.0.0.1", "::1"}
+        return (
+            parts.scheme == "http"
+            and parts.hostname in local
+            and urlsplit(self.base_url).hostname in local
+        )
+
+    def _parent_video_url(self, plan: _EditPlan) -> str | None:
+        """부모 클립을 내려받을 수 있는 주소. 못 구하면 None (편집하지 않는다). 주소는 기록하지 않는다."""
+        if self._usable_video_url(plan.parent_clip_uri):
+            return plan.parent_clip_uri
+        if plan.parent_job_id is None:
+            return None
+        try:
+            resp = self._http.request(
+                "GET",
+                self._job_url(plan.parent_job_id),
+                headers=self._auth_headers(),
+                timeout=self.request_timeout_seconds,
+            )
+            data = self._json(resp) if resp.status == 200 else {}
+        except (TransportError, GenerationError):
+            return None
+        urls = data.get("urls")
+        if data.get("status") != "completed" or not isinstance(urls, list) or not urls:
+            return None
+        url = urls[0]
+        return url if isinstance(url, str) and self._usable_video_url(url) else None
 
     def _edit_body(
         self, request: SceneGenerationRequest, plan: _EditPlan
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """편집 요청 본문. 모델 메타데이터에 없는 선택 값은 보내지 않는다 (목록에 없는 값은 거부된다)."""
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """편집 요청 본문. 모델 메타데이터에 없는 선택 값은 보내지 않는다 (목록에 없는 값은 거부된다).
+
+        영상 참조로 보낼 부모 클립 주소를 구하지 못하면 None (편집할 수 없다).
+        """
+        video_url: str | None = None
+        if plan.mode == EDIT_VIDEO_REFERENCE:
+            video_url = self._parent_video_url(plan)
+            if video_url is None:
+                return None
         info = self.model_info(plan.model)
         scene = request.scene
         seconds = info.pick_duration(scene.duration_ms) if info.durations else None
@@ -717,10 +787,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         if plan.mode == EDIT_PREVIOUS_JOB:
             body["previous_job_id"] = plan.previous_job_id
         else:
-            data = base64.b64encode(self._store.get(plan.parent_clip_uri)).decode("ascii")
-            body["input_references"] = [
-                {"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{data}"}}
-            ]
+            body["input_references"] = [{"type": "video_url", "video_url": {"url": video_url}}]
         billed = seconds if seconds is not None else max(1, math.ceil(scene.duration_ms / 1000))
         price = info.price_per_second(self.resolution)
         edit: dict[str, Any] = {
@@ -732,6 +799,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
         }
         if plan.previous_job_id is not None:
             edit["previous_job_id"] = plan.previous_job_id
+        if plan.parent_job_id is not None:
+            edit["parent_job_id"] = plan.parent_job_id
         details: dict[str, Any] = {
             "model": plan.model,
             "estimated_cost_usd": round(price * billed, 6) if price is not None else None,

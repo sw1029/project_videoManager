@@ -114,7 +114,9 @@ def test_identity_anchors_and_parent_clip_editing_through_the_api(tmp_path, upst
 
     edit_intro, edit_closeup = upstream.submits[3:]
     for body in (edit_intro, edit_closeup):
-        assert len(upstream.video_references(body)) == 1 and not upstream.image_references(body)
+        (video,) = upstream.video_references(body)
+        assert video.startswith("http://127.0.0.1") and "/files/gen-vid-" in video  # 저장본 주소
+        assert not upstream.image_references(body)
         assert body["prompt"].splitlines()[:2] == [
             "Edit the input video. Apply only these changes:",
             "- cup: color changes from red to teal",
