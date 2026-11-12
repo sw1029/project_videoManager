@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,8 +24,11 @@ from frame.config.settings import Settings
 
 from .errors import register_error_handlers
 from .rate_limit import SlidingWindowRateLimiter
+from .recovery import RecoveryLoop
 from .routers import projects, versions, vocabulary
 from .schemas import HealthAdaptersOut, HealthOut
+
+log = logging.getLogger(__name__)
 
 STRUCTURING_INPUT = {"rule_based": "dsl", "llm": "natural_language"}
 
@@ -33,6 +39,7 @@ def create_app(container: Container) -> FastAPI:
         title="FRAME API",
         version=__version__,
         description="구조화된 중간 표현 기반 숏폼 비디오 선택적 편집·일관성 제어 프레임워크",
+        lifespan=_recovery_lifespan(container),
     )
     app.state.container = container
     app.state.rate_limiter = (
@@ -65,6 +72,34 @@ def create_app(container: Container) -> FastAPI:
             raise ConfigurationError(f"FRAME_FRONTEND_DIST 에 index.html 이 없습니다: {dist}")
         app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
     return app
+
+
+def _recovery_lifespan(
+    container: Container,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """재시작 복구 (#2, ADR-0013): 요청을 받기 전에 지난 프로세스가 남긴 버전을 복구하고, 주기 검사를 띄운다.
+
+    기동 복구를 요청 처리보다 먼저 끝내므로, 새로 접수된 버전을 '사라진 작업' 으로 오인하지 않는다.
+    FRAME_JOBS=inline 이면 복구한 작업이 기동 중에 실행돼 기동이 늦어진다 (thread 권장).
+    """
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        recover = container.recover_pending_versions
+        try:
+            recover.execute(startup=True)
+        except Exception:  # noqa: BLE001 - 복구 실패가 서버 기동을 막지 않게 한다 (로그로 알린다)
+            log.exception(
+                "기동 복구에 실패했습니다. 남은 QUEUED·PROCESSING 버전은 다음 기동 때 다시 봅니다"
+            )
+        loop = RecoveryLoop(recover.execute, container.settings.recovery_interval_s)
+        loop.start()
+        try:
+            yield
+        finally:
+            loop.stop()
+
+    return lifespan
 
 
 def _health(s: Settings) -> HealthOut:

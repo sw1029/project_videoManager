@@ -41,6 +41,7 @@ from frame.application.use_cases import (
     CreateProject,
     CreateRevision,
     ProjectQueries,
+    RecoverPendingVersions,
     RunGenerationPipeline,
     StructureRequirements,
 )
@@ -71,6 +72,8 @@ class Container:
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
+    # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
+    recover_pending_versions: RecoverPendingVersions
 
 
 def build_container(
@@ -161,4 +164,11 @@ def build_container(
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
+        recover_pending_versions=RecoverPendingVersions(
+            uow_factory,
+            dispatcher,
+            clock,
+            lease_seconds=settings.worker_lease_s,
+            max_attempts=settings.worker_max_attempts,
+        ),
     )

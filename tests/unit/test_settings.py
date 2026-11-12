@@ -56,3 +56,26 @@ def test_generator_cache_is_on_by_default():
     assert not isinstance(
         build_container(Settings(generator_cache=False)).generator, CachingVideoGenerator
     )
+
+
+def test_recovery_settings_have_defaults_and_are_parsed_from_env():
+    """#2: 워커 리스·시도 상한·주기 검사 간격 (0 이면 기동 때만 복구)."""
+    defaults = Settings.from_env({})
+    assert (
+        defaults.worker_lease_s,
+        defaults.worker_max_attempts,
+        defaults.recovery_interval_s,
+    ) == (
+        1800.0,
+        3,
+        60.0,
+    )
+    settings = Settings.from_env(
+        {
+            "FRAME_WORKER_LEASE_S": "900",
+            "FRAME_WORKER_MAX_ATTEMPTS": "2",
+            "FRAME_RECOVERY_INTERVAL_S": "0",
+        }
+    )
+    assert (settings.worker_lease_s, settings.worker_max_attempts) == (900.0, 2)
+    assert settings.recovery_interval_s == 0.0
