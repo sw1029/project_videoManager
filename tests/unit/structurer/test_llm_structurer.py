@@ -106,6 +106,15 @@ def test_system_prompt_states_kind_relation_and_action_rules():
     assert "action" in system and "location" in system
 
 
+def test_system_prompt_keeps_changeable_attributes_out_of_entity_keys():
+    """2차 실호출: 객체 키가 red_mug 로 나와, 색을 teal 로 바꾼 뒤에도 이름·다른 조건에 red 가 남았다."""
+    client = ReplayLLMClient([json.dumps(_document())])
+    LLMStructurer(client).structure(_request())
+    system = client.calls[0]["system"]
+    assert '"mug", not "red_mug"' in system
+    assert '"shows mug to camera", not "shows red mug to camera"' in system
+
+
 def test_repair_notes_are_kept_for_debugging():
     document = _document()
     document["scenes"][0]["requirements"].append(

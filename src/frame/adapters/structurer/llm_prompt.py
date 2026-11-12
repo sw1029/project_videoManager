@@ -12,7 +12,7 @@ from frame.domain.enums import EntityKind
 from frame.domain.ir import IR_SCHEMA_VERSION
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
-PROMPT_VERSION = "2026-11-07.2"
+PROMPT_VERSION = "2026-11-12.1"
 DEFAULT_DURATION_MS = 8000
 MIN_SCENE_MS = 3000  # 숏폼 장면 길이 하한 (장면 수 상한 계산용)
 
@@ -88,6 +88,9 @@ Return ONLY JSON that matches the provided schema (schema_version {IR_SCHEMA_VER
 
 Rules
 - entity_key and scene_key are unique snake_case ASCII identifiers. Descriptions use the brief's language.
+- entity_key names what the thing is, never how it looks: "mug", not "red_mug". Looks that can be
+  edited later (color, material, size, outfit) are requirements, and a value that mentions another
+  entity uses its plain name: "shows mug to camera", not "shows red mug to camera".
 - Entity kinds ({kinds}): PERSON for people, ANIMAL for animals, PROP for objects/products/logos,
   BACKGROUND for places and environments, TEXT for on-screen text, OTHER when nothing fits.
 - Every entity must appear in at least one scene's entity_keys. Do not invent entities or conditions
