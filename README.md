@@ -62,7 +62,10 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_VIDEO_FFMPEG` | 실행 파일 경로 (비우면 PATH → `video` extra 의 imageio-ffmpeg) | 클립 정규화·조립용 ffmpeg |
 | `FRAME_ASSEMBLER` | `fake` · `ffmpeg` | 최종 영상 조립 (`ffmpeg` 은 장면 클립을 이어 mp4 로. 실제 영상 생성기와 함께 쓴다) |
 | `FRAME_TRACKER` | `fake` · `opencv` | 객체 추적 모델 |
-| `FRAME_CHECKERS` | 쉼표 목록 | 검수기 (요구사항·일관성·보존) |
+| `FRAME_CHECKERS` | 쉼표 목록 (`fake_requirement` · `fake_consistency` · `fake_preservation` · `vlm_consistency` · `ssim_preservation`) | 검수기 (요구사항·일관성·보존). `vlm_consistency` 는 표본 프레임을 VLM 이 판정해 고정 속성 유지율을 재고, `ssim_preservation` 은 다시 만든 장면을 부모 클립과 SSIM 으로 비교한다 (ffmpeg 필요, [ADR-0015](docs/adr/0015-identity-references-and-consistency-check.md)·[0016](docs/adr/0016-parent-clip-editing.md)) |
+| `FRAME_IDENTITY` | `off`(기본) · `vlm_crop` · `frame` · `fake` | 장면 사이 객체 일관성: 객체가 나온 클립에서 정체성 기준 이미지를 뽑아 그 객체가 나오는 다른 장면 생성에 참조로 넘긴다. `vlm_crop` 은 VLM 으로 객체를 잘라 내고 `frame` 은 화면 전체를 쓴다 (+`FRAME_IDENTITY_KINDS`=`PERSON,ANIMAL,PROP,OTHER`, `FRAME_IDENTITY_MAX_REFERENCES`=3). 조사·실험 기록은 [docs/research/character-consistency.md](docs/research/character-consistency.md) |
+| `FRAME_VLM_MODEL` | 모델 이름 (비우면 `FRAME_LLM_MODEL`) | 이미지를 읽는 모델. `vlm_crop`·`vlm_consistency` 가 쓴다. 공급자·키·주소는 `FRAME_LLM_*` 와 같다 |
+| `FRAME_VIDEO_EDIT_MODE` / `FRAME_VIDEO_EDIT_MODEL` | `off`(기본) · `previous_job` · `video_reference` / 편집 모델 id | 수정 버전에서 다시 만드는 장면을 부모 클립 편집으로 만든다. 편집 요청이 거절되면 새로 생성한다. 실호출로 확인한 조합은 `video_reference` + `black-forest-labs/flux-video-edit` 이고, 부모 클립을 만든 작업의 저장본이 남아 있는 약 24시간 안에만 된다 ([ADR-0016](docs/adr/0016-parent-clip-editing.md)) |
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |

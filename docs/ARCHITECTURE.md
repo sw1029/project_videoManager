@@ -171,6 +171,11 @@ RunGenerationPipeline
 - 수정 버전은 부모의 `seed` 와 참조 이미지를 그대로 물려받으므로, 바뀌지 않은 장면은 fingerprint 가 같아 **재생성되지 않는다**.
   이것이 "비대상 객체/배경 90% 이상 유지"(AC-01)를 모델 품질과 무관하게 장면 단위에서 보장하는 장치다.
   재생성된 장면 내부의 보존은 `PreservationChecker` 가 점수로 판정한다.
+- **장면 사이 객체 일관성** (ADR-0015, `FRAME_IDENTITY`): 객체가 나온 클립에서 정체성 기준 이미지를 뽑아 버전에 저장하고,
+  그 객체가 나오는 다른 장면을 생성할 때 `identity_references` 로 넘긴다. 기준 이미지는 조건 fingerprint 에 들어가지 않고
+  생성 캐시·작업 원장 키(`generation_fingerprint`)에만 들어가므로, 위의 재사용 규칙은 그대로다.
+- **부모 클립 편집** (ADR-0016, `FRAME_VIDEO_EDIT_MODE`): 다시 만드는 장면의 요청에는 부모 클립과 부모 쪽 장면 조건이 실린다.
+  편집을 지원하는 생성기는 부모 클립에서 바뀐 조건만 고치고, 지원하지 않으면 지금처럼 새로 만든다.
 
 ### 3.5 조건 고정과 재현성
 
@@ -269,7 +274,8 @@ FRAME/
 | 영상 생성 모델 | `VideoGenerator` | `fake` | `external_api`(OpenRouter 영상 API, 기본 Wan 3.0 · ADR-0011) · `diffusers`(CogVideoX/Wan 로컬, 뼈대) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`, `FRAME_VIDEO_*` | `test_generator_contract.py` |
 | 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
 | 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
-| 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | CLIP/VLM 속성 판정 · 색상 히스토그램 시계열 · 프레임 차분/SSIM | `FRAME_CHECKERS` (쉼표 목록) | 인수 테스트 재사용 |
+| 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | `vlm_consistency`(표본 프레임 VLM 판정, ADR-0015) · `ssim_preservation`(부모 클립 대비 SSIM, ADR-0016) · CLIP/임베딩 속성 판정 | `FRAME_CHECKERS` (쉼표 목록) | `test_checker_contract.py` |
+| 정체성 기준 추출 | `IdentityReferenceExtractor` | `off`(없음) · `fake` | `vlm_crop`(VLM 박스로 잘라 냄) · `frame`(화면 전체) · 추적 박스·마스크 | `FRAME_IDENTITY`, `FRAME_IDENTITY_KINDS`, `FRAME_IDENTITY_MAX_REFERENCES`, `FRAME_VLM_MODEL` | `test_identity_extractor_contract.py` |
 | DB | `UnitOfWork` + 5개 `Repository` | `memory` | `sqlalchemy` (MySQL 8.4 / SQLite) | `FRAME_PERSISTENCE`, `FRAME_DB_URL` | `test_repository_contract.py` |
 | 산출물 저장 | `ArtifactStore` | `memory` | `local_fs` · Google Drive · S3 | `FRAME_ARTIFACT_STORE`, `FRAME_ARTIFACT_DIR` | generator 계약 내 `exists()` |
 | 비동기 실행 | `JobDispatcher` | `inline` · `recording` | `thread` · Celery/RQ(Redis) | `FRAME_JOBS` | 유스케이스 테스트 |
@@ -428,3 +434,5 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0008](adr/0008-value-normalization-and-relation-kinds.md) | 값 정규화 · ANIMAL 종류 · 관계의 배경 객체 금지 (실호출 결과 반영) |
 | [0009](adr/0009-frontend-integration-contract.md) | 프론트 연동 계약: 오류 형식 통일 · 영상 조회 경로 · 상태 확인 정보 · CORS·같은 출처 서빙 · 요청 제한 |
 | [0013](adr/0013-restart-recovery-and-persistent-generation-cache.md) | 재시작 복구(기동 복구·워커 리스·시도 상한) · 생성 결과 캐시 영속화 · 외부 작업 원장 |
+| [0015](adr/0015-identity-references-and-consistency-check.md) | 장면 사이 객체 일관성: 정체성 기준 이미지(클립에서 추출·버전 상속·참조 전달) · VLM 일관성 검수기 |
+| [0016](adr/0016-parent-clip-editing.md) | 수정 버전의 부모 클립 편집 포트 · 클립 메타데이터 저장 · SSIM 보존 검수기 |
