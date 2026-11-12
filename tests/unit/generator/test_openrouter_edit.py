@@ -862,3 +862,52 @@ def test_negative_preview_settings_are_configuration_errors(store):
         make_openrouter_generator(store, edit_preview_wait_seconds=-1)
     with pytest.raises(ConfigurationError, match="0 이상"):
         make_openrouter_generator(store, parent_url_hold_seconds=-1)
+
+
+def test_a_held_address_is_dropped_when_the_edit_made_with_it_fails(ir, store):
+    """들고 있던 주소로 접수된 편집 작업이 실패하면 그 주소를 버린다. 다음에는 부모 작업을 다시 조회한다."""
+    api = _api()
+    api.on(
+        "GET",
+        f"/api/v1/videos/{JOB_ID}",
+        status("failed", JOB_ID, error="could not fetch the input video"),
+    )
+    generator = make_openrouter_generator(store, api, **EDITING)
+    generator.preview(_request(ir, store))
+
+    with pytest.raises(GenerationError):
+        generator.generate_scene(_request(ir, store))
+    again = generator.preview(_request(ir, store))
+
+    assert again.method is ProductionMethod.EDIT
+    assert (
+        len(api.calls_to("GET", PARENT_STATUS)) == 2
+    )  # 미리보기 -> (들고 있던 주소로 편집) -> 다시 조회
+
+
+def test_a_held_address_is_dropped_when_the_edit_request_is_rejected(ir, store):
+    api = _api(
+        error_response(400, "Invalid reference URL: input_references[0].video_url.url"), accepted()
+    )
+    generator = make_openrouter_generator(store, api, **EDITING)
+    generator.preview(_request(ir, store))
+
+    clip = generator.generate_scene(_request(ir, store))  # 거절 -> 새로 생성
+    generator.preview(_request(ir, store, scene_key="closeup"))
+
+    assert clip.metadata["edit"]["applied"] is False
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 2  # 버린 주소를 다시 쓰지 않고 조회했다
+
+
+def test_preview_requests_give_up_sooner_than_generation_requests(ir, store):
+    """변경 계획 응답이 위쪽 서버 때문에 몇 분씩 멈추지 않게, 미리보기의 조회는 10초 안에 포기한다."""
+    api = _api()
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    generator.preview(_request(ir, store))
+
+    assert api.calls and all(call.timeout <= 10 for call in api.calls)
+    api.calls.clear()
+    generator.generate_scene(_request(ir, store, job_id="gen-vid-1794447999-zYxWvUtSrQpOnMlKjIhG"))
+    lookups = api.calls_to("GET", "/api/v1/videos/gen-vid-1794447999-zYxWvUtSrQpOnMlKjIhG")
+    assert not lookups or all(call.timeout == 60 for call in lookups)

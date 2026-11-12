@@ -192,6 +192,8 @@ _PARENT_URL_QUICK_LOOKUPS = 6
 _HELD_URL_MARGIN_SECONDS = 60.0
 # 시간 어림에 쓰는, 모델별로 기억하는 최근 작업 수
 _SEEN_SECONDS_KEPT = 20
+# 미리보기의 조회 하나가 기다리는 시간 상한 (변경 계획 응답이 위쪽 서버 때문에 오래 멈추지 않게)
+_PREVIEW_REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 # ---- 키 -------------------------------------------------------------------------------
@@ -683,6 +685,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                     if exc.status not in _EDIT_FALLBACK:
                         raise
                     # 접수 전 거절이라 과금되지 않았다. 편집을 포기하고 지금까지처럼 장면을 새로 만든다
+                    self._drop_held_url(plan.parent_job_id)  # 그 주소가 원인일 수 있다
                     log.warning(
                         "OpenRouter 가 부모 클립 편집 요청(%s, model=%s)을 거절해 새로 생성합니다: %s",
                         plan.mode,
@@ -695,7 +698,12 @@ class OpenRouterVideoGenerator(VideoGenerator):
                         "fallback_reason": str(exc)[:300],
                     }
                 else:
-                    return self._accepted(request, key, job, details)
+                    try:
+                        return self._accepted(request, key, job, details)
+                    except GenerationError:
+                        # 편집 작업이 접수 뒤 실패했다. 넘긴 주소가 원인일 수 있으니 들고 있지 않는다
+                        self._drop_held_url(plan.parent_job_id)
+                        raise
         if rejected is not None:
             reused = self._reuse_regenerated(request, key, rejected)
             if reused is not None:
@@ -877,7 +885,11 @@ class OpenRouterVideoGenerator(VideoGenerator):
         )
 
     def _parent_video_url(
-        self, plan: _EditPlan, *, wait_seconds: float | None = None
+        self,
+        plan: _EditPlan,
+        *,
+        wait_seconds: float | None = None,
+        request_timeout: float | None = None,
     ) -> _ParentUrl:
         """부모 클립을 내려받을 수 있는 주소. 못 구하면 주소가 None (편집하지 않는다). 주소는 기록하지 않는다.
 
@@ -897,7 +909,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         lookups = 0
         while True:
             lookups += 1
-            url, ask_again, expires_at = self._lookup_parent_url(plan.parent_job_id)
+            url, ask_again, expires_at = self._lookup_parent_url(
+                plan.parent_job_id, request_timeout
+            )
             if url is not None:
                 self._hold_url(plan.parent_job_id, url, expires_at)
                 return _ParentUrl(url, lookups)
@@ -913,14 +927,16 @@ class OpenRouterVideoGenerator(VideoGenerator):
             )
             self._sleep(min(delay, remaining))
 
-    def _lookup_parent_url(self, job_id: str) -> tuple[str | None, bool, float | None]:
+    def _lookup_parent_url(
+        self, job_id: str, timeout: float | None = None
+    ) -> tuple[str | None, bool, float | None]:
         """부모 작업을 한 번 조회한다: (저장본 주소, 주소가 없을 때 다시 물어볼 만한가, 저장본 만료 시각)."""
         try:
             resp = self._http.request(
                 "GET",
                 self._job_url(job_id),
                 headers=self._auth_headers(),
-                timeout=self.request_timeout_seconds,
+                timeout=timeout or self.request_timeout_seconds,
             )
         except TransportError:
             return None, True, None
@@ -957,6 +973,11 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 del self._held_urls[key]
             self._held_urls[job_id] = _HeldUrl(url, now + hold)
 
+    def _drop_held_url(self, job_id: str | None) -> None:
+        if job_id is not None:
+            with self._memo_lock:
+                self._held_urls.pop(job_id, None)
+
     def _held_url(self, job_id: str) -> str | None:
         with self._memo_lock:
             item = self._held_urls.get(job_id)
@@ -976,12 +997,13 @@ class OpenRouterVideoGenerator(VideoGenerator):
         """
         scene = request.scene
         plan = self._edit_plan(request)
+        quick = min(self.request_timeout_seconds, _PREVIEW_REQUEST_TIMEOUT_SECONDS)
         reason: str | None = None
         if plan is not None:
             if plan.mode == EDIT_VIDEO_REFERENCE:
                 # 미리보기는 실행할 때보다 오래 기다리지 않는다
                 wait = min(self.edit_preview_wait_seconds, self.edit_parent_wait_seconds)
-                source = self._parent_video_url(plan, wait_seconds=wait)
+                source = self._parent_video_url(plan, wait_seconds=wait, request_timeout=quick)
                 if source.url is None:
                     reason = (
                         "부모 영상의 저장본 주소가 아직 나오지 않아 지금은 편집할 수 없습니다 "
@@ -992,7 +1014,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
             if reason is None:
                 cost = None
                 try:
-                    cost = self._edit_billing(self.model_info(plan.model), scene)[2]
+                    info = self.model_info(plan.model, timeout=quick)
+                    cost = self._edit_billing(info, scene)[2]
                 except GenerationError as exc:
                     log.warning("편집 모델의 가격을 읽지 못해 어림 비용을 비웁니다: %s", exc)
                 return ProductionPreview(
@@ -1003,7 +1026,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 )
         cost = None
         try:
-            cost = self._generation_billing(self.model_info(), scene)[1]
+            cost = self._generation_billing(self.model_info(timeout=quick), scene)[1]
         except GenerationError as exc:
             log.warning("생성 모델의 가격·길이를 읽지 못해 어림 비용을 비웁니다: %s", exc)
         return ProductionPreview(
@@ -1288,17 +1311,19 @@ class OpenRouterVideoGenerator(VideoGenerator):
         }
 
     # ---- 모델 메타데이터 ----
-    def model_info(self, model: str | None = None) -> VideoModelInfo:
+    def model_info(
+        self, model: str | None = None, *, timeout: float | None = None
+    ) -> VideoModelInfo:
         """모델(기본: 설정한 생성 모델)의 허용 길이·화면비·해상도·seed·가격. 모델마다 한 번만 받는다 (키 불필요)."""
         model = model or self.model
         if model not in self._model_infos:
-            self._model_infos[model] = self._fetch_model_info(model)
+            self._model_infos[model] = self._fetch_model_info(model, timeout)
         return self._model_infos[model]
 
-    def _fetch_model_info(self, model: str) -> VideoModelInfo:
+    def _fetch_model_info(self, model: str, timeout: float | None = None) -> VideoModelInfo:
         url = f"{self.base_url}/videos/models"
         try:
-            resp = self._http.request("GET", url, timeout=self.request_timeout_seconds)
+            resp = self._http.request("GET", url, timeout=timeout or self.request_timeout_seconds)
         except TransportError as exc:
             raise GenerationError(f"OpenRouter 영상 모델 목록을 받지 못했습니다: {exc}") from exc
         if resp.status != 200:
