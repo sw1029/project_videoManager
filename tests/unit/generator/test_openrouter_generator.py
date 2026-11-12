@@ -669,3 +669,35 @@ def test_provider_messages_keep_only_the_host_of_any_url(store, ir):
     assert "Error validating image resolution" in message and "is too small" in message
     assert "http://files.example-oss.com/..." in message
     assert "SECRET" not in message and "Expires" not in message
+
+
+# ---- 수정 지시 (ADR-0017): 새로 생성하는 프롬프트에도 꼭 지켜야 할 값을 적는다 -------------------
+
+
+def _directed(ir, kind, previous=None, predicate="color", scene_key="intro"):
+    from frame.application.ports.generator import RevisionDirective
+
+    request = _request(ir, scene_key)
+    enforce = tuple(r for r in request.scene.requirements if r.predicate == predicate)
+    return replace(request, directive=RevisionDirective(kind, enforce, previous))
+
+
+def test_prompt_ends_with_the_requirement_a_revision_must_get_right(ir):
+    """수정 뒤에도 객체 설명에 예전 표현이 남을 수 있다 (2026-11-12 실호출: '빨간 머그컵' + color: teal).
+
+    무엇을 고치려는 수정인지 마지막 줄에 따로 적는다.
+    """
+    from frame.domain.enums import RevisionKind
+
+    changed = compile_video_prompt(_directed(ir, RevisionKind.CHANGE, previous="blue"))
+    repaired = compile_video_prompt(_directed(ir, RevisionKind.REPAIR))
+    relation = compile_video_prompt(_directed(ir, RevisionKind.REPAIR, predicate="holds"))
+
+    assert changed.splitlines()[-1] == "Must show: cup color: red (changed from blue)."
+    assert repaired.splitlines()[-1] == (
+        "Must show: cup color: red (an earlier render got this wrong)."
+    )
+    assert relation.splitlines()[-1] == (
+        "Must show: barista holds cup (an earlier render got this wrong)."
+    )
+    assert "Must show" not in compile_video_prompt(_request(ir))

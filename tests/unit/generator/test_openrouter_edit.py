@@ -20,9 +20,16 @@ from frame.adapters.generator.openrouter import (
 )
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
-from frame.application.ports.generator import GeneratedClip, ParentClip, SceneGenerationRequest
+from frame.application.ports.generator import (
+    GeneratedClip,
+    ParentClip,
+    RevisionDirective,
+    SceneGenerationRequest,
+)
 from frame.config import Settings, build_container
+from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.ir import RequirementSpec
+from frame.domain.revision import KeepItem
 from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
 from tests.support.openrouter import (
     JOB_ID,
@@ -489,3 +496,92 @@ def test_edit_settings_reach_the_adapter(tmp_path):
     )
     defaults = Settings.from_env({})
     assert (defaults.video_edit_mode, defaults.video_edit_model) == ("off", None)
+
+
+# ---- 수정 지시: 유지할 요소와 REPAIR (ADR-0017) ------------------------------------------
+
+
+def _cup_color(scene):
+    return tuple(r for r in scene.requirements if (r.entity_key, r.predicate) == ("cup", "color"))
+
+
+def _repair_request(ir, store, keep=(), scene_key="intro"):
+    """요구조건은 부모와 같고(차이 없음) seed 만 다른 재생성 요청: 컵 색이 요구(red)와 어긋났던 장면."""
+    scene = ir.scene(scene_key)
+    return SceneGenerationRequest(
+        version_id="ver_1",
+        scene=scene,
+        entities=tuple(ir.entity(k) for k in scene.entity_keys),
+        seed=8,
+        parent=_parent(ir, store, scene_key),
+        directive=RevisionDirective(RevisionKind.REPAIR, enforce=_cup_color(scene), keep=keep),
+    )
+
+
+def test_edit_prompt_names_what_must_not_change(ir, store):
+    """컨셉 화면의 '유지할 요소' 체크: 인물·동작 / 배경·조명 / 컵 형태."""
+    request = _request(ir, store)
+    keep = (
+        KeepItem(KeepAspect.ACTION, "barista"),
+        KeepItem(KeepAspect.APPEARANCE, "barista"),
+        KeepItem(KeepAspect.SHAPE, "cup"),
+        KeepItem(KeepAspect.LIGHTING),
+        KeepItem(KeepAspect.BACKGROUND),
+    )
+    directive = RevisionDirective(
+        RevisionKind.CHANGE, enforce=_cup_color(request.scene), previous_value="red", keep=keep
+    )
+
+    prompt = compile_edit_prompt(replace(request, directive=directive))
+
+    assert prompt.splitlines() == [
+        "Edit the input video. Apply only these changes:",
+        "- cup: color changes from red to teal",
+        "Do not change: barista (action and pose, appearance); cup (shape and size); "
+        "the lighting; the background.",
+        EDIT_KEEP_LINE,
+    ]
+
+
+def test_repair_edit_prompt_states_the_requirement_that_was_missed(ir, store):
+    """요구조건은 그대로라 부모와의 차이가 없다. 지켜지지 않았던 값을 지시문으로 적어 부모 클립을 고친다."""
+    prompt = compile_edit_prompt(_repair_request(ir, store))
+
+    assert prompt.splitlines() == [
+        "Edit the input video. Apply only these changes:",
+        "- cup: color must be red",
+        EDIT_KEEP_LINE,
+    ]
+    assert compile_edit_prompt(replace(_repair_request(ir, store), directive=None)) is None
+
+
+def test_repair_is_sent_to_the_edit_model_with_the_parent_clip(ir, store):
+    api = _api(accepted())
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model=FLUX_EDIT["id"]
+    )
+    keep = (KeepItem(KeepAspect.ACTION, "barista"),)
+
+    clip = generator.generate_scene(_repair_request(ir, store, keep=keep))
+
+    (body,) = (call.json() for call in api.submits)
+    assert body["model"] == FLUX_EDIT["id"]
+    assert "- cup: color must be red" in body["prompt"]
+    assert "Do not change: barista (action and pose)." in body["prompt"]
+    assert clip.metadata["edit"]["applied"] is True
+
+
+def test_keep_items_separate_the_results_of_otherwise_equal_edits(ir, store):
+    """같은 수정이라도 그대로 둘 요소가 다르면 다른 결과다 (캐시·원장 키가 갈린다)."""
+    generator = make_openrouter_generator(store, _api(), edit_mode="video_reference")
+    request = _request(ir, store)
+    keeping = replace(
+        request,
+        directive=RevisionDirective(
+            RevisionKind.CHANGE,
+            enforce=_cup_color(request.scene),
+            keep=(KeepItem(KeepAspect.LIGHTING),),
+        ),
+    )
+
+    assert generator.result_key(keeping) != generator.result_key(request)

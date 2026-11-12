@@ -61,11 +61,14 @@ from frame.application.errors import (
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.generator import (
     GeneratedClip,
+    RevisionDirective,
     SceneGenerationRequest,
     VideoGenerator,
 )
 from frame.application.ports.structurer import ReferenceImageInput
+from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.hashing import canonical_hash
+from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
 from .cache import KeyedLocks, generation_key
@@ -305,7 +308,31 @@ def compile_video_prompt(
         lines.append(f"Overall look: follow {_reference_phrase(shared)}")
     if any(numbers.get(entity.entity_key) for entity in request.entities):
         lines.append(CONSISTENCY_LINE)
+    if request.directive is not None and request.directive.enforce:
+        lines.append(_must_line(request.directive))
     return "\n".join(lines)
+
+
+def _must_line(directive: RevisionDirective) -> str:
+    """수정 버전이 이 장면에서 꼭 맞춰야 하는 요구조건 한 줄 (ADR-0017).
+
+    객체 설명이나 장면 설명에 수정 전 표현이 남아 조건과 어긋날 수 있다 (실호출: '빨간 머그컵' + color: teal).
+    무엇을 고치려는 수정인지 맨 끝에 따로 적는다.
+    """
+    parts = []
+    for r in directive.enforce:
+        subject = r.entity_key or "scene"
+        if r.related_entity_key is not None:
+            parts.append(f"{subject} {_words(r.predicate)} {r.related_entity_key}")
+        else:
+            parts.append(f"{subject} {_words(r.predicate)}: {r.expected_value}")
+    if directive.kind is RevisionKind.REPAIR:
+        note = " (an earlier render got this wrong)"
+    elif directive.previous_value:
+        note = f" (changed from {directive.previous_value})"
+    else:
+        note = ""
+    return f"Must show: {'; '.join(parts)}{note}."
 
 
 # 참조 이미지가 있는 객체: 모습은 참조에서, 자세·행동·구도·배경은 이 장면의 글에서 가져오게 한다
@@ -324,10 +351,36 @@ EDIT_KEEP_LINE = (
 )
 
 
+# 그대로 둘 요소를 지시문에 적을 때 쓰는 말 (ADR-0017)
+_KEEP_WORDS = {
+    KeepAspect.APPEARANCE: "appearance",
+    KeepAspect.ACTION: "action and pose",
+    KeepAspect.SHAPE: "shape and size",
+    KeepAspect.BACKGROUND: "the background",
+    KeepAspect.LIGHTING: "the lighting",
+    KeepAspect.COMPOSITION: "the framing and camera",
+}
+
+
+def _keep_phrase(keep: Sequence[KeepItem]) -> str:
+    """'barista (action and pose, appearance); cup (shape and size); the lighting' 꼴. 객체별로 묶는다."""
+    by_entity: dict[str, list[str]] = {}
+    scene_level: list[str] = []
+    for item in keep:
+        if item.entity_key is None:
+            scene_level.append(_KEEP_WORDS[item.aspect])
+        else:
+            by_entity.setdefault(item.entity_key, []).append(_KEEP_WORDS[item.aspect])
+    parts = [f"{key} ({', '.join(words)})" for key, words in by_entity.items()]
+    return "; ".join([*parts, *scene_level])
+
+
 def compile_edit_prompt(request: SceneGenerationRequest) -> str | None:
     """부모 클립을 고칠 때의 지시문: 부모 쪽 장면 조건과 지금 조건의 차이만 적는다 (ADR-0016).
 
     부모 클립이 없거나 글로 옮길 차이가 없으면 None (편집할 것이 없다 -> 새로 생성).
+    수정 지시(ADR-0017)가 있으면 반영한다: REPAIR 는 조건의 차이가 없으므로 지켜지지 않았던 요구조건을
+    '... must be ...' 로 적고, 그대로 둘 요소가 있으면 'Do not change: ...' 한 줄을 더한다.
     """
     parent = request.parent
     if parent is None:
@@ -365,9 +418,23 @@ def compile_edit_prompt(request: SceneGenerationRequest) -> str | None:
             changes.append(f"- {entity.entity_key} is now: {text}")
     if scene.description.strip() and scene.description != before.description:
         changes.append(f"- the scene is now: {scene.description.strip()}")
+    directive = request.directive
+    if directive is not None and directive.kind is RevisionKind.REPAIR:
+        for r in directive.enforce:
+            subject = r.entity_key or "the scene"
+            if r.related_entity_key is not None:
+                changes.append(
+                    f"- {subject}: must be shown as {_words(r.predicate)} {r.related_entity_key}"
+                )
+            else:
+                changes.append(f"- {subject}: {_words(r.predicate)} must be {r.expected_value}")
     if not changes:
         return None
-    return "\n".join(["Edit the input video. Apply only these changes:", *changes, EDIT_KEEP_LINE])
+    lines = ["Edit the input video. Apply only these changes:", *changes]
+    if directive is not None and directive.keep:
+        lines.append(f"Do not change: {_keep_phrase(directive.keep)}.")
+    lines.append(EDIT_KEEP_LINE)
+    return "\n".join(lines)
 
 
 def _words(predicate: str) -> str:
