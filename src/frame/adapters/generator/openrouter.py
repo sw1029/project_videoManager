@@ -570,7 +570,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
         """편집이 거절된 요청: 같은 조건으로 이미 새로 생성해 둔 결과가 원장에 있으면 다시 제출하지 않고 그것을 쓴다.
 
         편집할 요청의 키(부모 클립 포함)와 새로 생성할 때의 키(조건 + 정체성 기준)가 달라서, 이 확인이 없으면
-        편집 모드만 바꿔 같은 수정을 다시 돌릴 때 같은 장면을 또 생성(과금)한다.
+        편집 모드만 바꿔 같은 수정을 다시 돌릴 때 같은 장면을 또 생성(과금)한다. 편집을 끈 설정이 만든 결과와,
+        다른 편집 설정이 거절된 뒤 새로 만든 결과(`_share_regenerated`)가 이 키로 남아 있다.
         """
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         record = self._resumable(plain_key)
@@ -870,16 +871,16 @@ class OpenRouterVideoGenerator(VideoGenerator):
         }
         if details.get("edit"):  # 부모 클립 편집을 시도했다 (applied: 편집으로 만들었는가)
             metadata["edit"] = details["edit"]
-        self._remember(
-            replace(
-                record,
-                status=COMPLETED,
-                clip_uri=uri,
-                clip_metadata=metadata,
-                error=None,
-                updated_at=self._wall_clock(),
-            )
+        done = replace(
+            record,
+            status=COMPLETED,
+            clip_uri=uri,
+            clip_metadata=metadata,
+            error=None,
+            updated_at=self._wall_clock(),
         )
+        self._remember(done)
+        self._share_regenerated(request, done)
         log.info(
             "OpenRouter 영상 완료: job=%s cost=%s polls=%d %.1fs",
             job_id,
@@ -893,6 +894,33 @@ class OpenRouterVideoGenerator(VideoGenerator):
             duration_ms=scene.duration_ms,
             fingerprint=request.fingerprint,
             metadata=metadata,
+        )
+
+    def _share_regenerated(self, request: SceneGenerationRequest, record: JobRecord) -> None:
+        """편집이 거절돼 새로 생성한 결과를 편집 설정과 무관한 키(조건 + 정체성 기준)로도 남긴다.
+
+        그 결과는 편집을 끈 설정이 만들었을 결과와 같다. 편집 키로만 남기면 편집 모드·편집 모델을 바꾸거나 껐을 때
+        같은 장면을 또 생성(과금)한다. 편집 시도 기록은 이 요청의 것이므로 함께 남기지 않는다.
+        """
+        edit = record.details.get("edit")
+        if not isinstance(edit, Mapping) or edit.get("applied") is not False:
+            return
+        plain_key = generation_key(request.generation_fingerprint, self.profile())
+        if plain_key == record.key:
+            return
+        existing = self._resumable(plain_key)
+        if existing is not None and (
+            existing.status != COMPLETED
+            or (existing.clip_uri is not None and self._store.exists(existing.clip_uri))
+        ):
+            return  # 그 키로 진행 중이거나 이미 쓸 수 있는 결과가 있다. 덮어쓰지 않는다
+        self._remember(
+            replace(
+                record,
+                key=plain_key,
+                details={k: v for k, v in record.details.items() if k != "edit"},
+                clip_metadata={k: v for k, v in record.clip_metadata.items() if k != "edit"},
+            )
         )
 
     def _reuse(self, request: SceneGenerationRequest, record: JobRecord) -> GeneratedClip:

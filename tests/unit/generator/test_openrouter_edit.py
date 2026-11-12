@@ -350,6 +350,60 @@ def test_rejected_edit_reuses_an_earlier_regeneration_of_the_same_conditions(ir,
     assert len(api.submits) == 2 and again.uri == earlier.uri  # 편집을 다시 시도하지도 않는다
 
 
+def test_regeneration_after_a_rejected_edit_is_shared_across_edit_settings(ir, store):
+    """거절 뒤 새로 생성한 결과는 편집 설정과 무관한 키(조건 + 정체성 기준)로도 남긴다.
+
+    실호출에서 드러난 빈틈: video_reference 편집이 거절돼 새로 만든 장면을, 편집 모드만 previous_job 으로 바꾼
+    실행이 찾지 못해 같은 장면을 또 생성(과금)했다.
+    """
+    api = _api(
+        error_response(400, "Only HTTPS URLs are allowed"),  # video_reference 편집 거절
+        accepted(),  # 새로 생성
+        error_response(400, "does not support previous_job_id"),  # previous_job 편집 거절
+    )
+    request = _request(ir, store)
+    regenerated = make_openrouter_generator(store, api, edit_mode="video_reference").generate_scene(
+        request
+    )
+
+    other_mode = make_openrouter_generator(store, api, edit_mode="previous_job")
+    clip = other_mode.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 3  # 거절 2번 + 생성 1번. 두 번째 생성은 없다
+    assert clip.uri == regenerated.uri and clip.metadata["ledger"] == "reused"
+    assert clip.metadata["edit"]["mode"] == "previous_job"
+    assert clip.metadata["edit"]["applied"] is False
+    # 편집을 끈 설정도 그 결과를 쓴다. 남의 편집 시도 기록은 따라오지 않는다
+    plain = make_openrouter_generator(store, api)
+    again = plain.generate_scene(replace(request, version_id="ver_3"))
+    assert len(api.submits) == 3 and again.uri == regenerated.uri
+    assert "edit" not in again.metadata
+
+
+def test_sharing_a_regeneration_does_not_replace_an_unedited_job_in_flight(ir, store):
+    """같은 조건을 편집 없이 만드는 작업이 진행 중이면 그 원장 항목을 덮어쓰지 않는다 (이어 받을 수 있어야 한다)."""
+    in_flight = "gen-vid-1794450000-" + "P" * 20
+    api = _api(
+        accepted(in_flight),  # 편집을 끈 설정이 제출한 작업 (아직 생성 중)
+        error_response(400, "does not support previous_job_id"),
+        accepted(),
+    )
+    api.add_job(in_flight, status("in_progress", in_flight))
+    request = _request(ir, store)
+    plain = make_openrouter_generator(store, api, timeout_seconds=1, poll_interval_seconds=1)
+    with pytest.raises(GenerationError):
+        plain.generate_scene(replace(request, parent=None))  # 기다리다 시간 초과. 원장에는 남는다
+
+    editing = make_openrouter_generator(store, api, edit_mode="previous_job")
+    clip = editing.generate_scene(request)
+
+    assert clip.metadata["job_id"] == JOB_ID and len(api.submits) == 3
+    api.add_job(in_flight, completed(in_flight))
+    resumed = plain.generate_scene(replace(request, parent=None, version_id="ver_2"))
+    assert resumed.metadata["job_id"] == in_flight and resumed.metadata["ledger"] == "resumed"
+    assert len(api.submits) == 3
+
+
 @pytest.mark.parametrize("code", [401, 402, 403, 500])
 def test_edit_rejections_that_regeneration_would_also_hit_are_not_retried(ir, store, code):
     api = _api(error_response(code, "nope"))
