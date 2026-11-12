@@ -745,13 +745,12 @@ class OpenRouterVideoGenerator(VideoGenerator):
         """
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         record = self._resumable(plain_key)
-        if (
-            record is None
-            or record.status != COMPLETED
-            or record.clip_uri is None
-            or not self._store.exists(record.clip_uri)
-        ):
+        if record is None or record.status != COMPLETED:
             return None
+        if record.clip_uri is None or not self._store.exists(record.clip_uri):
+            if rejected.get("transient") is not True:
+                return None
+            return self._redownload_provisional(request, plain_key, rejected)
         found = replace(
             record,
             key=key,
@@ -763,6 +762,21 @@ class OpenRouterVideoGenerator(VideoGenerator):
         else:
             self._remember(found)  # 다음에는 편집 키로 바로 찾는다
         return self._reuse(request, found)
+
+    def _redownload_provisional(
+        self, request: SceneGenerationRequest, plain_key: str, rejected: dict[str, Any]
+    ) -> GeneratedClip | None:
+        """조건 키에 남긴 임시 결과의 클립 파일이 없다: 다시 생성(과금)하지 않고 끝난 작업의 결과를 다시 내려받는다.
+
+        편집 요청의 키를 비우기 전에는 그 키의 완료 기록으로 이렇게 했다 (ADR-0013).
+        비운 뒤에는 조건 키의 기록으로 한다.
+        """
+        with self._locks.hold(plain_key):  # 같은 조건을 편집 없이 만드는 요청과 겹치지 않게
+            record = self._resumable(plain_key)
+            if record is None or record.status != COMPLETED:
+                return None
+            clip = self._collect(request, record, resumed=True)
+        return replace(clip, metadata={**clip.metadata, "edit": rejected, "provisional": True})
 
     def _generation_body(
         self, request: SceneGenerationRequest

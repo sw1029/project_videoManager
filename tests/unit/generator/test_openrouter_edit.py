@@ -22,7 +22,7 @@ from frame.adapters.generator.openrouter import (
     compile_edit_prompt,
 )
 from frame.adapters.http_transport import TransportError
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import (
     GeneratedClip,
@@ -1103,3 +1103,24 @@ def test_the_cache_does_not_keep_a_provisional_regeneration(ir, store):
     assert second.metadata["edit"]["applied"] is True and len(api.submits) == 2
     assert third.metadata["cache_hit"] is True and third.uri == second.uri  # 편집 결과는 캐시된다
     assert cached.hits == 1
+
+
+def test_a_provisional_result_whose_clip_was_deleted_is_downloaded_again(tmp_path, ir):
+    """조건 키로 옮긴 결과의 클립 파일이 지워졌어도 다시 생성(과금)하지 않는다: 끝난 작업의 결과를 다시 내려받는다.
+
+    편집 요청의 키를 비우기 전에는 그 키의 완료 기록으로 다시 내려받았다. 비운 뒤에도 그래야 한다.
+    """
+    store = LocalFileArtifactStore(tmp_path)
+    api = _api(parent_status=NO_URLS)
+    generator = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    request = _request(ir, store)
+    first = generator.generate_scene(request)
+    store.local_path(first.uri).unlink()
+
+    again = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1  # 다시 제출하지 않았다
+    assert len(api.calls_to("GET", f"/api/v1/videos/{JOB_ID}/content")) == 2
+    assert store.exists(again.uri) and again.metadata["job_id"] == JOB_ID
+    assert again.metadata["edit"]["applied"] is False and again.metadata["provisional"] is True
+    assert _ledger_status(store, generator, generator.result_key(request)) == "released"
