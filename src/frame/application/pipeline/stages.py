@@ -21,7 +21,13 @@ from frame.domain.services.identity import (
 from ..checks import CheckSuite
 from ..ports.checker import CheckContext
 from ..ports.common import IdGenerator
-from ..ports.generator import ParentClip, SceneGenerationRequest, VideoAssembler, VideoGenerator
+from ..ports.generator import (
+    ParentClip,
+    RevisionDirective,
+    SceneGenerationRequest,
+    VideoAssembler,
+    VideoGenerator,
+)
 from ..ports.identity import IdentityExtractionRequest, IdentityReferenceExtractor
 from ..ports.structurer import ReferenceImageInput
 from ..ports.tracker import ObjectTracker, TrackingRequest
@@ -54,6 +60,11 @@ class GenerateStage(PipelineStage):
 
     부모 클립 (ADR-0016)
     - 조건이 바뀌어 다시 만드는 장면에 부모 클립과 부모 쪽 장면 조건을 함께 넘긴다. 편집을 지원하는 생성기가 쓴다.
+
+    수정 의도 (ADR-0017)
+    - 장면의 seed 는 버전이 장면별로 다시 지정한 값이 있으면 그것을 쓴다. REPAIR 는 요구조건을 바꾸지 않으므로
+      대상 장면의 seed 를 바꿔 부모 클립이 재사용되지 않게 한다.
+    - 수정 버전이 다시 만들기로 한 장면에는 수정 지시(꼭 지켜야 할 요구조건·그대로 둘 요소)를 함께 넘긴다.
 
     다시 실행 (재시작 복구)
     - 이 버전이 앞선 시도에서 이미 만든 클립은 조건이 같으면 다시 만들지 않는다.
@@ -114,7 +125,7 @@ class GenerateStage(PipelineStage):
                 if r.origin is ReferenceOrigin.USER
                 and (r.entity_key is None or r.entity_key in scene.entity_keys)
             ),
-            seed=ctx.version.seed,
+            seed=ctx.version.seed_for(scene.scene_key),
         )
         if not with_extras:
             return request
@@ -138,6 +149,26 @@ class GenerateStage(PipelineStage):
             seed=request.seed,
             identity_references=identity,
             parent=self._parent_clip(ctx, scene),
+            directive=self._directive(ctx, scene),
+        )
+
+    @staticmethod
+    def _directive(ctx: PipelineContext, scene: SceneSpec) -> RevisionDirective | None:
+        """수정 버전이 이 장면을 다시 만들기로 했으면 그 지시. 그 밖의 장면·원본 버전은 None."""
+        intent = ctx.version.intent
+        if intent is None or not intent.targets(scene.scene_key):
+            return None
+        return RevisionDirective(
+            kind=intent.kind,
+            enforce=tuple(
+                r
+                for r in scene.requirements
+                if r.entity_key == intent.entity_key
+                and r.predicate == intent.predicate
+                and r.expected_value == intent.value
+            ),
+            previous_value=intent.previous_value,
+            keep=intent.keep_for(scene),
         )
 
     @staticmethod

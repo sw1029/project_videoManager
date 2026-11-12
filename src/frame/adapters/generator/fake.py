@@ -3,6 +3,7 @@
 - 결정적: 같은 요청 -> 같은 내용.
 - 실패 주입: fail_scene_keys / error 로 특정 장면 또는 전체 실패를 재현한다.
 - 스파이: requests 에 호출 기록을 남겨 '어떤 장면만 재생성됐는지' 를 단언할 수 있다.
+- 수정 지시(ADR-0017): 요청에 수정 지시가 오면 산출물에 기록한다 (directive).
 - 부모 클립(ADR-0016): 요청에 부모 클립이 오면 기록만 하고(parent_clip_uri) 새로 만든다.
   edits_parent=True 면 부모 클립을 편집하는 생성기 흉내를 낸다: 결과 키에 부모 클립이 들어가고 edited_parent 가 참이다.
 """
@@ -65,6 +66,12 @@ class FakeVideoGenerator(VideoGenerator):
         metadata: dict[str, object] = {"generator": "fake"}
         if request.identity_references:
             payload["identity_references"] = [r.image_uri for r in request.identity_references]
+        if request.directive is not None:
+            payload["directive"] = {
+                "kind": str(request.directive.kind),
+                "enforce": [f"{r.key}={r.expected_value}" for r in request.directive.enforce],
+                "keep": [item.to_dict() for item in request.directive.keep],
+            }
         if request.parent is not None:
             payload["parent_clip_uri"] = request.parent.clip.uri
             metadata["parent_clip_uri"] = request.parent.clip.uri

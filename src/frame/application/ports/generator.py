@@ -11,6 +11,8 @@
   '어떻게 만들지' 이므로 fingerprint 에 넣지 않고 generation_fingerprint(생성 캐시·작업 원장 키)에만 넣는다.
 - 부모 클립(parent): 수정 버전에서 다시 만드는 장면의 부모 클립과 그때의 장면 조건. 편집을 지원하는 생성기는
   부모 클립을 고쳐서 만들고, 지원하지 않는 생성기는 무시하고 새로 만든다.
+- 수정 지시(directive, ADR-0017): 이 장면을 왜 다시 만드는지. 꼭 지켜야 할 요구조건(바꾼 값 / 반영되지 않았던 값)과
+  그대로 둘 요소. 생성기는 편집 지시문·프롬프트에 쓴다. 그대로 둘 요소만 생성 캐시·작업 원장 키에 들어간다.
 """
 
 from __future__ import annotations
@@ -20,8 +22,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from frame.domain.artifacts import GeneratedClip, VideoArtifact
+from frame.domain.enums import RevisionKind
 from frame.domain.hashing import canonical_hash
-from frame.domain.ir import EntitySpec, SceneSpec
+from frame.domain.ir import EntitySpec, RequirementSpec, SceneSpec
+from frame.domain.revision import KeepItem
 
 from .structurer import ReferenceImageInput
 
@@ -41,6 +45,21 @@ class ParentClip:
 
 
 @dataclass(frozen=True)
+class RevisionDirective:
+    """수정 버전에서 다시 만드는 장면에 함께 넘기는 지시 (ADR-0017).
+
+    - enforce: 이 장면에서 꼭 지켜져야 하는 요구조건. CHANGE 면 바뀐 조건, REPAIR 면 반영되지 않았던 조건이다.
+    - previous_value: CHANGE 에서 바뀌기 전 값 (알 때만).
+    - keep: 이 장면에서 그대로 둘 요소 (그 장면에 나오는 객체의 것과 장면 수준의 것만).
+    """
+
+    kind: RevisionKind
+    enforce: tuple[RequirementSpec, ...] = ()
+    previous_value: str | None = None
+    keep: tuple[KeepItem, ...] = ()
+
+
+@dataclass(frozen=True)
 class SceneGenerationRequest:
     version_id: str
     scene: SceneSpec
@@ -51,6 +70,8 @@ class SceneGenerationRequest:
     identity_references: tuple[ReferenceImageInput, ...] = ()
     # 부모 버전에 같은 장면의 클립이 있으면 함께 넘긴다 (조건이 바뀌어 다시 만드는 장면)
     parent: ParentClip | None = None
+    # 수정 버전이 이 장면을 다시 만드는 까닭과 그대로 둘 요소. 조건 fingerprint 에는 들어가지 않는다
+    directive: RevisionDirective | None = None
 
     @property
     def fingerprint(self) -> str:
@@ -79,21 +100,26 @@ class SceneGenerationRequest:
 
     @property
     def generation_fingerprint(self) -> str:
-        """생성 결과를 좌우하는 요청 쪽 값의 해시: 조건(fingerprint) + 정체성 기준 이미지.
+        """생성 결과를 좌우하는 요청 쪽 값의 해시: 조건(fingerprint) + 정체성 기준 이미지 + 그대로 둘 요소.
 
-        정체성 기준이 없으면 fingerprint 와 같다 (기준 이미지를 쓰지 않던 때의 캐시·원장 키와 호환).
+        둘 다 없으면 fingerprint 와 같다 (기준 이미지·수정 지시를 쓰지 않던 때의 캐시·원장 키와 호환).
+        수정 지시 가운데 그대로 둘 요소만 넣는다. 꼭 지켜야 할 요구조건은 이미 조건(또는 seed)에 들어 있다.
         """
-        if not self.identity_references:
-            return self.fingerprint
-        return canonical_hash(
-            {
-                "fingerprint": self.fingerprint,
-                "identity_references": sorted(
-                    (r.image_uri, r.entity_key or "", r.description)
-                    for r in self.identity_references
-                ),
-            }
+        keep = (
+            sorted((str(item.aspect), item.entity_key or "") for item in self.directive.keep)
+            if self.directive is not None
+            else []
         )
+        if not self.identity_references and not keep:
+            return self.fingerprint
+        payload: dict[str, object] = {"fingerprint": self.fingerprint}
+        if self.identity_references:
+            payload["identity_references"] = sorted(
+                (r.image_uri, r.entity_key or "", r.description) for r in self.identity_references
+            )
+        if keep:
+            payload["keep"] = keep
+        return canonical_hash(payload)
 
 
 class VideoGenerator(ABC):
@@ -135,6 +161,7 @@ class VideoAssembler(ABC):
 __all__ = [
     "GeneratedClip",
     "ParentClip",
+    "RevisionDirective",
     "SceneGenerationRequest",
     "VideoArtifact",
     "VideoAssembler",
