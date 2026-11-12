@@ -85,6 +85,14 @@ def test_ssim_compares_clips_of_different_sizes(clips):
     assert ssim(FFMPEG, clips["blue"], clips["large_red"]) < 0.9
 
 
+def test_ssim_works_on_very_short_clips(tmp_path):
+    """프레임이 몇 장뿐인 클립도 비교한다 (scale2ref 는 여기서 프레임을 내지 못했다)."""
+    red = make_clip(FFMPEG, tmp_path / "r.mp4", seconds=0.5, source="color=c=red")
+    blue = make_clip(FFMPEG, tmp_path / "b.mp4", seconds=0.5, source="color=c=blue")
+    assert ssim(FFMPEG, red, red) == pytest.approx(1.0, abs=1e-3)
+    assert ssim(FFMPEG, red, blue) < 0.9
+
+
 def test_garbage_input_raises_a_video_tool_error():
     with pytest.raises(VideoToolError):
         extract_frame(FFMPEG, b"not a video", 0)
