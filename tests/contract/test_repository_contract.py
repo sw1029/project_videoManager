@@ -96,6 +96,33 @@ def test_save_persists_state_result_and_clips(seeded):
         )
 
 
+def test_clip_metadata_survives_a_round_trip(seeded):
+    """ADR-0016: 부모 클립의 생성 기록(모델·작업 id)을 수정 버전의 생성기에 넘기려면 저장돼 있어야 한다."""
+    metadata = {
+        "generator": "openrouter",
+        "model": "alibaba/wan-3.0",
+        "job_id": "gen-vid-1789480874-Ab3dEf9hIjKlMnOpQrSt",
+        "cost_usd": 0.2125,
+        "seed": 7,
+        "output": {"width": 480, "height": 854, "fps": 30.0, "has_audio": False},
+        "prompt": "Scene: 바리스타가 컵을 들어 보인다",
+        "cache_hit": True,
+        "nothing": None,
+    }
+    with seeded() as uow:
+        version = uow.versions.get("ver_1")
+        version.clips = {
+            "intro": GeneratedClip("intro", "mem://clips/intro", 4000, "fp-intro", metadata),
+            "closeup": GeneratedClip("closeup", "mem://clips/closeup", 4000, "fp-closeup"),
+        }
+        uow.versions.save(version)
+        uow.commit()
+    with seeded() as uow:
+        clips = uow.versions.get("ver_1").clips
+        assert clips["intro"].metadata == metadata
+        assert clips["closeup"].metadata == {}
+
+
 def test_save_persists_failure_info(seeded):
     with seeded() as uow:
         version = uow.versions.get("ver_1")

@@ -177,6 +177,9 @@ class SqlAlchemyVersionRepository(VersionRepository):
                     uri=scene.clip_uri,
                     duration_ms=scene.clip_duration_ms or 0,
                     fingerprint=scene.clip_fingerprint or "",
+                    metadata=json.loads(scene.clip_metadata_json)
+                    if scene.clip_metadata_json
+                    else {},
                 )
         return VideoVersion(
             version_id=row.version_id,
@@ -271,6 +274,11 @@ class SqlAlchemyVersionRepository(VersionRepository):
                 scene.clip_uri = clip.uri
                 scene.clip_fingerprint = clip.fingerprint
                 scene.clip_duration_ms = clip.duration_ms
+                scene.clip_metadata_json = (
+                    json.dumps(dict(clip.metadata), ensure_ascii=False, default=str)
+                    if clip.metadata
+                    else None
+                )
         _flush(self._session)
 
 
