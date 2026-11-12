@@ -18,6 +18,8 @@ Fake 검수기는 클립을 보지 않아 항상 PASS 였다. 컨셉 화면의 '
 - 판정할 수 없으면 UNDETERMINED: 클립이 영상이 아님, VLM·ffmpeg 호출 실패, 응답에 그 요구조건이 없음.
   VLM 장애로 버전을 FAILED 로 만들지 않는다.
 - 요구조건은 R1, R2 … 프레임은 F1, F2 … 로 짧게 가리킨다 (모델이 긴 키를 그대로 돌려주지 않을 때가 있다).
+- 이 버전에서 값이 바뀐 요구조건에는 예전 값을 붙여 보낸다. 객체의 이름·설명과 다른 조건의 문구에는 예전 표현이
+  남아 있을 수 있다 (2차 실호출: 객체 키가 red_mug 인데 색을 teal 로 바꾼 뒤, 청록 컵을 '빨강이 아니다' 로 FAIL).
 - 판정 근거(프레임별 답·화면에서 본 것·모델 이름)는 detail 에 남긴다. 토큰 수는 장면의 첫 요구조건에만 적는다
   (장면당 한 번 부른 호출이다).
 """
@@ -55,8 +57,13 @@ SYSTEM_PROMPT = (
     'frame shows it; "no" if that frame clearly shows something else or the opposite (for '
     'example a red object where teal is required); "unclear" if it cannot be judged from that '
     "frame (the subject is not visible, too small or hidden, or the requirement is about motion "
-    "that a single frame cannot show). Judge only what the images show. A subject's name or "
-    "description may carry older wording, so rely on the requirement itself. In `observed` say "
+    "that a single frame cannot show). Judge only what the images show. Subject ids, subject "
+    "descriptions and the scene description are labels from the original script and may be "
+    "outdated: when a requirement says something different, the requirement wins. For example, "
+    "if a subject is called red_mug or described as a red mug but the requirement says its "
+    "color is teal, a teal mug satisfies that requirement and a red mug violates it. A "
+    "requirement marked as changed in this version names the value it had before; that earlier "
+    "value is no longer wanted, wherever else it is still written. In `observed` say "
     "in a few English words what the frames actually show for that requirement (for example "
     "'red ceramic mug'). Return every requirement id exactly once, with exactly one verdict per "
     "frame."
@@ -218,7 +225,10 @@ class VlmRequirementChecker(Checker):
             + ", ".join(f"{f.frame_id} ({f.at_ms / 1000:.1f}s)" for f in frames)
         )
         lines.append("Requirements:")
-        lines += [f"{rid}. {_statement(requirement)}" for rid, requirement in ids.items()]
+        lines += [
+            f"{rid}. {_statement(requirement)}{_changed_note(ctx, requirement)}"
+            for rid, requirement in ids.items()
+        ]
         completion = self._llm.complete_json(
             SYSTEM_PROMPT,
             "\n".join(lines),
@@ -352,6 +362,40 @@ def _statement(requirement: RequirementSpec) -> str:
     if requirement.related_entity_key is not None:
         return f"{subject} — {_words(requirement.predicate)} {requirement.related_entity_key}"
     return f"{subject} — {_words(requirement.predicate)}: {requirement.expected_value}"
+
+
+def _changed_note(ctx: CheckContext, requirement: RequirementSpec) -> str:
+    """이 버전에서 값이 바뀐 요구조건이면 예전 값을 알리는 꼬리말, 아니면 빈 문자열."""
+    earlier = _earlier_value(ctx, requirement)
+    if earlier is None:
+        return ""
+    return f' (changed in this version; it was "{earlier}" before)'
+
+
+def _earlier_value(ctx: CheckContext, requirement: RequirementSpec) -> str | None:
+    """부모 버전에서 이 요구조건이 갖던 다른 값. 바뀌지 않았거나 알 수 없으면 None.
+
+    그 장면에 없던 요구조건이면(모든 등장 구간에 적용하면서 더해진 고정 속성) 같은 객체·술어가 다른 장면에서
+    갖던 값을 본다. 행동·자세 같은 일시적 조건과 관계는 장면마다 다른 것이 정상이라 견주지 않는다.
+    """
+    parent_ir = ctx.parent_ir
+    if parent_ir is None or requirement.related_entity_key is not None:
+        return None
+    same: set[str] = set()
+    elsewhere: set[str] = set()
+    for old in parent_ir.iter_requirements():
+        if old.key == requirement.key:
+            same.add(old.expected_value)
+        elif (
+            requirement.entity_key is not None
+            and old.entity_key == requirement.entity_key
+            and old.predicate == requirement.predicate
+            and old.related_entity_key is None
+            and not DEFAULT_VOCABULARY.is_transient(requirement.predicate)
+        ):
+            elsewhere.add(old.expected_value)
+    values = (same or elsewhere) - {requirement.expected_value}
+    return next(iter(values)) if len(values) == 1 else None
 
 
 def _warning_message(requirement: RequirementSpec, observed: str) -> str:

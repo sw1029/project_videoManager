@@ -20,6 +20,7 @@ from frame.domain.checks import CheckResult
 from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.ir import RequirementSpec
 from frame.domain.models import VideoVersion
+from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
 from tests.support.clock import ManualClock
 from tests.support.video import find_ffmpeg, make_clip
 
@@ -266,3 +267,88 @@ def test_a_reused_scene_is_judged_when_the_parent_has_no_verdict_for_it(store, i
     checker, llm = _checker(store, *_all_yes())
 
     assert len(checker.check(ctx)) == 8 and len(llm.calls) == 3
+
+
+# ---- 이 버전에서 바뀐 요구조건 ------------------------------------------------------------
+
+
+def _teal(ir):
+    return DefaultPropagationPolicy().apply(ir, AttributeChange("cup", "color", "teal")).ir
+
+
+def test_a_requirement_changed_in_this_version_says_what_it_was(store, ir, video):
+    """객체 이름·설명에는 예전 표현이 남는다.
+
+    2차 실호출: red_mug 의 색을 teal 로 바꾼 뒤 한 장면을 '청록이지 빨강이 아니다' 로 FAIL 판정했다.
+    이 버전에서 값이 바뀐 요구조건에는 예전 값을 알려 준다.
+    """
+    checker, llm = _checker(store, *_all_yes())
+
+    checker.check(_context(store, _teal(ir), video, parent_ir=ir))
+
+    intro = llm.calls[0]["user"].splitlines()
+    assert 'R1. cup — color: teal (changed in this version; it was "red" before)' in intro
+    assert "R3. barista — holds cup" in intro  # 바뀌지 않은 요구조건에는 붙지 않는다
+    assert sum("changed in this version" in line for line in intro) == 1
+    assert "outdated" in llm.calls[0]["system"]
+
+
+def test_a_requirement_added_by_the_change_says_what_the_subject_had_elsewhere(store, ir, video):
+    """모든 등장 구간에 적용하면서 그 장면에 새로 생긴 요구조건: 그 객체가 다른 장면에서 갖던 값이 예전 값이다."""
+    parent = replace(
+        ir,
+        scenes=tuple(
+            replace(s, requirements=tuple(r for r in s.requirements if r.key != "intro:cup:color"))
+            if s.scene_key == "intro"
+            else s
+            for s in ir.scenes
+        ),
+    )
+    revised = _teal(parent)
+    assert any(r.key == "intro:cup:color" for r in revised.scene("intro").requirements)
+    checker, llm = _checker(store, *_all_yes())
+
+    checker.check(_context(store, revised, video, parent_ir=parent))
+
+    intro = llm.calls[0]["user"].splitlines()
+    note = 'cup — color: teal (changed in this version; it was "red" before)'
+    assert sum(line.endswith(note) for line in intro) == 1
+
+
+def test_requirements_that_kept_their_value_carry_no_note(store, ir, video):
+    """다시 맞추기(REPAIR)는 요구조건이 그대로다. 새로 생긴 행동 조건도 다른 장면의 행동과 견주지 않는다."""
+    acting = replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s,
+                requirements=(
+                    *s.requirements,
+                    RequirementSpec(s.scene_key, "action", "waves", "barista"),
+                ),
+            )
+            if s.scene_key == "outro"
+            else s
+            for s in ir.scenes
+        ),
+    )
+    parent = replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s,
+                requirements=(
+                    *s.requirements,
+                    RequirementSpec(s.scene_key, "action", "pours coffee", "barista"),
+                ),
+            )
+            if s.scene_key == "intro"
+            else s
+            for s in ir.scenes
+        ),
+    )
+    checker, llm = _checker(store, *_all_yes()[:2], _reply("yes", "yes", "yes"))
+
+    checker.check(_context(store, acting, video, parent_ir=parent))
+
+    assert not any("changed in this version" in call["user"] for call in llm.calls)
