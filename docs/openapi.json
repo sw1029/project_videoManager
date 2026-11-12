@@ -1195,6 +1195,68 @@
         "title": "LLMKeyStatusOut",
         "type": "object"
       },
+      "PlannedProductionOut": {
+        "description": "이 장면을 지금 실행하면 어떻게 만들어질지 (생성기의 미리보기, ADR-0020). 실행 뒤의 사실은 clip_production.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "edit_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Unavailable Reason"
+          },
+          "method": {
+            "enum": [
+              "GENERATE",
+              "EDIT"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "PlannedProductionOut",
+        "type": "object"
+      },
       "PredicateOut": {
         "properties": {
           "aliases": {
@@ -1705,7 +1767,7 @@
         "type": "object"
       },
       "RevisionPlanEstimateOut": {
-        "description": "다시 만들 장면을 지난번에 만들 때의 기록을 더한 어림값. 편집으로 만들면 더 적게 들 수 있다.",
+        "description": "다시 만들 장면의 어림 비용·시간의 합.\n\n장면마다 생성기가 알려 준 값(production)을 쓰고, 없으면 그 장면을 지난번에 만들 때의 기록을 쓴다.\n편집으로 만들 장면은 지난 기록으로 채우지 않는다 (새로 생성한 기록이라 더 크다).",
         "properties": {
           "cost_usd": {
             "anyOf": [
@@ -1718,8 +1780,13 @@
             ],
             "title": "Cost Usd"
           },
-          "recorded_scene_count": {
-            "title": "Recorded Scene Count",
+          "edit_scene_count": {
+            "default": 0,
+            "title": "Edit Scene Count",
+            "type": "integer"
+          },
+          "estimated_scene_count": {
+            "title": "Estimated Scene Count",
             "type": "integer"
           },
           "regenerated_scene_count": {
@@ -1745,7 +1812,7 @@
         "required": [
           "regenerated_scene_count",
           "reused_scene_count",
-          "recorded_scene_count",
+          "estimated_scene_count",
           "cost_usd",
           "seconds"
         ],
@@ -1960,6 +2027,16 @@
           "planned_start_ms": {
             "title": "Planned Start Ms",
             "type": "integer"
+          },
+          "production": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlannedProductionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "recorded_cost_usd": {
             "anyOf": [

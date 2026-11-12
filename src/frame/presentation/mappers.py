@@ -130,13 +130,25 @@ def revision_plan_out(plan: RevisionPlan) -> s.RevisionPlanOut:
                 verdict=str(scene.verdict) if scene.verdict is not None else None,
                 recorded_cost_usd=scene.recorded_cost_usd,
                 recorded_seconds=scene.recorded_seconds,
+                production=(
+                    s.PlannedProductionOut(
+                        method=str(scene.production.method),  # type: ignore[arg-type]
+                        model=scene.production.model,
+                        cost_usd=scene.production.cost_usd,
+                        seconds=scene.production.seconds,
+                        edit_unavailable_reason=scene.production.edit_unavailable_reason,
+                    )
+                    if scene.production is not None
+                    else None
+                ),
             )
             for scene in plan.scenes
         ],
         estimate=s.RevisionPlanEstimateOut(
             regenerated_scene_count=regenerated,
             reused_scene_count=len(plan.scenes) - regenerated,
-            recorded_scene_count=plan.recorded_scene_count,
+            estimated_scene_count=plan.estimated_scene_count,
+            edit_scene_count=plan.edit_scene_count,
             cost_usd=plan.estimated_cost_usd,
             seconds=plan.estimated_seconds,
         ),

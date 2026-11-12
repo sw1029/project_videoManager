@@ -244,7 +244,7 @@ def build_container(
         create_project=CreateProject(uow_factory, dispatcher, ids, clock),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
-        plan_revision=PlanRevision(uow_factory, policy, change_interpreter),
+        plan_revision=PlanRevision(uow_factory, policy, change_interpreter, generator),
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),

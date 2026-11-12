@@ -291,6 +291,18 @@ class CreateRevisionOut(BaseModel):
     kind: str = "CHANGE"  # CHANGE | REPAIR
 
 
+class PlannedProductionOut(BaseModel):
+    """이 장면을 지금 실행하면 어떻게 만들어질지 (생성기의 미리보기, ADR-0020). 실행 뒤의 사실은 clip_production."""
+
+    method: Literal["GENERATE", "EDIT"]  # 새로 생성 | 부모 클립을 편집
+    model: str | None = None
+    cost_usd: float | None = None  # 그 방식의 어림 비용 (모르면 null)
+    seconds: float | None = None  # 그 방식으로 만든 기록이 있을 때의 어림 시간
+    # 편집하도록 설정됐지만 지금은 편집할 수 없어 새로 생성하게 되는 사유. 있으면 화면이 알려 준다
+    # (예: 부모 영상의 저장본 주소가 아직 없음 — 잠시 뒤 계획을 다시 확인하면 편집으로 바뀔 수 있다)
+    edit_unavailable_reason: str | None = None
+
+
 class RevisionPlanSceneOut(BaseModel):
     scene_key: str
     planned_start_ms: int
@@ -300,14 +312,21 @@ class RevisionPlanSceneOut(BaseModel):
     verdict: str | None  # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
     recorded_cost_usd: float | None  # 이 장면을 지난번에 만들 때의 비용 (기록이 있을 때)
     recorded_seconds: float | None  # 이 장면을 지난번에 만들 때 걸린 시간
+    # 다시 만들 장면을 지금 실행하면 어떻게 만들어질지. 다시 만들지 않거나 생성기가 알려 주지 않으면 null
+    production: PlannedProductionOut | None = None
 
 
 class RevisionPlanEstimateOut(BaseModel):
-    """다시 만들 장면을 지난번에 만들 때의 기록을 더한 어림값. 편집으로 만들면 더 적게 들 수 있다."""
+    """다시 만들 장면의 어림 비용·시간의 합.
+
+    장면마다 생성기가 알려 준 값(production)을 쓰고, 없으면 그 장면을 지난번에 만들 때의 기록을 쓴다.
+    편집으로 만들 장면은 지난 기록으로 채우지 않는다 (새로 생성한 기록이라 더 크다).
+    """
 
     regenerated_scene_count: int
     reused_scene_count: int
-    recorded_scene_count: int  # 다시 만들 장면 가운데 기록이 있는 장면 수
+    estimated_scene_count: int  # 다시 만들 장면 가운데 어림값이 있는 장면 수
+    edit_scene_count: int = 0  # 다시 만들 장면 가운데 부모 클립 편집으로 만들어질 장면 수
     cost_usd: float | None
     seconds: float | None
 
