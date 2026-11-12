@@ -158,3 +158,27 @@ def test_requirement_and_keep_checker_settings_are_read_from_the_environment():
     defaults = Settings.from_env({})
     assert (defaults.requirement_frames, defaults.requirement_threshold) == (3, 0.5)
     assert defaults.preservation_frames == 2
+
+
+def test_change_interpreter_follows_the_structurer_unless_set():
+    """변경 요청 해석기 (ADR-0019): auto 는 구조화기를 따른다."""
+    from frame.adapters.change_request import (
+        LLMChangeRequestInterpreter,
+        RuleBasedChangeRequestInterpreter,
+    )
+    from frame.config.container import change_interpreter_key
+
+    assert change_interpreter_key(Settings()) == "rule_based"
+    assert change_interpreter_key(Settings(structurer="llm")) == "llm"
+    assert change_interpreter_key(Settings(structurer="llm", change_interpreter="rule_based")) == (
+        "rule_based"
+    )
+    assert Settings.from_env({"FRAME_CHANGE_INTERPRETER": "llm"}).change_interpreter == "llm"
+    assert Settings.from_env({}).change_interpreter == "auto"
+
+    default = build_container(Settings())
+    forced = build_container(Settings(change_interpreter="llm", llm_provider="fake"))
+    assert isinstance(default.plan_revision._interpreter, RuleBasedChangeRequestInterpreter)
+    assert isinstance(forced.plan_revision._interpreter, LLMChangeRequestInterpreter)
+    with pytest.raises(ConfigurationError, match="ChangeRequestInterpreter"):
+        build_container(Settings(change_interpreter="telepathy"))

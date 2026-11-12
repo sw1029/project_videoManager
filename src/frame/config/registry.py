@@ -27,6 +27,7 @@ from frame.application.ports import (
     VideoAssembler,
     VideoGenerator,
 )
+from frame.application.ports.change_request import ChangeRequestInterpreter
 from frame.application.ports.llm import LLMClient, LLMKeySource
 
 from .settings import Settings
@@ -160,6 +161,23 @@ def default_registry() -> AdapterRegistry:
             timeout_s=ctx.settings.llm_timeout_s,
         ),
     )
+
+    # --- 변경 요청 해석 (US-01, ADR-0019) ---
+    def _llm_interpreter(ctx: BuildContext) -> ChangeRequestInterpreter:
+        from frame.adapters.change_request import LLMChangeRequestInterpreter
+
+        return LLMChangeRequestInterpreter(
+            reg.build(LLMClient, ctx.settings.llm_provider, ctx),
+            timeout_s=ctx.settings.llm_timeout_s,
+        )
+
+    def _rule_based_interpreter(ctx: BuildContext) -> ChangeRequestInterpreter:
+        from frame.adapters.change_request import RuleBasedChangeRequestInterpreter
+
+        return RuleBasedChangeRequestInterpreter()
+
+    reg.register(ChangeRequestInterpreter, "rule_based", _rule_based_interpreter)
+    reg.register(ChangeRequestInterpreter, "llm", _llm_interpreter)
 
     # --- 영상 생성 / 조립 (US-01) ---
     reg.register(VideoGenerator, "fake", lambda ctx: FakeVideoGenerator(_store(ctx)))

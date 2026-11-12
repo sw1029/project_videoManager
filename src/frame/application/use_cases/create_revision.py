@@ -12,11 +12,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from frame.domain.enums import RevisionKind, VersionState
-from frame.domain.errors import NotFound, ValidationError, VersionNotRevisable
-from frame.domain.ir import IntermediateRepresentation
+from frame.domain.errors import NotFound, VersionNotRevisable
 from frame.domain.models import VideoVersion
-from frame.domain.revision import RevisionIntent, next_seed, normalize_keep, repair_targets
-from frame.domain.services.propagation import AttributeChange, ChangePropagationPolicy
+from frame.domain.revision import RevisionIntent, next_seed
+from frame.domain.services.propagation import ChangePropagationPolicy
+from frame.domain.services.revision_planning import resolve_revision
 from frame.domain.state_machine import REVISABLE_STATES
 
 from ..dto import CreateRevisionCommand, CreateRevisionResult
@@ -48,33 +48,23 @@ class CreateRevision:
                 )
 
             change = command.change
-            keep = normalize_keep(source.ir, command.keep, change)
+            resolved = resolve_revision(
+                source.ir, change, self._policy, kind=command.kind, keep=command.keep
+            )
             scene_seeds = dict(source.scene_seeds)  # 물려받는다 (다시 만든 장면이 계속 재사용되게)
-            previous_value: str | None = None
-            if command.kind is RevisionKind.REPAIR:
-                ir = source.ir
-                targets = repair_targets(ir, change)
-                for scene_key in targets:
+            if resolved.kind is RevisionKind.REPAIR:
+                for scene_key in resolved.target_scene_keys:
                     scene_seeds[scene_key] = next_seed(source.seed_for(scene_key))
-            else:
-                propagated = self._policy.apply(source.ir, change)
-                if not propagated.changed_scene_keys:
-                    raise ValidationError(
-                        "변경 사항이 없습니다 (이미 같은 값입니다). 요구조건은 그대로 두고 "
-                        "그 장면을 다시 만들려면 kind=REPAIR 로 요청하세요"
-                    )
-                ir, targets = propagated.ir, propagated.changed_scene_keys
-                previous_value = _previous_value(source.ir, change, targets)
             text = (command.request_text or "").strip()
             intent = RevisionIntent(
-                kind=command.kind,
+                kind=resolved.kind,
                 predicate=change.predicate,
                 value=change.new_value,
                 entity_key=change.entity_key,
                 scope=change.scope,
-                target_scene_keys=tuple(targets),
-                previous_value=previous_value,
-                keep=keep,
+                target_scene_keys=resolved.target_scene_keys,
+                previous_value=resolved.previous_value,
+                keep=resolved.keep,
                 request_text=text or None,
             )
 
@@ -87,7 +77,7 @@ class CreateRevision:
                 source_prompt=source.source_prompt,
                 target_duration_ms=source.target_duration_ms,
                 seed=source.seed,  # 같은 seed -> 바뀌지 않은 장면은 같은 결과를 기대할 수 있다
-                ir=ir,
+                ir=resolved.ir,
                 scene_seeds=scene_seeds,
                 intent=intent,
             )
@@ -108,19 +98,6 @@ class CreateRevision:
             version_id=revision.version_id,
             parent_version_id=source.version_id,
             state=revision.state,
-            changed_scene_keys=tuple(targets),
-            kind=command.kind,
+            changed_scene_keys=resolved.target_scene_keys,
+            kind=resolved.kind,
         )
-
-
-def _previous_value(
-    ir: IntermediateRepresentation, change: AttributeChange, scene_keys: tuple[str, ...]
-) -> str | None:
-    """바뀌는 장면들에서 그 조건의 이전 값. 장면마다 다르거나 없던 조건이면 None."""
-    values = {
-        r.expected_value
-        for key in scene_keys
-        for r in ir.scene(key).requirements
-        if r.entity_key == change.entity_key and r.predicate == change.predicate
-    }
-    return next(iter(values)) if len(values) == 1 else None

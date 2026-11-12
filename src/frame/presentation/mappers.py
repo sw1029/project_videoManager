@@ -18,6 +18,7 @@ from frame.application.dto import (
 )
 from frame.application.ports.artifact_store import guess_media_type
 from frame.application.ports.llm import LLMKeyStatus
+from frame.application.use_cases.plan_revision import RevisionPlan
 from frame.config.settings import Settings
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import Verdict
@@ -108,13 +109,64 @@ def revision_out(intent: RevisionIntent | None) -> s.RevisionIntentOut | None:
     )
 
 
+def revision_plan_out(plan: RevisionPlan) -> s.RevisionPlanOut:
+    change = plan.change
+    regenerated = len(plan.target_scene_keys)
+    return s.RevisionPlanOut(
+        version_id=plan.version_id,
+        kind=str(plan.kind),
+        interpreted=plan.interpreted,
+        notes=plan.notes,
+        previous_value=plan.previous_value,
+        target_scene_keys=list(plan.target_scene_keys),
+        scenes=[
+            s.RevisionPlanSceneOut(
+                scene_key=scene.scene_key,
+                planned_start_ms=scene.planned_start_ms,
+                planned_end_ms=scene.planned_end_ms,
+                will_regenerate=scene.will_regenerate,
+                current_value=scene.current_value,
+                verdict=str(scene.verdict) if scene.verdict is not None else None,
+                recorded_cost_usd=scene.recorded_cost_usd,
+                recorded_seconds=scene.recorded_seconds,
+            )
+            for scene in plan.scenes
+        ],
+        estimate=s.RevisionPlanEstimateOut(
+            regenerated_scene_count=regenerated,
+            reused_scene_count=len(plan.scenes) - regenerated,
+            recorded_scene_count=plan.recorded_scene_count,
+            cost_usd=plan.estimated_cost_usd,
+            seconds=plan.estimated_seconds,
+        ),
+        revision_request=s.CreateRevisionIn(
+            entity_key=change.entity_key,
+            predicate=change.predicate,
+            new_value=change.new_value,
+            scope=str(change.scope),  # type: ignore[arg-type]
+            scene_keys=list(change.scene_keys),
+            current_value=change.current_value,
+            kind=str(plan.kind),  # type: ignore[arg-type]
+            keep=[
+                s.KeepItemIn(aspect=str(item.aspect), entity_key=item.entity_key)  # type: ignore[arg-type]
+                for item in plan.keep
+            ],
+            request_text=plan.request_text,
+        ),
+    )
+
+
 def version_out(
     detail: VersionDetail,
     *,
     api_prefix: str = "/api",
     media_type_of: Callable[[str], str] = guess_media_type,
+    is_stored: Callable[[str], bool] = lambda uri: False,
 ) -> s.VersionOut:
-    """api_prefix·media_type_of 로 내부 URI 대신 재생 가능한 HTTP 경로와 미디어 형식을 채운다."""
+    """api_prefix·media_type_of 로 내부 URI 대신 재생 가능한 HTTP 경로와 미디어 형식을 채운다.
+
+    is_stored: 참조 이미지가 산출물 저장소에 있는지. 있으면 image_url 로 내려받을 경로를 준다.
+    """
     v = detail.version
     base = f"{api_prefix}/versions/{quote(v.version_id, safe='')}"
 
@@ -183,6 +235,11 @@ def version_out(
             s.ReferenceImageOut(
                 reference_image_id=r.reference_image_id,
                 image_uri=r.image_uri,
+                image_url=(
+                    f"{base}/reference-images/{quote(r.reference_image_id, safe='')}"
+                    if is_stored(r.image_uri)
+                    else None
+                ),
                 entity_key=r.entity_key,
                 origin=str(r.origin),  # type: ignore[arg-type]
                 source_scene_key=r.source_scene_key,

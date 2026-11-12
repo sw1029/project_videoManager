@@ -63,6 +63,23 @@ class CreateRevisionIn(BaseModel):
     request_text: str | None = Field(default=None, max_length=MAX_REQUEST_TEXT_CHARS)
 
 
+class RevisionPlanIn(BaseModel):
+    """변경 계획 미리보기 요청 (ADR-0019). 구조화된 값(predicate + new_value)을 주거나 request_text 만 준다.
+
+    request_text 만 주면 서버가 해석한다. 화면에서 고른 객체·범위·유지 요소를 함께 주면 그 값이 우선한다.
+    """
+
+    request_text: str | None = Field(default=None, max_length=MAX_REQUEST_TEXT_CHARS)
+    entity_key: str | None = Field(default=None, min_length=1, max_length=64)
+    predicate: str | None = Field(default=None, min_length=1, max_length=64)
+    new_value: str | None = Field(default=None, min_length=1, max_length=300)
+    scope: Literal["SCENES", "ALL_APPEARANCES"] | None = None
+    scene_keys: list[str] = Field(default_factory=list, max_length=50)
+    current_value: str | None = Field(default=None, max_length=300)
+    kind: Literal["CHANGE", "REPAIR"] | None = None  # 생략하면 서버가 정한다
+    keep: list[KeepItemIn] = Field(default_factory=list, max_length=20)
+
+
 class LLMKeyIn(BaseModel):
     """화면에서 입력한 OpenAI API 키. SecretStr 이라 repr·로그에 값이 나오지 않는다."""
 
@@ -99,6 +116,8 @@ class HealthAdaptersOut(BaseModel):
     tracker: str
     checkers: list[str]
     identity: str = "off"  # 정체성 기준 이미지 추출기 (off 면 쓰지 않음)
+    # 글로 쓴 변경 요청의 해석기: rule_based(DSL 형식만) | llm(자연어)
+    change_interpreter: str = "rule_based"
     persistence: str
     jobs: str
     llm_provider: str | None  # structurer=llm 일 때만
@@ -183,6 +202,8 @@ class IROut(BaseModel):
 class ReferenceImageOut(BaseModel):
     reference_image_id: str
     image_uri: str
+    # 브라우저가 볼 수 있는 HTTP 경로. 저장소에 있는 이미지일 때만 (객체 썸네일·객체별 전후 비교에 쓴다)
+    image_url: str | None = None
     entity_key: str | None
     # USER: 사용자가 올린 참조 / DERIVED: 장면 클립에서 뽑은 객체의 정체성 기준 이미지 (ADR-0015)
     origin: Literal["USER", "DERIVED"] = "USER"
@@ -252,6 +273,42 @@ class CreateRevisionOut(BaseModel):
     state: str
     changed_scene_keys: list[str]  # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
     kind: str = "CHANGE"  # CHANGE | REPAIR
+
+
+class RevisionPlanSceneOut(BaseModel):
+    scene_key: str
+    planned_start_ms: int
+    planned_end_ms: int
+    will_regenerate: bool  # 이 수정으로 다시 만드는 장면인가
+    current_value: str | None  # 지금 그 조건의 값 (그 장면에 조건이 없으면 null)
+    verdict: str | None  # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
+    recorded_cost_usd: float | None  # 이 장면을 지난번에 만들 때의 비용 (기록이 있을 때)
+    recorded_seconds: float | None  # 이 장면을 지난번에 만들 때 걸린 시간
+
+
+class RevisionPlanEstimateOut(BaseModel):
+    """다시 만들 장면을 지난번에 만들 때의 기록을 더한 어림값. 편집으로 만들면 더 적게 들 수 있다."""
+
+    regenerated_scene_count: int
+    reused_scene_count: int
+    recorded_scene_count: int  # 다시 만들 장면 가운데 기록이 있는 장면 수
+    cost_usd: float | None
+    seconds: float | None
+
+
+class RevisionPlanOut(BaseModel):
+    """POST /api/versions/{version_id}/revision-plans — 수정 버전을 만들기 전의 계획 (상태는 바뀌지 않는다)."""
+
+    version_id: str
+    kind: str  # CHANGE | REPAIR
+    interpreted: bool  # request_text 를 해석해서 만든 계획인가
+    notes: str | None  # 요청을 어떻게 읽었는지 (해석했을 때)
+    previous_value: str | None  # CHANGE: 이전 값 (장면마다 다르면 null)
+    target_scene_keys: list[str]  # 다시 만들 장면
+    scenes: list[RevisionPlanSceneOut]  # 모든 장면, 타임라인 순
+    estimate: RevisionPlanEstimateOut
+    # 이 계획대로 실행하려면 POST /api/versions/{version_id}/revisions 에 그대로 보낸다
+    revision_request: CreateRevisionIn
 
 
 class AcceptGenerationOut(BaseModel):

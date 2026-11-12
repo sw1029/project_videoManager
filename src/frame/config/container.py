@@ -46,11 +46,13 @@ from frame.application.ports import (
     VideoAssembler,
     VideoGenerator,
 )
+from frame.application.ports.change_request import ChangeRequestInterpreter
 from frame.application.ports.llm import LLMKeySource
 from frame.application.use_cases import (
     AcceptGeneration,
     CreateProject,
     CreateRevision,
+    PlanRevision,
     ProjectQueries,
     RecoverPendingVersions,
     RunGenerationPipeline,
@@ -84,6 +86,7 @@ class Container:
     create_project: CreateProject
     structure_requirements: StructureRequirements
     create_revision: CreateRevision
+    plan_revision: PlanRevision  # 변경 계획 미리보기 (ADR-0019)
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
@@ -109,6 +112,13 @@ def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
             settings.generator_timeout_s,
             settings.video_timeout_s,
         )
+
+
+def change_interpreter_key(settings: Settings) -> str:
+    """변경 요청 해석기의 종류. auto 는 구조화기를 따른다 (LLM 구조화면 llm, 아니면 rule_based)."""
+    if settings.change_interpreter != "auto":
+        return settings.change_interpreter
+    return "llm" if settings.structurer == "llm" else "rule_based"
 
 
 def _identity_policy(settings: Settings) -> IdentityPolicy:
@@ -181,6 +191,10 @@ def build_container(
         "uow_factory", lambda: registry.build(UnitOfWork, settings.persistence, ctx)
     )
     policy: ChangePropagationPolicy = pick("propagation_policy", DefaultPropagationPolicy)
+    change_interpreter: ChangeRequestInterpreter = pick(
+        "change_interpreter",
+        lambda: registry.build(ChangeRequestInterpreter, change_interpreter_key(settings), ctx),
+    )
 
     # 작업 핸들러 <-> 디스패처 <-> 유스케이스 순환은 레지스트리를 먼저 만들어 끊는다
     handlers = JobHandlerRegistry()
@@ -230,6 +244,7 @@ def build_container(
         create_project=CreateProject(uow_factory, dispatcher, ids, clock),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
+        plan_revision=PlanRevision(uow_factory, policy, change_interpreter),
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),

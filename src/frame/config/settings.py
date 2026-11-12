@@ -10,6 +10,9 @@ from dataclasses import dataclass, replace
 @dataclass(frozen=True)
 class Settings:
     structurer: str = "rule_based"
+    # 글로 쓴 변경 요청을 구조화하는 해석기 (ADR-0019): auto | rule_based | llm
+    # auto 는 구조화기를 따른다 (FRAME_STRUCTURER=llm 이면 llm, 아니면 rule_based)
+    change_interpreter: str = "auto"
     generator: str = "fake"
     assembler: str = "fake"
     tracker: str = "fake"
@@ -105,6 +108,7 @@ class Settings:
         return replace(
             base,
             structurer=text("STRUCTURER", base.structurer),
+            change_interpreter=text("CHANGE_INTERPRETER", "") or base.change_interpreter,
             generator=text("GENERATOR", base.generator),
             assembler=text("ASSEMBLER", base.assembler),
             tracker=text("TRACKER", base.tracker),

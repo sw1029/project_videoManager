@@ -864,6 +864,11 @@
       },
       "HealthAdaptersOut": {
         "properties": {
+          "change_interpreter": {
+            "default": "rule_based",
+            "title": "Change Interpreter",
+            "type": "string"
+          },
           "checkers": {
             "items": {
               "type": "string"
@@ -1316,6 +1321,17 @@
             "title": "Image Uri",
             "type": "string"
           },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
           "origin": {
             "default": "USER",
             "enum": [
@@ -1619,6 +1635,318 @@
           "request_text"
         ],
         "title": "RevisionIntentOut",
+        "type": "object"
+      },
+      "RevisionPlanEstimateOut": {
+        "description": "다시 만들 장면을 지난번에 만들 때의 기록을 더한 어림값. 편집으로 만들면 더 적게 들 수 있다.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "recorded_scene_count": {
+            "title": "Recorded Scene Count",
+            "type": "integer"
+          },
+          "regenerated_scene_count": {
+            "title": "Regenerated Scene Count",
+            "type": "integer"
+          },
+          "reused_scene_count": {
+            "title": "Reused Scene Count",
+            "type": "integer"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "regenerated_scene_count",
+          "reused_scene_count",
+          "recorded_scene_count",
+          "cost_usd",
+          "seconds"
+        ],
+        "title": "RevisionPlanEstimateOut",
+        "type": "object"
+      },
+      "RevisionPlanIn": {
+        "description": "변경 계획 미리보기 요청 (ADR-0019). 구조화된 값(predicate + new_value)을 주거나 request_text 만 준다.\n\nrequest_text 만 주면 서버가 해석한다. 화면에서 고른 객체·범위·유지 요소를 함께 주면 그 값이 우선한다.",
+        "properties": {
+          "current_value": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Value"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          },
+          "keep": {
+            "items": {
+              "$ref": "#/components/schemas/KeepItemIn"
+            },
+            "maxItems": 20,
+            "title": "Keep",
+            "type": "array"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CHANGE",
+                  "REPAIR"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "new_value": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Value"
+          },
+          "predicate": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicate"
+          },
+          "request_text": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Text"
+          },
+          "scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Scene Keys",
+            "type": "array"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SCENES",
+                  "ALL_APPEARANCES"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "title": "RevisionPlanIn",
+        "type": "object"
+      },
+      "RevisionPlanOut": {
+        "description": "POST /api/versions/{version_id}/revision-plans — 수정 버전을 만들기 전의 계획 (상태는 바뀌지 않는다).",
+        "properties": {
+          "estimate": {
+            "$ref": "#/components/schemas/RevisionPlanEstimateOut"
+          },
+          "interpreted": {
+            "title": "Interpreted",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "previous_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Value"
+          },
+          "revision_request": {
+            "$ref": "#/components/schemas/CreateRevisionIn"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/RevisionPlanSceneOut"
+            },
+            "title": "Scenes",
+            "type": "array"
+          },
+          "target_scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Scene Keys",
+            "type": "array"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "kind",
+          "interpreted",
+          "notes",
+          "previous_value",
+          "target_scene_keys",
+          "scenes",
+          "estimate",
+          "revision_request"
+        ],
+        "title": "RevisionPlanOut",
+        "type": "object"
+      },
+      "RevisionPlanSceneOut": {
+        "properties": {
+          "current_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Value"
+          },
+          "planned_end_ms": {
+            "title": "Planned End Ms",
+            "type": "integer"
+          },
+          "planned_start_ms": {
+            "title": "Planned Start Ms",
+            "type": "integer"
+          },
+          "recorded_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded Cost Usd"
+          },
+          "recorded_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded Seconds"
+          },
+          "scene_key": {
+            "title": "Scene Key",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "will_regenerate": {
+            "title": "Will Regenerate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scene_key",
+          "planned_start_ms",
+          "planned_end_ms",
+          "will_regenerate",
+          "current_value",
+          "verdict",
+          "recorded_cost_usd",
+          "recorded_seconds"
+        ],
+        "title": "RevisionPlanSceneOut",
         "type": "object"
       },
       "SceneComparisonOut": {
@@ -2917,6 +3245,145 @@
           }
         },
         "summary": "DRAFT 버전의 생성·추적·검수를 비동기로 접수한다 (DRAFT 가 아니면 409)",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/versions/{version_id}/reference-images/{reference_image_id}": {
+      "get": {
+        "operationId": "get_reference_image_api_versions__version_id__reference_images__reference_image_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "reference_image_id",
+            "required": true,
+            "schema": {
+              "title": "Reference Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/*": {}
+            },
+            "description": "이미지 (image/jpeg, image/png 등)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "NOT_FOUND 또는 MEDIA_NOT_AVAILABLE(저장소에 없음)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "참조 이미지(사용자 참조·객체의 정체성 기준 이미지)를 내려준다 (ReferenceImageOut.image_url)",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/versions/{version_id}/revision-plans": {
+      "post": {
+        "operationId": "plan_revision_api_versions__version_id__revision_plans_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionPlanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR 또는 CHANGE_REQUEST_NOT_UNDERSTOOD"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "수정 버전을 만들기 전에 변경 계획을 미리 본다: 글로 쓴 요청의 해석, 수정의 종류, 다시 만들 장면, 어림 비용·시간 (상태는 바뀌지 않는다)",
         "tags": [
           "versions"
         ]

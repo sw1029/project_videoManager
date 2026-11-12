@@ -249,3 +249,20 @@ def test_identity_references_are_listed_with_their_origin():
     derived = {r["entity_key"]: r for r in by_origin["DERIVED"]}
     assert set(derived) == {"barista", "cup"}
     assert all(r["source_scene_key"] == "intro" for r in derived.values())
+
+    # 저장소에 있는 기준 이미지는 HTTP 로 내려받을 수 있다 (객체 썸네일·객체별 전후 비교, ADR-0019)
+    cup = derived["cup"]
+    assert cup["image_url"] == (
+        f"/api/versions/{version_id}/reference-images/{cup['reference_image_id']}"
+    )
+    image = client.get(cup["image_url"])
+    assert image.status_code == 200 and image.headers["content-type"].startswith("image/")
+    # 저장소 밖의 주소(사용자가 준 외부 참조)는 경로를 주지 않고, 요청해도 내려 주지 않는다
+    user_ref = by_origin["USER"][0]
+    assert user_ref["image_url"] is None
+    outside = client.get(
+        f"/api/versions/{version_id}/reference-images/{user_ref['reference_image_id']}"
+    )
+    assert outside.status_code == 404 and outside.json()["error_code"] == "MEDIA_NOT_AVAILABLE"
+    missing = client.get(f"/api/versions/{version_id}/reference-images/img_missing")
+    assert missing.status_code == 404 and missing.json()["error_code"] == "NOT_FOUND"
