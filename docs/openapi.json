@@ -1332,6 +1332,11 @@
             ],
             "title": "Image Url"
           },
+          "is_current": {
+            "default": true,
+            "title": "Is Current",
+            "type": "boolean"
+          },
           "origin": {
             "default": "USER",
             "enum": [

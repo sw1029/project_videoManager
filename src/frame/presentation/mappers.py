@@ -21,12 +21,13 @@ from frame.application.ports.llm import LLMKeyStatus
 from frame.application.use_cases.plan_revision import RevisionPlan
 from frame.config.settings import Settings
 from frame.domain.artifacts import GeneratedClip
-from frame.domain.enums import Verdict
+from frame.domain.enums import ReferenceOrigin, Verdict
 from frame.domain.identifiers import entity_id
 from frame.domain.ir import RequirementSpec, SceneSpec
 from frame.domain.progress import PipelineProgress
 from frame.domain.revision import RevisionIntent
 from frame.domain.services.comparison import RequirementComparison
+from frame.domain.services.identity import is_valid_identity
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
@@ -244,6 +245,11 @@ def version_out(
                 origin=str(r.origin),  # type: ignore[arg-type]
                 source_scene_key=r.source_scene_key,
                 description=r.description or None,
+                is_current=(
+                    r.origin is not ReferenceOrigin.DERIVED
+                    or v.ir is None
+                    or is_valid_identity(v.ir, r)
+                ),
             )
             for r in detail.reference_images
         ],

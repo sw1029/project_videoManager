@@ -209,6 +209,9 @@ class ReferenceImageOut(BaseModel):
     origin: Literal["USER", "DERIVED"] = "USER"
     source_scene_key: str | None = None  # 정체성 기준을 뽑은 장면
     description: str | None = None  # 기준 이미지에서 읽은 외형 설명
+    # 이 버전의 조건에 맞는 기준인가. 수정으로 외형 조건이 바뀐 객체는 예전 기준(false)과 새 기준(true)이 함께 남는다.
+    # 객체 카드의 썸네일은 true 인 것을 쓴다 (사용자 참조는 늘 true)
+    is_current: bool = True
 
 
 class KeepItemOut(BaseModel):
