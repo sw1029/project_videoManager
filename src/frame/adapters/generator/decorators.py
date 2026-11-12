@@ -37,8 +37,12 @@ class CachingVideoGenerator(VideoGenerator):
     def profile(self) -> Mapping[str, object]:
         return self._inner.profile()
 
+    def result_key(self, request: SceneGenerationRequest) -> str:
+        return self._inner.result_key(request)
+
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
-        key = self._cache.key_for(request.fingerprint)
+        # 키의 요청 쪽 값은 생성기가 정한다: 조건 + 정체성 기준 이미지 (+ 편집하는 생성기는 부모 클립)
+        key = self._cache.key_for(self._inner.result_key(request))
         with self._locks.hold(key):
             cached = self._cache.load(key)
             if cached is not None:
@@ -82,6 +86,9 @@ class RetryingVideoGenerator(VideoGenerator):
 
     def profile(self) -> Mapping[str, object]:
         return self._inner.profile()
+
+    def result_key(self, request: SceneGenerationRequest) -> str:
+        return self._inner.result_key(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         last: GenerationError | None = None
@@ -146,6 +153,9 @@ class TimeoutVideoGenerator(VideoGenerator):
     def profile(self) -> Mapping[str, object]:
         """감싼 생성기의 생성 프로필을 그대로 돌려준다 (다른 데코레이터와 같은 규칙, 생성 캐시 키에 쓰인다)."""
         return self._inner.profile()
+
+    def result_key(self, request: SceneGenerationRequest) -> str:
+        return self._inner.result_key(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         abandoned = threading.Event()

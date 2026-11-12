@@ -32,7 +32,11 @@ _SCHEMA = 1
 
 
 def generation_key(fingerprint: str, profile: Mapping[str, object]) -> str:
-    """생성 조건(fingerprint)과 생성기 프로필을 함께 해시한 키. 생성 캐시와 작업 원장이 같이 쓴다."""
+    """요청 쪽 키와 생성기 프로필을 함께 해시한 키. 생성 캐시와 작업 원장이 같이 쓴다.
+
+    fingerprint 자리에는 VideoGenerator.result_key(request) 를 넣는다. 정체성 기준 이미지도 부모 클립 편집도
+    없는 요청에서는 조건 fingerprint 와 같아, 예전 키와 호환된다 (ADR-0015, 0016).
+    """
     return canonical_hash({"fingerprint": fingerprint, "profile": dict(profile)})
 
 

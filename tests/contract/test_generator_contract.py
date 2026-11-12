@@ -3,6 +3,8 @@
 OpenRouter 어댑터는 가짜 HTTP 전송·가짜 정규화기를 꽂아 네트워크 없이 같은 계약을 확인한다 (실제 호출은 tests/live).
 """
 
+from dataclasses import replace
+
 import pytest
 
 from frame.adapters.generator import (
@@ -168,3 +170,52 @@ def test_retrying_decorator_does_not_retry_non_retryable_failures(store, ir):
 def test_generation_errors_are_retryable_by_default():
     assert GenerationError("일시 오류").retryable is True
     assert GenerationError().args == ()  # 기존 생성 방식 그대로
+
+
+# ---- 정체성 기준 이미지 (ADR-0015) ----------------------------------------------------
+
+
+def _with_identity(request, *uris):
+    return replace(
+        request, identity_references=tuple(ReferenceImageInput(uri, "barista") for uri in uris)
+    )
+
+
+def test_identity_references_change_the_generation_key_but_not_the_conditions(ir):
+    plain = _request(ir)
+    anchored = _with_identity(plain, "mem://refs/cup.png")
+
+    assert plain.generation_fingerprint == plain.fingerprint  # 기준이 없으면 예전 키 그대로
+    assert anchored.fingerprint == plain.fingerprint  # 버전 사이 재사용 판단은 그대로다
+    assert anchored.generation_fingerprint != plain.fingerprint
+    other = _with_identity(plain, "mem://refs/other.png")
+    assert other.generation_fingerprint != anchored.generation_fingerprint
+    described = replace(
+        plain,
+        identity_references=(ReferenceImageInput("mem://refs/cup.png", "barista", "짧은 머리"),),
+    )
+    assert described.generation_fingerprint != anchored.generation_fingerprint
+
+
+def test_clip_fingerprint_stays_the_condition_fingerprint_with_identity_references(
+    generator, store, ir
+):
+    request = _with_identity(_request(ir), "mem://refs/cup.png")
+    clip = generator.generate_scene(request)
+
+    assert clip.fingerprint == request.fingerprint
+    assert generator.result_key(request) == request.generation_fingerprint
+    assert generator.result_key(_request(ir)) == _request(ir).fingerprint
+
+
+def test_cache_keeps_results_with_different_identity_references_apart(store, ir):
+    inner = FakeVideoGenerator(store)
+    cached = CachingVideoGenerator(inner)
+    plain = _request(ir)
+    anchored = _with_identity(plain, "mem://refs/cup.png")
+
+    cached.generate_scene(plain)
+    cached.generate_scene(anchored)  # 같은 조건이지만 기준 이미지가 생겼다: 따로 생성한다
+    cached.generate_scene(_with_identity(_request(ir, version_id="ver_2"), "mem://refs/cup.png"))
+
+    assert len(inner.requests) == 2 and cached.hits == 1

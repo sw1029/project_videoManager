@@ -21,6 +21,7 @@ from frame.adapters.generator.decorators import (
 )
 from frame.adapters.llm.key_store import LLMKeyStore
 from frame.application.checks import CheckSuite
+from frame.application.errors import ConfigurationError
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
 from frame.application.pipeline import (
     CheckStage,
@@ -34,6 +35,7 @@ from frame.application.ports import (
     ArtifactStore,
     Checker,
     Clock,
+    IdentityReferenceExtractor,
     IdGenerator,
     JobDispatcher,
     JobHandlerRegistry,
@@ -54,6 +56,8 @@ from frame.application.use_cases import (
     RunGenerationPipeline,
     StructureRequirements,
 )
+from frame.domain.enums import EntityKind
+from frame.domain.services.identity import IdentityPolicy
 from frame.domain.services.propagation import ChangePropagationPolicy, DefaultPropagationPolicy
 
 from .registry import AdapterRegistry, BuildContext, default_registry
@@ -86,6 +90,8 @@ class Container:
     # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
     recover_pending_versions: RecoverPendingVersions
     llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
+    # 정체성 기준 이미지 추출기 (ADR-0015). FRAME_IDENTITY=off 면 None
+    identity_extractor: IdentityReferenceExtractor | None = None
 
 
 def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
@@ -103,6 +109,17 @@ def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
             settings.generator_timeout_s,
             settings.video_timeout_s,
         )
+
+
+def _identity_policy(settings: Settings) -> IdentityPolicy:
+    try:
+        kinds = tuple(EntityKind(kind) for kind in settings.identity_kinds)
+    except ValueError as exc:
+        raise ConfigurationError(
+            f"FRAME_IDENTITY_KINDS 에 알 수 없는 객체 종류가 있습니다: {settings.identity_kinds} "
+            f"(사용 가능: {', '.join(EntityKind)})"
+        ) from exc
+    return IdentityPolicy(kinds=kinds, max_references=max(0, settings.identity_max_references))
 
 
 def build_container(
@@ -152,6 +169,10 @@ def build_container(
     if settings.generator_cache:
         generator = CachingVideoGenerator(generator, cache=clip_cache)
     assembler = pick("assembler", lambda: registry.build(VideoAssembler, settings.assembler, ctx))
+    identity_extractor: IdentityReferenceExtractor | None = pick(
+        "identity_extractor",
+        lambda: registry.build(IdentityReferenceExtractor, settings.identity, ctx),
+    )
     tracker = pick("tracker", lambda: registry.build(ObjectTracker, settings.tracker, ctx))
     checkers: tuple[Checker, ...] = pick(
         "checkers", lambda: tuple(registry.build(Checker, key, ctx) for key in settings.checkers)
@@ -169,7 +190,13 @@ def build_container(
     )
 
     stages = (
-        GenerateStage(generator, assembler),
+        GenerateStage(
+            generator,
+            assembler,
+            identity=identity_extractor,
+            identity_policy=_identity_policy(settings),
+            ids=ids,
+        ),
         TrackStage(tracker),
         CheckStage(CheckSuite(checkers)),
     )
@@ -207,6 +234,7 @@ def build_container(
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
         llm_keys=ctx.llm_keys,
+        identity_extractor=identity_extractor,
         recover_pending_versions=RecoverPendingVersions(
             uow_factory,
             dispatcher,

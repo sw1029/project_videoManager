@@ -8,11 +8,13 @@ from .checker import CheckContext, Checker, CheckOutcome
 from .common import Clock, IdGenerator
 from .generator import (
     GeneratedClip,
+    ParentClip,
     SceneGenerationRequest,
     VideoArtifact,
     VideoAssembler,
     VideoGenerator,
 )
+from .identity import IdentityExtractionRequest, IdentityImage, IdentityReferenceExtractor
 from .jobs import Job, JobDispatcher, JobHandler, JobHandlerRegistry
 from .repositories import (
     CheckResultRepository,
@@ -34,11 +36,15 @@ __all__ = [
     "Clock",
     "GeneratedClip",
     "IdGenerator",
+    "IdentityExtractionRequest",
+    "IdentityImage",
+    "IdentityReferenceExtractor",
     "Job",
     "JobDispatcher",
     "JobHandler",
     "JobHandlerRegistry",
     "ObjectTracker",
+    "ParentClip",
     "ProjectRepository",
     "ReferenceImageInput",
     "ReferenceImageRepository",

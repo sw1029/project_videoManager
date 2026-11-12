@@ -16,7 +16,13 @@ from frame.adapters.persistence.sqlalchemy import (
 )
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import CheckResult, WarningInterval
-from frame.domain.enums import CheckType, TrackingStatus, Verdict, VersionState
+from frame.domain.enums import (
+    CheckType,
+    ReferenceOrigin,
+    TrackingStatus,
+    Verdict,
+    VersionState,
+)
 from frame.domain.errors import IntegrityViolation, InvalidStateTransition
 from frame.domain.models import Project, ReferenceImage, VideoVersion
 from frame.domain.tracking import BoundingBox, TrackRecord, TrackSegment
@@ -149,6 +155,29 @@ def test_reference_images_roundtrip(seeded):
             ("img_2", None),
         ]
         assert uow.reference_images.list_by_version("ver_missing") == []
+        assert all(r.origin is ReferenceOrigin.USER and not r.is_identity for r in refs)
+
+
+def test_identity_reference_roundtrip(seeded):
+    """ADR-0015: 클립에서 뽑은 정체성 기준 이미지는 출처·기준 장면·해시·설명까지 그대로 돌아온다."""
+    anchor = ReferenceImage(
+        "img_9",
+        "ver_1",
+        "mem://references/identity/abc/barista.png",
+        "barista",
+        origin=ReferenceOrigin.DERIVED,
+        source_scene_key="intro",
+        source_fingerprint="f" * 64,
+        appearance_fingerprint="a" * 64,
+        description="흰 셔츠, 짧은 검은 머리",
+    )
+    with seeded() as uow:
+        uow.reference_images.add(anchor)
+        uow.commit()
+    with seeded() as uow:
+        (stored,) = uow.reference_images.list_by_version("ver_1")
+        assert stored == anchor
+        assert stored.is_identity
 
 
 def test_tracks_upsert_and_query(seeded):

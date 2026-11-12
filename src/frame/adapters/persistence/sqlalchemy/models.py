@@ -107,6 +107,14 @@ class ReferenceImageRow(Base):
         String(64), nullable=True
     )  # 구조화 전엔 키만 보관
     image_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
+    # 확장 (ADR-0015 정체성 기준 이미지). 사용자 참조는 origin=USER 이고 나머지는 비어 있다
+    origin: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="USER", server_default=text("'USER'")
+    )
+    source_scene_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    appearance_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class RequirementRow(Base):

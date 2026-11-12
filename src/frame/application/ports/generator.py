@@ -4,6 +4,13 @@
 조건이 바뀐 장면만 재생성하고 나머지 장면 클립은 그대로 재사용할 수 있다 (비대상 보존).
 구현: Fake, 외부 API(OpenRouter 영상 API, ADR-0011). 후보: diffusers 로컬 추론(CogVideoX/Wan 등).
 각 어댑터는 IR -> 모델별 프롬프트/파라미터 변환(PromptCompiler)을 내부에 캡슐화한다.
+
+요청에 실리는 것 (ADR-0003, 0015, 0016)
+- 조건: 장면·객체 정의·사용자 참조 이미지·seed. fingerprint 는 이것만 해시하며 버전 사이 클립 재사용 판단에 쓴다.
+- 정체성 기준 이미지(identity_references): 다른 장면 클립에서 뽑은 객체의 기준 이미지. 조건이 아니라
+  '어떻게 만들지' 이므로 fingerprint 에 넣지 않고 generation_fingerprint(생성 캐시·작업 원장 키)에만 넣는다.
+- 부모 클립(parent): 수정 버전에서 다시 만드는 장면의 부모 클립과 그때의 장면 조건. 편집을 지원하는 생성기는
+  부모 클립을 고쳐서 만들고, 지원하지 않는 생성기는 무시하고 새로 만든다.
 """
 
 from __future__ import annotations
@@ -20,12 +27,30 @@ from .structurer import ReferenceImageInput
 
 
 @dataclass(frozen=True)
+class ParentClip:
+    """수정 버전에서 다시 만드는 장면의 부모 쪽 결과 (ADR-0016).
+
+    clip.metadata 에는 그 클립을 만든 생성기의 기록(모델·작업 id 등)이 있다. scene·entities 는 부모 버전에서의
+    장면 조건·객체 정의로, 지금 장면과 비교해 '무엇을 바꿔야 하는지' 를 알아낸다.
+    """
+
+    version_id: str
+    clip: GeneratedClip
+    scene: SceneSpec
+    entities: tuple[EntitySpec, ...] = ()
+
+
+@dataclass(frozen=True)
 class SceneGenerationRequest:
     version_id: str
     scene: SceneSpec
     entities: tuple[EntitySpec, ...]  # 이 장면에 등장하는 객체 정의
     references: tuple[ReferenceImageInput, ...] = ()
     seed: int | None = None
+    # 객체의 정체성 기준 이미지 (다른 장면 클립에서 뽑은 것). 조건 fingerprint 에는 들어가지 않는다
+    identity_references: tuple[ReferenceImageInput, ...] = ()
+    # 부모 버전에 같은 장면의 클립이 있으면 함께 넘긴다 (조건이 바뀌어 다시 만드는 장면)
+    parent: ParentClip | None = None
 
     @property
     def fingerprint(self) -> str:
@@ -52,6 +77,24 @@ class SceneGenerationRequest:
             }
         )
 
+    @property
+    def generation_fingerprint(self) -> str:
+        """생성 결과를 좌우하는 요청 쪽 값의 해시: 조건(fingerprint) + 정체성 기준 이미지.
+
+        정체성 기준이 없으면 fingerprint 와 같다 (기준 이미지를 쓰지 않던 때의 캐시·원장 키와 호환).
+        """
+        if not self.identity_references:
+            return self.fingerprint
+        return canonical_hash(
+            {
+                "fingerprint": self.fingerprint,
+                "identity_references": sorted(
+                    (r.image_uri, r.entity_key or "", r.description)
+                    for r in self.identity_references
+                ),
+            }
+        )
+
 
 class VideoGenerator(ABC):
     """계약
@@ -62,6 +105,15 @@ class VideoGenerator(ABC):
 
     @abstractmethod
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip: ...
+
+    def result_key(self, request: SceneGenerationRequest) -> str:
+        """이 요청의 결과를 가르는 요청 쪽 키. 생성 캐시·작업 원장이 profile() 과 함께 키로 쓴다.
+
+        기본값은 request.generation_fingerprint (조건 + 정체성 기준 이미지)다. 부모 클립을 편집해서 만드는
+        생성기는 결과가 부모 클립에도 달려 있으므로 그 값을 더해 돌려준다 (ADR-0016).
+        데코레이터는 감싼 생성기의 값을 그대로 돌려준다.
+        """
+        return request.generation_fingerprint
 
     def profile(self) -> Mapping[str, object]:
         """생성 결과를 바꾸는 생성기 설정 (종류·모델·해상도·화면비·fps 등, ADR-0013).
@@ -82,6 +134,7 @@ class VideoAssembler(ABC):
 
 __all__ = [
     "GeneratedClip",
+    "ParentClip",
     "SceneGenerationRequest",
     "VideoArtifact",
     "VideoAssembler",

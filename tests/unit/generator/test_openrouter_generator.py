@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import replace
 
 import pytest
 
 from frame.adapters.generator import RetryingVideoGenerator
 from frame.adapters.generator.openrouter import (
+    CONSISTENCY_LINE,
     OpenRouterVideoGenerator,
     compile_video_prompt,
     output_size,
@@ -556,3 +558,86 @@ def test_output_size_follows_resolution_and_aspect_ratio(resolution, aspect_rati
 def test_unknown_resolution_label_is_a_configuration_error(store):
     with pytest.raises(ConfigurationError, match="8K"):
         make_openrouter_generator(store, resolution="8K")
+
+
+# ---- 정체성 기준 이미지 (ADR-0015) ----------------------------------------------------
+
+
+def _anchored(ir, store, scene_key="outro", description="", **kwargs):
+    """barista 의 정체성 기준 이미지를 실은 요청 (사용자 참조는 없음)."""
+    uri = store.put("references/identity/abc/barista.png", PNG_BYTES + b"-barista", "image/png")
+    request = _request(ir, scene_key=scene_key, references=(), **kwargs)
+    identity = (ReferenceImageInput(uri, "barista", description),)
+    return replace(request, identity_references=identity)
+
+
+def test_identity_references_are_sent_after_user_references(store, ir):
+    api = FakeOpenRouterApi()
+    request = replace(
+        _anchored(ir, store, scene_key="intro"),
+        references=(ReferenceImageInput("mem://refs/cup.png", "cup"),),
+    )
+
+    clip = make_openrouter_generator(store, api).generate_scene(request)
+
+    body = api.submits[0].json()
+    urls = [r["image_url"]["url"] for r in body["input_references"]]
+    assert urls == [
+        "data:image/png;base64," + base64.b64encode(PNG_BYTES).decode("ascii"),
+        "data:image/png;base64," + base64.b64encode(PNG_BYTES + b"-barista").decode("ascii"),
+    ]
+    lines = body["prompt"].splitlines()
+    assert any(line.startswith("- cup (prop, reference image 1)") for line in lines)
+    assert any(line.startswith("- barista (person, reference image 2)") for line in lines)
+    assert lines[-1] == CONSISTENCY_LINE
+    assert (clip.metadata["reference_count"], clip.metadata["identity_reference_count"]) == (2, 1)
+    assert clip.fingerprint == request.fingerprint
+
+
+def test_prompt_without_entity_references_has_no_consistency_line(ir):
+    assert CONSISTENCY_LINE not in compile_video_prompt(_request(ir, references=()))
+    assert CONSISTENCY_LINE not in compile_video_prompt(_request(ir, references=()), {None: [1]})
+
+
+def test_prompt_carries_the_appearance_read_from_the_identity_image(store, ir):
+    request = _anchored(ir, store, description="short black hair, round glasses")
+    prompt = compile_video_prompt(request, {"barista": [1]})
+
+    assert (
+        "- barista (person, reference image 1): 흰 셔츠를 입은 바리스타; "
+        "looks like: short black hair, round glasses; shirt color: white"
+    ) in prompt.splitlines()
+
+
+def test_entities_sharing_one_identity_image_send_it_once(store, ir):
+    api = FakeOpenRouterApi()
+    uri = store.put("references/identity/abc/frame.png", PNG_BYTES, "image/png")
+    request = replace(
+        _request(ir, references=()),
+        identity_references=(
+            ReferenceImageInput(uri, "barista"),
+            ReferenceImageInput(uri, "cup"),
+        ),
+    )
+
+    make_openrouter_generator(store, api).generate_scene(request)
+
+    body = api.submits[0].json()
+    assert len(body["input_references"]) == 1
+    lines = body["prompt"].splitlines()
+    assert any(line.startswith("- barista (person, reference image 1)") for line in lines)
+    assert any(line.startswith("- cup (prop, reference image 1)") for line in lines)
+
+
+def test_ledger_key_follows_the_identity_references(store, ir):
+    """같은 조건이라도 기준 이미지가 생기면 다른 작업이다 (원장이 기준 없는 결과를 돌려주지 않는다)."""
+    api = FakeOpenRouterApi()
+    generator = make_openrouter_generator(store, api)
+    plain = _request(ir, scene_key="outro", references=())
+
+    generator.generate_scene(plain)
+    generator.generate_scene(_anchored(ir, store))
+    again = generator.generate_scene(_anchored(ir, store, version_id="ver_2"))
+
+    assert len(api.submits) == 2
+    assert again.metadata["ledger"] == "reused"

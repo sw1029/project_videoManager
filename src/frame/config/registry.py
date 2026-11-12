@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from frame.application.errors import ConfigurationError
@@ -17,6 +17,7 @@ from frame.application.ports import (
     ArtifactStore,
     Checker,
     Clock,
+    IdentityReferenceExtractor,
     IdGenerator,
     JobDispatcher,
     JobHandlerRegistry,
@@ -79,6 +80,11 @@ def default_registry() -> AdapterRegistry:
         FakeVideoAssembler,
         FakeVideoGenerator,
     )
+    from frame.adapters.identity import (
+        FakeIdentityExtractor,
+        FrameIdentityExtractor,
+        VlmCropIdentityExtractor,
+    )
     from frame.adapters.jobs import (
         InlineJobDispatcher,
         RecordingJobDispatcher,
@@ -124,6 +130,19 @@ def default_registry() -> AdapterRegistry:
             ) from exc
 
     reg.register(LLMClient, "openai", _openai)
+
+    def _vlm(ctx: BuildContext) -> LLMClient:
+        """이미지를 읽는 LLM 클라이언트. 공급자·키·주소는 구조화와 같고 모델만 FRAME_VLM_MODEL 로 바꾼다."""
+        s = ctx.settings
+        model = s.vlm_model or s.llm_model
+        return reg.build(
+            LLMClient, s.llm_provider, replace(ctx, settings=replace(s, llm_model=model))
+        )
+
+    def _ffmpeg(ctx: BuildContext) -> str:
+        from frame.adapters.generator.ffmpeg import resolve_ffmpeg
+
+        return resolve_ffmpeg(ctx.settings.video_ffmpeg)
 
     # --- 요구사항 구조화 (US-06) ---
     reg.register(RequirementStructurer, "rule_based", lambda ctx: RuleBasedStructurer())
@@ -179,6 +198,20 @@ def default_registry() -> AdapterRegistry:
         )
 
     reg.register(VideoAssembler, "ffmpeg", _ffmpeg_assembler)
+
+    # --- 정체성 기준 이미지 추출 (US-03, ADR-0015). off 면 추출기가 없다 (기준 이미지를 쓰지 않음) ---
+    reg.register(IdentityReferenceExtractor, "off", lambda ctx: None)
+    reg.register(IdentityReferenceExtractor, "fake", lambda ctx: FakeIdentityExtractor(_store(ctx)))
+    reg.register(
+        IdentityReferenceExtractor,
+        "frame",
+        lambda ctx: FrameIdentityExtractor(_store(ctx), _ffmpeg(ctx)),
+    )
+    reg.register(
+        IdentityReferenceExtractor,
+        "vlm_crop",
+        lambda ctx: VlmCropIdentityExtractor(_store(ctx), _ffmpeg(ctx), _vlm(ctx)),
+    )
 
     # --- 객체 추적 (US-03) ---
     reg.register(ObjectTracker, "fake", lambda ctx: FakeObjectTracker())

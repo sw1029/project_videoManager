@@ -206,15 +206,24 @@ def compile_video_prompt(
     술어·값·객체 종류는 이미 영어 어휘라 틀만 영어로 짜도 모델이 조건을 구분해 읽는다.
     장면 수준 조건(분위기·조명 등)도 넣는다 (기본 compile_prompt 는 빠뜨린다).
     reference_numbers: 객체 키(None 은 장면 전체) -> input_references 의 1부터 센 번호.
+    객체에 참조 이미지가 있으면 '참조와 똑같이 보이게, 자세·행동·배경은 이 장면대로' 라고 한 줄 덧붙인다.
+    참조 이미지는 프롬프트가 무엇을 지켜야 하는지 말해 줄 때 더 잘 따른다 (ADR-0015).
     """
     numbers = reference_numbers or {}
     scene = request.scene
+    looks = {
+        r.entity_key: r.description.strip()
+        for r in request.identity_references
+        if r.entity_key and r.description.strip()
+    }
     lines: list[str] = []
     if scene.description.strip():
         lines.append(f"Scene: {scene.description.strip()}")
     subjects: list[str] = []
     for entity in request.entities:
         details = [entity.description.strip()] if entity.description.strip() else []
+        if entity.entity_key in looks:  # 기준 이미지에서 읽은 외형 (글로도 같은 모습을 고정한다)
+            details.append(f"looks like: {looks[entity.entity_key]}")
         for r in scene.requirements:
             if r.entity_key != entity.entity_key:
                 continue
@@ -241,7 +250,17 @@ def compile_video_prompt(
     shared = numbers.get(None) or ()
     if shared:
         lines.append(f"Overall look: follow {_reference_phrase(shared)}")
+    if any(numbers.get(entity.entity_key) for entity in request.entities):
+        lines.append(CONSISTENCY_LINE)
     return "\n".join(lines)
+
+
+# 참조 이미지가 있는 객체: 모습은 참조에서, 자세·행동·구도·배경은 이 장면의 글에서 가져오게 한다
+CONSISTENCY_LINE = (
+    "Consistency: each subject with a reference image is the same individual or object as in its "
+    "reference. Keep its face, hair, body, clothing, colors, shape and markings identical to the "
+    "reference; take pose, action, framing and background from this scene, not from the reference."
+)
 
 
 def _words(predicate: str) -> str:
@@ -356,7 +375,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
 
     # ---- 포트 구현 ----
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
-        key = generation_key(request.fingerprint, self.profile())
+        key = generation_key(self.result_key(request), self.profile())
         with self._locks.hold(key):  # 같은 장면의 동시 요청이 두 번 제출(과금)하지 않게 한다
             record = self._resumable(key)
             if record is None:
@@ -374,7 +393,10 @@ class OpenRouterVideoGenerator(VideoGenerator):
         self._check_supported(info)
         scene = request.scene
         seconds = info.pick_duration(scene.duration_ms)
-        references, numbers = self._input_references(request.references)
+        # 사용자 참조 다음에 정체성 기준 이미지를 보낸다 (ADR-0015). 같은 이미지는 한 번만 보낸다
+        references, numbers = self._input_references(
+            (*request.references, *request.identity_references)
+        )
         prompt = compile_video_prompt(request, numbers)
         seed = request.seed % _MAX_SEED if info.seed and request.seed is not None else None
 
@@ -414,6 +436,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 "billed_seconds": seconds,
                 "seed": seed,
                 "reference_count": len(references),
+                "identity_reference_count": len(request.identity_references),
                 "prompt": prompt,
             },
         )
@@ -476,6 +499,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             "resolution": self.resolution,
             "aspect_ratio": self.aspect_ratio,
             "reference_count": details.get("reference_count"),
+            "identity_reference_count": details.get("identity_reference_count"),
             "prompt": details.get("prompt"),
             "polls": polls,
             "generation_seconds": round(generation_seconds, 3),
@@ -631,9 +655,17 @@ class OpenRouterVideoGenerator(VideoGenerator):
     ) -> tuple[list[dict[str, Any]], dict[str | None, list[int]]]:
         items: list[dict[str, Any]] = []
         numbers: dict[str | None, list[int]] = {}
-        for index, ref in enumerate(refs, start=1):
-            items.append({"type": "image_url", "image_url": {"url": self._reference_url(ref)}})
-            numbers.setdefault(ref.entity_key, []).append(index)
+        sent: dict[
+            str, int
+        ] = {}  # 이미지 주소 -> 번호 (여러 객체가 같은 이미지를 가리키면 한 번만 보낸다)
+        for ref in refs:
+            url = self._reference_url(ref)
+            index = sent.get(url)
+            if index is None:
+                items.append({"type": "image_url", "image_url": {"url": url}})
+                index = sent[url] = len(items)
+            if index not in numbers.setdefault(ref.entity_key, []):
+                numbers[ref.entity_key].append(index)
         return items, numbers
 
     def _reference_url(self, ref: ReferenceImageInput) -> str:

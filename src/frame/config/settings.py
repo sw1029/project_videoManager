@@ -24,6 +24,15 @@ class Settings:
     generator_timeout_s: float = 0.0
     generator_retries: int = 0
     generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
+    # --- 장면 사이 객체 일관성 (ADR-0015) ---
+    # off | fake | frame(클립 가운데 프레임 전체) | vlm_crop(VLM 으로 객체 위치를 찾아 잘라냄, FRAME_VLM_* 사용)
+    # 켜면 객체가 처음 나온 클립에서 정체성 기준 이미지를 뽑아 그 객체가 나오는 다른 장면 생성에 참조로 넘긴다.
+    identity: str = "off"
+    identity_kinds: tuple[str, ...] = ("PERSON", "ANIMAL", "PROP", "OTHER")  # 우선순위 순
+    identity_max_references: int = 3  # 장면 요청 하나에 넘기는 기준 이미지 상한
+    # 이미지를 읽는 모델(VLM): 정체성 기준 추출(vlm_crop)과 일관성 검수(vlm_consistency)가 쓴다.
+    # 공급자·키·주소는 FRAME_LLM_* 를 그대로 쓰고 모델만 따로 정할 수 있다 (비우면 FRAME_LLM_MODEL).
+    vlm_model: str | None = None
     # --- 재시작 복구 (ADR-0013) ---
     # 기동 때 QUEUED·STRUCTURING 은 다시 디스패치하고 PROCESSING 은 워커 유실로 본다 (서버 프로세스 하나 전제).
     # 실행 중에는 recovery_interval_s 마다 worker_lease_s 를 넘긴 PROCESSING 을 워커 유실로 본다.
@@ -94,6 +103,15 @@ class Settings:
             generator_timeout_s=_optional_float(text("GENERATOR_TIMEOUT_S", "")) or 0.0,
             generator_retries=int(text("GENERATOR_RETRIES", str(base.generator_retries))),
             generator_cache=flag("GENERATOR_CACHE", base.generator_cache),
+            identity=text("IDENTITY", "") or base.identity,
+            identity_kinds=tuple(
+                k.strip().upper() for k in text("IDENTITY_KINDS", "").split(",") if k.strip()
+            )
+            or base.identity_kinds,
+            identity_max_references=int(
+                text("IDENTITY_MAX_REFERENCES", "") or base.identity_max_references
+            ),
+            vlm_model=text("VLM_MODEL", "") or None,
             worker_lease_s=float(text("WORKER_LEASE_S", "") or base.worker_lease_s),
             worker_max_attempts=int(text("WORKER_MAX_ATTEMPTS", "") or base.worker_max_attempts),
             recovery_interval_s=float(text("RECOVERY_INTERVAL_S", "") or base.recovery_interval_s),

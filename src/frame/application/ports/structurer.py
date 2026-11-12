@@ -12,6 +12,8 @@ from frame.domain.ir import IntermediateRepresentation
 class ReferenceImageInput:
     image_uri: str
     entity_key: str | None = None
+    # 이미지에서 읽은 외형 설명. 정체성 기준 이미지에만 쓰이고 프롬프트를 보강한다 (ADR-0015)
+    description: str = ""
 
 
 @dataclass(frozen=True)
