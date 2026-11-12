@@ -176,6 +176,12 @@ RunGenerationPipeline
   생성 캐시·작업 원장 키(`generation_fingerprint`)에만 들어가므로, 위의 재사용 규칙은 그대로다.
 - **부모 클립 편집** (ADR-0016, `FRAME_VIDEO_EDIT_MODE`): 다시 만드는 장면의 요청에는 부모 클립과 부모 쪽 장면 조건이 실린다.
   편집을 지원하는 생성기는 부모 클립에서 바뀐 조건만 고치고, 지원하지 않으면 지금처럼 새로 만든다.
+  어느 쪽으로 만들었는지는 장면 응답의 `clip_production` 으로 나간다 (방식·모델·비용·시간·편집하지 못한 사유).
+- **수정 의도** (ADR-0017): 수정 버전은 무엇을 하려는 수정인지 남긴다. `CHANGE` 는 요구조건의 값을 바꾸고, `REPAIR` 는 요구조건은
+  그대로 두고 그 요구조건이 걸린 장면의 seed 를 다시 지정해 그 장면만 새로 만든다 (영상이 요구와 어긋났을 때).
+  그대로 둘 요소(`keep`)는 다시 만드는 장면의 생성 요청(`directive`)에 실려 편집 지시문에 들어가고, 재검수가 요소별로 판정한다.
+- **변경 계획 미리보기** (ADR-0019): `POST /versions/{id}/revision-plans` 가 글로 쓴 요청을 구조화하고(해석기), 수정의 종류·다시 만들 장면·
+  어림 비용을 돌려준다. 상태는 바꾸지 않는다. 확인한 계획(`revision_request`)을 그대로 `POST /revisions` 에 보낸다.
 
 ### 3.5 조건 고정과 재현성
 
@@ -274,8 +280,9 @@ FRAME/
 | 영상 생성 모델 | `VideoGenerator` | `fake` | `external_api`(OpenRouter 영상 API, 기본 Wan 3.0 · ADR-0011) · `diffusers`(CogVideoX/Wan 로컬, 뼈대) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`, `FRAME_VIDEO_*` | `test_generator_contract.py` |
 | 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
 | 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
-| 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | `vlm_consistency`(표본 프레임 VLM 판정, ADR-0015) · `ssim_preservation`(부모 클립 대비 SSIM, ADR-0016) · CLIP/임베딩 속성 판정 | `FRAME_CHECKERS` (쉼표 목록) | `test_checker_contract.py` |
+| 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | `vlm_requirement`(요구조건별 프레임 판정, ADR-0018) · `vlm_consistency`(표본 프레임 VLM 판정, ADR-0015) · `vlm_preservation`(유지 요소를 부모 클립과 견줌, ADR-0018) · `ssim_preservation`(부모 클립 대비 SSIM, ADR-0016) · CLIP/임베딩 속성 판정 | `FRAME_CHECKERS` (쉼표 목록), `FRAME_REQUIREMENT_*`, `FRAME_CONSISTENCY_*`, `FRAME_PRESERVATION_*` | `test_checker_contract.py` · `test_vlm_requirement_checker.py` · `test_vlm_preservation_checker.py` |
 | 정체성 기준 추출 | `IdentityReferenceExtractor` | `off`(없음) · `fake` | `vlm_crop`(VLM 박스로 잘라 냄) · `frame`(화면 전체) · 추적 박스·마스크 | `FRAME_IDENTITY`, `FRAME_IDENTITY_KINDS`, `FRAME_IDENTITY_MAX_REFERENCES`, `FRAME_IDENTITY_VERIFY_ATTRIBUTES`, `FRAME_VLM_MODEL` | `test_identity_extractor_contract.py` |
+| 변경 요청 해석 | `ChangeRequestInterpreter` | `rule_based`(`cup.color = teal` 형식) | `llm`(자연어, ADR-0019) | `FRAME_CHANGE_INTERPRETER` (`auto` 는 구조화기를 따른다) | `test_change_request_interpreters.py` |
 | DB | `UnitOfWork` + 5개 `Repository` | `memory` | `sqlalchemy` (MySQL 8.4 / SQLite) | `FRAME_PERSISTENCE`, `FRAME_DB_URL` | `test_repository_contract.py` |
 | 산출물 저장 | `ArtifactStore` | `memory` | `local_fs` · Google Drive · S3 | `FRAME_ARTIFACT_STORE`, `FRAME_ARTIFACT_DIR` | generator 계약 내 `exists()` |
 | 비동기 실행 | `JobDispatcher` | `inline` · `recording` | `thread` · Celery/RQ(Redis) | `FRAME_JOBS` | 유스케이스 테스트 |
@@ -436,3 +443,6 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0013](adr/0013-restart-recovery-and-persistent-generation-cache.md) | 재시작 복구(기동 복구·워커 리스·시도 상한) · 생성 결과 캐시 영속화 · 외부 작업 원장 |
 | [0015](adr/0015-identity-references-and-consistency-check.md) | 장면 사이 객체 일관성: 정체성 기준 이미지(클립에서 추출·버전 상속·참조 전달) · VLM 일관성 검수기 |
 | [0016](adr/0016-parent-clip-editing.md) | 수정 버전의 부모 클립 편집 포트 · 클립 메타데이터 저장 · SSIM 보존 검수기 |
+| [0017](adr/0017-revision-intent-repair-and-keep.md) | 수정 의도: 다시 맞추기(REPAIR, 장면별 seed 재지정) · 그대로 둘 요소 · 생성기에 넘기는 수정 지시 |
+| [0018](adr/0018-requirement-and-keep-checkers.md) | 실제 요구 반영 검수기(요구조건별 판정, 부모 판정 상속) · 유지 요소 검수기 |
+| [0019](adr/0019-revision-plan-and-change-request.md) | 변경 계획 미리보기 · 글로 쓴 변경 요청의 해석 · 참조 이미지 HTTP 경로 |
