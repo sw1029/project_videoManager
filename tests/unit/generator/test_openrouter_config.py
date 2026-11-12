@@ -1,9 +1,13 @@
-"""FRAME_GENERATOR=external_api 설정: 환경 변수 해석, 컨테이너 조립, 키·ffmpeg 가 없을 때 기동 시점 실패."""
+"""FRAME_GENERATOR=external_api · FRAME_ASSEMBLER=ffmpeg 설정.
+
+환경 변수 해석, 컨테이너 조립, 키·ffmpeg 가 없을 때 기동 시점 실패를 확인한다.
+"""
 
 from __future__ import annotations
 
 import pytest
 
+from frame.adapters.generator.ffmpeg import FfmpegVideoAssembler
 from frame.adapters.generator.openrouter import OpenRouterVideoGenerator
 from frame.application.errors import ConfigurationError
 from frame.config import Settings, build_container
@@ -130,5 +134,18 @@ def test_external_api_without_ffmpeg_fails_at_startup(key_file, tmp_path):
         video_key_file=str(key_file),
         video_ffmpeg=str(tmp_path / "no-ffmpeg.exe"),
     )
+    with pytest.raises(ConfigurationError, match="ffmpeg"):
+        build_container(settings)
+
+
+def test_ffmpeg_assembler_is_built_with_the_same_clip_spec(fake_ffmpeg):
+    settings = Settings(assembler="ffmpeg", video_ffmpeg=str(fake_ffmpeg), video_resolution="480p")
+    assembler = build_container(settings).assembler
+    assert isinstance(assembler, FfmpegVideoAssembler)
+    assert (assembler.fps, assembler.width, assembler.height) == (30, 480, 854)
+
+
+def test_ffmpeg_assembler_without_ffmpeg_fails_at_startup(tmp_path):
+    settings = Settings(assembler="ffmpeg", video_ffmpeg=str(tmp_path / "no-ffmpeg.exe"))
     with pytest.raises(ConfigurationError, match="ffmpeg"):
         build_container(settings)

@@ -77,7 +77,6 @@ def default_registry() -> AdapterRegistry:
         DiffusersVideoGenerator,
         FakeVideoAssembler,
         FakeVideoGenerator,
-        FfmpegVideoAssembler,
     )
     from frame.adapters.jobs import (
         InlineJobDispatcher,
@@ -163,7 +162,19 @@ def default_registry() -> AdapterRegistry:
 
     reg.register(VideoGenerator, "external_api", _external_api)
     reg.register(VideoAssembler, "fake", lambda ctx: FakeVideoAssembler(_store(ctx)))
-    reg.register(VideoAssembler, "ffmpeg", lambda ctx: FfmpegVideoAssembler())
+
+    def _ffmpeg_assembler(ctx: BuildContext) -> VideoAssembler:
+        """장면 클립을 이어 최종 mp4 를 만든다. 생성기가 정규화한 클립과 같은 규격(크기·fps)을 목표로 한다."""
+        from frame.adapters.generator.ffmpeg import FfmpegVideoAssembler, resolve_ffmpeg
+        from frame.adapters.generator.openrouter import output_size
+
+        s = ctx.settings
+        width, height = output_size(s.video_resolution, s.video_aspect_ratio)
+        return FfmpegVideoAssembler(
+            _store(ctx), resolve_ffmpeg(s.video_ffmpeg), fps=s.video_fps, width=width, height=height
+        )
+
+    reg.register(VideoAssembler, "ffmpeg", _ffmpeg_assembler)
 
     # --- 객체 추적 (US-03) ---
     reg.register(ObjectTracker, "fake", lambda ctx: FakeObjectTracker())

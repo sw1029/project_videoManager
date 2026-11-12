@@ -2,19 +2,15 @@
 
 핵심은 IR -> 모델 입력 변환(PromptCompiler)을 어댑터 안에 가두는 것이다.
 모델이 바뀌면 이 파일의 어댑터만 바뀌고, 유스케이스·파이프라인·IR 은 그대로다.
-외부 API(external_api) 생성기는 openrouter.py 에 구현되어 있다 (ADR-0011).
+외부 API(external_api) 생성기는 openrouter.py, ffmpeg 조립기는 ffmpeg.py 에 있다 (ADR-0011).
 """
 
 from __future__ import annotations
-
-from collections.abc import Sequence
 
 from frame.application.errors import GenerationError
 from frame.application.ports.generator import (
     GeneratedClip,
     SceneGenerationRequest,
-    VideoArtifact,
-    VideoAssembler,
     VideoGenerator,
 )
 
@@ -53,11 +49,4 @@ class DiffusersVideoGenerator(VideoGenerator):
         raise GenerationError(
             f"DiffusersVideoGenerator(model_id={self.model_id}) 추론 코드가 아직 없습니다. "
             "pipeline(prompt, image=references, num_frames=..., generator=seed) 호출을 구현하세요."
-        )
-
-
-class FfmpegVideoAssembler(VideoAssembler):
-    def assemble(self, version_id: str, clips: Sequence[GeneratedClip]) -> VideoArtifact:
-        raise GenerationError(
-            "FfmpegVideoAssembler 는 아직 구현되지 않았습니다 (ffmpeg concat demuxer 권장)."
         )
