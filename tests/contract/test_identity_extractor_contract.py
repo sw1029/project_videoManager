@@ -255,6 +255,16 @@ def test_vlm_crop_does_not_extract_the_same_clip_and_entity_twice(store, ir, cli
     assert again.detail["reused"] is True and "reused" not in cup.detail
     assert len(llm.calls) == 2
     assert "barista" not in llm.calls[1]["user"]  # 이미 있는 객체는 다시 묻지 않는다
+    # 자르는 설정을 바꾸면 예전 기준을 쓰지 않고 다시 뽑는다
+    tighter = VlmCropIdentityExtractor(
+        store,
+        FFMPEG,
+        ReplayLLMClient([json.dumps(first_answer)]),
+        min_side=8,
+        person_max_aspect=0.8,
+    )
+    (recut,) = tighter.extract(_request(store, ir, clip_bytes, "barista"))
+    assert recut.image_uri != first.image_uri and "reused" not in recut.detail
     # 다른 클립은 색인이 따로다
     (other,) = VlmCropIdentityExtractor(
         store, FFMPEG, ReplayLLMClient([json.dumps(first_answer)]), min_side=8

@@ -14,6 +14,7 @@
 - 한 번 뽑은 기준은 클립·객체별 색인(references/identity/<클립>/<객체>.json)에 적어 두고, 같은 클립에서 같은 객체를
   다시 요청받으면 VLM 을 부르지 않고 그 이미지를 돌려준다. VLM 이 짚는 박스는 호출마다 조금씩 달라서, 다시 뽑으면
   기준 이미지(=생성 캐시·원장 키)가 달라져 이미 만든 장면을 또 생성하게 된다.
+  색인에는 자르는 설정(여백·인물 세로 비율·크기 상하한)도 적는다. 설정을 바꾸면 예전 기준은 쓰지 않고 다시 뽑는다.
 - 잘라 낸 이미지가 작으면 짧은 변을 min_output_side 까지 키운다. 영상 모델은 참조 이미지에 최소 크기를 요구한다
   (Wan: 가로·세로 240~8000 px). 2026-11-12 실호출에서 154x178 컵 이미지가 접수 뒤 'image resolution' 오류로 실패했다.
 """
@@ -254,6 +255,8 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             image_uri = str(data["image_uri"])
             if data.get("entity_key") != entity_key or not self._store.exists(image_uri):
                 return None
+            if data.get("params") != self._params():
+                return None  # 다른 설정으로 자른 기준이다
             return IdentityImage(
                 entity_key=entity_key,
                 image_uri=image_uri,
@@ -264,6 +267,15 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             log.warning("정체성 기준 색인을 읽지 못해 다시 뽑습니다 (%s): %s", entity_key, exc)
             return None
 
+    def _params(self) -> dict[str, float]:
+        """이미지를 어떻게 잘랐는지 정하는 설정 (색인 항목이 지금 설정으로 만든 것인지 가리는 데 쓴다)."""
+        return {
+            "padding": self.padding,
+            "person_max_aspect": self.person_max_aspect,
+            "min_output_side": self.min_output_side,
+            "max_side": self.max_side,
+        }
+
     def _remember(self, clip_uri: str, image: IdentityImage) -> None:
         payload = {
             "schema": 1,
@@ -271,6 +283,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             "image_uri": image.image_uri,
             "description": image.description,
             "detail": dict(image.detail),
+            "params": self._params(),
         }
         try:
             self._store.put(
