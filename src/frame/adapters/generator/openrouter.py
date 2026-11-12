@@ -979,7 +979,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         reason: str | None = None
         if plan is not None:
             if plan.mode == EDIT_VIDEO_REFERENCE:
-                source = self._parent_video_url(plan, wait_seconds=self.edit_preview_wait_seconds)
+                # 미리보기는 실행할 때보다 오래 기다리지 않는다
+                wait = min(self.edit_preview_wait_seconds, self.edit_parent_wait_seconds)
+                source = self._parent_video_url(plan, wait_seconds=wait)
                 if source.url is None:
                     reason = (
                         "부모 영상의 저장본 주소가 아직 나오지 않아 지금은 편집할 수 없습니다 "

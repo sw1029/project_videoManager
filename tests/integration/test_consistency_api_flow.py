@@ -155,3 +155,57 @@ def test_identity_anchors_and_parent_clip_editing_through_the_api(tmp_path, upst
     regenerated = plain.get(f"/api/versions/{regenerated_id}").json()
     clips = {s["scene_key"]: s["clip_uri"] for s in fallback["ir"]["scenes"]}
     assert clips == {s["scene_key"]: s["clip_uri"] for s in regenerated["ir"]["scenes"]}
+
+
+@pytest.mark.ac("AC-01")
+def test_the_plan_tells_whether_a_scene_can_be_edited_and_keeps_the_address(tmp_path, upstream):
+    """변경 계획이 편집이 될지 알려 주고, 그때 받아 둔 부모 클립 주소로 편집한다 (ADR-0020).
+
+    2차 실호출: 저장본 주소는 작업이 끝난 뒤 늦게 나왔고, 나온 뒤에도 몇 분씩 상태 응답에서 빠졌다.
+    """
+    client = _client(
+        tmp_path,
+        upstream,
+        FRAME_VIDEO_EDIT_MODE="video_reference",
+        FRAME_VIDEO_EDIT_PARENT_WAIT_S="0",  # 주소가 없으면 한 번만 묻는다 (테스트가 기다리지 않게)
+    )
+    created = client.post("/api/projects", json={"title": "카페", "prompt": PROMPT, "seed": 7})
+    original_id = created.json()["version_id"]
+    _generate(client, original_id)
+    plans = f"/api/versions/{original_id}/revision-plans"
+    change = {"entity_key": "cup", "predicate": "color", "new_value": "teal"}
+
+    # 1) 방금 만든 영상: 저장본 주소가 아직 없다 -> 새로 생성될 것이고, 왜 편집하지 못하는지 알려 준다
+    upstream.serve_stored_urls = False
+    early = client.post(plans, json=change).json()
+    targets = [s for s in early["scenes"] if s["will_regenerate"]]
+    assert [s["scene_key"] for s in targets] == ["intro", "closeup"]
+    assert all(s["production"]["method"] == "GENERATE" for s in targets)
+    assert "저장본" in targets[0]["production"]["edit_unavailable_reason"]
+    assert early["estimate"]["edit_scene_count"] == 0
+
+    # 2) 주소가 나온 뒤 계획을 다시 확인한다 (받은 revision_request 를 그대로 보낸다): 편집으로 바뀐다
+    upstream.serve_stored_urls = True
+    plan = client.post(plans, json=early["revision_request"]).json()
+    assert [s["production"]["method"] for s in plan["scenes"] if s["will_regenerate"]] == [
+        "EDIT",
+        "EDIT",
+    ]
+    assert plan["estimate"]["edit_scene_count"] == 2
+    assert plan["estimate"]["cost_usd"] == pytest.approx(0.12)  # 2초 x $0.03 x 2장면
+    assert len(upstream.submits) == 3  # 계획은 아무것도 제출하지 않는다
+
+    # 3) 확인하는 사이 주소가 다시 응답에서 빠진다. 계획 때 받아 둔 주소로 편집된다
+    upstream.serve_stored_urls = False
+    revised = client.post(f"/api/versions/{original_id}/revisions", json=plan["revision_request"])
+    assert revised.status_code == 201, revised.text
+    edited = _generate(client, revised.json()["version_id"])
+
+    edit_intro, edit_closeup = upstream.submits[3:]
+    for body in (edit_intro, edit_closeup):
+        (video,) = upstream.video_references(body)
+        assert "/files/gen-vid-" in video
+    made = {s["scene_key"]: s["clip_production"] for s in edited["ir"]["scenes"]}
+    assert (made["intro"]["method"], made["closeup"]["method"]) == ("EDITED", "EDITED")
+    assert made["intro"]["edit_fallback_reason"] is None
+    assert made["outro"]["method"] == "GENERATED"  # 다시 만들지 않은 장면: 부모 때의 기록

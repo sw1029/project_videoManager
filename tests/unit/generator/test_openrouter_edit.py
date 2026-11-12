@@ -804,6 +804,19 @@ def test_preview_does_not_suggest_waiting_for_a_copy_that_is_gone(ir, store, par
     assert len(api.calls_to("GET", PARENT_STATUS)) == 1
 
 
+def test_preview_does_not_wait_longer_than_making_the_scene_would(ir, store):
+    api = _api(parent_status=NO_URLS)
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store, api, clock=clock, edit_parent_wait_seconds=0, **EDITING
+    )
+
+    preview = generator.preview(_request(ir, store))
+
+    assert preview.method is ProductionMethod.GENERATE
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 1 and clock.sleeps == []
+
+
 def test_preview_without_editing_is_plain_generation(ir, store):
     api = _api()
     generator = make_openrouter_generator(store, api)  # 편집을 켜지 않았다
