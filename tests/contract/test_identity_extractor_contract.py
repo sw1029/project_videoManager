@@ -209,7 +209,7 @@ def test_vlm_crop_cuts_each_entity_out_of_the_frame(store, ir, clip_bytes):
     }
     llm = ReplayLLMClient([json.dumps(first), json.dumps({"entities": [hidden_cup]})])
     extractor = VlmCropIdentityExtractor(
-        store, FFMPEG, llm, padding=0.0, min_side=8, min_output_side=8
+        store, FFMPEG, llm, padding=0.0, min_side=8, min_output_side=8, person_max_aspect=0
     )
 
     images = extractor.extract(_request(store, ir, clip_bytes, "barista", "cup"))
@@ -237,6 +237,25 @@ def test_vlm_crop_keeps_what_it_found_when_a_later_look_fails(store, ir, clip_by
     )
 
     assert [i.entity_key for i in images] == ["barista"]
+
+
+@needs_ffmpeg
+def test_vlm_crop_keeps_only_the_head_and_shoulders_of_a_person(store, ir, clip_bytes):
+    """VLM 이 상반신까지 내려오는 박스를 줘도 인물은 위쪽만 쓴다 (손에 든 물건이 기준에 들어가지 않게)."""
+    tall = {"x": 0.25, "y": 0.1, "w": 0.5, "h": 0.8}  # 64x114 프레임에서 32x91 px
+    answer = json.loads(_located("barista", "cup"))
+    for entity in answer["entities"]:
+        entity["box"] = tall
+    llm = ReplayLLMClient([json.dumps(answer)])
+    extractor = VlmCropIdentityExtractor(
+        store, FFMPEG, llm, padding=0.0, min_side=8, min_output_side=8
+    )
+
+    person, prop = extractor.extract(_request(store, ir, clip_bytes, "barista", "cup"))
+
+    assert _size(store.get(person.image_uri)) == (32, 40)  # 세로 = 가로 x 1.25
+    assert person.detail["region"]["y"] == 0.1  # 박스의 위쪽부터
+    assert _size(store.get(prop.image_uri)) == (32, 90)  # 소품은 박스 그대로
 
 
 @needs_ffmpeg

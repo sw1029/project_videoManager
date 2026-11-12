@@ -7,7 +7,9 @@
 - 외형 설명(머리·옷·색·형태)은 기준 이미지와 함께 저장돼 다음 장면 프롬프트에 글로도 들어간다.
 - 박스는 추적 결과가 아니라 한 프레임에서 VLM 이 짚은 대략의 위치다 (US-03 추적 어댑터가 생기면 그 박스로 바꿀 수 있다).
 - 인물은 머리·어깨까지만 자른다 (손에 든 물건·배경이 기준 이미지에 딸려 가지 않게). 참조 이미지 한 장에는
-  인물이 한 명만 있어야 한다는 모델 제약(Wan)과도 맞는다.
+  인물이 한 명만 있어야 한다는 모델 제약(Wan)과도 맞는다. VLM 에게 그렇게 묻되, 박스가 상반신까지 내려와도
+  위쪽만 쓰도록 세로를 가로의 person_max_aspect 배로 제한한다. 2026-11-12 실호출에서 컵을 든 상반신이 통째로
+  기준이 되자, 컵이 없어야 할 다음 장면에도 컵을 든 모습이 나왔다 (참조 내용 누출).
 - 잘라 낸 이미지가 작으면 짧은 변을 min_output_side 까지 키운다. 영상 모델은 참조 이미지에 최소 크기를 요구한다
   (Wan: 가로·세로 240~8000 px). 2026-11-12 실호출에서 154x178 컵 이미지가 접수 뒤 'image resolution' 오류로 실패했다.
 """
@@ -28,6 +30,7 @@ from frame.application.ports.identity import (
     IdentityReferenceExtractor,
 )
 from frame.application.ports.llm import ImageInput, LLMClient
+from frame.domain.enums import EntityKind
 from frame.domain.ir import EntitySpec
 
 from .keys import identity_key
@@ -92,6 +95,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         min_side: int = 96,
         max_side: int = 1024,
         min_output_side: int = 480,
+        person_max_aspect: float = 1.25,
         timeout_s: float | None = 90.0,
     ) -> None:
         self._store = store
@@ -109,6 +113,8 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         )
         self.max_side = max_side
         self.min_output_side = min_output_side  # 저장할 이미지의 짧은 변 하한. 작으면 키운다
+        # 인물 기준 이미지의 세로 상한 (가로의 배수). 박스의 위쪽부터 이만큼만 쓴다: 머리·어깨
+        self.person_max_aspect = person_max_aspect
         self.timeout_s = timeout_s
 
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
@@ -123,6 +129,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             at_ms = int(request.clip.duration_ms * min(1.0, max(0.0, position)))
             try:
                 frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+                frame_size = video_size(self._ffmpeg, frame.data)
                 answers = self._locate(request, remaining, ImageInput(frame.data, frame.media_type))
             except AdapterError as exc:
                 if not found:
@@ -135,7 +142,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 box = _valid_box(answer, self.min_area) if answer is not None else None
                 if answer is None or box is None:
                     continue
-                image = self._crop(request, entity, video, at_ms, box, answer)
+                image = self._crop(request, entity, video, at_ms, box, answer, frame_size)
                 if image is not None:
                     found[entity.entity_key] = image
         missing = [e.entity_key for e in request.entities if e.entity_key not in found]
@@ -184,8 +191,11 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         at_ms: int,
         box: Box,
         answer: Mapping[str, Any],
+        frame_size: tuple[int, int],
     ) -> IdentityImage | None:
         region = box.padded(self.padding)
+        if entity.kind is EntityKind.PERSON:
+            region = _portrait(region, frame_size, self.person_max_aspect)
         native = extract_frame(self._ffmpeg, video, at_ms, crop=region)
         native_size = video_size(self._ffmpeg, native.data)
         if min(native_size) < self.min_side:
@@ -212,10 +222,20 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 "extractor": "vlm_crop",
                 "frame_ms": at_ms,
                 "box": box.as_dict(),
+                "region": region.as_dict(),
                 "size": [width, height],
                 "native_size": list(native_size),
             },
         )
+
+
+def _portrait(region: Box, frame_size: tuple[int, int], max_aspect: float) -> Box:
+    """세로가 가로의 max_aspect 배를 넘으면 위쪽부터 그만큼만 남긴다 (픽셀 기준)."""
+    frame_w, frame_h = frame_size
+    width_px, height_px = region.w * frame_w, region.h * frame_h
+    if max_aspect <= 0 or height_px <= width_px * max_aspect:
+        return region
+    return Box(region.x, region.y, region.w, width_px * max_aspect / frame_h)
 
 
 def _user_prompt(request: IdentityExtractionRequest, entities: Sequence[EntitySpec]) -> str:
