@@ -75,7 +75,6 @@ def default_registry() -> AdapterRegistry:
     )
     from frame.adapters.generator import (
         DiffusersVideoGenerator,
-        ExternalApiVideoGenerator,
         FakeVideoAssembler,
         FakeVideoGenerator,
         FfmpegVideoAssembler,
@@ -139,7 +138,30 @@ def default_registry() -> AdapterRegistry:
     # --- 영상 생성 / 조립 (US-01) ---
     reg.register(VideoGenerator, "fake", lambda ctx: FakeVideoGenerator(_store(ctx)))
     reg.register(VideoGenerator, "diffusers", lambda ctx: DiffusersVideoGenerator())
-    reg.register(VideoGenerator, "external_api", lambda ctx: ExternalApiVideoGenerator())
+
+    def _external_api(ctx: BuildContext) -> VideoGenerator:
+        """OpenRouter 영상 API (ADR-0011). 키나 ffmpeg 가 없으면 기동 시점에 ConfigurationError."""
+        from frame.adapters.generator.ffmpeg import FfmpegVideoNormalizer, resolve_ffmpeg
+        from frame.adapters.generator.openrouter import (
+            OpenRouterVideoGenerator,
+            resolve_openrouter_key,
+        )
+
+        s = ctx.settings
+        return OpenRouterVideoGenerator(
+            store=_store(ctx),
+            api_key=resolve_openrouter_key(key_file=s.video_key_file),
+            model=s.video_model,
+            resolution=s.video_resolution,
+            aspect_ratio=s.video_aspect_ratio,
+            fps=s.video_fps,
+            base_url=s.video_base_url,
+            timeout_seconds=s.video_timeout_s,
+            poll_interval_seconds=s.video_poll_interval_s,
+            normalizer=FfmpegVideoNormalizer(resolve_ffmpeg(s.video_ffmpeg)),
+        )
+
+    reg.register(VideoGenerator, "external_api", _external_api)
     reg.register(VideoAssembler, "fake", lambda ctx: FakeVideoAssembler(_store(ctx)))
     reg.register(VideoAssembler, "ffmpeg", lambda ctx: FfmpegVideoAssembler())
 

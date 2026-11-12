@@ -1,13 +1,14 @@
 from .decorators import CachingVideoGenerator, RetryingVideoGenerator
 from .fake import FakeVideoAssembler, FakeVideoGenerator
-from .stubs import DiffusersVideoGenerator, ExternalApiVideoGenerator, FfmpegVideoAssembler
+from .openrouter import OpenRouterVideoGenerator
+from .stubs import DiffusersVideoGenerator, FfmpegVideoAssembler
 
 __all__ = [
     "CachingVideoGenerator",
     "DiffusersVideoGenerator",
-    "ExternalApiVideoGenerator",
     "FakeVideoAssembler",
     "FakeVideoGenerator",
     "FfmpegVideoAssembler",
+    "OpenRouterVideoGenerator",
     "RetryingVideoGenerator",
 ]

@@ -1,4 +1,7 @@
-"""VideoGenerator 계약 테스트 (Fake + Decorator 조합). 실제 모델 어댑터는 slow/gpu 마커로 같은 스위트에 추가한다."""
+"""VideoGenerator 계약 테스트 (Fake + Decorator 조합). 실제 모델 어댑터는 slow/gpu 마커로 같은 스위트에 추가한다.
+
+OpenRouter 어댑터는 가짜 HTTP 전송·가짜 정규화기를 꽂아 네트워크 없이 같은 계약을 확인한다 (실제 호출은 tests/live).
+"""
 
 import pytest
 
@@ -12,11 +15,15 @@ from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError
 from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
 from frame.application.ports.structurer import ReferenceImageInput
+from tests.support.openrouter import PNG_BYTES, make_openrouter_generator
 
 
 @pytest.fixture
 def store():
-    return InMemoryArtifactStore()
+    s = InMemoryArtifactStore()
+    # 요청에 들어 있는 참조 이미지 (실제 생성기는 저장소에서 내용을 읽는다)
+    s.put("refs/cup.png", PNG_BYTES, "image/png")
+    return s
 
 
 GENERATORS = [
@@ -28,6 +35,7 @@ GENERATORS = [
         lambda store: RetryingVideoGenerator(FakeVideoGenerator(store), retries=2),
         id="retrying(fake)",
     ),
+    pytest.param(make_openrouter_generator, id="openrouter(fake-http)"),
 ]
 
 

@@ -2,6 +2,7 @@
 
 핵심은 IR -> 모델 입력 변환(PromptCompiler)을 어댑터 안에 가두는 것이다.
 모델이 바뀌면 이 파일의 어댑터만 바뀌고, 유스케이스·파이프라인·IR 은 그대로다.
+외부 API(external_api) 생성기는 openrouter.py 에 구현되어 있다 (ADR-0011).
 """
 
 from __future__ import annotations
@@ -52,24 +53,6 @@ class DiffusersVideoGenerator(VideoGenerator):
         raise GenerationError(
             f"DiffusersVideoGenerator(model_id={self.model_id}) 추론 코드가 아직 없습니다. "
             "pipeline(prompt, image=references, num_frames=..., generator=seed) 호출을 구현하세요."
-        )
-
-
-class ExternalApiVideoGenerator(VideoGenerator):
-    """외부 API (Runway / Veo / Kling 등). 비동기 폴링과 시간초과(GenerationTimeout)를 여기서 처리한다."""
-
-    def __init__(
-        self, endpoint: str = "", api_key: str = "", timeout_seconds: float = 600.0
-    ) -> None:
-        self.endpoint = endpoint
-        self.api_key = api_key
-        self.timeout_seconds = timeout_seconds
-
-    def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
-        prompt = compile_prompt(request)  # noqa: F841
-        raise GenerationError(
-            "ExternalApiVideoGenerator 호출 코드가 아직 없습니다. "
-            "작업 제출 -> 상태 폴링 -> 결과 다운로드 -> ArtifactStore.put 순으로 구현하세요."
         )
 
 
