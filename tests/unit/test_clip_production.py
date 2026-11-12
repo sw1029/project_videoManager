@@ -33,6 +33,7 @@ def test_an_edited_clip_reports_the_edit_model_cost_and_time():
         "cost_usd": 0.12,
         "seconds": 41.359,
         "edit_fallback_reason": None,
+        "provisional": False,
     }
 
 
@@ -68,8 +69,34 @@ def test_a_plainly_generated_clip_has_no_fallback_reason():
         "cost_usd": None,
         "seconds": None,
         "edit_fallback_reason": None,
+        "provisional": False,
     }
 
 
 def test_a_clip_without_a_record_has_no_production():
     assert clip_production_out(_clip({})) is None
+
+
+def test_a_provisional_regeneration_is_flagged_so_the_screen_can_offer_a_retry():
+    """일시적인 사정(주소가 아직 없음)으로 새로 생성한 결과다 (ADR-0021).
+
+    같은 수정을 다시 요청하면 편집으로 만들 수 있다.
+    """
+    production = clip_production_out(
+        _clip(
+            {
+                "model": "alibaba/wan-3.0",
+                "cost_usd": 0.2125,
+                "generation_seconds": 144.0,
+                "provisional": True,
+                "edit": {
+                    "applied": False,
+                    "transient": True,
+                    "fallback_reason": "아직 나오지 않음",
+                },
+            }
+        )
+    )
+
+    assert production is not None
+    assert (production.method, production.provisional) == ("GENERATED", True)

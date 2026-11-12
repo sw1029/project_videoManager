@@ -185,6 +185,7 @@ def clip_production_out(clip: GeneratedClip) -> s.ClipProductionOut | None:
         cost_usd=_number(metadata.get("cost_usd")),
         seconds=_number(metadata.get("generation_seconds")),
         edit_fallback_reason=reason if isinstance(reason, str) and not applied else None,
+        provisional=metadata.get("provisional") is True,
     )
 
 

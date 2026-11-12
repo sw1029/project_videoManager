@@ -185,6 +185,9 @@ class ClipProductionOut(BaseModel):
     seconds: float | None = None  # 제공자 쪽에서 만드는 데 걸린 시간
     # 편집하려 했지만 새로 생성했을 때의 사유 (예: 부모 작업의 저장본 주소를 얻지 못함). 화면이 알려 줄 수 있다
     edit_fallback_reason: str | None = None
+    # 편집하지 못한 사정이 일시적이어서 새로 생성한 임시 결과인가 (ADR-0021).
+    # true 면 부모 버전에서 같은 수정을 다시 실행했을 때 편집으로 만들 수 있다 (계획으로 먼저 확인한다)
+    provisional: bool = False
 
 
 class SceneOut(BaseModel):

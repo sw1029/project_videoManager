@@ -320,6 +320,11 @@
             ],
             "title": "Model"
           },
+          "provisional": {
+            "default": false,
+            "title": "Provisional",
+            "type": "boolean"
+          },
           "seconds": {
             "anyOf": [
               {
