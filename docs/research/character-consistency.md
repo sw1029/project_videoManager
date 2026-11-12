@@ -140,6 +140,8 @@ Wan 3.0 문서는 찾지 못했다):
 - VLM 이 짚는 박스는 호출마다 조금씩 다르다. 같은 클립·같은 객체의 기준은 한 번만 뽑아 색인에 적어 두고 다시 쓴다.
   다시 뽑으면 기준 이미지(=생성 캐시·원장 키)가 달라져 이미 만든 장면을 또 생성하게 된다.
 - 안 보이는 객체는 다른 시각의 프레임을 한 번 더 보고, 그래도 없으면 건너뛴다 (EntityBench 의 충실도 관문, EntityMem 의 검증과 같은 취지).
+- 같은 호출에서 그 장면의 고정 속성(색 등)을 지켰는지도 받아, 분명히 다르게 나온 객체는 기준으로 쓰지 않는다.
+  실험 뒤에 넣은 것이라 실호출로는 확인하지 못했다 (§6.5 의 4번, §7).
 - VLM 이 준 외형 설명("young adult male, short dark hair, …")은 기준과 함께 저장해 다음 장면 프롬프트에 `looks like: …` 로 넣는다.
   기준 이미지와 글로 같은 모습을 함께 고정한다 (프롬프트 외형 기술 강화).
 
@@ -172,7 +174,7 @@ Wan 3.0 문서는 찾지 못했다):
 | domain | `ReferenceImage`(origin·기준 장면·해시·설명), 술어 `transient`, `services/identity.py` (고정 속성·유효성·충돌·선택) |
 | application | `SceneGenerationRequest.identity_references` · `parent` · `generation_fingerprint`, `VideoGenerator.result_key`, `IdentityReferenceExtractor` 포트, `GenerateStage`(기준 추출·전달, 부모 클립 전달, 앞선 시도 클립 재사용), LLM 포트 이미지 입력, `CheckContext.references` |
 | adapters | `identity/`(fake·frame·vlm_crop), `checker/`(vlm_consistency·ssim_preservation), `video_tools.py`(프레임 추출·SSIM), OpenRouter(기준 이미지 전송·`Image N` 프롬프트·편집 모드), SQL(reference_images 열, scenes.clip_metadata_json) |
-| config | `FRAME_IDENTITY`·`FRAME_IDENTITY_KINDS`·`FRAME_IDENTITY_MAX_REFERENCES`·`FRAME_VLM_MODEL`·`FRAME_CONSISTENCY_*`·`FRAME_PRESERVATION_THRESHOLD`·`FRAME_VIDEO_EDIT_MODE`·`FRAME_VIDEO_EDIT_MODEL` |
+| config | `FRAME_IDENTITY`·`FRAME_IDENTITY_KINDS`·`FRAME_IDENTITY_MAX_REFERENCES`·`FRAME_IDENTITY_VERIFY_ATTRIBUTES`·`FRAME_VLM_MODEL`·`FRAME_CONSISTENCY_*`·`FRAME_PRESERVATION_THRESHOLD`·`FRAME_VIDEO_EDIT_MODE`·`FRAME_VIDEO_EDIT_MODEL` |
 | presentation | `reference_images[].origin/source_scene_key/description`, `/health` 의 `adapters.identity` |
 
 ## 6. 실험 (2026-11-12 실호출)
@@ -285,6 +287,7 @@ SSIM 을 낮은 해상도에서 다시 잰 값 (가로 폭 기준, 부모 대비
 3. `previous_job_id` 는 Wan 3.0 이 접수 전에 거절한다 (400, 과금 없음). 문서 조사(§3.4)대로 지금은 이 필드를 받는 모델을 찾지 못했다.
 4. 기준 이미지 추출이 요청한 속성과 다른 객체를 **항상 걸러 주지는 않는다**. 5회차 수정에서 새 `show_cup`(빨간 컵)에서는 VLM 이 "청록 컵" 을
    찾지 못해 기준을 만들지 않았지만(두 번 모두), `cup_closeup`(겉은 빨강, 안쪽만 청록)에서는 그 컵을 기준으로 저장했다.
+   실험 뒤에, 추출할 때 고정 속성을 함께 확인해 분명히 다른 객체를 거르도록 고쳤다 (ADR-0015 §1). 이 절의 실행에는 반영되지 않았다.
 5. 편집이 거절된 뒤 새로 만든 결과가 그 편집 설정의 키로만 원장에 남아, 편집 모드를 바꾼 5회차가 같은 장면을 또 생성했다($0.2125).
    조건 키로도 남기도록 고쳤다 (ADR-0016 §3).
 
@@ -296,8 +299,12 @@ SSIM 을 낮은 해상도에서 다시 잰 값 (가로 폭 기준, 부모 대비
 - 일관성 점수는 VLM 한 번의 판정이다. 같은 클립에 0.5 와 0.83 이 나왔다. 임계 0.9 근처의 판정은 한 번으로 믿기 어렵다.
 
 **후속 제안** (우선순위 순)
-1. **기준을 뽑기 전에 그 클립이 요구를 반영했는지 확인한다.** 지금은 생성 직후 기준을 뽑아, 잘못 나온 객체가 기준이 되어 다음 장면으로 번질 수 있다
-   (§6.5 의 4번). 추출 응답에 "고정 속성을 지켰는가" 를 함께 받아 걸러 내거나, 검수를 통과한 클립의 기준만 다음 버전에 물려준다 (EntityMem 의 검증).
+1. **기준을 뽑을 때의 고정 속성 확인을 실호출로 확인한다.** 잘못 나온 객체가 기준이 되어 다음 장면으로 번지는 것(§6.5 의 4번)을 막으려고,
+   추출 응답에 "고정 속성을 지켰는가" 를 함께 받아 분명히 다른 객체를 거르게 했다 (EntityMem 의 검증과 같은 취지).
+   실호출 한도를 다 쓴 뒤라 재생 응답 테스트로만 확인했다. 실제 모델이 (a) 제대로 나온 객체를 잘못 거르지 않는지,
+   (b) 5회차의 겉이 빨간 컵을 거르는지를 봐야 한다. 이미 만든 클립이 남아 있으면 영상 생성 없이 VLM 호출만으로
+   (추출 한 번에 약 $0.002) 확인할 수 있다.
+   더 나아가 검수를 통과한 클립의 기준만 다음 버전에 물려주는 방법도 있다.
 2. **수정할 때 프롬프트에 남는 수정 전 표현을 정리한다.** 속성만 바뀌고 장면 설명·객체 이름의 "빨간 머그컵" 은 남는다.
    구조화 단계에서 표현을 함께 고치거나, 새로 생성하는 프롬프트에도 바뀐 것을 한 줄로 밝힌다 (부모 장면은 이제 요청에 실려 온다).
 3. **장면 하나에만 걸린 고정 속성의 범위를 정한다.** 'FRAME' 문구처럼 한 장면에서만 말한 외형이 그 객체의 다른 장면에도 적용되는가.
