@@ -77,6 +77,7 @@ class HealthAdaptersOut(BaseModel):
     generator: str
     tracker: str
     checkers: list[str]
+    identity: str = "off"  # 정체성 기준 이미지 추출기 (off 면 쓰지 않음)
     persistence: str
     jobs: str
     llm_provider: str | None  # structurer=llm 일 때만
@@ -162,6 +163,10 @@ class ReferenceImageOut(BaseModel):
     reference_image_id: str
     image_uri: str
     entity_key: str | None
+    # USER: 사용자가 올린 참조 / DERIVED: 장면 클립에서 뽑은 객체의 정체성 기준 이미지 (ADR-0015)
+    origin: Literal["USER", "DERIVED"] = "USER"
+    source_scene_key: str | None = None  # 정체성 기준을 뽑은 장면
+    description: str | None = None  # 기준 이미지에서 읽은 외형 설명
 
 
 class StageProgressOut(BaseModel):
