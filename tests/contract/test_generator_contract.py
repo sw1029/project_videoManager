@@ -11,7 +11,8 @@ from frame.adapters.generator import (
     FakeVideoGenerator,
     RetryingVideoGenerator,
 )
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.generator.cache import ArtifactClipCache
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError
 from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
 from frame.application.ports.structurer import ReferenceImageInput
@@ -30,6 +31,12 @@ GENERATORS = [
     pytest.param(lambda store: FakeVideoGenerator(store), id="fake"),
     pytest.param(
         lambda store: CachingVideoGenerator(FakeVideoGenerator(store)), id="caching(fake)"
+    ),
+    pytest.param(
+        lambda store: CachingVideoGenerator(
+            FakeVideoGenerator(store), cache=ArtifactClipCache(store, {"generator": "fake"})
+        ),
+        id="caching(fake, artifact-store)",
     ),
     pytest.param(
         lambda store: RetryingVideoGenerator(FakeVideoGenerator(store), retries=2),
@@ -85,7 +92,34 @@ def test_caching_decorator_generates_once_per_condition(store, ir):
     cached = CachingVideoGenerator(inner)
     first = cached.generate_scene(_request(ir, version_id="ver_1"))
     second = cached.generate_scene(_request(ir, version_id="ver_2"))
-    assert first == second and len(inner.requests) == 1 and cached.hits == 1
+    assert len(inner.requests) == 1 and cached.hits == 1
+    assert (second.uri, second.fingerprint) == (first.uri, first.fingerprint)
+    assert second.metadata["cache_hit"] is True  # 적중은 복사본의 메타데이터에 남는다
+
+
+def test_persistent_cache_does_not_regenerate_after_restart(tmp_path, ir):
+    """#7: 같은 생성 조건은 프로세스를 다시 시작해도 한 번만 생성된다 (같은 산출물 폴더, 새 인스턴스)."""
+    profile = {"generator": "fake"}
+    before_store = LocalFileArtifactStore(tmp_path)
+    before_inner = FakeVideoGenerator(before_store)
+    before = CachingVideoGenerator(before_inner, cache=ArtifactClipCache(before_store, profile))
+    first = before.generate_scene(_request(ir, version_id="ver_1"))
+
+    after_store = LocalFileArtifactStore(tmp_path)  # 재시작: 메모리에 남은 것이 없다
+    after_inner = FakeVideoGenerator(after_store)
+    after = CachingVideoGenerator(after_inner, cache=ArtifactClipCache(after_store, profile))
+    second = after.generate_scene(_request(ir, version_id="ver_2"))
+
+    assert len(before_inner.requests) == 1 and after_inner.requests == []
+    assert (second.uri, second.fingerprint, second.duration_ms) == (
+        first.uri,
+        first.fingerprint,
+        first.duration_ms,
+    )
+    assert after_store.exists(second.uri) and second.metadata["cache_hit"] is True
+    # 조건이 다른 장면은 그대로 생성한다
+    after.generate_scene(_request(ir, scene_key="closeup", version_id="ver_2"))
+    assert len(after_inner.requests) == 1
 
 
 def test_retrying_decorator_retries_transient_failures(store, ir):

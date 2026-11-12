@@ -4,6 +4,7 @@ from .accept_generation import AcceptGeneration
 from .create_project import CreateProject
 from .create_revision import CreateRevision
 from .queries import ProjectQueries
+from .recover_pending_versions import RecoverPendingVersions, RecoveryReport
 from .run_generation_pipeline import RunGenerationPipeline
 from .structure_requirements import StructureRequirements
 
@@ -12,6 +13,8 @@ __all__ = [
     "CreateProject",
     "CreateRevision",
     "ProjectQueries",
+    "RecoverPendingVersions",
+    "RecoveryReport",
     "RunGenerationPipeline",
     "StructureRequirements",
 ]

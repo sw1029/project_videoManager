@@ -22,6 +22,14 @@ def test_put_get_exists_roundtrip(store):
     assert store.get(uri) == b"{}"
 
 
+def test_uri_for_addresses_a_key_before_and_after_put(store):
+    """생성 캐시·작업 원장처럼 키로 바로 찾아 읽는 색인이 쓴다 (재시작 뒤에도 같은 URI)."""
+    uri = store.uri_for("cache/clips/abc.json")
+    assert uri is not None and not store.exists(uri)
+    assert store.put("cache/clips/abc.json", b"{}") == uri
+    assert store.exists(uri) and store.get(uri) == b"{}"
+
+
 def test_missing_artifact_raises_storage_error(store):
     uri = store.put("clips/v1/intro.json", b"{}", "application/json")
     missing = uri.replace("intro", "outro")
@@ -51,6 +59,11 @@ def test_local_path_only_for_file_backed_store(tmp_path):
     assert local.local_path(uri.replace("v.mp4", "none.mp4")) is None
     memory = InMemoryArtifactStore()
     assert memory.local_path(memory.put("videos/v.mp4", b"x")) is None
+
+
+def test_local_store_refuses_keys_outside_its_root(tmp_path):
+    with pytest.raises(StorageError):
+        LocalFileArtifactStore(tmp_path / "root").uri_for("../outside.json")
 
 
 def test_guess_media_type_defaults_to_octet_stream():

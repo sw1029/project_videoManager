@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from frame.adapters.generator import CachingVideoGenerator
 from frame.adapters.generator.ffmpeg import FfmpegVideoAssembler
 from frame.adapters.generator.openrouter import OpenRouterVideoGenerator
 from frame.application.errors import ConfigurationError
@@ -103,6 +104,7 @@ def test_external_api_builds_the_openrouter_generator(key_file, fake_ffmpeg):
         video_key_file=str(key_file),
         video_ffmpeg=str(fake_ffmpeg),
         video_resolution="480p",
+        generator_cache=False,
     )
     generator = build_container(settings).generator
     assert isinstance(generator, OpenRouterVideoGenerator)
@@ -112,9 +114,25 @@ def test_external_api_builds_the_openrouter_generator(key_file, fake_ffmpeg):
     assert generator.key_hint == "..." + OPENROUTER_KEY[-4:]
 
 
+def test_external_api_is_cached_by_default_under_its_own_profile(key_file, fake_ffmpeg):
+    """#7: 캐시는 기본으로 켜지고, 키 프로필은 OpenRouter 설정(모델·해상도 등)을 따른다."""
+    settings = Settings(
+        generator="external_api",
+        video_key_file=str(key_file),
+        video_ffmpeg=str(fake_ffmpeg),
+        video_resolution="480p",
+    )
+    generator = build_container(settings).generator
+    assert isinstance(generator, CachingVideoGenerator)
+    assert generator.profile()["generator"] == "openrouter"
+    assert generator.profile()["resolution"] == "480p"
+
+
 def test_external_api_reads_the_key_from_the_environment(monkeypatch, fake_ffmpeg):
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_KEY)
-    settings = Settings(generator="external_api", video_ffmpeg=str(fake_ffmpeg))
+    settings = Settings(
+        generator="external_api", video_ffmpeg=str(fake_ffmpeg), generator_cache=False
+    )
     assert isinstance(build_container(settings).generator, OpenRouterVideoGenerator)
 
 

@@ -11,6 +11,14 @@
 - 폴링·다운로드(GET)의 일시 오류는 과금과 무관해 계속 시도한다.
 - 키는 Authorization 헤더에만 싣고(리다이렉트로 넘기지 않음) 예외·로그·클립 메타데이터에 남기지 않는다.
   서명된 다운로드 URL(urls)도 키처럼 다뤄 기록하지 않는다.
+
+작업 원장 (ADR-0013)
+- 접수(202) 직후, 폴링 전에 작업 id 를 원장(ArtifactStore 의 ledger/openrouter/<키>.json)에 남긴다.
+  키는 fingerprint + 생성기 프로필(주소·모델·해상도·화면비·fps)이다.
+- 같은 키로 다시 요청되면(재시작 뒤 복구, 시간 초과 뒤 재생성 등) 새로 제출하지 않는다. 진행 중이거나 결과를 아직
+  못 받은 작업은 이어서 폴링·다운로드하고, 클립까지 저장한 작업은 그 클립을 그대로 돌려준다.
+- 제공자 쪽에서 실패·취소·만료됐거나 작업이 없거나(404·410) 결과가 영상이 아니면 그 항목은 이어 받지 않는다
+  (다음 요청이 새로 제출한다). 제출 뒤 24시간(ledger_ttl_seconds)이 지난 항목도 이어 받지 않는다.
 """
 
 from __future__ import annotations
@@ -23,7 +31,7 @@ import os
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -48,18 +56,22 @@ from frame.application.ports.generator import (
 )
 from frame.application.ports.structurer import ReferenceImageInput
 
+from .cache import KeyedLocks, generation_key
 from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer, resolve_ffmpeg
+from .ledger import COMPLETED, FAILED, SUBMITTED, JobLedger, JobRecord, build_job_ledger
 
 log = logging.getLogger(__name__)
 
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_VIDEO_MODEL = "alibaba/wan-3.0"
 KEY_ENV = "OPENROUTER_API_KEY"
+LEDGER_TTL_SECONDS = 24 * 3600.0  # 제출 뒤 이 시간이 지난 원장 항목은 이어 받지 않는다
 
 _KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
 _RETRY_SUBMIT = frozenset({429, 502})  # 접수 전 거절: 과금 없음
 _TRANSIENT_GET = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 _FAILED_STATES = frozenset({"failed", "cancelled", "expired"})
+_GONE = frozenset({404, 410})  # 작업·결과가 없다 (만료 등): 원장 항목을 이어 받지 않는다
 _MAX_SEED = 2**31  # 제공자 대부분(Wan 등)이 0 ~ 2^31-1 범위의 seed 를 받는다
 _SHORT_SIDE = {
     "360p": 360,
@@ -82,6 +94,16 @@ _STATUS_HINTS = {
     413: "요청 크기 초과, 참조 이미지가 너무 큼",
     429: "요청 한도 초과",
 }
+
+
+class _JobUnrecoverable(GenerationError):
+    """이 작업은 더 이어 받을 수 없다: 제공자 쪽 실패·취소·만료, 작업 없음(404·410), 결과가 영상이 아님.
+
+    원장 항목을 failed 로 바꿔 다음 요청이 새로 제출하게 한다. 이번 요청은 다시 제출하지 않는다 (retryable=False).
+    """
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args, retryable=False)
 
 
 # ---- 키 -------------------------------------------------------------------------------
@@ -298,8 +320,11 @@ class OpenRouterVideoGenerator(VideoGenerator):
         request_timeout_seconds: float = 60.0,
         transport: HttpTransport | None = None,
         normalizer: VideoNormalizer | None = None,
+        ledger: JobLedger | None = None,
+        ledger_ttl_seconds: float = LEDGER_TTL_SECONDS,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         if not api_key or not api_key.strip():
             raise ConfigurationError("OpenRouter API 키가 비어 있습니다")
@@ -323,10 +348,28 @@ class OpenRouterVideoGenerator(VideoGenerator):
         self._normalizer = normalizer or FfmpegVideoNormalizer(resolve_ffmpeg())
         self._sleep = sleep
         self._monotonic = monotonic
+        self._wall_clock = wall_clock
         self._model_info: VideoModelInfo | None = None
+        self._ledger = ledger if ledger is not None else build_job_ledger(store, "openrouter")
+        self.ledger_ttl_seconds = float(ledger_ttl_seconds)
+        self._locks = KeyedLocks()
 
     # ---- 포트 구현 ----
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
+        key = generation_key(request.fingerprint, self.profile())
+        with self._locks.hold(key):  # 같은 장면의 동시 요청이 두 번 제출(과금)하지 않게 한다
+            record = self._resumable(key)
+            if record is None:
+                return self._generate_new(request, key)
+            if (
+                record.status == COMPLETED
+                and record.clip_uri is not None
+                and self._store.exists(record.clip_uri)
+            ):
+                return self._reuse(request, record)
+            return self._collect(request, record, resumed=True)
+
+    def _generate_new(self, request: SceneGenerationRequest, key: str) -> GeneratedClip:
         info = self.model_info()
         self._check_supported(info)
         scene = request.scene
@@ -356,6 +399,26 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 "OpenRouter 가 작업을 받았지만 작업 id 가 없습니다. 활동 기록(Activity)을 확인하세요",
                 retryable=False,
             )
+        price = info.price_per_second(self.resolution)
+        record = JobRecord(
+            key=key,
+            job_id=job_id,
+            status=SUBMITTED,
+            submitted_at=self._wall_clock(),
+            version_id=request.version_id,
+            scene_key=scene.scene_key,
+            profile=self.profile(),
+            details={
+                "generation_id": job.get("generation_id"),
+                "estimated_cost_usd": round(price * seconds, 6) if price is not None else None,
+                "billed_seconds": seconds,
+                "seed": seed,
+                "reference_count": len(references),
+                "prompt": prompt,
+            },
+        )
+        # 폴링 전에 남긴다: 이 뒤에 프로세스가 죽어도 다음 인스턴스가 같은 작업을 이어 받는다
+        self._remember(record)
         log.info(
             "OpenRouter 영상 작업 접수: job=%s model=%s duration=%ss resolution=%s scene=%s",
             job_id,
@@ -364,37 +427,72 @@ class OpenRouterVideoGenerator(VideoGenerator):
             self.resolution,
             scene.scene_key,
         )
-        accepted_at = self._monotonic()
-        final, polls = self._wait(job_id, accepted_at)
-        generation_seconds = self._monotonic() - accepted_at
-        raw = self._download(job_id)
+        return self._collect(request, record, resumed=False)
+
+    def _collect(
+        self, request: SceneGenerationRequest, record: JobRecord, *, resumed: bool
+    ) -> GeneratedClip:
+        """접수된 작업을 기다려 받고 정규화해 저장한다. resumed 면 원장에서 이어 받은 작업이다."""
+        job_id = record.job_id
+        scene = request.scene
+        if resumed:
+            log.info(
+                "OpenRouter 영상 작업 이어 받기 (새로 제출하지 않음): job=%s 원장 상태=%s "
+                "처음 버전=%s 이번 버전=%s scene=%s",
+                job_id,
+                record.status,
+                record.version_id,
+                request.version_id,
+                scene.scene_key,
+            )
+        started = self._monotonic()
+        try:
+            final, polls = self._wait(job_id, started, poll_now=resumed)
+            generation_seconds = self._monotonic() - started
+            raw = self._download(job_id)
+        except _JobUnrecoverable as exc:
+            self._remember(
+                replace(record, status=FAILED, error=str(exc), updated_at=self._wall_clock())
+            )
+            raise
         normalized = self._normalize(request, raw, job_id)
         uri = self._store.put(
             f"clips/{request.version_id}/{scene.scene_key}.mp4", normalized.data, "video/mp4"
         )
 
         usage = final.get("usage") if isinstance(final.get("usage"), dict) else {}
-        price = info.price_per_second(self.resolution)
+        details = record.details
         metadata: dict[str, object] = {
             "generator": "openrouter",
             "model": self.model,
             "job_id": job_id,
-            "generation_id": final.get("generation_id") or job.get("generation_id"),
+            "generation_id": final.get("generation_id") or details.get("generation_id"),
             "cost_usd": usage.get("cost"),
             "is_byok": usage.get("is_byok"),
-            "estimated_cost_usd": round(price * seconds, 6) if price is not None else None,
+            "estimated_cost_usd": details.get("estimated_cost_usd"),
             "requested_seconds": scene.duration_ms / 1000,
-            "billed_seconds": seconds,
-            "seed": seed,
+            "billed_seconds": details.get("billed_seconds"),
+            "seed": details.get("seed"),
             "resolution": self.resolution,
             "aspect_ratio": self.aspect_ratio,
-            "reference_count": len(references),
-            "prompt": prompt,
+            "reference_count": details.get("reference_count"),
+            "prompt": details.get("prompt"),
             "polls": polls,
             "generation_seconds": round(generation_seconds, 3),
             "output": normalized.probe.as_dict(),
             "source": normalized.source.as_dict(),
+            "ledger": "resumed" if resumed else "new",
         }
+        self._remember(
+            replace(
+                record,
+                status=COMPLETED,
+                clip_uri=uri,
+                clip_metadata=metadata,
+                error=None,
+                updated_at=self._wall_clock(),
+            )
+        )
         log.info(
             "OpenRouter 영상 완료: job=%s cost=%s polls=%d %.1fs",
             job_id,
@@ -409,6 +507,76 @@ class OpenRouterVideoGenerator(VideoGenerator):
             fingerprint=request.fingerprint,
             metadata=metadata,
         )
+
+    def _reuse(self, request: SceneGenerationRequest, record: JobRecord) -> GeneratedClip:
+        """원장에 클립까지 저장된 작업: 제출·폴링·다운로드 없이 그 클립을 돌려준다."""
+        assert record.clip_uri is not None
+        log.info(
+            "OpenRouter 작업 원장의 완료된 결과를 다시 씀 (제출·과금 없음): job=%s clip=%s "
+            "처음 버전=%s 이번 버전=%s",
+            record.job_id,
+            record.clip_uri,
+            record.version_id,
+            request.version_id,
+        )
+        return GeneratedClip(
+            scene_key=request.scene.scene_key,
+            uri=record.clip_uri,
+            duration_ms=request.scene.duration_ms,
+            fingerprint=request.fingerprint,
+            metadata={**record.clip_metadata, "ledger": "reused"},
+        )
+
+    # ---- 작업 원장 ----
+    def _resumable(self, key: str) -> JobRecord | None:
+        """이어 받을 수 있는 원장 항목. 없음·실패·만료·읽기 실패면 None (새로 제출)."""
+        try:
+            record = self._ledger.get(key)
+        except Exception as exc:  # noqa: BLE001 - 깨진 항목 때문에 생성이 막히지 않게 한다
+            log.warning(
+                "OpenRouter 작업 원장을 읽지 못해 없는 것으로 봅니다 (key=%s): %s", key[:12], exc
+            )
+            return None
+        if record is None or record.status == FAILED:
+            return None
+        age = self._wall_clock() - record.submitted_at
+        if age > self.ledger_ttl_seconds:
+            log.warning(
+                "OpenRouter 작업 원장 항목이 만료돼 새로 제출합니다: job=%s "
+                "(제출 %.1f시간 전, 기한 %.1f시간)",
+                record.job_id,
+                age / 3600,
+                self.ledger_ttl_seconds / 3600,
+            )
+            return None
+        return record
+
+    def _remember(self, record: JobRecord) -> None:
+        try:
+            self._ledger.put(record)
+        except Exception as exc:  # noqa: BLE001 - 원장 기록 실패가 과금된 작업을 버리게 하지 않는다
+            log.error(
+                "OpenRouter 작업 원장에 기록하지 못했습니다 (job=%s, 상태 %s): %s. "
+                "재시작하면 이 작업을 이어 받지 못합니다",
+                record.job_id,
+                record.status,
+                exc,
+            )
+
+    def profile(self) -> Mapping[str, object]:
+        """생성 캐시·작업 원장 키에 fingerprint 와 함께 들어가는 설정 (ADR-0013).
+
+        모델·해상도·화면비·fps 를 바꾸면 이전 결과를 쓰지 않는다. 주소도 넣어 가짜 서버(로컬 시험)에서 만든 결과가
+        실제 서버 요청에 재사용되지 않게 한다. 키는 넣지 않는다.
+        """
+        return {
+            "generator": "openrouter",
+            "endpoint": self.base_url,
+            "model": self.model,
+            "resolution": self.resolution,
+            "aspect_ratio": self.aspect_ratio,
+            "fps": self.fps,
+        }
 
     # ---- 모델 메타데이터 ----
     def model_info(self) -> VideoModelInfo:
@@ -524,7 +692,10 @@ class OpenRouterVideoGenerator(VideoGenerator):
             raise self._http_error("제출", resp, retryable=resp.status in _RETRY_SUBMIT)
         raise AssertionError("unreachable")  # pragma: no cover
 
-    def _wait(self, job_id: str, accepted_at: float) -> tuple[dict[str, Any], int]:
+    def _wait(
+        self, job_id: str, accepted_at: float, *, poll_now: bool = False
+    ) -> tuple[dict[str, Any], int]:
+        """완료될 때까지 폴링한다. poll_now 면 첫 조회를 기다리지 않는다 (이어 받은 작업은 이미 끝났을 수 있다)."""
         deadline = accepted_at + self.timeout_seconds
         polls = 0
         last_state = "pending"
@@ -533,11 +704,13 @@ class OpenRouterVideoGenerator(VideoGenerator):
             if remaining <= 0:
                 raise GenerationTimeout(
                     f"OpenRouter 작업 {job_id} 이 {self.timeout_seconds:g}초 안에 끝나지 않았습니다 "
-                    f"(마지막 상태: {last_state}). 작업은 계속 진행돼 과금될 수 있으니 다시 제출하지 말고 "
-                    f"GET /api/v1/videos/{job_id} 로 결과를 확인하세요",
+                    f"(마지막 상태: {last_state}). 작업은 계속 진행돼 과금될 수 있습니다. "
+                    "같은 조건으로 다시 생성하면 새로 제출하지 않고 이 작업을 이어 받습니다 "
+                    f"(작업 원장, 제출 뒤 {self.ledger_ttl_seconds / 3600:g}시간 안)",
                     retryable=False,
                 )
-            self._sleep(min(self.poll_interval_seconds, remaining))
+            if not (poll_now and polls == 0):
+                self._sleep(min(self.poll_interval_seconds, remaining))
             polls += 1
             try:
                 resp = self._http.request(
@@ -552,6 +725,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
             if resp.status in _TRANSIENT_GET:
                 log.warning("OpenRouter 상태 조회 %s (job=%s), 계속 기다림", resp.status, job_id)
                 continue
+            if resp.status in _GONE:  # 만료됐거나 다른 서버의 작업: 이어 받을 수 없다
+                raise self._gone("상태 조회", resp, job_id)
             if resp.status != 200:
                 raise self._http_error("상태 조회", resp, retryable=False, job_id=job_id)
             data = self._json(resp, job_id)
@@ -561,10 +736,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 return data, polls
             if state in _FAILED_STATES:
                 reason = self._scrub(str(data.get("error") or "사유 없음"))
-                raise GenerationError(
+                raise _JobUnrecoverable(
                     f"OpenRouter 작업 {job_id} 이 {state} 상태로 끝났습니다: {reason}. "
-                    "과금 여부를 알 수 없어 다시 제출하지 않습니다",
-                    retryable=False,
+                    "과금 여부를 알 수 없어 다시 제출하지 않습니다"
                 )
 
     def _download(self, job_id: str) -> bytes:
@@ -583,20 +757,21 @@ class OpenRouterVideoGenerator(VideoGenerator):
             else:
                 if resp.status == 200:
                     if not _looks_like_video(resp):
-                        raise GenerationError(
+                        raise _JobUnrecoverable(
                             f"OpenRouter 작업 {job_id} 의 결과가 영상이 아닙니다 "
-                            f"(Content-Type: {resp.content_type or '없음'})",
-                            retryable=False,
+                            f"(Content-Type: {resp.content_type or '없음'})"
                         )
                     return resp.body
+                if resp.status in _GONE:
+                    raise self._gone("결과 다운로드", resp, job_id)
                 if resp.status not in _TRANSIENT_GET:
                     raise self._http_error("결과 다운로드", resp, retryable=False, job_id=job_id)
                 last = f"{resp.status} {_hint(resp.status)}"
             if attempt < self.download_attempts:
                 self._sleep(min(30.0, 5.0 * attempt))
         raise GenerationError(
-            f"OpenRouter 작업 {job_id} 의 결과를 내려받지 못했습니다 ({last}). 작업은 끝났으니 다시 제출하지 말고 "
-            f"GET /api/v1/videos/{job_id}/content 로 받으세요",
+            f"OpenRouter 작업 {job_id} 의 결과를 내려받지 못했습니다 ({last}). 작업은 끝났으니 같은 조건으로 "
+            "다시 생성하면 새로 제출하지 않고 결과만 다시 받습니다 (작업 원장)",
             retryable=False,
         )
 
@@ -655,6 +830,13 @@ class OpenRouterVideoGenerator(VideoGenerator):
         return GenerationError(
             f"OpenRouter {stage} 실패{where}: {resp.status} {_hint(resp.status)}: {detail}",
             retryable=retryable,
+        )
+
+    def _gone(self, stage: str, resp: HttpResponse, job_id: str) -> _JobUnrecoverable:
+        detail = self._scrub(_error_message(resp))
+        return _JobUnrecoverable(
+            f"OpenRouter {stage} 실패 (작업 {job_id}): {resp.status} {_hint(resp.status)}: {detail}. "
+            "만료됐거나 다른 서버의 작업이라 이어 받지 않고, 다음 생성 때 새로 제출합니다"
         )
 
     def _scrub(self, text: str) -> str:

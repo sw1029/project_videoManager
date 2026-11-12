@@ -56,3 +56,11 @@ class ArtifactStore(ABC):
     def local_path(self, uri: str) -> Path | None:
         """파일로 저장된 산출물이면 경로, 아니면 None (기본)."""
         return None
+
+    def uri_for(self, key: str) -> str | None:
+        """key 로 put 했을 때(하기 전에도)의 URI. 생성 캐시·작업 원장처럼 키로 바로 찾아 읽는 색인이 쓴다.
+
+        URI 를 미리 계산할 수 없는 저장소(업로드 뒤 id 를 받는 원격 저장소 등)는 None (기본).
+        그런 저장소에서는 색인을 프로세스 메모리에만 둔다 (ADR-0013).
+        """
+        return None

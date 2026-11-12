@@ -142,7 +142,8 @@ stateDiagram-v2
   QUEUED --> PROCESSING : 워커 시작
   QUEUED --> FAILED : 실행 불가
   PROCESSING --> COMPLETED : 생성·추적·검수 완료 (검수 FAIL/UNDETERMINED 여도)
-  PROCESSING --> FAILED : 실행 오류·시간초과
+  PROCESSING --> FAILED : 실행 오류·시간초과·워커 유실 상한(WORKER_LOST)
+  PROCESSING --> QUEUED : 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
   note right of DRAFT
     POST /revisions 는 DRAFT·COMPLETED·FAILED(IR 보유) 버전에서
     새 DRAFT 를 분기한다. 원본은 어떤 상태도 바뀌지 않는다.
@@ -312,7 +313,7 @@ FRAME/
 | ERD | 도메인 객체 | SQL 테이블 (확장 컬럼) |
 |---|---|---|
 | PROJECT | `Project` | `projects` |
-| VIDEO_VERSION | `VideoVersion` (+ `ir`, `clips`) | `video_versions` (+ `source_prompt`, `target_duration_ms`, `seed`, `ir_json`, `frozen_fingerprint`) |
+| VIDEO_VERSION | `VideoVersion` (+ `ir`, `clips`) | `video_versions` (+ `source_prompt`, `target_duration_ms`, `seed`, `ir_json`, `frozen_fingerprint`, `queued_at`, `started_at`, `attempt`) |
 | SCENE | `SceneSpec` (IR 안) | `scenes` (+ `description`, `clip_uri`, `clip_fingerprint`, `clip_duration_ms`) |
 | ENTITY | `EntitySpec` (IR 안, 프로젝트 범위) | `entities` (+ `kind`, `description`) |
 | SCENE_ENTITY | `TrackRecord` | `scene_entities` (+ `track_json`) |
@@ -422,3 +423,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0007](adr/0007-predicate-vocabulary-and-relations.md) | 술어 어휘 · 관계 조건 규칙 · 요구조건 키 · 장면 타임라인 검증 |
 | [0008](adr/0008-value-normalization-and-relation-kinds.md) | 값 정규화 · ANIMAL 종류 · 관계의 배경 객체 금지 (실호출 결과 반영) |
 | [0009](adr/0009-frontend-integration-contract.md) | 프론트 연동 계약: 오류 형식 통일 · 영상 조회 경로 · 상태 확인 정보 · CORS·같은 출처 서빙 · 요청 제한 |
+| [0013](adr/0013-restart-recovery-and-persistent-generation-cache.md) | 재시작 복구(기동 복구·워커 리스·시도 상한) · 생성 결과 캐시 영속화 · 외부 작업 원장 |

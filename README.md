@@ -37,7 +37,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | 키 | 값 | 의미 |
 |---|---|---|
 | `FRAME_STRUCTURER` | `rule_based`(DSL 입력) · `llm`(자연어 입력) · `fake` | 요구사항 구조화 모델 |
-| `FRAME_GENERATOR` | `fake` · `external_api`(OpenRouter) · `diffusers`(뼈대) | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`) |
+| `FRAME_GENERATOR` | `fake` · `external_api`(OpenRouter) · `diffusers`(뼈대) | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`: 기본 켜짐, 같은 조건·설정의 장면은 재시작 뒤에도 한 번만 생성) |
 | `FRAME_VIDEO_MODEL` / `FRAME_VIDEO_RESOLUTION` | OpenRouter 영상 모델 id (기본 `alibaba/wan-3.0`) / `480p` · `720p`(기본) · `1080p` | `external_api` 의 모델과 해상도 (화면비 `FRAME_VIDEO_ASPECT_RATIO`=`9:16`, 클립 fps `FRAME_VIDEO_FPS`=30) |
 | `FRAME_VIDEO_KEY_FILE` | 키 파일 경로 (또는 환경 변수 `OPENROUTER_API_KEY`) | OpenRouter 키 (`sk-or-...`). 저장소에 넣지 않는다 |
 | `FRAME_VIDEO_FFMPEG` | 실행 파일 경로 (비우면 PATH → `video` extra 의 imageio-ffmpeg) | 클립 정규화·조립용 ffmpeg |
@@ -47,6 +47,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |
+| `FRAME_WORKER_LEASE_S` / `FRAME_WORKER_MAX_ATTEMPTS` / `FRAME_RECOVERY_INTERVAL_S` | 초(1800) / 횟수(3) / 초(60, 0 = 기동 때만) | 재시작 복구 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)): 기동 때 QUEUED·STRUCTURING 은 다시 실행하고 PROCESSING 은 재시도, 실행 중에는 리스를 넘긴 PROCESSING 을 재시도. 시도 상한이면 `FAILED(WORKER_LOST)` |
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
 | `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 POST 요청 제한 (0 = 꺼짐) |
@@ -122,4 +123,6 @@ FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOL
 
 카페 예시의 4초 장면 하나를 만들고(Wan 3.0 480p 약 $0.20, 720p 약 $0.40) 비용(`usage.cost`)·소요 시간·출력 규격을 출력한다.
 결과는 `./artifacts/clips/live-<시각>/intro.mp4` 에 남는다. 접수된 작업이 실패하거나 시간을 넘기면 과금 여부를 알 수 없어
-다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건 장면의 재과금을 막으려면 `FRAME_GENERATOR_CACHE=true` 를 권한다.
+다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건·같은 설정의 장면은 생성 캐시(`FRAME_GENERATOR_CACHE`, 기본 켜짐)와
+작업 원장으로 재시작 뒤에도 다시 제출하지 않는다 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)).
+이 테스트를 같은 조건으로 24시간 안에 다시 돌리면 원장이 이전 결과를 다시 쓰고 실패하므로, 실제 호출을 다시 보려면 `./artifacts/ledger/openrouter` 를 지운다.
