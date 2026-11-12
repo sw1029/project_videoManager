@@ -139,14 +139,26 @@ class FakeOpenRouterApi(HttpTransport):
     ) -> None:
         self.calls: list[RecordedCall] = []
         self.job_id = job_id
-        self._routes: dict[tuple[str, str], deque[HttpResponse | Exception]] = {}
+        self._routes: dict[tuple[str, str], deque[HttpResponse | BaseException]] = {}
         self.on("GET", "/api/v1/videos/models", json_response(200, {"data": list(models)}))
         self.on("POST", "/api/v1/videos", accepted(job_id))
         self.on("GET", f"/api/v1/videos/{job_id}", status("in_progress", job_id), completed(job_id))
         self.on("GET", f"/api/v1/videos/{job_id}/content", video_content())
 
-    def on(self, method: str, path: str, *responses: HttpResponse | Exception) -> FakeOpenRouterApi:
+    def on(
+        self, method: str, path: str, *responses: HttpResponse | BaseException
+    ) -> FakeOpenRouterApi:
         self._routes[(method, path)] = deque(responses)
+        return self
+
+    def add_job(self, job_id: str, *statuses: HttpResponse | BaseException) -> FakeOpenRouterApi:
+        """다른 id 의 작업을 하나 더 둔다 (상태 응답 대기열과 결과 영상). 제출 순서는 POST 대기열로 정한다."""
+        self.on(
+            "GET",
+            f"/api/v1/videos/{job_id}",
+            *(statuses or (status("in_progress", job_id), completed(job_id))),
+        )
+        self.on("GET", f"/api/v1/videos/{job_id}/content", video_content(f"RAW-{job_id}".encode()))
         return self
 
     def request(
@@ -164,7 +176,7 @@ class FakeOpenRouterApi(HttpTransport):
         if not queue:
             return error_response(404, "Resource not found")
         item = queue.popleft() if len(queue) > 1 else queue[0]
-        if isinstance(item, Exception):
+        if isinstance(item, BaseException):
             raise item
         return item
 
@@ -216,14 +228,18 @@ class FakeNormalizer(VideoNormalizer):
 
 
 class FakeTime:
-    """sleep 하면 시계가 그만큼 앞으로 간다."""
+    """sleep 하면 시계가 그만큼 앞으로 간다. time() 은 같은 만큼 움직이는 벽시계(작업 원장의 제출 시각)."""
 
-    def __init__(self) -> None:
+    def __init__(self, wall: float = 1_789_480_000.0) -> None:
         self.now = 1000.0
+        self.wall = wall
         self.sleeps: list[float] = []
 
     def monotonic(self) -> float:
         return self.now
+
+    def time(self) -> float:
+        return self.wall + (self.now - 1000.0)
 
     def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)
@@ -247,6 +263,7 @@ def make_openrouter_generator(
         "normalizer": normalizer or FakeNormalizer(),
         "sleep": clock.sleep,
         "monotonic": clock.monotonic,
+        "wall_clock": clock.time,
     }
     options.update(overrides)
     return OpenRouterVideoGenerator(**options)
