@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
+from typing import Any
 from urllib.parse import quote
 
-from frame.application.dto import ChecksView, EntityTracksView, ProjectDetail, VersionDetail
+from frame.application.dto import (
+    ChecksView,
+    EntityTracksView,
+    ProjectDashboardView,
+    ProjectDetail,
+    VersionComparisonView,
+    VersionDetail,
+    VersionOverview,
+)
 from frame.application.ports.artifact_store import guess_media_type
+from frame.domain.artifacts import GeneratedClip
+from frame.domain.enums import Verdict
 from frame.domain.identifiers import entity_id
+from frame.domain.ir import RequirementSpec, SceneSpec
+from frame.domain.services.comparison import RequirementComparison
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
@@ -175,5 +188,153 @@ def tracks_out(view: EntityTracksView) -> s.EntityTracksOut:
                 ],
             )
             for t in view.records
+        ],
+    )
+
+
+# ---- US-04 전후 비교·대시보드 (ADR-0014) ----------------------------------------------
+
+MediaTypeOf = Callable[[str], str]
+
+
+def _version_path(api_prefix: str, version_id: str) -> str:
+    return f"{api_prefix}/versions/{quote(version_id, safe='')}"
+
+
+def _overview_fields(
+    overview: VersionOverview, api_prefix: str, media_type_of: MediaTypeOf
+) -> dict[str, Any]:
+    v = overview.version
+    return {
+        "version_id": v.version_id,
+        "parent_version_id": v.parent_version_id,
+        "state": str(v.state),
+        "error_code": v.error_code,
+        "error_message": v.error_message,
+        "created_at": v.created_at,
+        "video_url": f"{_version_path(api_prefix, v.version_id)}/video" if v.video_uri else None,
+        "video_media_type": media_type_of(v.video_uri) if v.video_uri else None,
+        "checks": s.CheckSummaryOut(**asdict(overview.summary)),
+    }
+
+
+def _compared_scene(
+    version_id: str,
+    scene: SceneSpec | None,
+    clip: GeneratedClip | None,
+    api_prefix: str,
+    media_type_of: MediaTypeOf,
+) -> s.ComparedSceneOut | None:
+    if scene is None:
+        return None
+    clip_url = None
+    if clip is not None:
+        scene_path = quote(scene.scene_key, safe="")
+        clip_url = f"{_version_path(api_prefix, version_id)}/scenes/{scene_path}/clip"
+    return s.ComparedSceneOut(
+        planned_start_ms=scene.planned_start_ms,
+        planned_end_ms=scene.planned_end_ms,
+        description=scene.description,
+        clip_url=clip_url,
+        clip_media_type=media_type_of(clip.uri) if clip is not None else None,
+    )
+
+
+def _verdict(verdicts: Mapping[str, Verdict], requirement: RequirementSpec | None) -> str | None:
+    verdict = verdicts.get(requirement.key) if requirement is not None else None
+    return None if verdict is None else str(verdict)
+
+
+def _requirement_comparison(
+    row: RequirementComparison,
+    before_verdicts: Mapping[str, Verdict],
+    after_verdicts: Mapping[str, Verdict],
+) -> s.RequirementComparisonOut:
+    before, after = row.before, row.after
+    return s.RequirementComparisonOut(
+        change=str(row.change),
+        entity_key=row.entity_key,
+        predicate=row.predicate,
+        value_kind=_value_kind(row.predicate),
+        relational=row.is_relational,
+        before_requirement_key=before.key if before is not None else None,
+        after_requirement_key=after.key if after is not None else None,
+        before_value=before.expected_value if before is not None else None,
+        after_value=after.expected_value if after is not None else None,
+        before_verdict=_verdict(before_verdicts, before),
+        after_verdict=_verdict(after_verdicts, after),
+    )
+
+
+def comparison_out(
+    view: VersionComparisonView,
+    *,
+    api_prefix: str = "/api",
+    media_type_of: MediaTypeOf = guess_media_type,
+) -> s.VersionComparisonOut:
+    before_id = view.before.version.version_id
+    after_id = view.after.version.version_id
+    result = view.comparison
+    return s.VersionComparisonOut(
+        version_id=after_id,
+        against_version_id=before_id,
+        against_is_parent=view.against_is_parent,
+        before=s.VersionOverviewOut(**_overview_fields(view.before, api_prefix, media_type_of)),
+        after=s.VersionOverviewOut(**_overview_fields(view.after, api_prefix, media_type_of)),
+        checks_delta=s.CheckDeltaOut(**asdict(view.checks_delta)),
+        summary=s.ComparisonSummaryOut(
+            scene_count=len(result.scenes),
+            status_counts={str(status): n for status, n in result.status_counts().items()},
+            changed_scene_keys=list(result.changed_scene_keys),
+            requirement_change_count=result.requirement_change_count,
+        ),
+        scenes=[
+            s.SceneComparisonOut(
+                scene_key=sc.scene_key,
+                status=str(sc.status),
+                conditions_changed=sc.conditions_changed,
+                before=_compared_scene(
+                    before_id, sc.before_scene, sc.before_clip, api_prefix, media_type_of
+                ),
+                after=_compared_scene(
+                    after_id, sc.after_scene, sc.after_clip, api_prefix, media_type_of
+                ),
+                requirements=[
+                    _requirement_comparison(
+                        r, view.before.requirement_verdicts, view.after.requirement_verdicts
+                    )
+                    for r in sc.requirements
+                ],
+            )
+            for sc in result.scenes
+        ],
+    )
+
+
+def dashboard_out(
+    view: ProjectDashboardView,
+    *,
+    api_prefix: str = "/api",
+    media_type_of: MediaTypeOf = guess_media_type,
+) -> s.ProjectDashboardOut:
+    return s.ProjectDashboardOut(
+        project_id=view.project.project_id,
+        title=view.project.title,
+        created_at=view.project.created_at,
+        summary=s.DashboardSummaryOut(
+            version_count=len(view.versions),
+            state_counts={str(state): n for state, n in view.state_counts.items()},
+            latest_version_id=view.latest_version_id,
+            latest_completed_version_id=view.latest_completed_version_id,
+        ),
+        versions=[
+            s.DashboardVersionOut(
+                **_overview_fields(node.overview, api_prefix, media_type_of),
+                depth=node.depth,
+                child_version_ids=list(node.child_version_ids),
+                scene_count=node.scene_count,
+                changed_scene_count=node.changed_scene_count,
+            )
+            for node in view.versions
         ],
     )
