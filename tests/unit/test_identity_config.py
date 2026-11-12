@@ -124,3 +124,37 @@ def test_real_checkers_fail_at_startup_without_ffmpeg(tmp_path):
     )
     with pytest.raises(ConfigurationError, match="ffmpeg"):
         build_container(settings)
+
+
+def test_requirement_and_keep_checkers_are_built_from_their_keys(fake_ffmpeg):
+    """실제 요구 반영·유지 요소 검수기 (ADR-0018)."""
+    from frame.adapters.checker import VlmPreservationChecker, VlmRequirementChecker
+
+    settings = Settings(
+        checkers=("vlm_requirement", "vlm_preservation"),
+        llm_provider="fake",
+        video_ffmpeg=str(fake_ffmpeg),
+        requirement_frames=4,
+        requirement_threshold=0.75,
+        preservation_frames=3,
+    )
+    requirement, preservation = build_container(settings).checkers
+
+    assert isinstance(requirement, VlmRequirementChecker)
+    assert (requirement.frames_per_scene, requirement.threshold) == (4, 0.75)
+    assert isinstance(preservation, VlmPreservationChecker) and preservation.frames_per_scene == 3
+
+
+def test_requirement_and_keep_checker_settings_are_read_from_the_environment():
+    settings = Settings.from_env(
+        {
+            "FRAME_REQUIREMENT_FRAMES": "2",
+            "FRAME_REQUIREMENT_THRESHOLD": "0.8",
+            "FRAME_PRESERVATION_FRAMES": "1",
+        }
+    )
+    assert (settings.requirement_frames, settings.requirement_threshold) == (2, 0.8)
+    assert settings.preservation_frames == 1
+    defaults = Settings.from_env({})
+    assert (defaults.requirement_frames, defaults.requirement_threshold) == (3, 0.5)
+    assert defaults.preservation_frames == 2

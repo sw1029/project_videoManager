@@ -320,6 +320,7 @@ class CheckStage(PipelineStage):
             changed_scene_keys=frozenset(ctx.changed_scene_keys),
             reused_scene_keys=frozenset(ctx.reused_scene_keys),
             references=tuple(ctx.references),
+            parent_checks=tuple(ctx.parent_checks),
         )
         outcomes = self._suite.run(check_ctx)
         valid_keys = {r.key for r in ctx.ir.iter_requirements()}

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from frame.domain.artifacts import GeneratedClip
-from frame.domain.checks import WarningInterval
+from frame.domain.checks import CheckResult, WarningInterval
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import ReferenceImage, VideoVersion
@@ -34,6 +34,8 @@ class CheckContext:
     reused_scene_keys: frozenset[str] = frozenset()
     # 이 버전의 참조 이미지 (사용자 참조 + 정체성 기준). 일관성 검수가 비교 기준으로 쓸 수 있다
     references: Sequence[ReferenceImage] = ()
+    # 부모 버전의 검수 결과. 다시 만들지 않은 장면은 부모의 판정을 물려받을 수 있다 (ADR-0018)
+    parent_checks: Sequence[CheckResult] = ()
 
     @property
     def is_revision(self) -> bool:

@@ -39,6 +39,11 @@ class Settings:
     consistency_frames: int = 3  # 일관성 검수가 장면마다 뽑는 표본 프레임 수
     consistency_threshold: float = 0.9  # 고정 속성 유지율 목표 (지표 3)
     preservation_threshold: float = 0.9  # 부모 클립 대비 SSIM 하한 (비대상 변경률 10% 이하)
+    # 요구 반영 검수 (vlm_requirement, ADR-0018)
+    requirement_frames: int = 3  # 장면마다 뽑는 표본 프레임 수
+    requirement_threshold: float = 0.5  # 고정 속성·장면 조건: 판정된 프레임 가운데 지킨 비율의 하한
+    # 유지 요소 검수 (vlm_preservation, ADR-0018): 다시 만든 장면마다 부모·자식에서 뽑는 프레임 쌍의 수
+    preservation_frames: int = 2
     # --- 재시작 복구 (ADR-0013) ---
     # 기동 때 QUEUED·STRUCTURING 은 다시 디스패치하고 PROCESSING 은 워커 유실로 본다 (서버 프로세스 하나 전제).
     # 실행 중에는 recovery_interval_s 마다 worker_lease_s 를 넘긴 PROCESSING 을 워커 유실로 본다.
@@ -129,6 +134,11 @@ class Settings:
             consistency_threshold=float(
                 text("CONSISTENCY_THRESHOLD", "") or base.consistency_threshold
             ),
+            requirement_frames=int(text("REQUIREMENT_FRAMES", "") or base.requirement_frames),
+            requirement_threshold=float(
+                text("REQUIREMENT_THRESHOLD", "") or base.requirement_threshold
+            ),
+            preservation_frames=int(text("PRESERVATION_FRAMES", "") or base.preservation_frames),
             preservation_threshold=float(
                 text("PRESERVATION_THRESHOLD", "") or base.preservation_threshold
             ),

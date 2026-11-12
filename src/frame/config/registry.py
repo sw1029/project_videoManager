@@ -76,6 +76,8 @@ def default_registry() -> AdapterRegistry:
         FakeRequirementChecker,
         SsimPreservationChecker,
         VlmConsistencyChecker,
+        VlmPreservationChecker,
+        VlmRequirementChecker,
     )
     from frame.adapters.generator import (
         DiffusersVideoGenerator,
@@ -240,6 +242,29 @@ def default_registry() -> AdapterRegistry:
             _vlm(ctx),
             frames_per_scene=ctx.settings.consistency_frames,
             threshold=ctx.settings.consistency_threshold,
+        ),
+    )
+    # 요구 반영 (ADR-0018): 장면마다 VLM 이 요구조건별로 프레임을 판정한다
+    reg.register(
+        Checker,
+        "vlm_requirement",
+        lambda ctx: VlmRequirementChecker(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            frames_per_scene=ctx.settings.requirement_frames,
+            threshold=ctx.settings.requirement_threshold,
+        ),
+    )
+    # 유지 요소 (ADR-0018): 다시 만든 장면에서 그대로 두라고 한 요소를 VLM 이 부모·자식 프레임으로 판정한다
+    reg.register(
+        Checker,
+        "vlm_preservation",
+        lambda ctx: VlmPreservationChecker(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            frames_per_scene=ctx.settings.preservation_frames,
         ),
     )
     reg.register(
