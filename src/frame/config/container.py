@@ -130,7 +130,7 @@ def build_container(
     )
     structure_requirements = StructureRequirements(uow_factory, structurer)
     run_generation_pipeline = RunGenerationPipeline(
-        uow_factory, stages, PipelineRunner(observers), ids
+        uow_factory, stages, PipelineRunner(observers), ids, clock=clock
     )
     handlers.register(
         STRUCTURE_REQUIREMENTS,
@@ -158,7 +158,7 @@ def build_container(
         create_project=CreateProject(uow_factory, dispatcher, ids, clock),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
-        accept_generation=AcceptGeneration(uow_factory, dispatcher),
+        accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
     )

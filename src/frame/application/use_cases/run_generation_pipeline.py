@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
@@ -16,7 +17,7 @@ from frame.domain.models import VideoVersion
 from ..pipeline.context import PipelineContext
 from ..pipeline.runner import PipelineFailure, PipelineRunner
 from ..pipeline.stage import PipelineStage
-from ..ports.common import IdGenerator
+from ..ports.common import Clock, IdGenerator
 from ..ports.unit_of_work import UnitOfWorkFactory
 
 
@@ -27,11 +28,14 @@ class RunGenerationPipeline:
         stages: Sequence[PipelineStage],
         runner: PipelineRunner,
         ids: IdGenerator,
+        *,
+        clock: Clock | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._stages = tuple(stages)
         self._runner = runner
         self._ids = ids
+        self._now = clock.now if clock is not None else (lambda: datetime.now(UTC))
 
     def execute(self, version_id: str) -> VideoVersion:
         with self._uow_factory() as uow:
@@ -46,6 +50,9 @@ class RunGenerationPipeline:
                 )
             version = uow.versions.get(version_id)
             assert version is not None
+            # 시작 시각·시도 횟수를 단계 실행 전에 커밋한다: 도중에 프로세스가 죽어도 복구가 판단할 수 있다 (#2)
+            version.record_started(self._now())
+            uow.versions.save(version)
             parent = (
                 uow.versions.get(version.parent_version_id) if version.parent_version_id else None
             )

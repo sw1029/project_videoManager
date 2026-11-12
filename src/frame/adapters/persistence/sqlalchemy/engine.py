@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.schema import CreateColumn
 
 from .models import Base
+
+log = logging.getLogger(__name__)
 
 
 def create_engine_from_url(url: str) -> Engine:
@@ -31,8 +35,26 @@ def create_engine_from_url(url: str) -> Engine:
 
 
 def create_schema(engine: Engine) -> None:
-    """개발·테스트용. 운영 마이그레이션은 Alembic 으로 관리한다."""
+    """개발·테스트용. 운영 마이그레이션은 Alembic 으로 관리한다.
+
+    이미 있는 테이블에 모델의 새 열(널 허용이거나 기본값이 있는 열)이 없으면 ADD COLUMN 으로 더한다.
+    예전 SQLite 개발 DB 를 그대로 쓰게 하려는 것이며, 열을 지우거나 형식을 바꾸지는 않는다.
+    """
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                ddl = CreateColumn(column).compile(dialect=engine.dialect)
+                conn.exec_driver_sql(f"ALTER TABLE {table.name} ADD COLUMN {ddl}")
+                log.warning("스키마: %s.%s 열을 더했습니다 (예전 DB)", table.name, column.name)
 
 
 def make_session_factory(engine: Engine) -> Callable[[], Session]:
