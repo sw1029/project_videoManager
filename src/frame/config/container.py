@@ -23,6 +23,7 @@ from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMEN
 from frame.application.pipeline import (
     CheckStage,
     GenerateStage,
+    LoggingObserver,
     PipelineObserver,
     PipelineRunner,
     TrackStage,
@@ -101,9 +102,11 @@ def build_container(
     settings: Settings | None = None,
     registry: AdapterRegistry | None = None,
     overrides: Mapping[str, Any] | None = None,
-    observers: tuple[PipelineObserver, ...] = (),
+    observers: tuple[PipelineObserver, ...] | None = None,
 ) -> Container:
+    """observers 를 주지 않으면 LoggingObserver 하나를 붙인다 (주면 그것만 쓴다)."""
     settings = settings or Settings()
+    observers = (LoggingObserver(),) if observers is None else tuple(observers)
     registry = registry or default_registry()
     ov: dict[str, Any] = dict(overrides or {})
 

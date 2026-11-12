@@ -1,11 +1,16 @@
-"""PipelineStage / PipelineRunner 의 공통 절차: 단계별 소요 시간 기록 (이슈 #1)."""
+"""PipelineStage / PipelineRunner 의 공통 절차: 단계별 소요 시간 기록 (이슈 #1), 실행별 관찰자 (이슈 #3)."""
 
 from datetime import UTC, datetime
 
 import pytest
 
 from frame.application.errors import TrackingError
-from frame.application.pipeline import PipelineContext, PipelineFailure, PipelineRunner
+from frame.application.pipeline import (
+    PipelineContext,
+    PipelineFailure,
+    PipelineObserver,
+    PipelineRunner,
+)
 from frame.application.pipeline.stage import PipelineStage
 from frame.domain.enums import VersionState
 from frame.domain.models import VideoVersion
@@ -44,6 +49,20 @@ def test_failed_stage_also_records_its_elapsed_time():
     with pytest.raises(TrackingError):
         Boom().run(ctx)
     assert ctx.timings_ms["boom"] >= 0
+
+
+def test_runner_adds_per_run_observers_after_its_own():
+    events = []
+
+    class Tagged(PipelineObserver):
+        def __init__(self, tag):
+            self.tag = tag
+
+        def on_stage_started(self, stage, ctx):
+            events.append((self.tag, stage.name))
+
+    PipelineRunner([Tagged("always")]).run([Noop()], _ctx(), observers=[Tagged("this-run")])
+    assert events == [("always", "noop"), ("this-run", "noop")]
 
 
 def test_runner_keeps_timings_of_every_stage_reached_before_the_failure():

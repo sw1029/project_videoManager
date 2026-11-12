@@ -32,7 +32,9 @@ class GenerateStage(PipelineStage):
             for r in ctx.references
         )
         parent_clips = ctx.parent.clips if ctx.parent is not None else {}
-        for scene in ir.scenes:
+        total = len(ir.scenes)
+        for index, scene in enumerate(ir.scenes):
+            ctx.report_progress(index, total, scene.scene_key)
             request = SceneGenerationRequest(
                 version_id=ctx.version.version_id,
                 scene=scene,
@@ -51,6 +53,7 @@ class GenerateStage(PipelineStage):
                 continue
             ctx.clips[scene.scene_key] = self._generator.generate_scene(request)
             ctx.changed_scene_keys.add(scene.scene_key)
+        ctx.report_progress(total, total)  # 모든 장면 완료 -> 조립
         ordered = [ctx.clips[scene.scene_key] for scene in ir.scenes]
         ctx.video = self._assembler.assemble(ctx.version.version_id, ordered)
 
@@ -62,9 +65,9 @@ class TrackStage(PipelineStage):
         self._tracker = tracker
 
     def execute(self, ctx: PipelineContext) -> None:
-        for scene in ctx.ir.scenes:
-            if not scene.entity_keys:
-                continue
+        targets = [scene for scene in ctx.ir.scenes if scene.entity_keys]
+        for index, scene in enumerate(targets):
+            ctx.report_progress(index, len(targets), scene.scene_key)
             request = TrackingRequest(
                 version_id=ctx.version.version_id,
                 scene=scene,

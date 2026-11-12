@@ -12,6 +12,7 @@ from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
 from frame.domain.errors import InvalidStateTransition, NotFound
 from frame.domain.models import VideoVersion
+from frame.domain.progress import format_elapsed_ms
 
 from ..pipeline.context import PipelineContext
 from ..pipeline.runner import PipelineFailure, PipelineRunner
@@ -105,10 +106,8 @@ def _failure_message(failure: PipelineFailure, ctx: PipelineContext) -> str:
     """'[단계] 원인 · 소요: generate 1.2s, track 30ms' 처럼 실패 단계와 단계별 소요 시간을 남긴다."""
     parts = [f"[{failure.stage}] {failure.message}"]
     if ctx.timings_ms:
-        timings = ", ".join(f"{name} {_duration(ms)}" for name, ms in ctx.timings_ms.items())
+        timings = ", ".join(
+            f"{name} {format_elapsed_ms(ms)}" for name, ms in ctx.timings_ms.items()
+        )
         parts.append(f"소요: {timings}")
     return " · ".join(parts)
-
-
-def _duration(ms: float) -> str:
-    return f"{ms:.0f}ms" if ms < 1000 else f"{ms / 1000:.1f}s"

@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from frame.domain.artifacts import GeneratedClip, VideoArtifact
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import ReferenceImage, VideoVersion
+from frame.domain.progress import PipelineProgress
 from frame.domain.tracking import TrackRecord
 
 from ..ports.checker import CheckOutcome
+
+# (끝낸 항목 수, 전체 항목 수, 지금 처리할 항목) -> None
+ProgressReporter = Callable[[int, int, str | None], None]
 
 
 @dataclass
@@ -23,8 +29,29 @@ class PipelineContext:
     check_outcomes: list[CheckOutcome] = field(default_factory=list)
     changed_scene_keys: set[str] = field(default_factory=set)  # 이번 실행에서 새로 생성한 장면
     reused_scene_keys: set[str] = field(default_factory=set)  # 부모 클립을 재사용한 장면
+    # 단계별 소요 시간 (실패한 단계 포함)
     timings_ms: dict[str, float] = field(default_factory=dict)
+    # 단계·장면 진행. 처리 도중과 끝에 버전에 저장된다 (GET /api/versions/{id} 의 progress)
+    progress: PipelineProgress = field(default_factory=PipelineProgress)
+    _reporter: ProgressReporter | None = field(default=None, init=False, repr=False, compare=False)
 
     @property
     def ir(self) -> IntermediateRepresentation:
         return self.version.require_ir()
+
+    def report_progress(self, done: int, total: int, current: str | None = None) -> None:
+        """실행 중인 단계가 항목(장면) 단위 진행을 알린다: 끝낸 수, 전체 수, 지금 처리할 항목.
+
+        PipelineStage.run() 안에서만 관찰자에게 전달된다 (on_stage_progress). 그 밖에서는 아무 일도 하지 않는다.
+        """
+        if self._reporter is not None:
+            self._reporter(done, total, current)
+
+    @contextmanager
+    def reporting_to(self, reporter: ProgressReporter) -> Iterator[None]:
+        """단계 하나를 실행하는 동안 report_progress 를 reporter 로 보낸다 (PipelineStage.run 이 쓴다)."""
+        previous, self._reporter = self._reporter, reporter
+        try:
+            yield
+        finally:
+            self._reporter = previous
