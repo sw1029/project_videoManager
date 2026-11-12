@@ -82,3 +82,12 @@ def test_literal_kind_and_new_predicates_exist():
     for name in ("location", "hair", "age", "gender", "pose", "style", "time_of_day", "weather"):
         assert DEFAULT_VOCABULARY.spec(name) is not None, name
     assert DEFAULT_VOCABULARY.normalize("장소") == "location"
+
+
+def test_transient_predicates_are_not_fixed_attributes():
+    """행동·자세·표정·위치는 장면마다 달라지는 것이 정상이다 (ADR-0015 고정 속성에서 제외)."""
+    vocab = DEFAULT_VOCABULARY
+    assert all(vocab.is_transient(name) for name in ("action", "pose", "expression", "position"))
+    assert vocab.is_transient("행동")  # 별칭도 같다
+    assert not any(vocab.is_transient(name) for name in ("color", "outfit", "text", "shape"))
+    assert not vocab.is_transient("shirt_color")  # 미등록 술어는 고정 속성으로 본다
