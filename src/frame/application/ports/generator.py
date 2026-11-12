@@ -2,7 +2,7 @@
 
 장면(Scene) 단위로 생성하고 조립(Assemble)한다. 장면 단위이므로 수정 버전에서는
 조건이 바뀐 장면만 재생성하고 나머지 장면 클립은 그대로 재사용할 수 있다 (비대상 보존).
-구현 후보: diffusers 로컬 추론(CogVideoX/Wan 등), 외부 API(Runway/Veo/Kling), Fake.
+구현: Fake, 외부 API(OpenRouter 영상 API, ADR-0011). 후보: diffusers 로컬 추론(CogVideoX/Wan 등).
 각 어댑터는 IR -> 모델별 프롬프트/파라미터 변환(PromptCompiler)을 내부에 캡슐화한다.
 """
 

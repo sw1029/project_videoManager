@@ -1,4 +1,7 @@
-"""VideoGenerator 계약 테스트 (Fake + Decorator 조합). 실제 모델 어댑터는 slow/gpu 마커로 같은 스위트에 추가한다."""
+"""VideoGenerator 계약 테스트 (Fake + Decorator 조합). 실제 모델 어댑터는 slow/gpu 마커로 같은 스위트에 추가한다.
+
+OpenRouter 어댑터는 가짜 HTTP 전송·가짜 정규화기를 꽂아 네트워크 없이 같은 계약을 확인한다 (실제 호출은 tests/live).
+"""
 
 import pytest
 
@@ -12,11 +15,15 @@ from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError
 from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
 from frame.application.ports.structurer import ReferenceImageInput
+from tests.support.openrouter import PNG_BYTES, make_openrouter_generator
 
 
 @pytest.fixture
 def store():
-    return InMemoryArtifactStore()
+    s = InMemoryArtifactStore()
+    # 요청에 들어 있는 참조 이미지 (실제 생성기는 저장소에서 내용을 읽는다)
+    s.put("refs/cup.png", PNG_BYTES, "image/png")
+    return s
 
 
 GENERATORS = [
@@ -28,6 +35,7 @@ GENERATORS = [
         lambda store: RetryingVideoGenerator(FakeVideoGenerator(store), retries=2),
         id="retrying(fake)",
     ),
+    pytest.param(make_openrouter_generator, id="openrouter(fake-http)"),
 ]
 
 
@@ -98,3 +106,26 @@ def test_retrying_decorator_retries_transient_failures(store, ir):
     exhausted = RetryingVideoGenerator(Flaky(3), retries=2)
     with pytest.raises(GenerationError):
         exhausted.generate_scene(_request(ir))
+
+
+def test_retrying_decorator_does_not_retry_non_retryable_failures(store, ir):
+    """외부 API 가 이미 작업을 받은 뒤의 실패는 다시 제출하면 또 과금되므로 retryable=False 로 보고된다."""
+
+    class Billed(VideoGenerator):
+        calls = 0
+
+        def generate_scene(self, request):
+            self.calls += 1
+            raise GenerationError("작업 실패 (이미 과금됐을 수 있음)", retryable=False)
+
+    inner = Billed()
+    retrying = RetryingVideoGenerator(inner, retries=3)
+    with pytest.raises(GenerationError) as excinfo:
+        retrying.generate_scene(_request(ir))
+    assert excinfo.value.retryable is False
+    assert inner.calls == 1 and retrying.attempts == 1
+
+
+def test_generation_errors_are_retryable_by_default():
+    assert GenerationError("일시 오류").retryable is True
+    assert GenerationError().args == ()  # 기존 생성 방식 그대로

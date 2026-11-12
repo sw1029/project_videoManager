@@ -37,7 +37,11 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | 키 | 값 | 의미 |
 |---|---|---|
 | `FRAME_STRUCTURER` | `rule_based`(DSL 입력) · `llm`(자연어 입력) · `fake` | 요구사항 구조화 모델 |
-| `FRAME_GENERATOR` | `fake` · `diffusers` · `external_api` | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`) |
+| `FRAME_GENERATOR` | `fake` · `external_api`(OpenRouter) · `diffusers`(뼈대) | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`) |
+| `FRAME_VIDEO_MODEL` / `FRAME_VIDEO_RESOLUTION` | OpenRouter 영상 모델 id (기본 `alibaba/wan-3.0`) / `480p` · `720p`(기본) · `1080p` | `external_api` 의 모델과 해상도 (화면비 `FRAME_VIDEO_ASPECT_RATIO`=`9:16`, 클립 fps `FRAME_VIDEO_FPS`=30) |
+| `FRAME_VIDEO_KEY_FILE` | 키 파일 경로 (또는 환경 변수 `OPENROUTER_API_KEY`) | OpenRouter 키 (`sk-or-...`). 저장소에 넣지 않는다 |
+| `FRAME_VIDEO_FFMPEG` | 실행 파일 경로 (비우면 PATH → `video` extra 의 imageio-ffmpeg) | 클립 정규화·조립용 ffmpeg |
+| `FRAME_ASSEMBLER` | `fake` · `ffmpeg` | 최종 영상 조립 (`ffmpeg` 은 장면 클립을 이어 mp4 로. 실제 영상 생성기와 함께 쓴다) |
 | `FRAME_TRACKER` | `fake` · `opencv` | 객체 추적 모델 |
 | `FRAME_CHECKERS` | 쉼표 목록 | 검수기 (요구사항·일관성·보존) |
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
@@ -100,3 +104,22 @@ FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,
 `FRAME_LLM_MODEL=<서빙 모델명>`, `FRAME_LLM_STRICT_SCHEMA=false` 를 더한다. 모델 호출은 `LLMClient` 포트 뒤에 있어
 유스케이스·API·테스트는 바뀌지 않는다.
+
+## 영상 생성 (OpenRouter) 호출 테스트
+
+`FRAME_GENERATOR=external_api` 이면 장면마다 OpenRouter 영상 API(`POST /api/v1/videos` → 폴링 → `/content` 다운로드)로
+클립을 만들고, ffmpeg 로 장면 길이·fps·해상도에 맞춘 무음 mp4 로 바꿔 저장한다. `FRAME_ASSEMBLER=ffmpeg` 면 장면 클립을 이어 최종 mp4 를 만든다 ([ADR-0011](docs/adr/0011-openrouter-video-generator.md)).
+모델은 `FRAME_VIDEO_MODEL` 하나로 바꾸고(기본 Wan 3.0), 허용 길이·화면비·seed 지원은 키 없이 받는 모델 메타데이터를 따른다.
+키는 `OPENROUTER_API_KEY` 나 키 파일(`FRAME_VIDEO_KEY_FILE`, `sk-or-...`)로만 전달한다. 키나 ffmpeg 가 없으면 서버가 기동 단계에서 실패한다.
+
+```bash
+pip install -e ".[dev,video]"
+```
+
+```bash
+FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
+```
+
+카페 예시의 4초 장면 하나를 만들고(Wan 3.0 480p 약 $0.20, 720p 약 $0.40) 비용(`usage.cost`)·소요 시간·출력 규격을 출력한다.
+결과는 `./artifacts/clips/live-<시각>/intro.mp4` 에 남는다. 접수된 작업이 실패하거나 시간을 넘기면 과금 여부를 알 수 없어
+다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건 장면의 재과금을 막으려면 `FRAME_GENERATOR_CACHE=true` 를 권한다.

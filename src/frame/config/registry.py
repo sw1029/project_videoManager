@@ -75,10 +75,8 @@ def default_registry() -> AdapterRegistry:
     )
     from frame.adapters.generator import (
         DiffusersVideoGenerator,
-        ExternalApiVideoGenerator,
         FakeVideoAssembler,
         FakeVideoGenerator,
-        FfmpegVideoAssembler,
     )
     from frame.adapters.jobs import (
         InlineJobDispatcher,
@@ -139,9 +137,44 @@ def default_registry() -> AdapterRegistry:
     # --- 영상 생성 / 조립 (US-01) ---
     reg.register(VideoGenerator, "fake", lambda ctx: FakeVideoGenerator(_store(ctx)))
     reg.register(VideoGenerator, "diffusers", lambda ctx: DiffusersVideoGenerator())
-    reg.register(VideoGenerator, "external_api", lambda ctx: ExternalApiVideoGenerator())
+
+    def _external_api(ctx: BuildContext) -> VideoGenerator:
+        """OpenRouter 영상 API (ADR-0011). 키나 ffmpeg 가 없으면 기동 시점에 ConfigurationError."""
+        from frame.adapters.generator.ffmpeg import FfmpegVideoNormalizer, resolve_ffmpeg
+        from frame.adapters.generator.openrouter import (
+            OpenRouterVideoGenerator,
+            resolve_openrouter_key,
+        )
+
+        s = ctx.settings
+        return OpenRouterVideoGenerator(
+            store=_store(ctx),
+            api_key=resolve_openrouter_key(key_file=s.video_key_file),
+            model=s.video_model,
+            resolution=s.video_resolution,
+            aspect_ratio=s.video_aspect_ratio,
+            fps=s.video_fps,
+            base_url=s.video_base_url,
+            timeout_seconds=s.video_timeout_s,
+            poll_interval_seconds=s.video_poll_interval_s,
+            normalizer=FfmpegVideoNormalizer(resolve_ffmpeg(s.video_ffmpeg)),
+        )
+
+    reg.register(VideoGenerator, "external_api", _external_api)
     reg.register(VideoAssembler, "fake", lambda ctx: FakeVideoAssembler(_store(ctx)))
-    reg.register(VideoAssembler, "ffmpeg", lambda ctx: FfmpegVideoAssembler())
+
+    def _ffmpeg_assembler(ctx: BuildContext) -> VideoAssembler:
+        """장면 클립을 이어 최종 mp4 를 만든다. 생성기가 정규화한 클립과 같은 규격(크기·fps)을 목표로 한다."""
+        from frame.adapters.generator.ffmpeg import FfmpegVideoAssembler, resolve_ffmpeg
+        from frame.adapters.generator.openrouter import output_size
+
+        s = ctx.settings
+        width, height = output_size(s.video_resolution, s.video_aspect_ratio)
+        return FfmpegVideoAssembler(
+            _store(ctx), resolve_ffmpeg(s.video_ffmpeg), fps=s.video_fps, width=width, height=height
+        )
+
+    reg.register(VideoAssembler, "ffmpeg", _ffmpeg_assembler)
 
     # --- 객체 추적 (US-03) ---
     reg.register(ObjectTracker, "fake", lambda ctx: FakeObjectTracker())

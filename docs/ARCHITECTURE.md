@@ -58,7 +58,7 @@ flowchart LR
   end
   subgraph AD["Adapters (교체 가능)"]
     ST["Structurer: rule_based · fake · llm"]
-    GE["Generator: fake · diffusers · external_api (+Retry/Cache)"]
+    GE["Generator: fake · external_api(OpenRouter) · diffusers (+Retry/Cache)"]
     TR["Tracker: fake · opencv"]
     CK["Checker: requirement · consistency · preservation"]
     PS["Persistence: memory · sqlalchemy (MySQL/SQLite)"]
@@ -228,7 +228,7 @@ FRAME/
 │   │   ├── dto.py / jobs.py / errors.py
 │   ├── adapters/                   # [교체 가능 구현]
 │   │   ├── structurer/             #   rule_based(DSL) · fake · llm_stub
-│   │   ├── generator/              #   fake · decorators(Caching/Retrying) · stubs(diffusers/external_api/ffmpeg + compile_prompt)
+│   │   ├── generator/              #   fake · decorators(Caching/Retrying) · openrouter(external_api) · ffmpeg(클립 정규화·조립) · stubs(diffusers + compile_prompt)
 │   │   ├── tracker/                #   fake · opencv_stub
 │   │   ├── checker/                #   fake(요구사항/일관성/보존)
 │   │   ├── persistence/            #   memory(깊은 복사) · sqlalchemy(models/repositories/uow/engine)
@@ -264,8 +264,8 @@ FRAME/
 | 요소 | 포트 (application/ports) | 기본·테스트 구현 | 실제 구현 후보 | 설정 키 | 계약 테스트 |
 |---|---|---|---|---|---|
 | 요구사항 구조화 모델 | `RequirementStructurer` | `rule_based`(DSL) · `fake` | `llm`(OpenAI/Anthropic/vLLM, `LLMStructurer._complete` 구현) · VLM(참조 이미지 → 속성) | `FRAME_STRUCTURER` | `tests/contract/test_structurer_contract.py` |
-| 영상 생성 모델 | `VideoGenerator` | `fake` | `diffusers`(CogVideoX/Wan 로컬) · `external_api`(Runway/Veo/Kling) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE` | `test_generator_contract.py` |
-| 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg` | `FRAME_ASSEMBLER` | 〃 |
+| 영상 생성 모델 | `VideoGenerator` | `fake` | `external_api`(OpenRouter 영상 API, 기본 Wan 3.0 · ADR-0011) · `diffusers`(CogVideoX/Wan 로컬, 뼈대) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`, `FRAME_VIDEO_*` | `test_generator_contract.py` |
+| 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
 | 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
 | 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | CLIP/VLM 속성 판정 · 색상 히스토그램 시계열 · 프레임 차분/SSIM | `FRAME_CHECKERS` (쉼표 목록) | 인수 테스트 재사용 |
 | DB | `UnitOfWork` + 5개 `Repository` | `memory` | `sqlalchemy` (MySQL 8.4 / SQLite) | `FRAME_PERSISTENCE`, `FRAME_DB_URL` | `test_repository_contract.py` |
@@ -385,7 +385,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T7 선택 재생성 도구 Spike | `adapters/generator/stubs.py` (`compile_prompt`) | 뼈대 |
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
-| T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | 뼈대 (`diffusers`/`external_api`) |
+| T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |
 | T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks` | API 제공 |
 | T12 선택 변경·비대상 보존 평가 | `evaluation/edit_metrics.py` | 제공 |
 | T13 원본 보존·상태·오류 통합 테스트 | `tests/integration`, `tests/api` | 제공 |
