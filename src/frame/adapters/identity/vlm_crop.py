@@ -17,13 +17,21 @@
   색인에는 자르는 설정(여백·인물 세로 비율·크기 상하한)도 적는다. 설정을 바꾸면 예전 기준은 쓰지 않고 다시 뽑는다.
 - 잘라 낸 이미지가 작으면 짧은 변을 min_output_side 까지 키운다. 영상 모델은 참조 이미지에 최소 크기를 요구한다
   (Wan: 가로·세로 240~8000 px). 2026-11-12 실호출에서 154x178 컵 이미지가 접수 뒤 'image resolution' 오류로 실패했다.
+- 요구한 고정 속성과 분명히 다른 객체는 기준으로 쓰지 않는다 (verify_attributes). 같은 호출에서 VLM 에게 고정 속성마다
+  yes / no / unclear 를 받아, no 가 하나라도 있으면 자르지 않는다. 2026-11-12 실호출에서 컵을 청록으로 바꾸는 수정의
+  클립에 겉이 빨간 컵이 나왔는데 그 컵이 기준 이미지로 저장됐다. 잘못 나온 모습이 기준이 되면 다음 장면으로 번진다.
+  - 판단할 수 없는 속성(unclear)으로는 거르지 않는다. 분명히 다를 때만 거른다.
+  - 거른 것도 색인에 적어 그 클립에서는 다시 묻지 않는다 (다시 물으면 답이 흔들려 기준이 될 수 있다).
+  - 보이지 않는다는 답은 거절이 아니다. 지금처럼 다른 프레임을 한 번 더 본다.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.video_tools import Box, extract_frame, require_ffmpeg, video_size
@@ -37,6 +45,7 @@ from frame.application.ports.identity import (
 from frame.application.ports.llm import ImageInput, LLMClient
 from frame.domain.enums import EntityKind
 from frame.domain.ir import EntitySpec
+from frame.domain.services.identity import appearance_attributes
 
 from .keys import identity_index_key, identity_key
 
@@ -58,33 +67,75 @@ SYSTEM_PROMPT = (
     "and box to null. Return every requested subject exactly once, using the given keys."
 )
 
+# 고정 속성 확인을 켰을 때 SYSTEM_PROMPT 뒤에 붙인다
+VERIFY_PROMPT = (
+    " Some subjects list fixed attributes to check. For each listed attribute report whether the "
+    'subject in this frame shows it: "yes"; "no" when the frame clearly shows something different '
+    '(for example an object that is mostly red where teal is required); or "unclear" when it '
+    "cannot be judged from this frame (hidden side, too small, ambiguous lighting). Judge by the "
+    "subject's overall look, not by a small part of it. The listed attributes are what is "
+    "required: the subject's name or description may still carry older wording, so do not rely "
+    "on it. Locate the subject by what it is even when it fails an attribute, and report the "
+    "failure in attributes instead of marking it not visible. Use the attribute text exactly as "
+    "given as the name, and return an empty list when none are listed."
+)
+VERDICTS = ("yes", "no", "unclear")
+
 BOX_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": ["x", "y", "w", "h"],
     "properties": {name: {"type": "number"} for name in ("x", "y", "w", "h")},
 }
-RESPONSE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["entities"],
-    "properties": {
-        "entities": {
+
+
+def _response_schema(*, verify: bool) -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        "entity_key": {"type": "string"},
+        "visible": {"type": "boolean"},
+        "box": {"anyOf": [BOX_SCHEMA, {"type": "null"}]},
+        "appearance": {"type": "string"},
+    }
+    if verify:
+        properties["attributes"] = {
             "type": "array",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["entity_key", "visible", "box", "appearance"],
+                "required": ["name", "verdict"],
                 "properties": {
-                    "entity_key": {"type": "string"},
-                    "visible": {"type": "boolean"},
-                    "box": {"anyOf": [BOX_SCHEMA, {"type": "null"}]},
-                    "appearance": {"type": "string"},
+                    "name": {"type": "string"},
+                    "verdict": {"type": "string", "enum": list(VERDICTS)},
                 },
             },
         }
-    },
-}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["entities"],
+        "properties": {
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": list(properties),
+                    "properties": properties,
+                },
+            }
+        },
+    }
+
+
+RESPONSE_SCHEMA = _response_schema(verify=False)
+VERIFY_RESPONSE_SCHEMA = _response_schema(verify=True)
+
+
+@dataclass(frozen=True)
+class _Rejected:
+    """색인에 남긴 거절 기록: 이 클립의 객체는 요구한 고정 속성과 달라 기준으로 쓰지 않는다."""
+
+    attributes: tuple[str, ...]
 
 
 class VlmCropIdentityExtractor(IdentityReferenceExtractor):
@@ -103,6 +154,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         person_max_aspect: float = 1.1,
         timeout_s: float | None = 90.0,
         reuse_existing: bool = True,
+        verify_attributes: bool = True,
     ) -> None:
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
@@ -122,22 +174,42 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         # 인물 기준 이미지의 세로 상한 (가로의 배수). 박스의 위쪽부터 이만큼만 쓴다: 머리·어깨
         self.person_max_aspect = person_max_aspect
         self.reuse_existing = reuse_existing  # 같은 클립·객체의 기준이 이미 있으면 다시 뽑지 않는다
+        # 요구한 고정 속성과 분명히 다른 객체는 기준으로 쓰지 않는다. 끄면 위치와 외형만 묻는다 (예전 질의)
+        self.verify_attributes = verify_attributes
         self.timeout_s = timeout_s
 
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         if not request.entities:
             return ()
         found: dict[str, IdentityImage] = {}
+        rejected: dict[str, tuple[str, ...]] = {}  # 고정 속성과 달라 거른 객체 -> 어긋난 속성
         if self.reuse_existing:
             for entity in request.entities:
                 existing = self._existing(request.clip.uri, entity.entity_key)
-                if existing is not None:
+                if isinstance(existing, _Rejected):
+                    rejected[entity.entity_key] = existing.attributes
+                    log.info(
+                        "정체성 기준: 클립 %s 의 %s 은(는) 앞서 고정 속성과 달라 걸렀습니다 "
+                        "(다시 묻지 않음): %s",
+                        request.clip.uri,
+                        entity.entity_key,
+                        ", ".join(existing.attributes),
+                    )
+                elif existing is not None:
                     found[entity.entity_key] = existing
-        if len(found) == len(request.entities):
-            return tuple(found[e.entity_key] for e in request.entities)
+
+        def pending() -> list[EntitySpec]:
+            return [
+                e
+                for e in request.entities
+                if e.entity_key not in found and e.entity_key not in rejected
+            ]
+
+        if not pending():
+            return tuple(found[e.entity_key] for e in request.entities if e.entity_key in found)
         video = self._store.get(request.clip.uri)
         for position in self.positions:
-            remaining = [e for e in request.entities if e.entity_key not in found]
+            remaining = pending()
             if not remaining:
                 break
             at_ms = int(request.clip.duration_ms * min(1.0, max(0.0, position)))
@@ -153,13 +225,34 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 break
             for entity in remaining:
                 answer = answers.get(entity.entity_key)
-                box = _valid_box(answer, self.min_area) if answer is not None else None
-                if answer is None or box is None:
+                if answer is None:
                     continue
-                image = self._crop(request, entity, video, at_ms, box, answer, frame_size)
+                verdicts = (
+                    _verdicts(answer, _fixed_attributes(request, entity))
+                    if self.verify_attributes
+                    else None
+                )
+                if verdicts and answer.get("visible") is True:
+                    wrong = tuple(name for name, verdict in verdicts.items() if verdict == "no")
+                    if wrong:
+                        # 이 클립은 요구를 반영하지 못했다. 그 모습을 기준으로 삼으면 다음 장면으로 번진다
+                        rejected[entity.entity_key] = wrong
+                        self._remember_rejection(request.clip.uri, entity.entity_key, wrong, at_ms)
+                        log.warning(
+                            "정체성 기준: 클립 %s 의 %s 은(는) 요구한 고정 속성과 달라 "
+                            "기준으로 쓰지 않습니다: %s",
+                            request.clip.uri,
+                            entity.entity_key,
+                            ", ".join(wrong),
+                        )
+                        continue
+                box = _valid_box(answer, self.min_area)
+                if box is None:
+                    continue
+                image = self._crop(request, entity, video, at_ms, box, answer, frame_size, verdicts)
                 if image is not None:
                     found[entity.entity_key] = image
-        missing = [e.entity_key for e in request.entities if e.entity_key not in found]
+        missing = [e.entity_key for e in pending()]
         if missing:
             log.info(
                 "정체성 기준: 클립 %s 에서 객체를 찾지 못했습니다: %s",
@@ -174,10 +267,11 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         entities: Sequence[EntitySpec],
         frame: ImageInput,
     ) -> dict[str, Mapping[str, Any]]:
+        verify = self.verify_attributes
         completion = self._llm.complete_json(
-            SYSTEM_PROMPT,
-            _user_prompt(request, entities),
-            RESPONSE_SCHEMA,
+            SYSTEM_PROMPT + VERIFY_PROMPT if verify else SYSTEM_PROMPT,
+            _user_prompt(request, entities, verify=verify),
+            VERIFY_RESPONSE_SCHEMA if verify else RESPONSE_SCHEMA,
             schema_name="entity_boxes",
             timeout_s=self.timeout_s,
             images=(frame,),
@@ -206,6 +300,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         box: Box,
         answer: Mapping[str, Any],
         frame_size: tuple[int, int],
+        verdicts: Mapping[str, str] | None = None,
     ) -> IdentityImage | None:
         region = box.padded(self.padding)
         if entity.kind is EntityKind.PERSON:
@@ -228,35 +323,41 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             crop.data,
             crop.media_type,
         )
+        detail: dict[str, Any] = {
+            "extractor": "vlm_crop",
+            "frame_ms": at_ms,
+            "box": box.as_dict(),
+            "region": region.as_dict(),
+            "size": [width, height],
+            "native_size": list(native_size),
+        }
+        if verdicts is not None:
+            detail["attributes"] = dict(verdicts)  # 고정 속성마다 VLM 이 내린 판정 (근거로 남긴다)
         image = IdentityImage(
             entity_key=entity.entity_key,
             image_uri=uri,
             description=" ".join(str(answer.get("appearance") or "").split())[:240],
-            detail={
-                "extractor": "vlm_crop",
-                "frame_ms": at_ms,
-                "box": box.as_dict(),
-                "region": region.as_dict(),
-                "size": [width, height],
-                "native_size": list(native_size),
-            },
+            detail=detail,
         )
         self._remember(request.clip.uri, image)
         return image
 
     # ---- 클립·객체별 색인 ----
-    def _existing(self, clip_uri: str, entity_key: str) -> IdentityImage | None:
-        """이 클립에서 이 객체의 기준을 이미 뽑아 두었으면 그것 (이미지가 남아 있을 때만)."""
+    def _existing(self, clip_uri: str, entity_key: str) -> IdentityImage | _Rejected | None:
+        """이 클립에서 이 객체를 이미 다뤘으면 그 결과: 뽑아 둔 기준(이미지가 남아 있을 때만) 또는 거절 기록."""
         index_uri = self._store.uri_for(identity_index_key(clip_uri, entity_key))
         try:
             if index_uri is None or not self._store.exists(index_uri):
                 return None
             data = json.loads(self._store.get(index_uri).decode("utf-8"))
+            if data.get("entity_key") != entity_key or data.get("params") != self._params():
+                return None  # 다른 객체의 항목이거나 다른 설정으로 만든 결과다
+            rejected = data.get("rejected")
+            if isinstance(rejected, list) and rejected:
+                return _Rejected(tuple(str(name) for name in rejected))
             image_uri = str(data["image_uri"])
-            if data.get("entity_key") != entity_key or not self._store.exists(image_uri):
+            if not self._store.exists(image_uri):
                 return None
-            if data.get("params") != self._params():
-                return None  # 다른 설정으로 자른 기준이다
             return IdentityImage(
                 entity_key=entity_key,
                 image_uri=image_uri,
@@ -267,32 +368,52 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             log.warning("정체성 기준 색인을 읽지 못해 다시 뽑습니다 (%s): %s", entity_key, exc)
             return None
 
-    def _params(self) -> dict[str, float]:
-        """이미지를 어떻게 잘랐는지 정하는 설정 (색인 항목이 지금 설정으로 만든 것인지 가리는 데 쓴다)."""
-        return {
+    def _params(self) -> dict[str, float | bool]:
+        """기준을 어떻게 뽑았는지 정하는 설정 (색인 항목이 지금 설정으로 만든 것인지 가리는 데 쓴다)."""
+        params: dict[str, float | bool] = {
             "padding": self.padding,
             "person_max_aspect": self.person_max_aspect,
             "min_output_side": self.min_output_side,
             "max_side": self.max_side,
         }
+        if self.verify_attributes:
+            # 확인 없이 뽑아 둔 기준(이 값이 없는 항목)은 확인을 켠 뒤에는 다시 쓰지 않는다
+            params["verify_attributes"] = True
+        return params
 
     def _remember(self, clip_uri: str, image: IdentityImage) -> None:
-        payload = {
-            "schema": 1,
-            "entity_key": image.entity_key,
-            "image_uri": image.image_uri,
-            "description": image.description,
-            "detail": dict(image.detail),
-            "params": self._params(),
-        }
+        self._write_index(
+            clip_uri,
+            image.entity_key,
+            {
+                "image_uri": image.image_uri,
+                "description": image.description,
+                "detail": dict(image.detail),
+            },
+        )
+
+    def _remember_rejection(
+        self, clip_uri: str, entity_key: str, attributes: Sequence[str], at_ms: int
+    ) -> None:
+        self._write_index(
+            clip_uri,
+            entity_key,
+            {
+                "rejected": list(attributes),
+                "detail": {"extractor": "vlm_crop", "frame_ms": at_ms},
+            },
+        )
+
+    def _write_index(self, clip_uri: str, entity_key: str, fields: Mapping[str, Any]) -> None:
+        payload = {"schema": 1, "entity_key": entity_key, "params": self._params(), **fields}
         try:
             self._store.put(
-                identity_index_key(clip_uri, image.entity_key),
+                identity_index_key(clip_uri, entity_key),
                 json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"),
                 "application/json",
             )
-        except Exception as exc:  # noqa: BLE001 - 색인을 못 써도 뽑은 기준은 그대로 쓴다
-            log.warning("정체성 기준 색인을 쓰지 못했습니다 (%s): %s", image.entity_key, exc)
+        except Exception as exc:  # noqa: BLE001 - 색인을 못 써도 이번 결과는 그대로 쓴다
+            log.warning("정체성 기준 색인을 쓰지 못했습니다 (%s): %s", entity_key, exc)
 
 
 def _portrait(region: Box, frame_size: tuple[int, int], max_aspect: float) -> Box:
@@ -304,7 +425,9 @@ def _portrait(region: Box, frame_size: tuple[int, int], max_aspect: float) -> Bo
     return Box(region.x, region.y, region.w, width_px * max_aspect / frame_h)
 
 
-def _user_prompt(request: IdentityExtractionRequest, entities: Sequence[EntitySpec]) -> str:
+def _user_prompt(
+    request: IdentityExtractionRequest, entities: Sequence[EntitySpec], *, verify: bool = False
+) -> str:
     scene = request.scene
     lines = ["Subjects to locate in the image:"]
     for entity in entities:
@@ -318,9 +441,46 @@ def _user_prompt(request: IdentityExtractionRequest, entities: Sequence[EntitySp
         lines.append(
             f"- {entity.entity_key} ({str(entity.kind).lower()})" + (f": {text}" if text else "")
         )
+        fixed = _fixed_attributes(request, entity) if verify else []
+        if fixed:
+            lines.append("  fixed attributes to check: " + "; ".join(fixed))
     if scene.description.strip():
         lines.append(f"Scene the frame comes from: {scene.description.strip()}")
     return "\n".join(lines)
+
+
+def _fixed_attributes(request: IdentityExtractionRequest, entity: EntitySpec) -> list[str]:
+    """이 장면에서 객체가 지켜야 하는 고정 속성 ('술어: 값'). 관계와 행동·자세 같은 일시적 술어는 뺀다."""
+    return [
+        f"{predicate.replace('_', ' ')}: {value}"
+        for predicate, value in appearance_attributes(request.scene, entity.entity_key).items()
+    ]
+
+
+def _canonical(name: str) -> str:
+    """속성 이름을 견줄 때 쓰는 꼴: 대소문자·공백·구두점 차이를 없앤다."""
+    return re.sub(r"[\W_]+", "", name.lower())
+
+
+def _verdicts(answer: Mapping[str, Any], expected: Sequence[str]) -> dict[str, str]:
+    """물어본 고정 속성마다 VLM 이 내린 판정 (이름 -> yes | no | unclear).
+
+    물어보지 않은 이름과 형식이 어긋난 항목은 버린다. 모델이 행동 같은 일시적 조건에 no 를 붙여도
+    기준을 버리지 않게 한다. 같은 속성에 판정이 여럿이면 no 가 이긴다.
+    """
+    items = answer.get("attributes")
+    if not isinstance(items, list):
+        return {}
+    names = {_canonical(name): name for name in expected}
+    verdicts: dict[str, str] = {}
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        name = names.get(_canonical(str(item.get("name") or "")))
+        verdict = str(item.get("verdict") or "").strip().lower()
+        if name is not None and verdict in VERDICTS and verdicts.get(name) != "no":
+            verdicts[name] = verdict
+    return verdicts
 
 
 def _valid_box(answer: Mapping[str, Any], min_area: float) -> Box | None:

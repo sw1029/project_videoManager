@@ -214,7 +214,12 @@ def default_registry() -> AdapterRegistry:
     reg.register(
         IdentityReferenceExtractor,
         "vlm_crop",
-        lambda ctx: VlmCropIdentityExtractor(_store(ctx), _ffmpeg(ctx), _vlm(ctx)),
+        lambda ctx: VlmCropIdentityExtractor(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            verify_attributes=ctx.settings.identity_verify_attributes,
+        ),
     )
 
     # --- 객체 추적 (US-03) ---

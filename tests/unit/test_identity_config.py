@@ -54,6 +54,20 @@ def test_vlm_model_is_read_from_the_environment():
     assert Settings.from_env({"FRAME_VLM_MODEL": ""}).vlm_model is None
 
 
+def test_attribute_check_of_the_vlm_crop_extractor_can_be_turned_off(fake_ffmpeg):
+    base = {"identity": "vlm_crop", "llm_provider": "fake", "video_ffmpeg": str(fake_ffmpeg)}
+
+    assert build_container(Settings(**base)).identity_extractor.verify_attributes is True
+    off = build_container(Settings(**base, identity_verify_attributes=False))
+    assert off.identity_extractor.verify_attributes is False
+
+
+def test_attribute_check_setting_is_read_from_the_environment():
+    assert Settings.from_env({}).identity_verify_attributes is True
+    off = Settings.from_env({"FRAME_IDENTITY_VERIFY_ATTRIBUTES": "false"})
+    assert off.identity_verify_attributes is False
+
+
 def test_video_reading_extractors_fail_at_startup_without_ffmpeg(tmp_path):
     missing = str(tmp_path / "no-ffmpeg.exe")
     for identity in ("frame", "vlm_crop"):

@@ -275,7 +275,7 @@ FRAME/
 | 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
 | 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
 | 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | `vlm_consistency`(표본 프레임 VLM 판정, ADR-0015) · `ssim_preservation`(부모 클립 대비 SSIM, ADR-0016) · CLIP/임베딩 속성 판정 | `FRAME_CHECKERS` (쉼표 목록) | `test_checker_contract.py` |
-| 정체성 기준 추출 | `IdentityReferenceExtractor` | `off`(없음) · `fake` | `vlm_crop`(VLM 박스로 잘라 냄) · `frame`(화면 전체) · 추적 박스·마스크 | `FRAME_IDENTITY`, `FRAME_IDENTITY_KINDS`, `FRAME_IDENTITY_MAX_REFERENCES`, `FRAME_VLM_MODEL` | `test_identity_extractor_contract.py` |
+| 정체성 기준 추출 | `IdentityReferenceExtractor` | `off`(없음) · `fake` | `vlm_crop`(VLM 박스로 잘라 냄) · `frame`(화면 전체) · 추적 박스·마스크 | `FRAME_IDENTITY`, `FRAME_IDENTITY_KINDS`, `FRAME_IDENTITY_MAX_REFERENCES`, `FRAME_IDENTITY_VERIFY_ATTRIBUTES`, `FRAME_VLM_MODEL` | `test_identity_extractor_contract.py` |
 | DB | `UnitOfWork` + 5개 `Repository` | `memory` | `sqlalchemy` (MySQL 8.4 / SQLite) | `FRAME_PERSISTENCE`, `FRAME_DB_URL` | `test_repository_contract.py` |
 | 산출물 저장 | `ArtifactStore` | `memory` | `local_fs` · Google Drive · S3 | `FRAME_ARTIFACT_STORE`, `FRAME_ARTIFACT_DIR` | generator 계약 내 `exists()` |
 | 비동기 실행 | `JobDispatcher` | `inline` · `recording` | `thread` · Celery/RQ(Redis) | `FRAME_JOBS` | 유스케이스 테스트 |

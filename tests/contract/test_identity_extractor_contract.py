@@ -337,6 +337,176 @@ def test_vlm_crop_ignores_boxes_that_are_too_small_or_malformed(store, ir, clip_
     )
 
 
+# ---- 고정 속성 확인: 잘못 나온 객체는 기준으로 쓰지 않는다 -------------------------------------
+
+
+def _judged(key: str, verdicts: dict[str, str], *, visible: bool = True) -> dict:
+    """VLM 이 객체를 화면 가운데에서 찾고, 확인할 고정 속성마다 판정을 붙인 답."""
+    return {
+        "entity_key": key,
+        "visible": visible,
+        "box": {"x": 0.25, "y": 0.25, "w": 0.5, "h": 0.5} if visible else None,
+        "appearance": f"{key} appearance",
+        "attributes": [{"name": name, "verdict": verdict} for name, verdict in verdicts.items()],
+    }
+
+
+def _answer(*entities: dict) -> str:
+    return json.dumps({"entities": list(entities)})
+
+
+@needs_ffmpeg
+def test_vlm_crop_does_not_use_a_subject_that_contradicts_its_fixed_attributes(
+    store, ir, clip_bytes, caplog
+):
+    """클립이 요구(컵 색)를 반영하지 못했으면 그 컵을 기준으로 삼지 않는다. 다음 장면으로 번지지 않게 한다.
+
+    2026-11-12 실호출: 청록으로 바꾸라는 수정에서 겉이 빨간 컵이 나왔는데 그 컵이 기준 이미지로 저장됐다.
+    """
+    llm = ReplayLLMClient([_answer(_judged("cup", {"color: red": "no"}))])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+
+    with caplog.at_level("WARNING"):
+        images = extractor.extract(_request(store, ir, clip_bytes, "cup"))
+
+    assert images == ()
+    assert len(llm.calls) == 1  # 다른 프레임을 다시 보지 않는다 (그 클립의 객체가 그 모습이다)
+    assert "cup" in caplog.text and "color: red" in caplog.text
+
+
+@needs_ffmpeg
+def test_vlm_crop_remembers_that_a_clip_was_rejected(store, ir, clip_bytes):
+    """같은 클립을 다시 물으면 VLM 답이 흔들려 이번에는 기준이 될 수 있다. 한 번 거른 클립은 다시 묻지 않는다."""
+    llm = ReplayLLMClient([_answer(_judged("cup", {"color: red": "no"})), _located("cup")])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+
+    assert extractor.extract(_request(store, ir, clip_bytes, "cup")) == ()
+    assert extractor.extract(_request(store, ir, clip_bytes, "cup")) == ()
+    assert len(llm.calls) == 1
+    # 다른 클립은 따로 본다
+    (other,) = extractor.extract(
+        _request(store, ir, clip_bytes, "cup", clip_key="clips/ver_2/intro.mp4")
+    )
+    assert other.entity_key == "cup" and len(llm.calls) == 2
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("verdict", ["yes", "unclear"])
+def test_vlm_crop_uses_a_subject_whose_attributes_hold_or_cannot_be_judged(
+    store, ir, clip_bytes, verdict
+):
+    """분명히 다를 때만 거른다. 이 프레임에서 판단할 수 없는 속성 때문에 기준을 버리지 않는다."""
+    llm = ReplayLLMClient([_answer(_judged("cup", {"color: red": verdict}))])
+
+    (image,) = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup")
+    )
+
+    assert store.exists(image.image_uri)
+    assert image.detail["attributes"] == {"color: red": verdict}
+
+
+@needs_ffmpeg
+def test_vlm_crop_judges_each_subject_on_its_own(store, ir, clip_bytes):
+    both = _answer(
+        _judged("barista", {"shirt color: white": "yes"}),
+        _judged("cup", {"color: red": "no"}),
+    )
+    llm = ReplayLLMClient([both])
+
+    images = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "barista", "cup")
+    )
+
+    assert [i.entity_key for i in images] == ["barista"]
+    assert len(llm.calls) == 1
+
+
+@needs_ffmpeg
+def test_vlm_crop_only_counts_verdicts_on_the_attributes_it_asked_about(store, ir, clip_bytes):
+    """모델이 묻지 않은 것(행동 같은 일시적 조건)에 'no' 를 붙여도 기준을 버리지 않는다.
+
+    이름의 대소문자·공백·구두점 차이는 맞춰 읽는다.
+    """
+    judged = _judged("cup", {"action: shows cup to camera": "no", "Color : RED": "yes"})
+    llm = ReplayLLMClient([_answer(judged)])
+
+    (image,) = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup")
+    )
+
+    assert image.detail["attributes"] == {"color: red": "yes"}
+    respelled = ReplayLLMClient([_answer(_judged("cup", {"COLOR:red": "no"}))])
+    assert (
+        VlmCropIdentityExtractor(store, FFMPEG, respelled, min_side=8).extract(
+            _request(store, ir, clip_bytes, "cup", clip_key="clips/ver_2/intro.mp4")
+        )
+        == ()
+    )
+
+
+@needs_ffmpeg
+def test_vlm_crop_looks_again_when_the_subject_is_not_visible(store, ir, clip_bytes):
+    """보이지 않는다는 답은 거절이 아니다. 예전처럼 다른 프레임을 한 번 더 본다."""
+    hidden = _answer(_judged("cup", {"color: red": "no"}, visible=False))
+    llm = ReplayLLMClient([hidden, _answer(_judged("cup", {"color: red": "yes"}))])
+
+    images = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup")
+    )
+
+    assert [i.entity_key for i in images] == ["cup"] and len(llm.calls) == 2
+
+
+@needs_ffmpeg
+def test_vlm_crop_asks_the_model_to_check_the_fixed_attributes(store, ir, clip_bytes):
+    llm = ReplayLLMClient([_located("barista", "cup")])
+    VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "barista", "cup")
+    )
+
+    (call,) = llm.calls
+    lines = call["user"].splitlines()
+    assert "  fixed attributes to check: color: red" in lines
+    # 관계(holds)는 고정 속성이 아니다
+    assert "  fixed attributes to check: shirt color: white" in lines
+    item = call["schema"]["properties"]["entities"]["items"]
+    assert "attributes" in item["required"]
+    verdict = item["properties"]["attributes"]["items"]["properties"]["verdict"]
+    assert verdict["enum"] == ["yes", "no", "unclear"]
+    assert "unclear" in call["system"]
+
+
+@needs_ffmpeg
+def test_vlm_crop_can_skip_the_attribute_check(store, ir, clip_bytes):
+    """끄면 예전 질의 그대로다 (위치와 외형만 묻는다). VLM 이 '다르다' 고 답해도 거르지 않는다."""
+    llm = ReplayLLMClient([_answer(_judged("cup", {"color: red": "no"}))])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8, verify_attributes=False)
+
+    (image,) = extractor.extract(_request(store, ir, clip_bytes, "cup"))
+
+    (call,) = llm.calls
+    assert "fixed attributes" not in call["user"] and "unclear" not in call["system"]
+    assert "attributes" not in call["schema"]["properties"]["entities"]["items"]["properties"]
+    assert store.exists(image.image_uri) and "attributes" not in image.detail
+
+
+@needs_ffmpeg
+def test_vlm_crop_does_not_reuse_references_extracted_without_the_check(store, ir, clip_bytes):
+    """확인 없이 뽑아 둔 기준은 확인을 켠 추출기가 다시 쓰지 않는다 (색인은 같은 설정의 결과만 쓴다)."""
+    unchecked = VlmCropIdentityExtractor(
+        store, FFMPEG, ReplayLLMClient([_located("cup")]), min_side=8, verify_attributes=False
+    )
+    assert len(unchecked.extract(_request(store, ir, clip_bytes, "cup"))) == 1
+    llm = ReplayLLMClient([_answer(_judged("cup", {"color: red": "no"}))])
+
+    checked = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup")
+    )
+
+    assert checked == () and len(llm.calls) == 1
+
+
 @needs_ffmpeg
 def test_vlm_failure_is_reported_as_an_adapter_error(store, ir, clip_bytes):
     from frame.application.errors import AdapterError
