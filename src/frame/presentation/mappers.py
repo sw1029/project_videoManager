@@ -164,6 +164,9 @@ def version_out(
                 reference_image_id=r.reference_image_id,
                 image_uri=r.image_uri,
                 entity_key=r.entity_key,
+                origin=str(r.origin),  # type: ignore[arg-type]
+                source_scene_key=r.source_scene_key,
+                description=r.description or None,
             )
             for r in detail.reference_images
         ],

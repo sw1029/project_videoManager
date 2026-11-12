@@ -18,8 +18,9 @@ from frame.adapters.persistence.sqlalchemy.models import (
     SceneRow,
 )
 from frame.config import Settings
+from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import VersionState
-from frame.domain.models import Project, VideoVersion
+from frame.domain.models import Project, ReferenceImage, VideoVersion
 from tests.support.factories import create_draft, generate, make_container
 
 NOW = datetime(2026, 11, 7, tzinfo=UTC)
@@ -104,3 +105,57 @@ def test_existing_sqlite_database_gains_new_version_columns(tmp_path, ir):
         version = uow.versions.get("ver_1")
         assert (version.queued_at, version.started_at, version.attempt) == (None, None, 0)
         assert version.ir == ir
+
+
+def test_existing_sqlite_database_gains_identity_reference_columns(tmp_path, ir):
+    """ADR-0015: 정체성 기준 열이 없던 예전 개발 DB 의 참조 이미지는 사용자 참조(USER)로 읽힌다."""
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.reference_images.add(ReferenceImage("img_1", "ver_1", "mem://refs/cup.png", "cup"))
+        uow.commit()
+    new_columns = (
+        "origin",
+        "source_scene_key",
+        "source_fingerprint",
+        "appearance_fingerprint",
+        "description",
+    )
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        for column in new_columns:
+            conn.exec_driver_sql(f"ALTER TABLE reference_images DROP COLUMN {column}")
+
+    create_schema(engine)
+
+    columns = {c["name"] for c in inspect(engine).get_columns("reference_images")}
+    assert set(new_columns) <= columns
+    with uow_factory() as uow:
+        (ref,) = uow.reference_images.list_by_version("ver_1")
+        assert ref == ReferenceImage("img_1", "ver_1", "mem://refs/cup.png", "cup")
+
+
+def test_existing_sqlite_database_gains_the_clip_metadata_column(tmp_path, ir):
+    """ADR-0016: 클립 메타데이터 열이 없던 예전 개발 DB 의 클립은 빈 메타데이터로 읽힌다."""
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        version = VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir)
+        version.clips = {"intro": GeneratedClip("intro", "mem://clips/intro", 4000, "fp")}
+        uow.versions.add(version)
+        uow.versions.save(version)
+        uow.commit()
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        conn.exec_driver_sql("ALTER TABLE scenes DROP COLUMN clip_metadata_json")
+
+    create_schema(engine)
+
+    assert "clip_metadata_json" in {c["name"] for c in inspect(engine).get_columns("scenes")}
+    with uow_factory() as uow:
+        assert uow.versions.get("ver_1").clips["intro"] == GeneratedClip(
+            "intro", "mem://clips/intro", 4000, "fp"
+        )

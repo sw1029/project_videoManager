@@ -831,6 +831,11 @@
             "title": "Generator",
             "type": "string"
           },
+          "identity": {
+            "default": "off",
+            "title": "Identity",
+            "type": "string"
+          },
           "jobs": {
             "title": "Jobs",
             "type": "string"
@@ -1181,6 +1186,17 @@
       },
       "ReferenceImageOut": {
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
           "entity_key": {
             "anyOf": [
               {
@@ -1196,9 +1212,29 @@
             "title": "Image Uri",
             "type": "string"
           },
+          "origin": {
+            "default": "USER",
+            "enum": [
+              "USER",
+              "DERIVED"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
           "reference_image_id": {
             "title": "Reference Image Id",
             "type": "string"
+          },
+          "source_scene_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Scene Key"
           }
         },
         "required": [

@@ -212,3 +212,63 @@ def test_start_is_committed_before_the_stages_run():
         clock.current,
         1,
     )
+
+
+# ---- 부모 클립 전달 (ADR-0016) ---------------------------------------------------------
+
+
+def test_regenerated_scenes_receive_their_parent_clip_and_conditions():
+    store = InMemoryArtifactStore()
+    generator = FakeVideoGenerator(store)
+    container = make_container(artifact_store=store, generator=generator)
+    draft = create_draft(container)
+    original = generate(container, draft.version_id)
+    assert all(r.parent is None for r in generator.requests)  # 원본 버전에는 부모가 없다
+    generator.requests.clear()
+
+    revision = container.create_revision.execute(
+        CreateRevisionCommand(draft.version_id, AttributeChange("cup", "color", "teal"))
+    )
+    generate(container, revision.version_id)
+
+    by_scene = {r.scene.scene_key: r for r in generator.requests}
+    assert set(by_scene) == {"intro", "closeup"}
+    for scene_key, request in by_scene.items():
+        parent = request.parent
+        assert parent.version_id == draft.version_id
+        assert parent.clip == original.clips[scene_key]
+        assert parent.clip.metadata["generator"] == "fake"  # 부모 클립의 생성 기록
+        # 부모 쪽 조건: 컵이 아직 빨강이다 (지금 요청은 청록)
+        assert ("color", "red") in {
+            (r.predicate, r.expected_value) for r in parent.scene.requirements
+        }
+        assert ("color", "teal") in {
+            (r.predicate, r.expected_value) for r in request.scene.requirements
+        }
+        assert [e.entity_key for e in parent.entities] == list(parent.scene.entity_keys)
+
+
+def test_revision_of_a_failed_parent_passes_no_parent_clip_for_missing_scenes():
+    store = InMemoryArtifactStore()
+    container = make_container(
+        artifact_store=store, generator=FakeVideoGenerator(store, fail_scene_keys={"closeup"})
+    )
+    draft = create_draft(container)
+    generate(container, draft.version_id)  # intro 만 만들고 실패
+
+    generator = FakeVideoGenerator(store)
+    retry = make_container(
+        artifact_store=store,
+        generator=generator,
+        uow_factory=container.uow_factory,
+        ids=container.ids,
+        clock=container.clock,
+    )
+    revision = retry.create_revision.execute(
+        CreateRevisionCommand(draft.version_id, AttributeChange("cup", "color", "teal"))
+    )
+    generate(retry, revision.version_id)
+
+    by_scene = {r.scene.scene_key: r for r in generator.requests}
+    assert by_scene["intro"].parent is not None
+    assert by_scene["closeup"].parent is None and by_scene["outro"].parent is None

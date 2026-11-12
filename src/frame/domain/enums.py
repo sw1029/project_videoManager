@@ -55,3 +55,10 @@ class ChangeScope(StrEnum):
 
     SCENES = "SCENES"  # 지정한 장면에만 반영
     ALL_APPEARANCES = "ALL_APPEARANCES"  # 객체가 등장하는 모든 장면에 반영
+
+
+class ReferenceOrigin(StrEnum):
+    """REFERENCE_IMAGE 의 출처 (ERD 확장, ADR-0015)."""
+
+    USER = "USER"  # 사용자가 올린 참조 이미지
+    DERIVED = "DERIVED"  # 장면 클립에서 뽑은 객체의 정체성 기준 이미지

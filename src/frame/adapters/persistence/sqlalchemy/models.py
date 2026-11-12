@@ -84,6 +84,8 @@ class SceneRow(Base):
     clip_uri: Mapped[str | None] = mapped_column(String(1024), nullable=True)  # 확장 (장면 클립)
     clip_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확장
     clip_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 확장
+    # 확장 (ADR-0016): 클립을 만든 생성기의 기록(모델·작업 id·비용 등). 부모 클립 편집에 쓴다
+    clip_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SceneEntityRow(Base):
@@ -107,6 +109,14 @@ class ReferenceImageRow(Base):
         String(64), nullable=True
     )  # 구조화 전엔 키만 보관
     image_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
+    # 확장 (ADR-0015 정체성 기준 이미지). 사용자 참조는 origin=USER 이고 나머지는 비어 있다
+    origin: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="USER", server_default=text("'USER'")
+    )
+    source_scene_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    appearance_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class RequirementRow(Base):

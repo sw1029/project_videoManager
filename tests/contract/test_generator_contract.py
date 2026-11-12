@@ -3,6 +3,8 @@
 OpenRouter 어댑터는 가짜 HTTP 전송·가짜 정규화기를 꽂아 네트워크 없이 같은 계약을 확인한다 (실제 호출은 tests/live).
 """
 
+from dataclasses import replace
+
 import pytest
 
 from frame.adapters.generator import (
@@ -15,8 +17,14 @@ from frame.adapters.generator import (
 from frame.adapters.generator.cache import ArtifactClipCache
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError
-from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
+from frame.application.ports.generator import (
+    GeneratedClip,
+    ParentClip,
+    SceneGenerationRequest,
+    VideoGenerator,
+)
 from frame.application.ports.structurer import ReferenceImageInput
+from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
 from tests.support.openrouter import PNG_BYTES, make_openrouter_generator
 
 
@@ -168,3 +176,136 @@ def test_retrying_decorator_does_not_retry_non_retryable_failures(store, ir):
 def test_generation_errors_are_retryable_by_default():
     assert GenerationError("일시 오류").retryable is True
     assert GenerationError().args == ()  # 기존 생성 방식 그대로
+
+
+# ---- 정체성 기준 이미지 (ADR-0015) ----------------------------------------------------
+
+
+def _with_identity(request, *uris):
+    return replace(
+        request, identity_references=tuple(ReferenceImageInput(uri, "barista") for uri in uris)
+    )
+
+
+def test_identity_references_change_the_generation_key_but_not_the_conditions(ir):
+    plain = _request(ir)
+    anchored = _with_identity(plain, "mem://refs/cup.png")
+
+    assert plain.generation_fingerprint == plain.fingerprint  # 기준이 없으면 예전 키 그대로
+    assert anchored.fingerprint == plain.fingerprint  # 버전 사이 재사용 판단은 그대로다
+    assert anchored.generation_fingerprint != plain.fingerprint
+    other = _with_identity(plain, "mem://refs/other.png")
+    assert other.generation_fingerprint != anchored.generation_fingerprint
+    described = replace(
+        plain,
+        identity_references=(ReferenceImageInput("mem://refs/cup.png", "barista", "짧은 머리"),),
+    )
+    assert described.generation_fingerprint != anchored.generation_fingerprint
+
+
+def test_clip_fingerprint_stays_the_condition_fingerprint_with_identity_references(
+    generator, store, ir
+):
+    request = _with_identity(_request(ir), "mem://refs/cup.png")
+    clip = generator.generate_scene(request)
+
+    assert clip.fingerprint == request.fingerprint
+    assert generator.result_key(request) == request.generation_fingerprint
+    assert generator.result_key(_request(ir)) == _request(ir).fingerprint
+
+
+def test_cache_keeps_results_with_different_identity_references_apart(store, ir):
+    inner = FakeVideoGenerator(store)
+    cached = CachingVideoGenerator(inner)
+    plain = _request(ir)
+    anchored = _with_identity(plain, "mem://refs/cup.png")
+
+    cached.generate_scene(plain)
+    cached.generate_scene(anchored)  # 같은 조건이지만 기준 이미지가 생겼다: 따로 생성한다
+    cached.generate_scene(_with_identity(_request(ir, version_id="ver_2"), "mem://refs/cup.png"))
+
+    assert len(inner.requests) == 2 and cached.hits == 1
+
+
+# ---- 부모 클립 (ADR-0016) ------------------------------------------------------------
+
+
+def _with_parent(request, ir, store, uri="mem://clips/ver_0/intro.mp4"):
+    """부모 버전에서 같은 장면을 빨간 컵으로 만든 클립을 실은 요청 (지금 요청은 컵 색만 다르다)."""
+    parent_scene = ir.scene(request.scene.scene_key)
+    clip = GeneratedClip(
+        parent_scene.scene_key,
+        uri,
+        parent_scene.duration_ms,
+        "parent-fingerprint",
+        {"generator": "fake", "job_id": "gen-vid-1789480874-Ab3dEf9hIjKlMnOpQrSt"},
+    )
+    parent = ParentClip(
+        "ver_0", clip, parent_scene, tuple(ir.entity(k) for k in parent_scene.entity_keys)
+    )
+    return replace(request, parent=parent)
+
+
+def _recolored(ir):
+    return DefaultPropagationPolicy().apply(ir, AttributeChange("cup", "color", "teal")).ir
+
+
+def test_parent_clip_is_not_part_of_the_condition_fingerprint(ir, store):
+    request = _request(_recolored(ir))
+    with_parent = _with_parent(request, ir, store)
+
+    assert with_parent.fingerprint == request.fingerprint
+    assert with_parent.generation_fingerprint == request.generation_fingerprint
+
+
+def test_request_with_a_parent_clip_keeps_the_generator_contract(generator, store, ir):
+    """부모 클립을 편집하든 무시하고 새로 만들든, 돌려주는 클립의 계약은 같다."""
+    request = _with_parent(_request(_recolored(ir)), ir, store)
+
+    clip = generator.generate_scene(request)
+
+    assert clip.scene_key == "intro"
+    assert clip.duration_ms == request.scene.duration_ms
+    assert clip.fingerprint == request.fingerprint
+    assert store.exists(clip.uri)
+
+
+def test_generators_that_do_not_edit_ignore_the_parent_in_their_result_key(generator, store, ir):
+    request = _request(_recolored(ir))
+    assert generator.result_key(_with_parent(request, ir, store)) == generator.result_key(request)
+
+
+def test_fake_generator_records_the_parent_clip(store, ir):
+    generator = FakeVideoGenerator(store)
+    request = _with_parent(_request(_recolored(ir)), ir, store)
+
+    clip = generator.generate_scene(request)
+
+    assert generator.requests[-1].parent.clip.uri == "mem://clips/ver_0/intro.mp4"
+    assert clip.metadata["parent_clip_uri"] == "mem://clips/ver_0/intro.mp4"
+    assert clip.metadata["edited_parent"] is False  # 기록만 하고 새로 만든다
+    assert "parent_clip_uri" not in generator.generate_scene(_request(ir)).metadata
+
+
+def test_editing_fake_generator_keys_its_result_on_the_parent_clip(store, ir):
+    generator = FakeVideoGenerator(store, edits_parent=True)
+    request = _request(_recolored(ir))
+    from_a = _with_parent(request, ir, store, "mem://clips/ver_a/intro.mp4")
+    from_b = _with_parent(request, ir, store, "mem://clips/ver_b/intro.mp4")
+
+    assert generator.result_key(request) == request.generation_fingerprint
+    assert generator.result_key(from_a) != request.generation_fingerprint
+    assert generator.result_key(from_a) != generator.result_key(from_b)
+    assert generator.generate_scene(from_a).metadata["edited_parent"] is True
+
+
+def test_cache_follows_the_result_key_of_an_editing_generator(store, ir):
+    inner = FakeVideoGenerator(store, edits_parent=True)
+    cached = CachingVideoGenerator(inner)
+    request = _request(_recolored(ir))
+
+    cached.generate_scene(_with_parent(request, ir, store, "mem://clips/ver_a/intro.mp4"))
+    cached.generate_scene(_with_parent(request, ir, store, "mem://clips/ver_b/intro.mp4"))
+    cached.generate_scene(_with_parent(request, ir, store, "mem://clips/ver_a/intro.mp4"))
+
+    assert len(inner.requests) == 2 and cached.hits == 1  # 부모가 다르면 편집 결과도 다르다

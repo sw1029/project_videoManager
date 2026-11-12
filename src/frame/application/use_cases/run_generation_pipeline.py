@@ -4,6 +4,8 @@
 - 실행 오류는 FAILED + error_code/error_message 로 남기고, 부모(원본) 버전은 건드리지 않는다.
 - 실패해도 그때까지 만든 장면 클립·조립 영상·추적 결과와 진행 상황은 남긴다. 검수 결과는 남기지 않는다 (이슈 #3).
 - 진행 상황과 끝난 장면 클립은 처리 도중에도 저장해, 비동기 실행 중에도 조회로 볼 수 있다.
+- 생성 단계가 뽑은 정체성 기준 이미지는 클립과 같은 트랜잭션으로 저장한다 (ADR-0015). 재시작 복구로 다시 실행해도
+  '클립은 있는데 그 클립에서 뽑은 기준이 없는' 상태가 되지 않고, 수정 버전이 기준을 물려받는다.
 """
 
 from __future__ import annotations
@@ -22,9 +24,19 @@ from ..pipeline.context import PipelineContext
 from ..pipeline.runner import PipelineFailure, PipelineRunner
 from ..pipeline.stage import PipelineObserver, PipelineStage
 from ..ports.common import Clock, IdGenerator
-from ..ports.unit_of_work import UnitOfWorkFactory
+from ..ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 
 log = logging.getLogger(__name__)
+
+
+def _save_derived_references(uow: UnitOfWork, version_id: str, ctx: PipelineContext) -> None:
+    """이번 실행에서 새로 뽑은 정체성 기준 이미지 중 아직 저장하지 않은 것을 더한다."""
+    if not ctx.derived_references:
+        return
+    stored = {r.reference_image_id for r in uow.reference_images.list_by_version(version_id)}
+    for reference in ctx.derived_references:
+        if reference.reference_image_id not in stored:
+            uow.reference_images.add(reference)
 
 
 class RunGenerationPipeline:
@@ -96,6 +108,7 @@ class RunGenerationPipeline:
                 version.progress = ctx.progress
                 for record in ctx.tracks:
                     uow.tracks.upsert(record)
+                _save_derived_references(uow, version_id, ctx)
             version.mark_failed(error_code, message)
             uow.versions.save(version)
             uow.commit()
@@ -111,6 +124,7 @@ class RunGenerationPipeline:
             version.transition_to(VersionState.COMPLETED)
             for record in ctx.tracks:
                 uow.tracks.upsert(record)
+            _save_derived_references(uow, version_id, ctx)
             uow.checks.add_all(
                 [
                     CheckResult(
@@ -163,6 +177,7 @@ class _ProgressWriter(PipelineObserver):
             version.progress = ctx.progress
             version.clips = dict(ctx.clips)
             uow.versions.save(version)
+            _save_derived_references(uow, self._version_id, ctx)
             uow.commit()
 
 

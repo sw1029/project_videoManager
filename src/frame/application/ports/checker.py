@@ -17,7 +17,7 @@ from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.ir import IntermediateRepresentation
-from frame.domain.models import VideoVersion
+from frame.domain.models import ReferenceImage, VideoVersion
 from frame.domain.tracking import TrackRecord
 
 
@@ -32,6 +32,8 @@ class CheckContext:
     parent_clips: Mapping[str, GeneratedClip] = field(default_factory=dict)
     changed_scene_keys: frozenset[str] = frozenset()
     reused_scene_keys: frozenset[str] = frozenset()
+    # 이 버전의 참조 이미지 (사용자 참조 + 정체성 기준). 일관성 검수가 비교 기준으로 쓸 수 있다
+    references: Sequence[ReferenceImage] = ()
 
     @property
     def is_revision(self) -> bool:

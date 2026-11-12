@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from frame.application.errors import ConfigurationError
@@ -17,6 +17,7 @@ from frame.application.ports import (
     ArtifactStore,
     Checker,
     Clock,
+    IdentityReferenceExtractor,
     IdGenerator,
     JobDispatcher,
     JobHandlerRegistry,
@@ -73,11 +74,18 @@ def default_registry() -> AdapterRegistry:
         FakeConsistencyChecker,
         FakePreservationChecker,
         FakeRequirementChecker,
+        SsimPreservationChecker,
+        VlmConsistencyChecker,
     )
     from frame.adapters.generator import (
         DiffusersVideoGenerator,
         FakeVideoAssembler,
         FakeVideoGenerator,
+    )
+    from frame.adapters.identity import (
+        FakeIdentityExtractor,
+        FrameIdentityExtractor,
+        VlmCropIdentityExtractor,
     )
     from frame.adapters.jobs import (
         InlineJobDispatcher,
@@ -125,6 +133,19 @@ def default_registry() -> AdapterRegistry:
 
     reg.register(LLMClient, "openai", _openai)
 
+    def _vlm(ctx: BuildContext) -> LLMClient:
+        """이미지를 읽는 LLM 클라이언트. 공급자·키·주소는 구조화와 같고 모델만 FRAME_VLM_MODEL 로 바꾼다."""
+        s = ctx.settings
+        model = s.vlm_model or s.llm_model
+        return reg.build(
+            LLMClient, s.llm_provider, replace(ctx, settings=replace(s, llm_model=model))
+        )
+
+    def _ffmpeg(ctx: BuildContext) -> str:
+        from frame.adapters.generator.ffmpeg import resolve_ffmpeg
+
+        return resolve_ffmpeg(ctx.settings.video_ffmpeg)
+
     # --- 요구사항 구조화 (US-06) ---
     reg.register(RequirementStructurer, "rule_based", lambda ctx: RuleBasedStructurer())
     reg.register(RequirementStructurer, "fake", lambda ctx: FakeStructurer())
@@ -162,6 +183,8 @@ def default_registry() -> AdapterRegistry:
             timeout_seconds=s.video_timeout_s,
             poll_interval_seconds=s.video_poll_interval_s,
             normalizer=FfmpegVideoNormalizer(resolve_ffmpeg(s.video_ffmpeg)),
+            edit_mode=s.video_edit_mode,
+            edit_model=s.video_edit_model,
         )
 
     reg.register(VideoGenerator, "external_api", _external_api)
@@ -180,6 +203,25 @@ def default_registry() -> AdapterRegistry:
 
     reg.register(VideoAssembler, "ffmpeg", _ffmpeg_assembler)
 
+    # --- 정체성 기준 이미지 추출 (US-03, ADR-0015). off 면 추출기가 없다 (기준 이미지를 쓰지 않음) ---
+    reg.register(IdentityReferenceExtractor, "off", lambda ctx: None)
+    reg.register(IdentityReferenceExtractor, "fake", lambda ctx: FakeIdentityExtractor(_store(ctx)))
+    reg.register(
+        IdentityReferenceExtractor,
+        "frame",
+        lambda ctx: FrameIdentityExtractor(_store(ctx), _ffmpeg(ctx)),
+    )
+    reg.register(
+        IdentityReferenceExtractor,
+        "vlm_crop",
+        lambda ctx: VlmCropIdentityExtractor(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            verify_attributes=ctx.settings.identity_verify_attributes,
+        ),
+    )
+
     # --- 객체 추적 (US-03) ---
     reg.register(ObjectTracker, "fake", lambda ctx: FakeObjectTracker())
     reg.register(ObjectTracker, "opencv", lambda ctx: OpenCvObjectTracker())
@@ -188,6 +230,25 @@ def default_registry() -> AdapterRegistry:
     reg.register(Checker, "fake_requirement", lambda ctx: FakeRequirementChecker())
     reg.register(Checker, "fake_consistency", lambda ctx: FakeConsistencyChecker())
     reg.register(Checker, "fake_preservation", lambda ctx: FakePreservationChecker())
+    # 실제 검수기 (ADR-0015, 0016): ffmpeg 로 클립을 읽는다. 일관성은 VLM(FRAME_VLM_MODEL)이 프레임을 판정한다
+    reg.register(
+        Checker,
+        "vlm_consistency",
+        lambda ctx: VlmConsistencyChecker(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            frames_per_scene=ctx.settings.consistency_frames,
+            threshold=ctx.settings.consistency_threshold,
+        ),
+    )
+    reg.register(
+        Checker,
+        "ssim_preservation",
+        lambda ctx: SsimPreservationChecker(
+            _store(ctx), _ffmpeg(ctx), threshold=ctx.settings.preservation_threshold
+        ),
+    )
 
     # --- 산출물 저장 ---
     reg.register(ArtifactStore, "memory", lambda ctx: InMemoryArtifactStore())

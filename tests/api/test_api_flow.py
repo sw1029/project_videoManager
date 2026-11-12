@@ -213,3 +213,39 @@ def test_revision_can_change_a_relation_with_current_value(api):
         "intro:barista:holds:phone",
         "ENTITY",
     )
+
+
+# ---- 정체성 기준 이미지 (ADR-0015) ------------------------------------------------------
+
+
+def test_identity_references_are_listed_with_their_origin():
+    from frame.config import Settings
+    from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container
+
+    container = make_container(Settings(jobs="recording", identity="fake"))
+    client = TestClient(create_app(container))
+    assert client.get("/health").json()["adapters"]["identity"] == "fake"
+
+    created = client.post(
+        "/api/projects",
+        json={
+            "title": "카페",
+            "prompt": CAFE_PROMPT,
+            "reference_images": [{"image_uri": "mem://refs/style.png"}],
+        },
+    ).json()
+    dispatcher_of(container).run_all()
+    version_id = created["version_id"]
+    client.post(f"/api/versions/{version_id}/generations")
+    dispatcher_of(container).run_all()
+
+    references = client.get(f"/api/versions/{version_id}").json()["reference_images"]
+
+    by_origin = {}
+    for ref in references:
+        by_origin.setdefault(ref["origin"], []).append(ref)
+    assert [r["image_uri"] for r in by_origin["USER"]] == ["mem://refs/style.png"]
+    assert by_origin["USER"][0]["source_scene_key"] is None
+    derived = {r["entity_key"]: r for r in by_origin["DERIVED"]}
+    assert set(derived) == {"barista", "cup"}
+    assert all(r["source_scene_key"] == "intro" for r in derived.values())

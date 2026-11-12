@@ -123,6 +123,7 @@ def _health(container: Container, request: Request) -> HealthOut:
             generator=s.generator,
             tracker=s.tracker,
             checkers=list(s.checkers),
+            identity=s.identity,
             persistence=s.persistence,
             jobs=s.jobs,
             llm_provider=s.llm_provider if uses_llm else None,

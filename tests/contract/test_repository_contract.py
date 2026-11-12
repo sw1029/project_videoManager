@@ -16,7 +16,13 @@ from frame.adapters.persistence.sqlalchemy import (
 )
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import CheckResult, WarningInterval
-from frame.domain.enums import CheckType, TrackingStatus, Verdict, VersionState
+from frame.domain.enums import (
+    CheckType,
+    ReferenceOrigin,
+    TrackingStatus,
+    Verdict,
+    VersionState,
+)
 from frame.domain.errors import IntegrityViolation, InvalidStateTransition
 from frame.domain.models import Project, ReferenceImage, VideoVersion
 from frame.domain.tracking import BoundingBox, TrackRecord, TrackSegment
@@ -90,6 +96,33 @@ def test_save_persists_state_result_and_clips(seeded):
         )
 
 
+def test_clip_metadata_survives_a_round_trip(seeded):
+    """ADR-0016: 부모 클립의 생성 기록(모델·작업 id)을 수정 버전의 생성기에 넘기려면 저장돼 있어야 한다."""
+    metadata = {
+        "generator": "openrouter",
+        "model": "alibaba/wan-3.0",
+        "job_id": "gen-vid-1789480874-Ab3dEf9hIjKlMnOpQrSt",
+        "cost_usd": 0.2125,
+        "seed": 7,
+        "output": {"width": 480, "height": 854, "fps": 30.0, "has_audio": False},
+        "prompt": "Scene: 바리스타가 컵을 들어 보인다",
+        "cache_hit": True,
+        "nothing": None,
+    }
+    with seeded() as uow:
+        version = uow.versions.get("ver_1")
+        version.clips = {
+            "intro": GeneratedClip("intro", "mem://clips/intro", 4000, "fp-intro", metadata),
+            "closeup": GeneratedClip("closeup", "mem://clips/closeup", 4000, "fp-closeup"),
+        }
+        uow.versions.save(version)
+        uow.commit()
+    with seeded() as uow:
+        clips = uow.versions.get("ver_1").clips
+        assert clips["intro"].metadata == metadata
+        assert clips["closeup"].metadata == {}
+
+
 def test_save_persists_failure_info(seeded):
     with seeded() as uow:
         version = uow.versions.get("ver_1")
@@ -149,6 +182,29 @@ def test_reference_images_roundtrip(seeded):
             ("img_2", None),
         ]
         assert uow.reference_images.list_by_version("ver_missing") == []
+        assert all(r.origin is ReferenceOrigin.USER and not r.is_identity for r in refs)
+
+
+def test_identity_reference_roundtrip(seeded):
+    """ADR-0015: 클립에서 뽑은 정체성 기준 이미지는 출처·기준 장면·해시·설명까지 그대로 돌아온다."""
+    anchor = ReferenceImage(
+        "img_9",
+        "ver_1",
+        "mem://references/identity/abc/barista.png",
+        "barista",
+        origin=ReferenceOrigin.DERIVED,
+        source_scene_key="intro",
+        source_fingerprint="f" * 64,
+        appearance_fingerprint="a" * 64,
+        description="흰 셔츠, 짧은 검은 머리",
+    )
+    with seeded() as uow:
+        uow.reference_images.add(anchor)
+        uow.commit()
+    with seeded() as uow:
+        (stored,) = uow.reference_images.list_by_version("ver_1")
+        assert stored == anchor
+        assert stored.is_identity
 
 
 def test_tracks_upsert_and_query(seeded):

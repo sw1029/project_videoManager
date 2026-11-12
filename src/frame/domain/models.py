@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .artifacts import GeneratedClip
-from .enums import VersionState
+from .enums import ReferenceOrigin, VersionState
 from .errors import ValidationError
 from .ir import IntermediateRepresentation
 from .progress import PipelineProgress
@@ -26,6 +26,16 @@ class ReferenceImage:
     version_id: str
     image_uri: str
     entity_key: str | None = None  # 특정 객체의 시각 참조이면 지정 (ERD: entity_id?)
+    # ---- 정체성 기준 이미지 (ERD 확장, ADR-0015). 사용자 참조(USER)는 아래 값이 비어 있다 ----
+    origin: ReferenceOrigin = ReferenceOrigin.USER
+    source_scene_key: str | None = None  # 기준을 뽑은 장면
+    source_fingerprint: str | None = None  # 기준을 뽑은 클립의 조건 fingerprint
+    appearance_fingerprint: str | None = None  # 뽑을 때 그 장면에서 객체의 외형 조건 해시
+    description: str = ""  # 기준 이미지에서 읽은 외형 설명 (프롬프트 보강용, 없어도 된다)
+
+    @property
+    def is_identity(self) -> bool:
+        return self.origin is ReferenceOrigin.DERIVED and self.entity_key is not None
 
 
 @dataclass
