@@ -21,7 +21,7 @@ class Settings:
     db_create_schema: bool = False  # 개발용. 운영 스키마는 Alembic 마이그레이션으로 관리
     jobs: str = "inline"  # inline | recording | thread
     generator_retries: int = 0
-    generator_cache: bool = False
+    generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
     # --- 영상 생성 API (FRAME_GENERATOR=external_api 일 때, OpenRouter /api/v1/videos) ---
     # 키나 ffmpeg 가 없으면 서버 기동 시점에 실패한다. 허용 길이·화면비·해상도는 모델 메타데이터를 따른다.
     video_model: str = "alibaba/wan-3.0"  # OpenRouter 영상 모델 id

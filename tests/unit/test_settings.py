@@ -4,6 +4,7 @@ import sys
 
 import pytest
 
+from frame.adapters.generator import CachingVideoGenerator
 from frame.application.errors import ConfigurationError, LLMUnavailable
 from frame.config import Settings, build_container
 
@@ -44,3 +45,14 @@ def test_llm_structurer_without_openai_package_fails_with_install_hint(monkeypat
     monkeypatch.setitem(sys.modules, "openai", None)  # import openai -> ImportError
     with pytest.raises(ConfigurationError, match="llm"):
         build_container(Settings(structurer="llm"))
+
+
+def test_generator_cache_is_on_by_default():
+    """#7: 같은 조건의 장면을 다시 만들지 않도록 생성 결과 캐시는 기본으로 켠다."""
+    assert Settings().generator_cache is True
+    assert Settings.from_env({}).generator_cache is True
+    assert Settings.from_env({"FRAME_GENERATOR_CACHE": "false"}).generator_cache is False
+    assert isinstance(build_container(Settings()).generator, CachingVideoGenerator)
+    assert not isinstance(
+        build_container(Settings(generator_cache=False)).generator, CachingVideoGenerator
+    )

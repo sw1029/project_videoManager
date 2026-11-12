@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.common import SystemClock, UuidIdGenerator
+from frame.adapters.generator.cache import ClipCache, build_clip_cache
 from frame.adapters.generator.decorators import CachingVideoGenerator, RetryingVideoGenerator
 from frame.application.checks import CheckSuite
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
@@ -97,10 +98,14 @@ def build_container(
     generator: VideoGenerator = pick(
         "generator", lambda: registry.build(VideoGenerator, settings.generator, ctx)
     )
+    # 생성 결과 캐시 (#7, ADR-0013): 키에 넣을 프로필은 데코레이터로 감싸기 전의 생성기에서 받는다
+    clip_cache: ClipCache = pick(
+        "clip_cache", lambda: build_clip_cache(ctx.artifact_store, generator.profile())
+    )
     if settings.generator_retries > 0:  # Decorator 체인은 설정으로 켠다
         generator = RetryingVideoGenerator(generator, retries=settings.generator_retries)
     if settings.generator_cache:
-        generator = CachingVideoGenerator(generator)
+        generator = CachingVideoGenerator(generator, cache=clip_cache)
     assembler = pick("assembler", lambda: registry.build(VideoAssembler, settings.assembler, ctx))
     tracker = pick("tracker", lambda: registry.build(ObjectTracker, settings.tracker, ctx))
     checkers: tuple[Checker, ...] = pick(

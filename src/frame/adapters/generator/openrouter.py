@@ -410,6 +410,21 @@ class OpenRouterVideoGenerator(VideoGenerator):
             metadata=metadata,
         )
 
+    def profile(self) -> Mapping[str, object]:
+        """생성 캐시·작업 원장 키에 fingerprint 와 함께 들어가는 설정 (ADR-0013).
+
+        모델·해상도·화면비·fps 를 바꾸면 이전 결과를 쓰지 않는다. 주소도 넣어 가짜 서버(로컬 시험)에서 만든 결과가
+        실제 서버 요청에 재사용되지 않게 한다. 키는 넣지 않는다.
+        """
+        return {
+            "generator": "openrouter",
+            "endpoint": self.base_url,
+            "model": self.model,
+            "resolution": self.resolution,
+            "aspect_ratio": self.aspect_ratio,
+            "fps": self.fps,
+        }
+
     # ---- 모델 메타데이터 ----
     def model_info(self) -> VideoModelInfo:
         """설정한 모델의 허용 길이·화면비·해상도·seed·가격. 처음 한 번만 받는다 (키 불필요)."""
