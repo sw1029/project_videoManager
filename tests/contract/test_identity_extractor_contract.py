@@ -271,7 +271,7 @@ def test_vlm_crop_keeps_only_the_head_and_shoulders_of_a_person(store, ir, clip_
         entity["box"] = tall
     llm = ReplayLLMClient([json.dumps(answer)])
     extractor = VlmCropIdentityExtractor(
-        store, FFMPEG, llm, padding=0.0, min_side=8, min_output_side=8
+        store, FFMPEG, llm, padding=0.0, min_side=8, min_output_side=8, person_max_aspect=1.25
     )
 
     person, prop = extractor.extract(_request(store, ir, clip_bytes, "barista", "cup"))

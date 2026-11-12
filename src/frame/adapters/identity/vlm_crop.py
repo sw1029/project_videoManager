@@ -9,7 +9,8 @@
 - 인물은 머리·어깨까지만 자른다 (손에 든 물건·배경이 기준 이미지에 딸려 가지 않게). 참조 이미지 한 장에는
   인물이 한 명만 있어야 한다는 모델 제약(Wan)과도 맞는다. VLM 에게 그렇게 묻되, 박스가 상반신까지 내려와도
   위쪽만 쓰도록 세로를 가로의 person_max_aspect 배로 제한한다. 2026-11-12 실호출에서 컵을 든 상반신이 통째로
-  기준이 되자, 컵이 없어야 할 다음 장면에도 컵을 든 모습이 나왔다 (참조 내용 누출).
+  기준이 되자, 컵이 없어야 할 다음 장면에도 컵을 든 모습이 나왔다 (참조 내용 누출). 1.25 배로 줄이자 드는 자세는
+  사라졌지만 기준 이미지 아래쪽에 남은 컵 테두리 때문에 카운터 위에 컵이 나와, 1.1 배로 더 줄였다.
 - 한 번 뽑은 기준은 클립·객체별 색인(references/identity/<클립>/<객체>.json)에 적어 두고, 같은 클립에서 같은 객체를
   다시 요청받으면 VLM 을 부르지 않고 그 이미지를 돌려준다. VLM 이 짚는 박스는 호출마다 조금씩 달라서, 다시 뽑으면
   기준 이미지(=생성 캐시·원장 키)가 달라져 이미 만든 장면을 또 생성하게 된다.
@@ -98,7 +99,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         min_side: int = 96,
         max_side: int = 1024,
         min_output_side: int = 480,
-        person_max_aspect: float = 1.25,
+        person_max_aspect: float = 1.1,
         timeout_s: float | None = 90.0,
         reuse_existing: bool = True,
     ) -> None:
