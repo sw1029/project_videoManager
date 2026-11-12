@@ -152,6 +152,14 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             timeout_s=self.timeout_s,
             images=(frame,),
         )
+        log.info(
+            "정체성 기준 VLM 호출: model=%s 입력 %s 토큰, 출력 %s 토큰 (장면 %s, 객체 %s)",
+            completion.model,
+            completion.input_tokens,
+            completion.output_tokens,
+            request.scene.scene_key,
+            ", ".join(e.entity_key for e in entities),
+        )
         try:
             data = json.loads(completion.text)
             items = data["entities"]

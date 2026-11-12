@@ -252,6 +252,10 @@ class VlmConsistencyChecker(Checker):
             "reference_frame_id": data.get("reference_frame_id"),
             "summary": data.get("summary") or "",
             "model": completion.model,
+            "usage": {
+                "input_tokens": completion.input_tokens,
+                "output_tokens": completion.output_tokens,
+            },
         }
 
     # ---- 점수와 경고 ----
@@ -308,6 +312,7 @@ class VlmConsistencyChecker(Checker):
         detail: dict[str, Any] = {
             "method": "vlm",
             "model": answer.get("model"),
+            "usage": answer.get("usage"),  # VLM 호출 한 번의 토큰 수 (비용 추적)
             "reference": "user_reference" if user_reference else "first_visible_frame",
             "reference_frame_id": reference_id,
             "sampled_frames": len(samples),

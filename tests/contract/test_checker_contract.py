@@ -197,6 +197,8 @@ def test_vlm_score_is_the_share_of_visible_frames_that_keep_the_subject(store, i
     assert barista.detail["judged_frames"] == 4 and barista.detail["consistent_frames"] == 2
     assert barista.detail["identity_rate"] == 0.5
     assert barista.detail["reference"] == "first_visible_frame"
+    assert barista.detail["model"] == "replay"
+    assert set(barista.detail["usage"]) == {"input_tokens", "output_tokens"}
 
 
 @needs_ffmpeg
