@@ -90,7 +90,9 @@ def test_container_wiring_never_resubmits_after_a_timeout():
             raise GenerationError("일시 오류")  # retryable=True
 
     base = SlowThenTransientError()
-    settings = Settings(jobs="recording", generator_retries=3, generator_timeout_s=0.05)
+    settings = Settings(
+        jobs="recording", generator_retries=3, generator_timeout_s=0.05, generator_cache=False
+    )
     generator = make_container(settings, generator=base).generator
     try:
         with pytest.raises(GenerationTimeout):
@@ -105,12 +107,13 @@ def test_cache_hit_skips_the_timeout_and_the_generator():
     store = InMemoryArtifactStore()
     base = FakeVideoGenerator(store)
     settings = Settings(jobs="recording", generator_timeout_s=30, generator_cache=True)
-    generator = make_container(settings, generator=base).generator
+    generator = make_container(settings, artifact_store=store, generator=base).generator
 
     first = generator.generate_scene(_request(version_id="ver_1"))
     second = generator.generate_scene(_request(version_id="ver_2"))  # 같은 생성 조건
 
-    assert second == first and len(base.requests) == 1 and generator.hits == 1
+    assert (second.uri, second.fingerprint) == (first.uri, first.fingerprint)
+    assert len(base.requests) == 1 and generator.hits == 1
 
 
 def test_warns_when_generic_timeout_would_cut_before_the_openrouter_timeout(caplog):

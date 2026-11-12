@@ -46,8 +46,13 @@ def release():
 
 
 def _settings(**overrides) -> Settings:
+    # 캐시는 끈다: 시간 제한 데코레이터가 체인 맨 바깥(container.generator)에 오고, 캐시 기본값이 바뀌어도 흔들리지 않게
     return Settings(
-        jobs="recording", persistence="memory", generator_timeout_s=TIMEOUT_S, **overrides
+        jobs="recording",
+        persistence="memory",
+        generator_timeout_s=TIMEOUT_S,
+        generator_cache=False,
+        **overrides,
     )
 
 
