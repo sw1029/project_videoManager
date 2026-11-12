@@ -177,6 +177,8 @@ RunGenerationPipeline
 - **부모 클립 편집** (ADR-0016, `FRAME_VIDEO_EDIT_MODE`): 다시 만드는 장면의 요청에는 부모 클립과 부모 쪽 장면 조건이 실린다.
   편집을 지원하는 생성기는 부모 클립에서 바뀐 조건만 고치고, 지원하지 않으면 지금처럼 새로 만든다.
   어느 쪽으로 만들었는지는 장면 응답의 `clip_production` 으로 나간다 (방식·모델·비용·시간·편집하지 못한 사유).
+  편집하지 못한 사정이 일시적이면 그 결과는 임시 결과(`provisional`)다: 편집 요청의 키로 캐시·원장에 남기지 않아,
+  같은 수정을 다시 실행하면 편집을 다시 시도한다 (ADR-0021).
 - **수정 의도** (ADR-0017): 수정 버전은 무엇을 하려는 수정인지 남긴다. `CHANGE` 는 요구조건의 값을 바꾸고, `REPAIR` 는 요구조건은
   그대로 두고 그 요구조건이 걸린 장면의 seed 를 다시 지정해 그 장면만 새로 만든다 (영상이 요구와 어긋났을 때).
   그대로 둘 요소(`keep`)는 다시 만드는 장면의 생성 요청(`directive`)에 실려 편집 지시문에 들어가고, 재검수가 요소별로 판정한다.
@@ -449,3 +451,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0018](adr/0018-requirement-and-keep-checkers.md) | 실제 요구 반영 검수기(요구조건별 판정, 부모 판정 상속) · 유지 요소 검수기 |
 | [0019](adr/0019-revision-plan-and-change-request.md) | 변경 계획 미리보기 · 글로 쓴 변경 요청의 해석 · 참조 이미지 HTTP 경로 |
 | [0020](adr/0020-production-preview-and-held-parent-url.md) | 생성기의 만들기 전 미리보기(편집·새로 생성, 어림값) · 계획 때 받은 부모 주소를 메모리에 들고 있다가 편집 |
+| [0021](adr/0021-provisional-results.md) | 일시적인 사정으로 낸 임시 결과(`provisional`)는 요청의 키에 남기지 않는다 · 작업 원장의 `released` |

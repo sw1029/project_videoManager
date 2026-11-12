@@ -7,7 +7,8 @@
   [ADR-0018](../adr/0018-requirement-and-keep-checkers.md) (실제 요구 반영·유지 요소 검수기),
   [ADR-0019](../adr/0019-revision-plan-and-change-request.md) (변경 계획 미리보기·변경 요청 해석),
   [ADR-0016](../adr/0016-parent-clip-editing.md) (부모 클립 편집 — 저장본 주소 재조회를 더했다),
-  [ADR-0020](../adr/0020-production-preview-and-held-parent-url.md) (계획이 편집이 될지 미리 알려 준다 — 실험 뒤에 구현)
+  [ADR-0020](../adr/0020-production-preview-and-held-parent-url.md) (계획이 편집이 될지 미리 알려 준다 — 실험 뒤에 구현),
+  [ADR-0021](../adr/0021-provisional-results.md) (일시적인 사정으로 새로 생성한 결과는 편집 요청의 키에 남기지 않는다 — 실험 뒤에 구현)
 - 앞선 기록: [character-consistency.md](character-consistency.md) (1차: 정체성 기준 이미지·일관성 검수·부모 클립 편집)
 
 ## 1. 결론
@@ -122,7 +123,7 @@
 |---|---|---|---|
 | 수정 전·후 클립 | **있음.** `GET /versions/{id}/comparison` 의 `scenes[].before/after.clip_url`, 장면 상태 `REUSED`/`REGENERATED` | — | 두 클립을 나란히 재생 |
 | "같은 화면에서 그것만 바뀐" 결과 | **있음(1차).** 부모 클립 편집 (ADR-0016, FLUX Video Edit) | 방금 만든 영상은 저장본 주소가 늦게 나와 편집 대신 새로 생성될 수 있다 (§6.3). 새로 생성하면 자세·구도가 바뀐다 (SSIM 0.49~0.68) | 수정에는 편집 모드. 편집이 될지는 계획의 `scenes[].production` 이 미리 알려 준다 (ADR-0020) |
-| 편집으로 만들었는지, 새로 생성됐는지 | **있음(이번).** `ir.scenes[].clip_production` (`method`·`model`·`cost_usd`·`seconds`·`edit_fallback_reason`) | — | 새로 생성으로 바뀌었으면 사유를 보여 준다 |
+| 편집으로 만들었는지, 새로 생성됐는지 | **있음(이번).** `ir.scenes[].clip_production` (`method`·`model`·`cost_usd`·`seconds`·`edit_fallback_reason`·`provisional`) | — | 새로 생성으로 바뀌었으면 사유를 보여 준다. `provisional` 이면 부모 버전에서 같은 수정을 다시 실행해 편집으로 만들 수 있다고 알린다 (ADR-0021) |
 | 인물·배경 유지 표시 | **있음(이번).** `vlm_preservation`: `PRESERVATION` 결과가 요소마다 하나 (`scene_key`·`entity_key`·`detail.aspect`·`verdict`·`detail.difference`) | — | 수정 후 이미지에 요소별 배지 |
 | 요구조건의 전후 판정 (FAIL → PASS) | **있음.** `comparison.scenes[].requirements[]` 의 `before_verdict`/`after_verdict` | — | — |
 | 무엇을 하려던 수정인가 | **있음(이번).** `before/after.revision`, `VersionOut.revision` (`kind`·대상·`keep`·`request_text`) | — | "원문 : 청록색 컵" 은 `revision.value`·`request_text` 로 |
@@ -201,7 +202,8 @@
    - 유지 표시: `check_type=PRESERVATION` 이고 `detail.method=vlm_keep` 인 결과 (`entity_key`·`detail.aspect`·`verdict`).
    - 요구조건의 전후: `comparison.scenes[].requirements[].before_verdict/after_verdict`.
    - 어떻게 만들어졌는지: `GET /versions/{새 id}` 의 `ir.scenes[].clip_production` (`method`=`EDITED`|`GENERATED`, `model`·`cost_usd`·`seconds`).
-     편집하려던 장면이 새로 생성됐으면 `edit_fallback_reason` 에 사유가 있다.
+     편집하려던 장면이 새로 생성됐으면 `edit_fallback_reason` 에 사유가 있다. `provisional=true` 면 그 사정이 일시적이었다는 뜻이다:
+     부모 버전에서 계획을 다시 받아 `EDIT` 로 나오면 같은 수정을 다시 실행해 편집본을 만들 수 있다.
    - 객체별 전후 이미지: 새 버전의 `reference_images[]` 에서 그 객체의 `is_current=false`(전)와 `true`(후).
 6. **출력**: `GET /versions/{id}` 의 `video_url`, `GET /projects/{id}/dashboard`.
 
@@ -367,7 +369,8 @@
   (기다리는 동안 그 장면의 생성 단계는 멈춰 있다).
 - 화면에서 보면: 생성이 끝나고 결과를 살펴보는 몇 분 사이에 수정하면 새로 생성될 수 있다. 수정 결과를 다시 고칠 때(부모가 FLUX 편집 결과)는
   1분쯤이면 주소가 나오지만, 그 뒤에도 빠지는 때가 있다.
-- 주소를 못 받아 새로 생성한 결과는 그 편집 요청의 키에도 남는다. 같은 부모에서 같은 수정을 다시 요청하면 그 결과를 다시 쓴다 (ADR-0016 한계).
+- 주소가 아직 나오지 않아 새로 생성한 결과는 편집 요청의 키에 남기지 않는다 (ADR-0021, 실험 뒤에 구현). 주소가 나온 뒤 부모 버전에서
+  같은 수정을 다시 실행하면 편집으로 만들어진다. 그때도 주소가 없으면 앞서 새로 생성한 결과를 다시 쓴다 (또 생성하지 않는다).
 - 제공자의 주소에 기대지 않으려면 클립을 FRAME 이 HTTPS 로 내줘야 한다 (공개 주소가 있는 배포에서만 된다). 지금의 로컬 시연 구성으로는 할 수 없다.
 
 ## 7. 남은 빈칸과 제안
@@ -378,7 +381,7 @@
 
 | # | 빈칸 | 제안 | 우선순위 |
 |---|---|---|---|
-| B1 | **구현함 (ADR-0020).** 계획이 장면마다 편집으로 만들어질지 새로 생성될지와 그 어림 비용을 알려 주고, 그때 받은 부모 주소로 편집한다 | 실제 호출 한 번으로 확인했다 (§5.6). 남은 것: 생성 작업을 다른 프로세스에서 돌리면 주소를 나눠 쓰지 못한다. 편집 시간의 어림은 그 모델로 만든 기록이 있어야 나온다. B10 의 어긋남 | 끝 |
+| B1 | **구현함 (ADR-0020).** 계획이 장면마다 편집으로 만들어질지 새로 생성될지와 그 어림 비용을 알려 주고, 그때 받은 부모 주소로 편집한다 | 실제 호출 한 번으로 확인했다 (§5.6). 남은 것: 생성 작업을 다른 프로세스에서 돌리면 주소를 나눠 쓰지 못한다. 편집 시간의 어림은 그 모델로 만든 기록이 있어야 나온다 | 끝 |
 | B2 | 장면을 차례로 만든다 (4장면 613초) | 기준 이미지가 필요한 순서만 지키고 나머지는 함께 만든다. 이 예시는 장면 1 → (장면 2·4) → 장면 3 으로 약 430초가 된다 | 높음 |
 | B3 | 검수가 VLM 을 차례로 부른다 (15초) | 장면·객체별 호출은 서로 독립이다. 함께 부르면 가장 긴 호출 하나의 시간(약 3~4초)이 된다 | 중간 |
 | B4 | 객체 단위로 묶은 응답이 없다 (화면이 버전·검수·트랙 세 응답을 조합) | `GET /versions/{id}/entities`: 객체마다 등장 장면·구간, 장면 사이 연결 상태, 걸린 경고, 썸네일(`is_current`) | 중간 |
@@ -387,7 +390,7 @@
 | B7 | `preservation_rate` 에 요소 판정(0/1)과 SSIM 이 섞인다 | 요약에 방법별 값을 따로 둔다 (`vlm_keep` · `ssim`) | 중간 |
 | B8 | 객체 추적이 Fake 다 (등장 구간·박스가 장면 단위) | 실제 추적기 (AC-31·34). 보존 지표에서 바꾼 대상의 영역을 빼는 데도 쓴다 | 중간 (컨셉의 예시는 장면 단위로 충분) |
 | B9 | 일관성 판정은 매번 다시 한다 (요구 반영은 부모 판정을 물려받는다) | 다시 만들지 않은 장면의 프레임 판정을 물려받거나 여러 번 물어 다수결 | 낮음 |
-| B10 | 주소를 못 받아 새로 생성한 결과가 편집 요청의 키에 남는다 (생성 캐시·작업 원장). 그 뒤 같은 부모·같은 요청은 계획이 `EDIT` 라고 답해도 그 결과를 다시 쓴다 | 일시적인 사유(주소 없음)로 만든 결과는 조건 키로만 남기고, 생성 캐시도 생성기가 알려 준 키로 저장한다. 앞선 시도가 접수해 둔 새로 생성 작업이 있으면 편집 전에 이어 받아 두 번 내지 않게 한다. 과금과 맞닿은 원장을 고치는 일이라 실제 호출로 확인하고 싶다 | 중간 (계획이 편집을 알려 주게 되면서 드러나는 어긋남이다) |
+| B10 | **구현함 (ADR-0021).** 주소가 아직 나오지 않아 새로 생성한 결과는 조건 키로만 남기고 편집 요청의 키는 비운다. 생성 캐시는 그런 임시 결과를 저장하지 않는다. 접수된 작업은 편집 키로 이어 받아 두 번 내지 않는다 | 루프백 통합 테스트로 확인했다 (이 변경 전에는 다시 실행해도 `GENERATED`, 뒤에는 `EDITED`). 실제 API 로는 확인하지 않았다: 주소가 없는 상태를 과금 없이 다시 만들 수 없다 | 끝 (실호출 미확인) |
 | B11 | 시연 설정이 Fake 검수기다 | 시연 프리셋에 실제 검수기와 편집 모드를 넣는다 (검수 한 번에 약 $0.05) | 낮음 (설정) |
 
 ### 화면 (`frontend/`, 이번에 고치지 않았다)
@@ -400,7 +403,7 @@
 | F4 | 전후 비교를 장면 단위로 | `GET /comparison` 의 장면별 클립, 요구조건의 전후 판정, 유지 요소 배지(`detail.method=vlm_keep`) |
 | F5 | 객체 칩 썸네일과 객체 연결 트랙 | `reference_images[]` (`is_current`), CONSISTENCY 결과의 `detail.frames[]` |
 | F6 | 버전 이력에 수정 의도 | `GET /dashboard` 의 `versions[].revision` |
-| F7 | 수정 결과가 어떻게 만들어졌는지 | `ir.scenes[].clip_production` — 새로 생성으로 바뀌었으면 `edit_fallback_reason` 을 보여 준다 |
+| F7 | 수정 결과가 어떻게 만들어졌는지 | `ir.scenes[].clip_production` — 새로 생성으로 바뀌었으면 `edit_fallback_reason` 을 보여 준다. `provisional` 이면 '편집으로 다시 만들기' (부모 버전에서 계획 → 실행)를 권한다 |
 | F8 | 생성 중에 끝난 장면부터 재생 | 폴링 중 `ir.scenes[].clip_url`, `progress.stages[]` |
 | F9 | 자연어를 못 읽는 설정일 때의 안내 | `GET /health` 의 `adapters.change_interpreter` 가 `rule_based` |
 

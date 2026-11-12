@@ -51,8 +51,10 @@
   객체 카드의 썸네일은 true 인 것을, 객체별 전후 이미지는 false(전)와 true(후)를 쓴다. 사용자 참조는 늘 true 다.
 
 ### 4. 장면마다 클립이 어떻게 만들어졌는지 (`ir.scenes[].clip_production`)
-- `method`(GENERATED | EDITED)·`model`·`cost_usd`·`seconds`·`edit_fallback_reason`. 생성기가 클립 메타데이터에 남기는 공통 기록
-  (`model`·`cost_usd`·`generation_seconds`·`edit`)에서 옮긴다. 기록이 없으면 null 이다.
+- `method`(GENERATED | EDITED)·`model`·`cost_usd`·`seconds`·`edit_fallback_reason`·`provisional`. 생성기가 클립 메타데이터에
+  남기는 공통 기록(`model`·`cost_usd`·`generation_seconds`·`edit`·`provisional`)에서 옮긴다. 기록이 없으면 null 이다.
+  `provisional` 은 편집하지 못한 사정이 일시적이어서 새로 생성한 결과라는 뜻이다 (ADR-0021). 부모 버전에서 같은 수정을
+  다시 실행하면 편집으로 만들 수 있다.
 - 계획은 실행 전의 어림이고, 이것은 실행 뒤의 사실이다. 편집하려던 장면이 새로 생성됐으면 화면이 사유를 보여 줄 수 있다
   (실호출: "부모 작업의 저장본 주소를 얻지 못함").
 
