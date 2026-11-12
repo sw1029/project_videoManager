@@ -124,7 +124,7 @@ def test_a_different_crop_of_the_same_clip_gets_a_different_uri(store, ir, clip_
         answer = json.loads(_located("barista"))
         answer["entities"][0]["box"] = box
         llm = ReplayLLMClient([json.dumps(answer)])
-        extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+        extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8, reuse_existing=False)
         return extractor.extract(_request(store, ir, clip_bytes, "barista"))[0].image_uri
 
     left = crop({"x": 0.0, "y": 0.0, "w": 0.5, "h": 1.0})
@@ -237,6 +237,29 @@ def test_vlm_crop_keeps_what_it_found_when_a_later_look_fails(store, ir, clip_by
     )
 
     assert [i.entity_key for i in images] == ["barista"]
+
+
+@needs_ffmpeg
+def test_vlm_crop_does_not_extract_the_same_clip_and_entity_twice(store, ir, clip_bytes):
+    """VLM 이 짚는 박스는 호출마다 달라질 수 있다. 한 번 뽑은 기준을 다시 쓰면 생성 키가 흔들리지 않는다."""
+    first_answer = json.loads(_located("barista"))
+    other_answer = json.loads(_located("barista", "cup"))
+    other_answer["entities"][0]["box"] = {"x": 0.0, "y": 0.0, "w": 0.4, "h": 0.4}
+    llm = ReplayLLMClient([json.dumps(first_answer), json.dumps(other_answer)])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+
+    (first,) = extractor.extract(_request(store, ir, clip_bytes, "barista"))
+    again, cup = extractor.extract(_request(store, ir, clip_bytes, "barista", "cup"))
+
+    assert again.image_uri == first.image_uri and again.description == first.description
+    assert again.detail["reused"] is True and "reused" not in cup.detail
+    assert len(llm.calls) == 2
+    assert "barista" not in llm.calls[1]["user"]  # 이미 있는 객체는 다시 묻지 않는다
+    # 다른 클립은 색인이 따로다
+    (other,) = VlmCropIdentityExtractor(
+        store, FFMPEG, ReplayLLMClient([json.dumps(first_answer)]), min_side=8
+    ).extract(_request(store, ir, clip_bytes, "barista", clip_key="clips/ver_2/intro.mp4"))
+    assert other.image_uri != first.image_uri
 
 
 @needs_ffmpeg

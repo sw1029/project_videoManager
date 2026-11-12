@@ -14,6 +14,12 @@ import hashlib
 IDENTITY_PREFIX = "references/identity"
 
 
+def identity_index_key(clip_uri: str, entity_key: str) -> str:
+    """그 클립에서 그 객체의 기준 이미지를 이미 뽑았는지 적어 두는 색인 파일의 키."""
+    folder = hashlib.sha256(clip_uri.encode("utf-8")).hexdigest()[:16]
+    return f"{IDENTITY_PREFIX}/{folder}/{entity_key}.json"
+
+
 def identity_key(clip_uri: str, name: str, extension: str, content: bytes) -> str:
     folder = hashlib.sha256(clip_uri.encode("utf-8")).hexdigest()[:16]
     digest = hashlib.sha256(content).hexdigest()[:10]

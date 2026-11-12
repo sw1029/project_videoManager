@@ -10,6 +10,9 @@
   인물이 한 명만 있어야 한다는 모델 제약(Wan)과도 맞는다. VLM 에게 그렇게 묻되, 박스가 상반신까지 내려와도
   위쪽만 쓰도록 세로를 가로의 person_max_aspect 배로 제한한다. 2026-11-12 실호출에서 컵을 든 상반신이 통째로
   기준이 되자, 컵이 없어야 할 다음 장면에도 컵을 든 모습이 나왔다 (참조 내용 누출).
+- 한 번 뽑은 기준은 클립·객체별 색인(references/identity/<클립>/<객체>.json)에 적어 두고, 같은 클립에서 같은 객체를
+  다시 요청받으면 VLM 을 부르지 않고 그 이미지를 돌려준다. VLM 이 짚는 박스는 호출마다 조금씩 달라서, 다시 뽑으면
+  기준 이미지(=생성 캐시·원장 키)가 달라져 이미 만든 장면을 또 생성하게 된다.
 - 잘라 낸 이미지가 작으면 짧은 변을 min_output_side 까지 키운다. 영상 모델은 참조 이미지에 최소 크기를 요구한다
   (Wan: 가로·세로 240~8000 px). 2026-11-12 실호출에서 154x178 컵 이미지가 접수 뒤 'image resolution' 오류로 실패했다.
 """
@@ -33,7 +36,7 @@ from frame.application.ports.llm import ImageInput, LLMClient
 from frame.domain.enums import EntityKind
 from frame.domain.ir import EntitySpec
 
-from .keys import identity_key
+from .keys import identity_index_key, identity_key
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +100,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         min_output_side: int = 480,
         person_max_aspect: float = 1.25,
         timeout_s: float | None = 90.0,
+        reuse_existing: bool = True,
     ) -> None:
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
@@ -115,13 +119,21 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         self.min_output_side = min_output_side  # 저장할 이미지의 짧은 변 하한. 작으면 키운다
         # 인물 기준 이미지의 세로 상한 (가로의 배수). 박스의 위쪽부터 이만큼만 쓴다: 머리·어깨
         self.person_max_aspect = person_max_aspect
+        self.reuse_existing = reuse_existing  # 같은 클립·객체의 기준이 이미 있으면 다시 뽑지 않는다
         self.timeout_s = timeout_s
 
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         if not request.entities:
             return ()
-        video = self._store.get(request.clip.uri)
         found: dict[str, IdentityImage] = {}
+        if self.reuse_existing:
+            for entity in request.entities:
+                existing = self._existing(request.clip.uri, entity.entity_key)
+                if existing is not None:
+                    found[entity.entity_key] = existing
+        if len(found) == len(request.entities):
+            return tuple(found[e.entity_key] for e in request.entities)
+        video = self._store.get(request.clip.uri)
         for position in self.positions:
             remaining = [e for e in request.entities if e.entity_key not in found]
             if not remaining:
@@ -214,7 +226,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             crop.data,
             crop.media_type,
         )
-        return IdentityImage(
+        image = IdentityImage(
             entity_key=entity.entity_key,
             image_uri=uri,
             description=" ".join(str(answer.get("appearance") or "").split())[:240],
@@ -227,6 +239,46 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 "native_size": list(native_size),
             },
         )
+        self._remember(request.clip.uri, image)
+        return image
+
+    # ---- 클립·객체별 색인 ----
+    def _existing(self, clip_uri: str, entity_key: str) -> IdentityImage | None:
+        """이 클립에서 이 객체의 기준을 이미 뽑아 두었으면 그것 (이미지가 남아 있을 때만)."""
+        index_uri = self._store.uri_for(identity_index_key(clip_uri, entity_key))
+        try:
+            if index_uri is None or not self._store.exists(index_uri):
+                return None
+            data = json.loads(self._store.get(index_uri).decode("utf-8"))
+            image_uri = str(data["image_uri"])
+            if data.get("entity_key") != entity_key or not self._store.exists(image_uri):
+                return None
+            return IdentityImage(
+                entity_key=entity_key,
+                image_uri=image_uri,
+                description=str(data.get("description") or ""),
+                detail={**dict(data.get("detail") or {}), "reused": True},
+            )
+        except (AdapterError, OSError, ValueError, KeyError, TypeError) as exc:
+            log.warning("정체성 기준 색인을 읽지 못해 다시 뽑습니다 (%s): %s", entity_key, exc)
+            return None
+
+    def _remember(self, clip_uri: str, image: IdentityImage) -> None:
+        payload = {
+            "schema": 1,
+            "entity_key": image.entity_key,
+            "image_uri": image.image_uri,
+            "description": image.description,
+            "detail": dict(image.detail),
+        }
+        try:
+            self._store.put(
+                identity_index_key(clip_uri, image.entity_key),
+                json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+                "application/json",
+            )
+        except Exception as exc:  # noqa: BLE001 - 색인을 못 써도 뽑은 기준은 그대로 쓴다
+            log.warning("정체성 기준 색인을 쓰지 못했습니다 (%s): %s", image.entity_key, exc)
 
 
 def _portrait(region: Box, frame_size: tuple[int, int], max_aspect: float) -> Box:
