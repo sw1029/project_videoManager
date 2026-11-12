@@ -158,6 +158,9 @@ class VideoGenerator(ABC):
     - 클립 메타데이터에 남기는 공통 기록 (있는 것만. 계획의 어림값과 장면 응답의 clip_production 이 읽는다):
       model, cost_usd, generation_seconds, 그리고 부모 클립 편집을 시도했다면
       edit = {applied: 편집으로 만들었는가, fallback_reason: 편집하지 못하고 새로 생성한 사유}.
+    - provisional = true (ADR-0021): 요청한 방식으로 만들지 못한 임시 결과다 (예: 편집할 수 없는 사정이 일시적이어서
+      새로 생성함). 이 요청의 결과 키로는 남기지 않는다는 뜻이며, 생성 캐시도 저장하지 않는다. 다음에 같은 요청이 오면
+      생성기가 다시 시도한다.
     """
 
     @abstractmethod

@@ -33,6 +33,11 @@
   그 모델로 만든 작업들의 중앙값.
 - 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다.
 - 편집 결과는 부모 클립에 달려 있으므로 캐시·원장 키(result_key)에 부모 클립을 넣는다.
+- 편집하지 못한 사정이 일시적이면(저장본 주소가 아직 나오지 않음) 새로 생성한 결과를 편집 요청의 키에 남기지 않는다
+  (ADR-0021). 조건 키로만 남기고 편집 키는 released 로 비운다. 클립에는 provisional 표시를 해
+  생성 캐시도 남기지 않게 한다.
+  다음에 같은 요청이 오면 편집을 다시 시도하고, 그때도 못 하면 조건 키의 결과를 다시 쓴다 (또 생성하지 않는다).
+  접수된 작업은 지금까지처럼 편집 키로 이어 받는다 (끊겨도 두 번 내지 않는다).
 
 작업 원장 (ADR-0013)
 - 접수(202) 직후, 폴링 전에 작업 id 를 원장(ArtifactStore 의 ledger/openrouter/<키>.json)에 남긴다.
@@ -91,7 +96,15 @@ from frame.domain.services.comparison import RequirementChangeKind, compare_requ
 
 from .cache import KeyedLocks, generation_key
 from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer, resolve_ffmpeg
-from .ledger import COMPLETED, FAILED, SUBMITTED, JobLedger, JobRecord, build_job_ledger
+from .ledger import (
+    COMPLETED,
+    FAILED,
+    RELEASED,
+    SUBMITTED,
+    JobLedger,
+    JobRecord,
+    build_job_ledger,
+)
 
 log = logging.getLogger(__name__)
 
@@ -673,10 +686,16 @@ class OpenRouterVideoGenerator(VideoGenerator):
                     "parent_clip_uri": plan.parent_clip_uri,
                     "parent_url_lookups": source.lookups,
                     "fallback_reason": (
-                        f"부모 작업의 저장본 주소를 얻지 못함 ({source.lookups}회 조회: "
-                        "없거나 만료됐거나 아직 나오지 않음)"
+                        f"부모 작업의 저장본이 없거나 만료됨 ({source.lookups}회 조회)"
                     ),
                 }
+                if source.may_appear:
+                    # 일시적인 사정이다: 주소가 나온 뒤 같은 요청이 오면 편집할 수 있다 (ADR-0021)
+                    rejected["transient"] = True
+                    rejected["fallback_reason"] = (
+                        f"부모 작업의 저장본 주소가 아직 나오지 않음 ({source.lookups}회 조회). "
+                        "같은 수정을 다시 요청하면 편집을 다시 시도함"
+                    )
             else:
                 body, details = self._edit_body(request, plan, source)
                 try:
@@ -721,6 +740,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
         편집할 요청의 키(부모 클립 포함)와 새로 생성할 때의 키(조건 + 정체성 기준)가 달라서, 이 확인이 없으면
         편집 모드만 바꿔 같은 수정을 다시 돌릴 때 같은 장면을 또 생성(과금)한다. 편집을 끈 설정이 만든 결과와,
         다른 편집 설정이 거절된 뒤 새로 만든 결과(`_share_regenerated`)가 이 키로 남아 있다.
+
+        편집하지 못한 사정이 일시적이면 편집 요청의 키에는 남기지 않는다 (ADR-0021): 다음 요청이 편집을 다시 시도한다.
         """
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         record = self._resumable(plain_key)
@@ -737,7 +758,10 @@ class OpenRouterVideoGenerator(VideoGenerator):
             clip_metadata={**record.clip_metadata, "edit": rejected},
             updated_at=self._wall_clock(),
         )
-        self._remember(found)  # 다음에는 편집 키로 바로 찾는다
+        if rejected.get("transient") is True:
+            found = replace(found, clip_metadata={**found.clip_metadata, "provisional": True})
+        else:
+            self._remember(found)  # 다음에는 편집 키로 바로 찾는다
         return self._reuse(request, found)
 
     def _generation_body(
@@ -1194,8 +1218,22 @@ class OpenRouterVideoGenerator(VideoGenerator):
             error=None,
             updated_at=self._wall_clock(),
         )
-        self._remember(done)
-        self._share_regenerated(request, done)
+        edit = details.get("edit")
+        transient = (
+            isinstance(edit, Mapping)
+            and edit.get("applied") is False
+            and edit.get("transient") is True
+        )
+        if transient and self._share_regenerated(request, done):
+            # 일시적인 사정으로 새로 생성한 결과 (ADR-0021): 조건 키에 남겼으니 편집 요청의 키는 비운다.
+            # 다음에 같은 요청이 오면 편집을 다시 시도한다.
+            # 조건 키에 먼저 쓰고 나서 비운다 (그 사이에 끊겨도 편집 키의 접수 기록으로 이어 받는다)
+            self._remember(replace(done, status=RELEASED))
+            metadata = {**metadata, "provisional": True}
+        else:
+            self._remember(done)
+            if not transient:
+                self._share_regenerated(request, done)
         if not resumed:  # 이어 받은 작업의 시간은 남은 대기 시간일 뿐이다
             self._note_seconds(str(metadata["model"]), generation_seconds)
         log.info(
@@ -1213,30 +1251,34 @@ class OpenRouterVideoGenerator(VideoGenerator):
             metadata=metadata,
         )
 
-    def _share_regenerated(self, request: SceneGenerationRequest, record: JobRecord) -> None:
-        """편집이 거절돼 새로 생성한 결과를 편집 설정과 무관한 키(조건 + 정체성 기준)로도 남긴다.
+    def _share_regenerated(self, request: SceneGenerationRequest, record: JobRecord) -> bool:
+        """편집하지 못해 새로 생성한 결과를 편집 설정과 무관한 키(조건 + 정체성 기준)로도 남긴다.
 
         그 결과는 편집을 끈 설정이 만들었을 결과와 같다. 편집 키로만 남기면 편집 모드·편집 모델을 바꾸거나 껐을 때
         같은 장면을 또 생성(과금)한다. 편집 시도 기록은 이 요청의 것이므로 함께 남기지 않는다.
+
+        돌려주는 값: 그 키에 쓸 수 있는 결과가 있는가 (지금 남겼거나 이미 있었다). 그 키로 다른 작업이 진행 중이면
+        덮어쓰지 않고 False 다.
         """
         edit = record.details.get("edit")
         if not isinstance(edit, Mapping) or edit.get("applied") is not False:
-            return
+            return False
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         if plain_key == record.key:
-            return
+            return False
         existing = self._resumable(plain_key)
-        if existing is not None and (
-            existing.status != COMPLETED
-            or (existing.clip_uri is not None and self._store.exists(existing.clip_uri))
-        ):
-            return  # 그 키로 진행 중이거나 이미 쓸 수 있는 결과가 있다. 덮어쓰지 않는다
-        self._remember(
+        if existing is not None:
+            if existing.status != COMPLETED:
+                return False  # 그 키로 진행 중인 작업이 있다. 덮어쓰지 않는다 (이어 받을 수 있어야 한다)
+            if existing.clip_uri is not None and self._store.exists(existing.clip_uri):
+                return True  # 이미 쓸 수 있는 결과가 있다. 그대로 둔다
+        private = ("edit", "provisional")  # 이 요청의 것: 조건 키의 결과에는 싣지 않는다
+        return self._remember(
             replace(
                 record,
                 key=plain_key,
                 details={k: v for k, v in record.details.items() if k != "edit"},
-                clip_metadata={k: v for k, v in record.clip_metadata.items() if k != "edit"},
+                clip_metadata={k: v for k, v in record.clip_metadata.items() if k not in private},
             )
         )
 
@@ -1261,7 +1303,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
 
     # ---- 작업 원장 ----
     def _resumable(self, key: str) -> JobRecord | None:
-        """이어 받을 수 있는 원장 항목. 없음·실패·만료·읽기 실패면 None (새로 제출)."""
+        """이어 받을 수 있는 원장 항목. 없음·실패·비움(released)·만료·읽기 실패면 None (새로 시도)."""
         try:
             record = self._ledger.get(key)
         except Exception as exc:  # noqa: BLE001 - 깨진 항목 때문에 생성이 막히지 않게 한다
@@ -1269,7 +1311,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 "OpenRouter 작업 원장을 읽지 못해 없는 것으로 봅니다 (key=%s): %s", key[:12], exc
             )
             return None
-        if record is None or record.status == FAILED:
+        if record is None or record.status in (FAILED, RELEASED):
             return None
         age = self._wall_clock() - record.submitted_at
         if age > self.ledger_ttl_seconds:
@@ -1283,9 +1325,11 @@ class OpenRouterVideoGenerator(VideoGenerator):
             return None
         return record
 
-    def _remember(self, record: JobRecord) -> None:
+    def _remember(self, record: JobRecord) -> bool:
+        """원장에 남긴다. 남기지 못하면 False (기록 실패가 과금된 작업을 버리게 하지 않는다)."""
         try:
             self._ledger.put(record)
+            return True
         except Exception as exc:  # noqa: BLE001 - 원장 기록 실패가 과금된 작업을 버리게 하지 않는다
             log.error(
                 "OpenRouter 작업 원장에 기록하지 못했습니다 (job=%s, 상태 %s): %s. "
@@ -1294,6 +1338,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 record.status,
                 exc,
             )
+            return False
 
     def profile(self) -> Mapping[str, object]:
         """생성 캐시·작업 원장 키에 fingerprint 와 함께 들어가는 설정 (ADR-0013).

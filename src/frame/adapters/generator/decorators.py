@@ -31,6 +31,8 @@ class CachingVideoGenerator(VideoGenerator):
     - 적중한 클립은 복사본의 메타데이터에 cache_hit·cache_key·cached_from_version_id 를 남긴다
       (GeneratedClip 은 불변). 원래 메타데이터(비용 등)는 처음 생성할 때의 값이므로 합산하지 않는다.
     - 생성 실패는 캐시하지 않는다. 캐시 기록이 실패해도 생성한 클립은 그대로 돌려준다.
+    - 생성기가 임시 결과(metadata.provisional)로 표시한 클립은 캐시하지 않는다 (ADR-0021). 요청한 방식으로 만들지 못한
+      결과라서, 다음에 같은 요청이 오면 생성기까지 가서 다시 시도해야 한다.
     """
 
     def __init__(self, inner: VideoGenerator, cache: ClipCache | None = None) -> None:
@@ -72,6 +74,14 @@ class CachingVideoGenerator(VideoGenerator):
                 }
                 return replace(cached.clip, metadata=metadata)
             clip = self._inner.generate_scene(request)
+            if clip.metadata.get("provisional") is True:
+                log.info(
+                    "임시 결과라 생성 캐시에 남기지 않습니다: version=%s scene=%s key=%s",
+                    request.version_id,
+                    request.scene.scene_key,
+                    key[:12],
+                )
+                return clip
             try:
                 self._cache.save(key, clip, version_id=request.version_id)
             except Exception as exc:  # noqa: BLE001 - 캐시 기록 실패가 생성(과금)한 결과를 버리게 하지 않는다
