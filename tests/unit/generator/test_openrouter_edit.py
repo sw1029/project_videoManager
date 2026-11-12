@@ -277,6 +277,22 @@ def test_rejected_edit_falls_back_to_regeneration_without_double_billing(ir, sto
     assert len(api.submits) == 2 and again.metadata["ledger"] == "reused"
 
 
+def test_rejected_edit_reuses_an_earlier_regeneration_of_the_same_conditions(ir, store):
+    """편집이 거절됐는데 같은 조건을 이미 새로 생성해 둔 적이 있으면 또 생성(과금)하지 않는다."""
+    api = _api(accepted(), error_response(400, "video input is not supported"))
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+    request = _request(ir, store)
+    earlier = generator.generate_scene(replace(request, parent=None))  # 편집 없이 만든 결과
+
+    clip = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 2  # 처음 생성 + 거절된 편집 시도. 세 번째 제출은 없다
+    assert clip.uri == earlier.uri and clip.metadata["ledger"] == "reused"
+    assert clip.metadata["edit"]["applied"] is False
+    again = generator.generate_scene(replace(request, version_id="ver_3"))
+    assert len(api.submits) == 2 and again.uri == earlier.uri  # 편집을 다시 시도하지도 않는다
+
+
 @pytest.mark.parametrize("code", [401, 402, 403, 500])
 def test_edit_rejections_that_regeneration_would_also_hit_are_not_retried(ir, store, code):
     api = _api(error_response(code, "nope"))

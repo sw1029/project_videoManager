@@ -523,10 +523,40 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 rejected = {**details["edit"], "applied": False, "fallback_reason": str(exc)[:300]}
             else:
                 return self._accepted(request, key, job, details)
+        if rejected is not None:
+            reused = self._reuse_regenerated(request, key, rejected)
+            if reused is not None:
+                return reused
         body, details = self._generation_body(request)
         if rejected is not None:
             details["edit"] = rejected
         return self._accepted(request, key, self._submit(body), details)
+
+    def _reuse_regenerated(
+        self, request: SceneGenerationRequest, key: str, rejected: dict[str, Any]
+    ) -> GeneratedClip | None:
+        """편집이 거절된 요청: 같은 조건으로 이미 새로 생성해 둔 결과가 원장에 있으면 다시 제출하지 않고 그것을 쓴다.
+
+        편집할 요청의 키(부모 클립 포함)와 새로 생성할 때의 키(조건 + 정체성 기준)가 달라서, 이 확인이 없으면
+        편집 모드만 바꿔 같은 수정을 다시 돌릴 때 같은 장면을 또 생성(과금)한다.
+        """
+        plain_key = generation_key(request.generation_fingerprint, self.profile())
+        record = self._resumable(plain_key)
+        if (
+            record is None
+            or record.status != COMPLETED
+            or record.clip_uri is None
+            or not self._store.exists(record.clip_uri)
+        ):
+            return None
+        found = replace(
+            record,
+            key=key,
+            clip_metadata={**record.clip_metadata, "edit": rejected},
+            updated_at=self._wall_clock(),
+        )
+        self._remember(found)  # 다음에는 편집 키로 바로 찾는다
+        return self._reuse(request, found)
 
     def _generation_body(
         self, request: SceneGenerationRequest
