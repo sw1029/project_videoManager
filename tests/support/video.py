@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from frame.adapters.generator.ffmpeg import resolve_ffmpeg
+from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.application.errors import ConfigurationError
 
 

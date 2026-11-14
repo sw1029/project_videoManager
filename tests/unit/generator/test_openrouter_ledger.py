@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -19,9 +20,11 @@ from frame.adapters.generator.ledger import (
     JobRecord,
     build_job_ledger,
 )
+from frame.adapters.shared.http import HttpResponse, TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError, GenerationTimeout, StorageError
-from frame.application.ports.generator import SceneGenerationRequest
+from frame.application.ports.generator import RevisionDirective, SceneGenerationRequest
+from frame.domain.enums import RevisionKind
 from tests.support.openrouter import (
     JOB_ID,
     SIGNED_URL,
@@ -30,8 +33,10 @@ from tests.support.openrouter import (
     FakeTime,
     completed,
     error_response,
+    json_response,
     make_openrouter_generator,
     status,
+    video_content,
 )
 
 STATUS_PATH = f"/api/v1/videos/{JOB_ID}"
@@ -223,6 +228,61 @@ def test_ttl_is_configurable(store, ir):
     assert len(api.submits) == 2
 
 
+def test_a_completed_job_whose_clip_is_still_there_is_reused_after_the_ttl(store, ir):
+    """기한은 제공자에게 다시 물어야 하는 기록에만 있다. 클립이 남아 있으면 며칠 뒤에도 다시 내지 않는다 (감사 A-32)."""
+    api = FakeOpenRouterApi()
+    first = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_1"))
+    calls = len(api.calls)
+
+    next_week = FakeTime(wall=FakeTime().wall + 7 * DAY)
+    again = make_openrouter_generator(store, api, clock=next_week).generate_scene(
+        _request(ir, version_id="ver_2")
+    )
+
+    assert len(api.calls) == calls  # 제출도 조회도 없다
+    assert again.uri == first.uri and again.metadata["ledger"] == "reused"
+
+
+def test_a_completed_job_whose_clip_is_gone_is_submitted_again_after_the_ttl(tmp_path, ir, caplog):
+    """클립이 없으면 제공자에게서 다시 받아야 한다. 기한이 지난 작업은 그쪽에 남아 있다고 볼 수 없다."""
+    api = FakeOpenRouterApi()
+    store = LocalFileArtifactStore(tmp_path)
+    first = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_1"))
+    store.local_path(first.uri).unlink()
+
+    next_week = FakeTime(wall=FakeTime().wall + 7 * DAY)
+    with caplog.at_level(logging.WARNING):
+        again = make_openrouter_generator(store, api, clock=next_week).generate_scene(
+            _request(ir, version_id="ver_2")
+        )
+
+    assert len(api.submits) == 2 and again.metadata["ledger"] == "new"
+    assert any("만료" in r.getMessage() for r in caplog.records)
+
+
+def test_repairing_a_different_requirement_of_the_same_scene_is_a_new_job(store, ir):
+    """같은 부모의 같은 장면이라도 고치려는 요구조건이 다르면 앞선 결과를 돌려주지 않는다 (감사 A-33)."""
+    api = FakeOpenRouterApi()
+    generator = make_openrouter_generator(store, api)
+    base = _request(ir, seed=8)
+    color = next(r for r in base.scene.requirements if r.predicate == "color")
+    shirt = next(r for r in base.scene.requirements if r.predicate == "shirt_color")
+
+    def repair(requirement, version_id):
+        directive = RevisionDirective(RevisionKind.REPAIR, enforce=(requirement,))
+        return generator.generate_scene(replace(base, version_id=version_id, directive=directive))
+
+    repair(color, "ver_1")
+    second = repair(shirt, "ver_2")
+    again = repair(shirt, "ver_3")
+
+    prompts = [call.json()["prompt"] for call in api.submits]
+    assert len(prompts) == 2  # 같은 것을 고치는 세 번째 요청은 다시 내지 않는다
+    assert "Must show: cup color: red" in prompts[0]
+    assert "Must show: barista shirt color: white" in prompts[1]
+    assert second.metadata["ledger"] == "new" and again.metadata["ledger"] == "reused"
+
+
 def test_other_generator_settings_never_resume_each_others_jobs(store, ir):
     api = FakeOpenRouterApi()
     _crash_after_submit(store, api, ir, resolution="480p")
@@ -307,3 +367,108 @@ def test_ledger_lives_in_the_artifact_store_when_it_can_address_keys(tmp_path):
             return None
 
     assert isinstance(build_job_ledger(OpaqueStore()), InMemoryJobLedger)
+
+
+# ---- 과금 뒤의 실패: 무엇을 이어 받게 남기고 무엇을 버리는가 (감사 T-04) ------------------------
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [error_response(503, "Service unavailable"), TransportError("connection reset")],
+    ids=["503", "no-answer"],
+)
+def test_a_download_that_keeps_failing_leaves_the_job_resumable(store, ir, failure):
+    """결과 내려받기가 끝까지 안 돼도 다시 제출하지 않는다. 다음 요청은 같은 작업의 결과만 다시 받는다."""
+    api = FakeOpenRouterApi()
+    api.on("GET", CONTENT_PATH, failure)
+    generator = make_openrouter_generator(store, api)
+    request = _request(ir)
+
+    with pytest.raises(GenerationError, match="내려받지 못했습니다") as excinfo:
+        RetryingVideoGenerator(generator, retries=2).generate_scene(request)
+
+    assert excinfo.value.retryable is False and JOB_ID in str(excinfo.value)
+    assert len(api.calls_to("GET", CONTENT_PATH)) == 3 and len(api.submits) == 1
+    assert _record(store, generator, request).status == "submitted"
+
+    api.on("GET", CONTENT_PATH, video_content())
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_2"))
+    assert len(api.submits) == 1 and clip.metadata["ledger"] == "resumed"
+
+
+def test_a_result_that_is_gone_is_not_asked_for_again(store, ir):
+    """결과가 없다는 답(404)은 기다려도 나아지지 않는다. 이번 요청은 끝내고, 다음 요청이 새로 제출한다."""
+    api = FakeOpenRouterApi()
+    api.on("GET", CONTENT_PATH, error_response(404, "Not found"))
+    generator = make_openrouter_generator(store, api)
+    request = _request(ir)
+
+    with pytest.raises(GenerationError) as excinfo:
+        RetryingVideoGenerator(generator, retries=2).generate_scene(request)
+
+    assert excinfo.value.retryable is False and len(api.submits) == 1
+    assert len(api.calls_to("GET", CONTENT_PATH)) == 1
+    assert _record(store, generator, request).status == "failed"
+
+    api.on("GET", CONTENT_PATH, video_content())
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_2"))
+    assert len(api.submits) == 2 and clip.metadata["ledger"] == "new"
+
+
+def test_a_download_refused_for_authentication_keeps_the_job_resumable(store, ir):
+    api = FakeOpenRouterApi()
+    api.on("GET", CONTENT_PATH, error_response(401, "Missing Authentication header"))
+    generator = make_openrouter_generator(store, api)
+    request = _request(ir)
+
+    with pytest.raises(GenerationError, match="401") as excinfo:
+        RetryingVideoGenerator(generator, retries=2).generate_scene(request)
+
+    assert excinfo.value.retryable is False and len(api.submits) == 1
+    assert len(api.calls_to("GET", CONTENT_PATH)) == 1  # 키가 틀린 것은 다시 물어도 같다
+    assert _record(store, generator, request).status == "submitted"
+
+    api.on("GET", CONTENT_PATH, video_content())  # 키를 고친 뒤
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_2"))
+    assert len(api.submits) == 1 and clip.metadata["ledger"] == "resumed"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        json_response(202, {"status": "pending"}),
+        HttpResponse(202, b"accepted", {"content-type": "text/plain"}),
+        HttpResponse(202, b"[]", {"content-type": "application/json"}),
+    ],
+    ids=["no-id", "not-json", "not-an-object"],
+)
+def test_an_accepted_answer_without_a_usable_job_id_is_never_sent_again(store, ir, answer):
+    """접수는 됐는데 작업 id 를 모른다. 과금됐을 수 있으므로 재시도 데코레이터 아래에서도 한 번만 보낸다."""
+    api = FakeOpenRouterApi()
+    api.on("POST", "/api/v1/videos", answer)
+
+    with pytest.raises(GenerationError) as excinfo:
+        RetryingVideoGenerator(make_openrouter_generator(store, api), retries=2).generate_scene(
+            _request(ir)
+        )
+
+    assert excinfo.value.retryable is False and len(api.submits) == 1
+    assert api.calls_to("GET", STATUS_PATH) == []
+
+
+@pytest.mark.parametrize("body", [b"<html>bad gateway</html>", b"[1, 2]"], ids=["html", "list"])
+def test_a_status_answer_that_cannot_be_read_keeps_the_job_resumable(store, ir, body):
+    api = FakeOpenRouterApi()
+    api.on("GET", STATUS_PATH, HttpResponse(200, body, {"content-type": "application/json"}))
+    generator = make_openrouter_generator(store, api)
+    request = _request(ir)
+
+    with pytest.raises(GenerationError) as excinfo:
+        RetryingVideoGenerator(generator, retries=2).generate_scene(request)
+
+    assert excinfo.value.retryable is False and len(api.submits) == 1
+    assert _record(store, generator, request).status == "submitted"
+
+    api.on("GET", STATUS_PATH, completed())
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_2"))
+    assert len(api.submits) == 1 and clip.metadata["ledger"] == "resumed"

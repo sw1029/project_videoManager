@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 
 import pytest
 
@@ -17,6 +18,8 @@ from frame.adapters.identity import (
     VlmCropIdentityExtractor,
 )
 from frame.adapters.llm import ReplayLLMClient
+from frame.adapters.shared.media.ffmpeg import VideoToolError
+from frame.adapters.shared.media.frames import FrameSampler, extract_frame
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError
 from frame.application.ports.identity import IdentityExtractionRequest
@@ -546,6 +549,120 @@ def test_vlm_crop_does_not_reuse_references_extracted_without_the_check(store, i
     )
 
     assert checked == () and len(llm.calls) == 1
+
+
+@needs_ffmpeg
+def test_vlm_crop_keeps_the_other_subjects_when_one_cannot_be_cut_out(
+    store, ir, clip_bytes, caplog
+):
+    """객체 하나를 잘라 내지 못해도 (가는 박스에서 ffmpeg 가 실패한다) 같은 프레임에서 찾은 다른 객체의 기준은 돌려준다.
+
+    예전에는 그 오류가 추출 전체를 끝냈다. 이미 뽑은 기준도 돌려주지 않아, 다음에 다시 물으면 다른 박스가 나오고
+    기준 이미지(= 생성 캐시·원장의 키)가 달라졌다 (감사 A-27).
+    """
+
+    def extract(ffmpeg, video, at_ms, **options):
+        crop = options.get("crop")
+        if crop is not None and crop.h < 0.05:
+            raise VideoToolError("프레임을 뽑지 못했습니다 (가는 박스)")
+        return extract_frame(ffmpeg, video, at_ms, **options)
+
+    answer = json.dumps(
+        {
+            "entities": [
+                {
+                    "entity_key": "barista",
+                    "visible": True,
+                    "box": {"x": 0.25, "y": 0.25, "w": 0.5, "h": 0.5},
+                    "appearance": "barista appearance",
+                },
+                {  # 넓이는 하한을 넘지만 세로가 아주 가는 박스
+                    "entity_key": "cup",
+                    "visible": True,
+                    "box": {"x": 0.05, "y": 0.5, "w": 0.9, "h": 0.01},
+                    "appearance": "cup appearance",
+                },
+            ]
+        }
+    )
+    llm = ReplayLLMClient([answer, answer])
+    extractor = VlmCropIdentityExtractor(
+        store, FFMPEG, llm, min_side=8, sampler=FrameSampler(FFMPEG, extract=extract)
+    )
+
+    with caplog.at_level("WARNING"):
+        images = extractor.extract(_request(store, ir, clip_bytes, "barista", "cup"))
+
+    assert [image.entity_key for image in images] == ["barista"]
+    assert "cup" in caplog.text and "VIDEO_TOOL_ERROR" in caplog.text
+
+
+@needs_ffmpeg
+def test_vlm_crop_reads_a_verdict_named_by_the_predicate_alone(store, ir, clip_bytes):
+    """모델이 속성 이름을 '술어: 값' 이 아니라 술어만으로 돌려줘도 그 속성의 판정으로 읽는다.
+
+    읽지 못하면 'no' 가 버려져, 요구와 다르게 나온 객체가 기준 이미지가 된다 (감사 A-27).
+    """
+    for index, name in enumerate(("color", "Color", " COLOR: ")):
+        llm = ReplayLLMClient([_answer(_judged("cup", {name: "no"}))])
+        extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+        key = f"clips/ver_named_{index}/intro.mp4"
+
+        images = extractor.extract(_request(store, ir, clip_bytes, "cup", clip_key=key))
+
+        assert images == (), name
+
+
+@needs_ffmpeg
+def test_vlm_crop_does_not_guess_which_attribute_a_bare_value_means(store, ir, clip_bytes):
+    """값만 온 이름('red')이나 다른 술어는 여전히 버린다: 어느 속성의 판정인지 알 수 없다."""
+    judged = _judged("cup", {"red": "no", "size": "no"})
+    llm = ReplayLLMClient([_answer(judged)])
+
+    (image,) = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8).extract(
+        _request(store, ir, clip_bytes, "cup")
+    )
+
+    assert image.detail["attributes"] == {}
+
+
+@needs_ffmpeg
+def test_vlm_crop_extracts_a_clip_once_when_two_jobs_ask_at_the_same_time(store, ir, clip_bytes):
+    """같은 클립의 기준을 두 작업이 동시에 뽑으면, 뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 그 기준을 쓴다.
+
+    VLM 이 짚는 박스는 호출마다 조금씩 달라서, 둘이 따로 물으면 기준 이미지가 서로 달라지고
+    (= 생성 캐시·작업 원장의 키가 달라지고) 호출도 두 번 과금된다 (감사 A-27).
+    """
+    asking = threading.Semaphore(0)
+    answer_now = threading.Event()
+
+    class SlowModel(ReplayLLMClient):
+        def complete_json(self, *args, **kwargs):
+            asking.release()  # 모델을 부르는 중이다
+            assert answer_now.wait(10)
+            return super().complete_json(*args, **kwargs)
+
+    llm = SlowModel([_located("cup"), _located("cup")])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+    request = _request(store, ir, clip_bytes, "cup")
+    results: list[tuple] = []
+    jobs = [
+        threading.Thread(target=lambda: results.append(extractor.extract(request)))
+        for _ in range(2)
+    ]
+
+    jobs[0].start()
+    assert asking.acquire(timeout=10)  # 첫 작업이 모델의 답을 기다리고 있다
+    jobs[1].start()
+    second_asked = asking.acquire(timeout=0.5)  # 그동안 둘째 작업도 모델을 불렀는가
+    answer_now.set()
+    for job in jobs:
+        job.join(10)
+
+    assert not second_asked
+    assert len(llm.calls) == 1
+    assert len(results) == 2
+    assert [i.image_uri for i in results[0]] == [i.image_uri for i in results[1]] != []
 
 
 @needs_ffmpeg

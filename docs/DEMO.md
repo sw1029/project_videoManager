@@ -133,6 +133,8 @@ python scripts/frame_demo.py smoke       # Windows: py -3 scripts\frame_demo.py 
 3. **환경 변수**: 실행 전에 `OPENAI_API_KEY` 를 설정한다.
 
 화면과 API 응답에는 키의 끝 4자리(`sk-...abcd`)만 보인다. 공용 컴퓨터라면 시연 후 `.demo/openai.key` 를 지운다.
+저장한 키는 폴더 안에 암호화되지 않은 채 있다. 준비해 둔 폴더(번들 포함)를 복사하거나 USB·드라이브로 넘기기 전에
+`.demo` 폴더를 지운다 — 지우지 않으면 키가 함께 넘어간다 (`setup`·`doctor` 가 같은 안내를 낸다).
 키를 코드·커밋·화면 소스·이슈에 붙여 넣지 않는다.
 
 ## 6. 시연 순서 (권장)
@@ -155,9 +157,14 @@ sh scripts/run.sh --lan          # Windows: scripts\run.cmd --lan
 터미널에 `http://192.168.x.x:8000` 같은 주소가 나오면 같은 Wi-Fi 의 기기 브라우저(Safari 등)에서 연다.
 
 - 처음 실행할 때 방화벽 확인 창이 뜬다. Windows 는 **개인 네트워크** 만 허용, macOS 는 **허용**. Linux 에서 ufw 를 쓰면 `sudo ufw allow 8000/tcp`.
-- 키 입력·삭제는 서버를 실행한 컴퓨터에서만 된다. `FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE` 는 켜지 않는다.
+- 키 입력·삭제는 서버를 실행한 컴퓨터에서만 된다. 셸에 `FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE=true` 가 있어도 `--lan` 은 끄고 띄운다.
 - **인증이 없는 시연용 서버** 다. 같은 네트워크의 누구나 프로젝트를 만들고, 서버에 설정된 키로 LLM 분석을 요청할 수 있다.
-  믿을 수 있는 네트워크에서만 쓰고 시연이 끝나면 끈다. `--lan` 에서는 IP 별 POST 요청을 분당 30회로 제한한다 (`FRAME_RATE_LIMIT_PER_MINUTE` 로 변경).
+  믿을 수 있는 네트워크에서만 쓰고 시연이 끝나면 끈다. `--lan` 에서는 IP 별 POST 요청을 분당 30회로 제한한다
+  (`FRAME_RATE_LIMIT_PER_MINUTE` 로 바꾼다. 0 이나 빈 값이면 30 으로 띄운다 — 제한 없이는 열지 않는다).
+- 시작할 때 터미널에 적용된 요청 제한이 나온다. 셸에 `FRAME_GENERATOR` 가 실제 생성기로 잡혀 있으면 그것도 경고로 나온다
+  (다른 기기의 요청도 이 서버의 키와 자원으로 영상을 만든다).
+- 런처 없이 서버를 역방향 프록시(nginx 등) 뒤에 둘 때는 uvicorn 을 `--proxy-headers` 로 띄운다. 그러지 않으면 모든 요청이
+  서버와 같은 기기에서 온 것으로 보여, 다른 기기에서도 키를 넣을 수 있고 요청 제한도 모든 사용자를 한 주소로 센다.
 
 ## 8. 문제 해결
 
@@ -168,6 +175,7 @@ sh scripts/run.sh --lan          # Windows: scripts\run.cmd --lan
 | `.venv 가 다른 운영체제에서 만들어졌습니다` | 이 OS 에서는 저장소를 따로 clone (2절). 필요 없으면 `.venv` 폴더를 지우고 다시 실행 |
 | 화면 빌드 실패 | `node --version` 이 18 이상인지 확인, `frontend/node_modules` 를 지우고 `setup` 다시 실행 |
 | `포트 8000 를 이미 쓰고 있습니다` | `--port 8010` |
+| `서버가 아직 준비 중입니다` 가 나오고 시작이 오래 걸림 | 지난 실행에서 분석 도중에 끝낸 버전을 시작하면서 다시 분석하는 중이다 (LLM 응답을 기다리며, 길어도 5분). 끝나면 다음 실행부터는 바로 뜬다. 기다리지 않으려면 `Ctrl+C` 뒤 `run --offline` 으로 한 번 실행하거나 (남은 분석이 정리된다) `run --reset` |
 | 화면에 "API 미연결" | 서버 터미널의 오류를 확인. 주소가 `http://127.0.0.1:8000` 인지 확인 |
 | 분석이 `LLM_UNAVAILABLE` 로 실패 | 키가 없거나 잘못되었거나 연결이 안 된다. 오류 메시지를 보고 5절 방법으로 키를 넣은 뒤 다시 분석 |
 | `LLM_TIMEOUT` · `LLM_RATE_LIMITED` · `LLM_BAD_RESPONSE` | 잠시 후 다시 분석하거나 `--offline` 으로 시연 |

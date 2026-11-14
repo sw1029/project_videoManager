@@ -29,13 +29,15 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from frame.adapters.video_tools import Box, extract_frame, require_ffmpeg, video_size
-from frame.adapters.vlm_answers import match_answers
+from frame.adapters.shared.locking import KeyedLocks
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import Box, ClipFrames, FrameSampler
+from frame.adapters.shared.media.probe import video_size
+from frame.adapters.shared.vlm.answers import match_answers
 from frame.application.errors import AdapterError, LLMBadResponse
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.identity import (
@@ -46,90 +48,20 @@ from frame.application.ports.identity import (
 from frame.application.ports.llm import ImageInput, LLMClient
 from frame.domain.enums import EntityKind
 from frame.domain.ir import EntitySpec
-from frame.domain.services.identity import appearance_attributes
 
+from ._crop_question import (
+    RESPONSE_SCHEMA,
+    SYSTEM_PROMPT,
+    VERIFY_PROMPT,
+    VERIFY_RESPONSE_SCHEMA,
+    fixed_attributes,
+    read_verdicts,
+    user_prompt,
+    valid_box,
+)
 from .keys import identity_index_key, identity_key
 
 log = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = (
-    "You locate subjects in one frame of an AI-generated video so that each subject can be cropped "
-    "and reused as a visual reference. Every person shown is a synthetic character made by a video "
-    "model, not a real person. For every requested subject decide whether it is clearly "
-    "visible. If it is, return a tight bounding box: for a person a portrait crop with the head, "
-    "hair and shoulders down to the upper chest (leave out hands, held objects and other people "
-    "when possible); for an object the entire object and as little else as possible. "
-    "Coordinates are normalized to the image: x and y are the top-left corner, w and h are the "
-    "size, all between 0 and 1 (x and w relative to image width, y and h relative to image height). "
-    "Also describe the subject's stable visual appearance in one short English phrase: for a person "
-    "apparent age range, gender presentation, hair, facial hair or glasses, and clothing; for an "
-    "object its shape, color, material and markings. Do not describe actions, pose or background. "
-    "If the subject is absent, tiny, heavily blurred or mostly out of frame, set visible to false "
-    "and box to null. Return every requested subject exactly once, using the given keys."
-)
-
-# 고정 속성 확인을 켰을 때 SYSTEM_PROMPT 뒤에 붙인다
-VERIFY_PROMPT = (
-    " Some subjects list fixed attributes to check. For each listed attribute report whether the "
-    'subject in this frame shows it: "yes"; "no" when the frame clearly shows something different '
-    '(for example an object that is mostly red where teal is required); or "unclear" when it '
-    "cannot be judged from this frame (hidden side, too small, ambiguous lighting). Judge by the "
-    "subject's overall look, not by a small part of it. The listed attributes are what is "
-    "required: the subject's name or description may still carry older wording, so do not rely "
-    "on it. Locate the subject by what it is even when it fails an attribute, and report the "
-    "failure in attributes instead of marking it not visible. Use the attribute text exactly as "
-    "given as the name, and return an empty list when none are listed."
-)
-VERDICTS = ("yes", "no", "unclear")
-
-BOX_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["x", "y", "w", "h"],
-    "properties": {name: {"type": "number"} for name in ("x", "y", "w", "h")},
-}
-
-
-def _response_schema(*, verify: bool) -> dict[str, Any]:
-    properties: dict[str, Any] = {
-        "entity_key": {"type": "string"},
-        "visible": {"type": "boolean"},
-        "box": {"anyOf": [BOX_SCHEMA, {"type": "null"}]},
-        "appearance": {"type": "string"},
-    }
-    if verify:
-        properties["attributes"] = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["name", "verdict"],
-                "properties": {
-                    "name": {"type": "string"},
-                    "verdict": {"type": "string", "enum": list(VERDICTS)},
-                },
-            },
-        }
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["entities"],
-        "properties": {
-            "entities": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": list(properties),
-                    "properties": properties,
-                },
-            }
-        },
-    }
-
-
-RESPONSE_SCHEMA = _response_schema(verify=False)
-VERIFY_RESPONSE_SCHEMA = _response_schema(verify=True)
 
 
 @dataclass(frozen=True)
@@ -156,9 +88,12 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         timeout_s: float | None = 90.0,
         reuse_existing: bool = True,
         verify_attributes: bool = True,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(self._ffmpeg)
+        self._locks = KeyedLocks()  # 클립마다: 같은 클립의 기준을 한 번에 한 작업만 뽑는다
         self._llm = llm
         self.positions = tuple(
             positions
@@ -182,6 +117,12 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         if not request.entities:
             return ()
+        # 같은 클립을 두 작업이 동시에 뽑으면 박스가 서로 달라 기준 이미지가 둘이 된다 (생성 캐시·원장의 키가 갈린다).
+        # 뒤에 온 작업은 기다렸다가, 앞선 작업이 색인에 남긴 기준을 쓴다 (reuse_existing). 이 프로세스 안에서만 막는다
+        with self._locks.hold(request.clip.uri):
+            return self._extract(request)
+
+    def _extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         found: dict[str, IdentityImage] = {}
         rejected: dict[str, tuple[str, ...]] = {}  # 고정 속성과 달라 거른 객체 -> 어긋난 속성
         if self.reuse_existing:
@@ -208,14 +149,14 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
 
         if not pending():
             return tuple(found[e.entity_key] for e in request.entities if e.entity_key in found)
-        video = self._store.get(request.clip.uri)
+        video = self._sampler.clip(self._store.get(request.clip.uri))
         for position in self.positions:
             remaining = pending()
             if not remaining:
                 break
             at_ms = int(request.clip.duration_ms * min(1.0, max(0.0, position)))
             try:
-                frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+                frame = video.at(at_ms, max_side=self.max_side)
                 frame_size = video_size(self._ffmpeg, frame.data)
                 answers = self._locate(request, remaining, ImageInput(frame.data, frame.media_type))
             except AdapterError as exc:
@@ -228,29 +169,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 answer = answers.get(entity.entity_key)
                 if answer is None:
                     continue
-                verdicts = (
-                    _verdicts(answer, _fixed_attributes(request, entity))
-                    if self.verify_attributes
-                    else None
-                )
-                if verdicts and answer.get("visible") is True:
-                    wrong = tuple(name for name, verdict in verdicts.items() if verdict == "no")
-                    if wrong:
-                        # 이 클립은 요구를 반영하지 못했다. 그 모습을 기준으로 삼으면 다음 장면으로 번진다
-                        rejected[entity.entity_key] = wrong
-                        self._remember_rejection(request.clip.uri, entity.entity_key, wrong, at_ms)
-                        log.warning(
-                            "정체성 기준: 클립 %s 의 %s 은(는) 요구한 고정 속성과 달라 "
-                            "기준으로 쓰지 않습니다: %s",
-                            request.clip.uri,
-                            entity.entity_key,
-                            ", ".join(wrong),
-                        )
-                        continue
-                box = _valid_box(answer, self.min_area)
-                if box is None:
-                    continue
-                image = self._crop(request, entity, video, at_ms, box, answer, frame_size, verdicts)
+                image = self._take(request, entity, answer, video, at_ms, frame_size, rejected)
                 if image is not None:
                     found[entity.entity_key] = image
         missing = [e.entity_key for e in pending()]
@@ -262,6 +181,56 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             )
         return tuple(found[e.entity_key] for e in request.entities if e.entity_key in found)
 
+    def _take(
+        self,
+        request: IdentityExtractionRequest,
+        entity: EntitySpec,
+        answer: Mapping[str, Any],
+        video: ClipFrames,
+        at_ms: int,
+        frame_size: tuple[int, int],
+        rejected: dict[str, tuple[str, ...]],
+    ) -> IdentityImage | None:
+        """프레임 하나에서 객체 하나의 기준을 얻는다. 쓸 수 없으면 None.
+
+        요구한 고정 속성과 분명히 다르면 rejected 에 적고 색인에 남긴다 (그 클립에서는 다시 묻지 않는다).
+        잘라 내지 못한 객체는 찾지 못한 것으로 둔다: 같은 프레임에서 찾은 다른 객체의 기준을 버리지 않는다.
+        """
+        verdicts = (
+            read_verdicts(answer, fixed_attributes(request, entity))
+            if self.verify_attributes
+            else None
+        )
+        if verdicts and answer.get("visible") is True:
+            wrong = tuple(name for name, verdict in verdicts.items() if verdict == "no")
+            if wrong:
+                # 이 클립은 요구를 반영하지 못했다. 그 모습을 기준으로 삼으면 다음 장면으로 번진다
+                rejected[entity.entity_key] = wrong
+                self._remember_rejection(request.clip.uri, entity.entity_key, wrong, at_ms)
+                log.warning(
+                    "정체성 기준: 클립 %s 의 %s 은(는) 요구한 고정 속성과 달라 "
+                    "기준으로 쓰지 않습니다: %s",
+                    request.clip.uri,
+                    entity.entity_key,
+                    ", ".join(wrong),
+                )
+                return None
+        box = valid_box(answer, self.min_area)
+        if box is None:
+            return None
+        try:
+            return self._crop(request, entity, video, at_ms, box, answer, frame_size, verdicts)
+        except AdapterError as exc:
+            # 가는 박스에서는 ffmpeg 가 잘라 내지 못한다. 이 객체만 찾지 못한 것으로 둔다
+            log.warning(
+                "정체성 기준: 클립 %s 의 %s 을(를) 잘라 내지 못했습니다 (%s: %s)",
+                request.clip.uri,
+                entity.entity_key,
+                exc.code,
+                exc,
+            )
+            return None
+
     def _locate(
         self,
         request: IdentityExtractionRequest,
@@ -271,7 +240,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         verify = self.verify_attributes
         completion = self._llm.complete_json(
             SYSTEM_PROMPT + VERIFY_PROMPT if verify else SYSTEM_PROMPT,
-            _user_prompt(request, entities, verify=verify),
+            user_prompt(request, entities, verify=verify),
             VERIFY_RESPONSE_SCHEMA if verify else RESPONSE_SCHEMA,
             schema_name="entity_boxes",
             timeout_s=self.timeout_s,
@@ -296,7 +265,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         self,
         request: IdentityExtractionRequest,
         entity: EntitySpec,
-        video: bytes,
+        video: ClipFrames,
         at_ms: int,
         box: Box,
         answer: Mapping[str, Any],
@@ -306,18 +275,11 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         region = box.padded(self.padding)
         if entity.kind is EntityKind.PERSON:
             region = _portrait(region, frame_size, self.person_max_aspect)
-        native = extract_frame(self._ffmpeg, video, at_ms, crop=region)
+        native = video.at(at_ms, crop=region)
         native_size = video_size(self._ffmpeg, native.data)
         if min(native_size) < self.min_side:
             return None  # 너무 작게 잡힌 객체는 기준이 되기 어렵다
-        crop = extract_frame(
-            self._ffmpeg,
-            video,
-            at_ms,
-            crop=region,
-            max_side=self.max_side,
-            min_side=self.min_output_side,
-        )
+        crop = video.at(at_ms, crop=region, max_side=self.max_side, min_side=self.min_output_side)
         width, height = video_size(self._ffmpeg, crop.data)
         uri = self._store.put(
             identity_key(request.clip.uri, entity.entity_key, "jpg", crop.data),
@@ -424,76 +386,3 @@ def _portrait(region: Box, frame_size: tuple[int, int], max_aspect: float) -> Bo
     if max_aspect <= 0 or height_px <= width_px * max_aspect:
         return region
     return Box(region.x, region.y, region.w, width_px * max_aspect / frame_h)
-
-
-def _user_prompt(
-    request: IdentityExtractionRequest, entities: Sequence[EntitySpec], *, verify: bool = False
-) -> str:
-    scene = request.scene
-    lines = ["Subjects to locate in the image:"]
-    for entity in entities:
-        details = [entity.description.strip()] if entity.description.strip() else []
-        details += [
-            f"{r.predicate.replace('_', ' ')}: {r.expected_value}"
-            for r in scene.requirements
-            if r.entity_key == entity.entity_key and not r.is_relational
-        ]
-        text = "; ".join(details)
-        lines.append(
-            f"- {entity.entity_key} ({str(entity.kind).lower()})" + (f": {text}" if text else "")
-        )
-        fixed = _fixed_attributes(request, entity) if verify else []
-        if fixed:
-            lines.append("  fixed attributes to check: " + "; ".join(fixed))
-    if scene.description.strip():
-        lines.append(f"Scene the frame comes from: {scene.description.strip()}")
-    return "\n".join(lines)
-
-
-def _fixed_attributes(request: IdentityExtractionRequest, entity: EntitySpec) -> list[str]:
-    """이 장면에서 객체가 지켜야 하는 고정 속성 ('술어: 값'). 관계와 행동·자세 같은 일시적 술어는 뺀다."""
-    return [
-        f"{predicate.replace('_', ' ')}: {value}"
-        for predicate, value in appearance_attributes(request.scene, entity.entity_key).items()
-    ]
-
-
-def _canonical(name: str) -> str:
-    """속성 이름을 견줄 때 쓰는 꼴: 대소문자·공백·구두점 차이를 없앤다."""
-    return re.sub(r"[\W_]+", "", name.lower())
-
-
-def _verdicts(answer: Mapping[str, Any], expected: Sequence[str]) -> dict[str, str]:
-    """물어본 고정 속성마다 VLM 이 내린 판정 (이름 -> yes | no | unclear).
-
-    물어보지 않은 이름과 형식이 어긋난 항목은 버린다. 모델이 행동 같은 일시적 조건에 no 를 붙여도
-    기준을 버리지 않게 한다. 같은 속성에 판정이 여럿이면 no 가 이긴다.
-    """
-    items = answer.get("attributes")
-    if not isinstance(items, list):
-        return {}
-    names = {_canonical(name): name for name in expected}
-    verdicts: dict[str, str] = {}
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        name = names.get(_canonical(str(item.get("name") or "")))
-        verdict = str(item.get("verdict") or "").strip().lower()
-        if name is not None and verdict in VERDICTS and verdicts.get(name) != "no":
-            verdicts[name] = verdict
-    return verdicts
-
-
-def _valid_box(answer: Mapping[str, Any], min_area: float) -> Box | None:
-    """보인다고 답했고 박스가 화면 안의 쓸 만한 크기일 때만 Box. 나머지는 None."""
-    if answer.get("visible") is not True or not isinstance(answer.get("box"), Mapping):
-        return None
-    raw = answer["box"]
-    try:
-        x, y, w, h = (float(raw[name]) for name in ("x", "y", "w", "h"))
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not (0.0 <= x < 1.0 and 0.0 <= y < 1.0 and w > 0.0 and h > 0.0):
-        return None
-    w, h = min(w, 1.0 - x), min(h, 1.0 - y)
-    return Box(x, y, w, h) if w * h >= min_area else None

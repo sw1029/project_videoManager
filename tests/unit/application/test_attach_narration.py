@@ -6,7 +6,7 @@ import hashlib
 
 import pytest
 
-from frame.adapters.fake_media import fake_recording, fake_video
+from frame.adapters.shared.media.fake_media import fake_recording, fake_video
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.use_cases.series import AttachNarrationCommand, RecordingInput
 from frame.config.theme_settings import ThemeSettings

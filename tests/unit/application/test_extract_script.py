@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from frame.adapters.fake_media import fake_recording, fake_video
 from frame.adapters.series.audio import FakeAudioEditor
+from frame.adapters.shared.media.fake_media import fake_recording, fake_video
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.ports.speech import SpeechServiceError
 from frame.application.use_cases.script import ExtractScript, ExtractScriptCommand

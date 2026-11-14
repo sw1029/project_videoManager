@@ -26,10 +26,9 @@ from frame.application.use_cases.create_revision import CreateRevision
 from frame.application.use_cases.series._pending_revision import require_episode, settle_pending
 from frame.domain.enums import RevisionKind
 from frame.domain.errors import ValidationError
-from frame.domain.revision import KeepItem
+from frame.domain.revision import AttributeChange, KeepItem, target_scenes
 from frame.domain.series.record import Episode
 from frame.domain.series.theme import Theme
-from frame.domain.services.propagation import AttributeChange, target_scenes
 
 
 @dataclass(frozen=True)

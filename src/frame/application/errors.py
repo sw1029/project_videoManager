@@ -31,6 +31,10 @@ class TrackingError(AdapterError):
 
 
 class CheckError(AdapterError):
+    """검수 어댑터의 오류. 지금은 던지는 곳이 없다: 검수기는 판정하지 못한 것을 예외가 아니라
+    미판정(UNDETERMINED)으로 돌려주고 (ADR-0006), 검수기 밖으로 샌 예외는 검수 묶음이 미판정으로 바꾼다.
+    """
+
     code = "CHECK_ERROR"
 
 

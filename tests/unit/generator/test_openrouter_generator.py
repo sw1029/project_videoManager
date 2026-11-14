@@ -16,7 +16,7 @@ from frame.adapters.generator.openrouter import (
     output_size,
     resolve_openrouter_key,
 )
-from frame.adapters.http_transport import TransportError
+from frame.adapters.shared.http import TransportError
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError, GenerationTimeout
 from frame.application.ports.generator import SceneGenerationRequest
@@ -350,6 +350,17 @@ def test_polling_rides_out_transient_errors(store, ir):
     assert len(api.submits) == 1
 
 
+@pytest.mark.parametrize("code", [408, 409, 425, 500, 501, 520, 524, 599])
+def test_polling_rides_out_every_status_that_may_pass(store, ir, code):
+    """상태 조회의 5xx 는 과금과 무관하다. 한 번 났다고 대기를 끝내 버전을 실패시키지 않는다 (감사 A-37)."""
+    api = FakeOpenRouterApi()
+    api.on("GET", STATUS_PATH, error_response(code, "upstream hiccup"), completed())
+
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir))
+
+    assert clip.metadata["polls"] == 2 and len(api.submits) == 1
+
+
 def test_polling_stops_on_authentication_errors(store, ir):
     api = FakeOpenRouterApi()
     api.on("GET", STATUS_PATH, error_response(401, "Missing Authentication header"))
@@ -371,6 +382,17 @@ def test_download_retries_conflicts_then_succeeds(store, ir):
     assert store.get(clip.uri) == b"MP4:LATE-MP4"
     assert len(api.calls_to("GET", CONTENT_PATH)) == 2
     assert len(api.submits) == 1
+
+
+@pytest.mark.parametrize("code", [408, 425, 429, 500, 520, 524])
+def test_download_rides_out_every_status_that_may_pass(store, ir, code):
+    api = FakeOpenRouterApi()
+    api.on("GET", CONTENT_PATH, error_response(code, "try later"), video_content(b"LATE-MP4"))
+
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir))
+
+    assert store.get(clip.uri) == b"MP4:LATE-MP4"
+    assert len(api.calls_to("GET", CONTENT_PATH)) == 2 and len(api.submits) == 1
 
 
 def test_download_rejects_a_non_video_payload(store, ir):
@@ -534,6 +556,22 @@ def test_plain_http_is_allowed_for_a_local_test_server(store):
     assert isinstance(gen, OpenRouterVideoGenerator)
 
 
+@pytest.mark.parametrize(
+    "key",
+    ["sk-or-v1-first\nsecond", "sk-or-v1-first second", "sk-or-v1-한글", "sk-or-v1-nul\x00byte"],
+    ids=["newline", "space", "non-ascii", "control"],
+)
+def test_a_key_that_a_header_cannot_carry_is_refused_at_startup(store, key):
+    """키에 줄바꿈·공백이 끼면 요청을 보낼 때 프로토콜 오류가 나고, 그 문구에 키가 통째로 들어 있다 (감사 A-38).
+
+    기동할 때 키의 내용 없이 알린다.
+    """
+    with pytest.raises(ConfigurationError, match="쓸 수 없는 글자") as excinfo:
+        make_openrouter_generator(store, api_key=key)
+
+    assert "sk-or" not in str(excinfo.value) and "second" not in str(excinfo.value)
+
+
 def test_key_hint_shows_only_the_last_four_characters(store):
     gen = make_openrouter_generator(store)
     assert gen.key_hint == "..." + TEST_KEY[-4:]
@@ -669,6 +707,39 @@ def test_provider_messages_keep_only_the_host_of_any_url(store, ir):
     assert "Error validating image resolution" in message and "is too small" in message
     assert "http://files.example-oss.com/..." in message
     assert "SECRET" not in message and "Expires" not in message
+
+
+@pytest.mark.parametrize(
+    ("leaky", "kept", "gone"),
+    [
+        (
+            "upload to https://user:PASSWORD@storage.example/bucket/a.mp4 failed",
+            "https://storage.example/...",
+            ["PASSWORD", "user:"],
+        ),
+        (
+            "could not fetch storage.example/out.mp4?X-Amz-Signature=SIG-SECRET&X-Amz-Expires=600 in time",
+            "storage.example/out.mp4?...",
+            ["SIG-SECRET", "X-Amz"],
+        ),
+        (
+            "rejected input_references[0]: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ end",
+            "data:image/png;base64,...",
+            ["iVBORw0KGgo"],
+        ),
+    ],
+    ids=["userinfo", "signed-query-without-scheme", "data-uri"],
+)
+def test_provider_messages_do_not_carry_credentials_or_payloads(store, ir, leaky, kept, gone):
+    """제공자의 오류 문구는 버전의 error_message 로 API 응답에 나간다 (감사 A-38)."""
+    api = FakeOpenRouterApi().on("GET", STATUS_PATH, status("failed", error=leaky))
+
+    with pytest.raises(GenerationError) as excinfo:
+        make_openrouter_generator(store, api).generate_scene(_request(ir))
+
+    message = str(excinfo.value)
+    assert kept in message
+    assert not [secret for secret in gone if secret in message]
 
 
 # ---- 수정 지시 (ADR-0017): 새로 생성하는 프롬프트에도 꼭 지켜야 할 값을 적는다 -------------------

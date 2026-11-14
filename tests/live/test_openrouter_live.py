@@ -1,12 +1,13 @@
-"""실제 OpenRouter 영상 생성 호출 (slow, 비용 발생). FRAME_GENERATOR=external_api 를 명시했을 때만 실행된다.
+"""실제 OpenRouter 영상 생성 호출 (slow, 비용 발생). FRAME_LIVE_TESTS=1 과 FRAME_GENERATOR=external_api 를
+함께 명시했을 때만 실행된다 (공통 스위치는 tests/live/conftest.py, ADR-0030).
 
-    FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<OpenRouter 키 파일> FRAME_VIDEO_RESOLUTION=480p \
-        python -m pytest tests/live/test_openrouter_live.py -m slow -s
+    FRAME_LIVE_TESTS=1 FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<OpenRouter 키 파일> \
+        FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
 
 카페 예시의 intro 장면(9:16, 4초) 하나를 만든다. Wan 3.0 기준 480p 약 $0.20, 720p 약 $0.40.
 결과 mp4 는 FRAME_ARTIFACT_DIR(기본 ./artifacts) 의 clips/live-<시각>/intro.mp4 에 남는다.
-같은 조건으로 24시간 안에 다시 돌리면 작업 원장(ledger/openrouter, ADR-0013)이 이전 결과를 다시 쓰고 실패한다
-(과금 없음). 실제 호출을 다시 확인하려면 그 폴더를 지운다.
+같은 조건으로 다시 돌리면 작업 원장(ledger/openrouter, ADR-0013)이 이전 결과를 다시 쓰고 실패한다 (과금 없음.
+이전 클립이 남아 있는 동안은 기한이 없다). 실제 호출을 다시 확인하려면 그 폴더를 지운다.
 """
 
 from __future__ import annotations
@@ -83,4 +84,6 @@ def test_openrouter_generates_one_vertical_scene(live_settings):
     assert meta["billed_seconds"] == 4
     assert meta["job_id"]
     key = resolve_openrouter_key(None, os.environ, live_settings.video_key_file)
-    assert key not in json.dumps(meta, ensure_ascii=False)  # 키가 결과에 섞이지 않음
+    # `assert key not in ...` 로 쓰면 실패할 때 pytest 가 양쪽 값(실제 키)을 보고서에 싣는다
+    leaked = key in json.dumps(meta, ensure_ascii=False)
+    assert not leaked, "키가 클립 메타데이터에 섞였습니다"

@@ -11,9 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from frame.adapters.fake_media import fake_recording
 from frame.adapters.http_transport import HttpResponse, HttpTransport
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.shared.media.fake_media import fake_recording
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
 from frame.adapters.speech.openai import OpenAISpeechRecognizer

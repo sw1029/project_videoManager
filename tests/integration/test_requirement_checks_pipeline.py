@@ -15,8 +15,7 @@ from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.dto import CreateRevisionCommand
 from frame.domain.enums import CheckType, KeepAspect, RevisionKind, Verdict, VersionState
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem
 from tests.integration.test_real_checkers_pipeline import ColorClipGenerator
 from tests.support.factories import create_draft, generate, make_container
 from tests.support.video import find_ffmpeg

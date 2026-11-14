@@ -7,7 +7,7 @@ import pytest
 
 from frame.application.dto import CreateRevisionCommand
 from frame.domain.enums import CheckType, Verdict
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import generate, version_of
 
 

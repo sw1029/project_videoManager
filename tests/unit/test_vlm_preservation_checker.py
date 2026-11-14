@@ -19,8 +19,12 @@ from frame.application.ports.checker import CheckContext
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import CheckType, KeepAspect, RevisionKind, Verdict, VersionState
 from frame.domain.models import VideoVersion
-from frame.domain.revision import KeepItem, RevisionIntent
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import (
+    AttributeChange,
+    DefaultPropagationPolicy,
+    KeepItem,
+    RevisionIntent,
+)
 from tests.support.clock import ManualClock
 from tests.support.video import find_ffmpeg, make_clip
 
@@ -214,6 +218,44 @@ def test_repair_tells_the_judge_what_should_now_hold(store, ir, videos):
     ) in llm.calls[0]["user"].splitlines()
 
 
+@pytest.mark.parametrize(
+    ("parent_seconds", "child_seconds"),
+    [(4.0, 2.0), (2.0, 4.0)],
+    ids=["child-shorter", "parent-shorter"],
+)
+def test_frames_are_taken_where_both_clips_have_them(
+    store, ir, videos, tmp_path, parent_seconds, child_seconds
+):
+    """부모와 자식 클립의 길이가 다르면 (장면 길이를 바꾼 수정) 긴 쪽의 길이로 잡은 시각에는 짧은 쪽의 프레임이 없다.
+
+    두 길이 가운데 짧은 쪽 안에서 뽑는다. 부모 길이로만 잡으면 자식이 짧을 때 프레임을 못 뽑아 미판정이 됐다
+    (감사 A-28).
+    """
+    ctx = _revision(store, ir, videos, keep=(ACTION,))
+
+    def clip(version_id, seconds, color):
+        data = make_clip(
+            FFMPEG, tmp_path / f"{version_id}.mp4", seconds=seconds, source=f"color=c={color}"
+        )
+        uri = store.put(f"clips/{version_id}/intro.mp4", data, "video/mp4")
+        return GeneratedClip("intro", uri, int(seconds * 1000), "fp")
+
+    parent_clips = {**ctx.parent_clips, "intro": clip("ver_1", parent_seconds, "red")}
+    child_clips = {**ctx.clips, "intro": clip("ver_2", child_seconds, "blue")}
+    ctx = replace(ctx, parent_clips=parent_clips, clips=child_clips)
+    checker, llm = _checker(store, _reply("yes"))
+
+    (intro,) = [o for o in checker.check(ctx) if o.scene_key == "intro"]
+
+    assert intro.verdict is Verdict.PASS
+    assert [image.label for image in llm.calls[0]["images"]] == [
+        "B1 — BEFORE at 0.5s",
+        "B2 — BEFORE at 1.5s",
+        "A1 — AFTER at 0.5s",
+        "A2 — AFTER at 1.5s",
+    ]
+
+
 def test_what_cannot_be_judged_is_undetermined(store, ir, videos):
     ctx = _revision(store, ir, videos, keep=(ACTION, LIGHTING))
     checker, _ = _checker(store, _reply("unclear"), LLMTimeout("VLM 응답 없음"))
@@ -225,6 +267,37 @@ def test_what_cannot_be_judged_is_undetermined(store, ir, videos):
     assert intro[1].detail["reason"] == "응답에 이 요소의 판정이 없음"
     (closeup,) = [o for o in outcomes if o.scene_key == "closeup"]
     assert closeup.verdict is Verdict.UNDETERMINED and "LLM_TIMEOUT" in closeup.detail["reason"]
+
+
+def test_once_the_model_does_not_answer_the_remaining_scenes_are_not_asked(store, ir, videos):
+    """다시 만든 장면 둘 가운데 첫 장면에서 모델이 답하지 않았다: 둘째 장면은 묻지 않는다 (감사 A-24)."""
+    checker, llm = _checker(store, LLMTimeout("VLM 응답 없음"))
+
+    outcomes = checker.check(_revision(store, ir, videos, keep=(ACTION, LIGHTING)))
+
+    remade = [o for o in outcomes if o.scene_key in TARGETS]
+    assert [o.verdict for o in remade] == [Verdict.UNDETERMINED] * 2
+    assert remade[0].detail["reason"] == "LLM_TIMEOUT: VLM 응답 없음"
+    assert (
+        remade[1].detail["reason"].startswith("LLM_TIMEOUT: ")
+        and "묻지 않" in remade[1].detail["reason"]
+    )
+    assert len(llm.calls) == 1
+    # 부모 클립을 그대로 쓴 장면은 모델 없이 판정한다
+    assert [o.verdict for o in outcomes if o.scene_key == "outro"] == [Verdict.PASS]
+
+
+def test_an_unexpected_error_in_one_scene_keeps_the_verdicts_of_the_others(store, ir, videos):
+    checker, llm = _checker(store, KeyError("elements"), _reply("yes"))
+
+    outcomes = checker.check(_revision(store, ir, videos, keep=(ACTION, LIGHTING)))
+
+    intro = [o for o in outcomes if o.scene_key == "intro"]
+    closeup = [o for o in outcomes if o.scene_key == "closeup"]
+    assert [o.verdict for o in intro] == [Verdict.UNDETERMINED]
+    assert intro[0].detail["reason"] == "UNEXPECTED_ERROR: KeyError"
+    assert closeup and {o.verdict for o in closeup} == {Verdict.PASS}
+    assert len(llm.calls) == 2
 
 
 def test_clips_that_cannot_be_compared_are_undetermined_without_asking(store, ir, videos):

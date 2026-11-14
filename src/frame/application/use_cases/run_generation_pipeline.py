@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime
 
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
-from frame.domain.errors import InvalidStateTransition, NotFound
+from frame.domain.errors import IntegrityViolation, InvalidStateTransition, NotFound
 from frame.domain.models import VideoVersion
 from frame.domain.progress import StageProgress, format_elapsed_ms
 
@@ -27,6 +26,13 @@ from ..ports.common import Clock, IdGenerator
 from ..ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 
 log = logging.getLogger(__name__)
+
+
+def _found(version: VideoVersion | None, version_id: str) -> VideoVersion:
+    """다시 읽은 버전. 없으면 NotFound 다: 방금 상태를 바꾼 버전이 읽히지 않는 것은 저장소가 어긋난 것이다."""
+    if version is None:
+        raise NotFound(f"버전 {version_id} 을 찾을 수 없습니다", version_id=version_id)
+    return version
 
 
 def _save_derived_references(uow: UnitOfWork, version_id: str, ctx: PipelineContext) -> None:
@@ -47,13 +53,13 @@ class RunGenerationPipeline:
         runner: PipelineRunner,
         ids: IdGenerator,
         *,
-        clock: Clock | None = None,
+        clock: Clock,
     ) -> None:
         self._uow_factory = uow_factory
         self._stages = tuple(stages)
         self._runner = runner
         self._ids = ids
-        self._now = clock.now if clock is not None else (lambda: datetime.now(UTC))
+        self._now = clock.now
 
     def execute(self, version_id: str) -> VideoVersion:
         with self._uow_factory() as uow:
@@ -66,8 +72,7 @@ class RunGenerationPipeline:
                 raise InvalidStateTransition(
                     f"상태 {version.state} 인 버전은 실행할 수 없습니다 (QUEUED 만 가능)"
                 )
-            version = uow.versions.get(version_id)
-            assert version is not None
+            version = _found(uow.versions.get(version_id), version_id)
             # 시작 시각·시도 횟수를 단계 실행 전에 커밋한다: 도중에 프로세스가 죽어도 복구가 판단할 수 있다 (#2)
             version.record_started(self._now())
             uow.versions.save(version)
@@ -105,8 +110,7 @@ class RunGenerationPipeline:
     ) -> VideoVersion:
         """ctx 를 주면 실패 전까지 만든 결과(장면 클립·조립 영상·추적 결과·진행)도 남긴다. 검수 결과는 남기지 않는다."""
         with self._uow_factory() as uow:
-            version = uow.versions.get(version_id)
-            assert version is not None
+            version = _found(uow.versions.get(version_id), version_id)
             if ctx is not None:
                 version.clips = dict(ctx.clips)  # 끝난 장면(부모에서 재사용한 장면 포함)
                 version.video_uri = ctx.video.uri if ctx.video is not None else None
@@ -121,8 +125,11 @@ class RunGenerationPipeline:
 
     def _record_success(self, version_id: str, ctx: PipelineContext) -> VideoVersion:
         with self._uow_factory() as uow:
-            version = uow.versions.get(version_id)
-            assert version is not None and ctx.video is not None
+            version = _found(uow.versions.get(version_id), version_id)
+            if ctx.video is None:
+                raise IntegrityViolation(
+                    f"버전 {version_id} 의 실행이 끝났는데 조립한 영상이 없습니다"
+                )
             version.video_uri = ctx.video.uri
             version.clips = dict(ctx.clips)
             version.progress = ctx.progress

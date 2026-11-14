@@ -6,10 +6,13 @@ ffmpeg 가 없으면 건너뛴다 (`pip install -e ".[video]"` 또는 PATH 의 f
 from __future__ import annotations
 
 import subprocess
+import tempfile
 
 import pytest
 
-from frame.adapters.generator.ffmpeg import FfmpegVideoNormalizer, probe_video, resolve_ffmpeg
+from frame.adapters.generator.normalizer import FfmpegVideoNormalizer
+from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
+from frame.adapters.shared.media.probe import probe_video
 from frame.application.errors import ConfigurationError, GenerationError
 
 
@@ -92,6 +95,17 @@ def test_garbage_input_raises_generation_error(ffmpeg):
         FfmpegVideoNormalizer(ffmpeg).normalize(
             b"not a video", duration_ms=1000, fps=24, width=480, height=854
         )
+
+
+def test_error_messages_do_not_show_the_servers_temporary_folder(ffmpeg):
+    """정규화 실패의 문구는 버전의 error_message 로 API 에 나간다 (감사 A-38)."""
+    with pytest.raises(GenerationError) as raised:
+        FfmpegVideoNormalizer(ffmpeg).normalize(
+            b"not a video", duration_ms=1000, fps=24, width=480, height=854
+        )
+
+    message = str(raised.value)
+    assert tempfile.gettempdir() not in message and "frame-ffmpeg-" not in message
 
 
 def test_resolve_ffmpeg_uses_an_explicit_path_and_fails_clearly(tmp_path):

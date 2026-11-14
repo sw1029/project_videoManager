@@ -35,7 +35,7 @@ from frame.application.use_cases.series._pending_revision import require_episode
 from frame.application.use_cases.series.check_episode_screen import CheckEpisodeScreen, ScreenReport
 from frame.domain.enums import ChangeScope, RevisionKind
 from frame.domain.errors import ValidationError
-from frame.domain.revision import KeepItem
+from frame.domain.revision import AttributeChange, KeepItem
 from frame.domain.series.record import Episode
 from frame.domain.series.screen_correction import (
     CorrectionStep,
@@ -49,7 +49,6 @@ from frame.domain.series.screen_correction import (
     repair_axis,
     without_patched,
 )
-from frame.domain.services.propagation import AttributeChange
 
 
 @dataclass(frozen=True)

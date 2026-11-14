@@ -11,9 +11,9 @@ from frame.adapters.checker import (
     FakePreservationChecker,
     FakeRequirementChecker,
 )
-from frame.adapters.fake_media import fake_recording
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
+from frame.adapters.shared.media.fake_media import fake_recording
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import (
     AdapterError,

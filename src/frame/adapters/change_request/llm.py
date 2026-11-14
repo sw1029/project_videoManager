@@ -3,6 +3,8 @@
 사용자가 글로 쓴 수정 요청과 지금 버전의 중간표현(객체·장면·요구조건)을 주고, 구조화된 변경 하나를 받는다.
 - 객체는 번호가 아니라 IR 의 키로 가리키게 하고, 술어는 어휘 목록에서 고르게 한다.
 - 모델이 고른 객체·장면·유지 요소는 IR 에 있는 것만 받아들인다 (없는 것은 버리고 notes 에 적는다).
+  이 변경이 바꾸는 것 자체를 그대로 두라는 유지 요소도 빼고 notes 에 적는다.
+  규칙 기반 해석기와 같은 규칙이다 (_reading).
 - 읽을 수 없는 요청(understood=false)은 ChangeRequestNotUnderstood 로 올린다.
 """
 
@@ -25,6 +27,8 @@ from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.revision import KeepItem
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
+
+from ._reading import entity_in, known_entity, known_scenes, usable_keep, with_left_out
 
 log = logging.getLogger(__name__)
 
@@ -167,57 +171,50 @@ class LLMChangeRequestInterpreter(ChangeRequestInterpreter):
             raise ChangeRequestNotUnderstood(
                 notes or "변경 요청을 구조화된 변경으로 옮기지 못했습니다"
             )
-        entity = data.get("entity_key")
-        entity = str(entity).strip() if entity else None
-        if entity is not None and not ir.has_entity(entity):
-            raise ChangeRequestNotUnderstood(
-                f"요청이 가리키는 객체 '{entity}' 가 이 영상에 없습니다"
-                + (f" ({notes})" if notes else "")
-            )
+        raw_entity = str(data.get("entity_key") or "").strip()
+        entity = known_entity(ir, raw_entity, notes) if raw_entity else None
         predicate = str(data.get("predicate") or "").strip()
         value = " ".join(str(data.get("new_value") or "").split())
         if not predicate or not value:
             raise ChangeRequestNotUnderstood(notes or "바꿀 속성이나 새 값을 읽지 못했습니다")
-        dropped: list[str] = []
-        scene_keys = []
-        for key in data.get("scene_keys") or ():
-            if ir.has_scene(str(key)):
-                scene_keys.append(str(key))
-            else:
-                dropped.append(f"장면 {key}")
-        keep: list[KeepItem] = []
-        for raw in data.get("keep") or ():
+        scene_keys, missing = known_scenes(ir, data.get("scene_keys") or ())
+        asked, unreadable = self._keep_items(ir, data.get("keep") or ())
+        keep, gone, clashing = usable_keep(
+            ir, asked, entity_key=entity, predicate=predicate, new_value=value
+        )
+        scope_raw = data.get("scope")
+        scope = ChangeScope(scope_raw) if scope_raw in ("SCENES", "ALL_APPEARANCES") else None
+        if scope is ChangeScope.SCENES and not scene_keys:
+            scope = None  # 장면을 짚지 못했으면 범위를 정하지 않은 것으로 본다
+        return ChangeRequestInterpretation(
+            entity_key=entity,
+            predicate=predicate,
+            new_value=value,
+            scope=scope,
+            scene_keys=scene_keys,
+            keep=keep,
+            notes=with_left_out(notes, [*missing, *unreadable, *gone], clashing),
+        )
+
+    @staticmethod
+    def _keep_items(ir: IntermediateRepresentation, raws: Any) -> tuple[list[KeepItem], list[str]]:
+        """모델이 적은 유지 요소를 읽는다: (읽은 것, 읽지 못해 뺀 것의 설명)."""
+        items: list[KeepItem] = []
+        unreadable: list[str] = []
+        for raw in raws:
             if not isinstance(raw, Mapping):
                 continue
-            target = raw.get("entity_key")
-            target = str(target).strip() if target else None
+            target = str(raw.get("entity_key") or "").strip() or None
+            if target is not None:
+                # 이 영상의 객체 키로 맞춘다. 맞는 객체가 없으면 그대로 두고 usable_keep 이 걸러 낸다
+                target = entity_in(ir, target) or target
             aspect = str(raw.get("aspect"))
             if target is None and aspect == str(KeepAspect.APPEARANCE):
                 # 객체 없이 '모습' 을 유지하라는 답은 장면의 모습, 곧 배경으로 읽는다.
                 # 실제 모델이 '배경은 유지해줘' 를 이렇게 돌려준 적이 있다 (2차 e2e 1회차)
                 aspect = str(KeepAspect.BACKGROUND)
             try:
-                item = KeepItem(KeepAspect(aspect), target)
+                items.append(KeepItem(KeepAspect(aspect), target))
             except (ValueError, ValidationError):
-                dropped.append(f"유지 요소 {raw.get('aspect')}")
-                continue
-            if target is not None and not ir.has_entity(target):
-                dropped.append(f"유지 요소의 객체 {target}")
-                continue
-            if item not in keep:
-                keep.append(item)
-        scope_raw = data.get("scope")
-        scope = ChangeScope(scope_raw) if scope_raw in ("SCENES", "ALL_APPEARANCES") else None
-        if scope is ChangeScope.SCENES and not scene_keys:
-            scope = None  # 장면을 짚지 못했으면 범위를 정하지 않은 것으로 본다
-        if dropped:
-            notes = (notes + " " if notes else "") + f"(이 영상에 없어 뺀 것: {', '.join(dropped)})"
-        return ChangeRequestInterpretation(
-            entity_key=entity,
-            predicate=predicate,
-            new_value=value,
-            scope=scope,
-            scene_keys=tuple(scene_keys),
-            keep=tuple(keep),
-            notes=notes,
-        )
+                unreadable.append(f"유지 요소 {raw.get('aspect')}")
+        return items, unreadable

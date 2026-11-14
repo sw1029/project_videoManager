@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="IR 을 JSON 으로 출력")
     args = parser.parse_args(argv)
 
-    brief = args.brief if args.brief else Path(args.file).read_text(encoding="utf-8")
+    brief = args.brief or Path(args.file).read_text(encoding="utf-8")
     settings = replace(Settings.from_env(), jobs="recording", persistence="memory")
     try:
         container = build_container(settings)

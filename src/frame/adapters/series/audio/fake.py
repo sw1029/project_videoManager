@@ -1,4 +1,4 @@
-"""테스트·오프라인용 소리 편집기. 가짜 영상·녹음(adapters/fake_media.py)에 적힌 말소리를 잘라 옮긴다.
+"""테스트·오프라인용 소리 편집기. 가짜 영상·녹음(adapters/shared/media/fake_media.py)에 적힌 말소리를 잘라 옮긴다.
 
 만든 트랙에는 옮겨진 말소리가 그대로 적힌다. 그래서 가짜 인식기로 다시 읽어
 '녹음이 제자리에 놓였는지' 를 확인할 수 있다.
@@ -10,7 +10,11 @@ import hashlib
 from collections.abc import Sequence
 from typing import Any
 
-from frame.adapters.fake_media import FAKE_MEDIA_TYPE, decode_fake_media, encode_fake_media
+from frame.adapters.shared.media.fake_media import (
+    FAKE_MEDIA_TYPE,
+    decode_fake_media,
+    encode_fake_media,
+)
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
 from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio

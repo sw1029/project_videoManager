@@ -37,6 +37,8 @@ def test_presets_are_well_formed():
 )
 def test_dsl_presets_structure_cleanly_with_matching_duration(preset):
     target_ms = preset["duration_s"] * 1000
-    ir = RuleBasedStructurer().structure(StructuringRequest(preset["prompt"], target_duration_ms=target_ms))
+    ir = RuleBasedStructurer().structure(
+        StructuringRequest(preset["prompt"], target_duration_ms=target_ms)
+    )
     ir.validate()
     assert ir.total_duration_ms == target_ms

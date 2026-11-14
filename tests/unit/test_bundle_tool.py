@@ -5,7 +5,9 @@ import io
 import os
 import re
 import stat
+import subprocess
 import tarfile
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -47,7 +49,9 @@ def test_detect_target(platform, machine, label):
     assert bundle.detect_target(platform, machine).label == label
 
 
-@pytest.mark.parametrize(("platform", "machine"), [("win32", "ARM64"), ("freebsd14", "amd64"), ("linux", "riscv64")])
+@pytest.mark.parametrize(
+    ("platform", "machine"), [("win32", "ARM64"), ("freebsd14", "amd64"), ("linux", "riscv64")]
+)
 def test_unsupported_platforms_are_rejected(platform, machine):
     with pytest.raises(bundle.BundleError):
         bundle.detect_target(platform, machine)
@@ -79,8 +83,31 @@ def test_a_tampered_runtime_archive_is_rejected_and_kept_if_user_supplied(tmp_pa
 def test_a_matching_runtime_archive_is_accepted(tmp_path):
     fake = tmp_path / "python.tar.gz"
     fake.write_bytes(b"runtime")
-    target = bundle.Target(LINUX.triple, LINUX.label, LINUX.title, hashlib.sha256(b"runtime").hexdigest())
+    target = bundle.Target(
+        LINUX.triple, LINUX.label, LINUX.title, hashlib.sha256(b"runtime").hexdigest()
+    )
     assert bundle.fetch_python(target, tmp_path / "cache", local_archive=fake) == fake
+
+
+def test_a_download_that_cannot_start_is_a_message_with_a_way_around(tmp_path, monkeypatch):
+    def unreachable(request, timeout):
+        raise urllib.error.URLError("getaddrinfo failed")
+
+    monkeypatch.setattr(bundle.urllib.request, "urlopen", unreachable)
+    with pytest.raises(bundle.BundleError, match="--python-archive") as caught:
+        bundle.fetch_python(LINUX, tmp_path / "cache")
+    assert "getaddrinfo failed" in str(caught.value)
+
+
+def test_a_download_cut_off_midway_is_a_message_and_leaves_nothing_behind(tmp_path, monkeypatch):
+    class CutOff(io.BytesIO):
+        def read(self, size=-1):
+            raise ConnectionResetError("connection reset")
+
+    monkeypatch.setattr(bundle.urllib.request, "urlopen", lambda request, timeout: CutOff())
+    with pytest.raises(bundle.BundleError, match="받지 못했습니다"):
+        bundle.fetch_python(LINUX, tmp_path / "cache")
+    assert list((tmp_path / "cache").iterdir()) == []  # 다음 실행이 반쪽 파일을 만나지 않는다
 
 
 def _tar(path: Path, name: str, data: bytes = b"x", mode: int = 0o644) -> Path:
@@ -92,7 +119,8 @@ def _tar(path: Path, name: str, data: bytes = b"x", mode: int = 0o644) -> Path:
 
 
 needs_safe_tar = pytest.mark.skipif(
-    not hasattr(tarfile, "data_filter"), reason="tarfile 안전 필터는 Python 3.11.4+ (번들 빌드 요구 사항)"
+    not hasattr(tarfile, "data_filter"),
+    reason="tarfile 안전 필터는 Python 3.11.4+ (번들 빌드 요구 사항)",
 )
 
 
@@ -109,6 +137,14 @@ def test_extract_python_blocks_path_traversal(tmp_path):
     with pytest.raises(bundle.BundleError):
         bundle.extract_python(archive, tmp_path / "stage")
     assert not (tmp_path / "escaped.txt").exists()
+
+
+@needs_safe_tar
+def test_extract_python_reports_a_broken_archive_instead_of_crashing(tmp_path):
+    broken = tmp_path / "python.tar.gz"
+    broken.write_bytes(b"not a tar archive")
+    with pytest.raises(bundle.BundleError, match="풀 수 없습니다"):
+        bundle.extract_python(broken, tmp_path / "out")
 
 
 def test_windows_wrappers_are_ascii_crlf_and_use_the_bundled_python(tmp_path):
@@ -137,13 +173,35 @@ def test_readme_matches_the_os(tmp_path):
     bundle.write_readme(tmp_path, WINDOWS)
     windows = (tmp_path / "README.txt").read_text(encoding="utf-8")
     assert "run.cmd" in windows and "차단 해제" in windows and "xattr" not in windows
-    assert "C:\\frame" in windows and "\f" not in windows  # 경로 길이 안내 (역슬래시가 제어 문자로 바뀌지 않게)
+    assert (
+        "C:\\frame" in windows and "\f" not in windows
+    )  # 경로 길이 안내 (역슬래시가 제어 문자로 바뀌지 않게)
     bundle.write_readme(tmp_path, MAC_ARM)
     mac = (tmp_path / "README.txt").read_text(encoding="utf-8")
     assert "sh run.sh" in mac and "xattr" in mac
     bundle.write_readme(tmp_path, LINUX)
     linux = (tmp_path / "README.txt").read_text(encoding="utf-8")
     assert "sh run.sh" in linux and "xattr" not in linux
+
+
+@pytest.mark.parametrize("target", [WINDOWS, MAC_ARM, LINUX], ids=["windows", "macos", "linux"])
+def test_readme_warns_that_a_stored_key_travels_with_the_folder(tmp_path, target):
+    # setup 으로 저장한 키는 번들 폴더 안(.demo)에 평문으로 남는다 - 폴더를 넘기면 키가 따라간다
+    bundle.write_readme(tmp_path, target)
+    readme = (tmp_path / "README.txt").read_text(encoding="utf-8")
+    assert demo.KEY_STAYS_IN_FOLDER in readme
+
+
+def test_readme_line_endings_do_not_depend_on_the_os_that_builds_the_bundle(tmp_path):
+    # 텍스트 모드로 쓰면 Windows 에서 "\r\n" 이 "\r\r\n" 이 되고 (메모장에 빈 줄이 낀다),
+    # POSIX 번들의 안내문에는 "\r" 이 낀다. 읽을 때 줄바꿈을 풀어 주는 read_text 로는 보이지 않는다
+    bundle.write_readme(tmp_path, WINDOWS)
+    windows = (tmp_path / "README.txt").read_bytes()
+    assert b"\r\r" not in windows
+    assert windows.count(b"\r\n") == windows.count(b"\n") > 10
+    for target in (MAC_ARM, LINUX):
+        bundle.write_readme(tmp_path, target)
+        assert b"\r" not in (tmp_path / "README.txt").read_bytes()
 
 
 def test_metadata_marks_the_folder_as_a_bundle(tmp_path):
@@ -204,6 +262,17 @@ def test_windows_archive_is_a_zip_under_one_top_folder_with_checksum(tmp_path):
     assert name == archive.name and digest == bundle.sha256_of(archive)
 
 
+@pytest.mark.parametrize("target", [WINDOWS, LINUX], ids=["zip", "tar.gz"])
+def test_checksum_file_is_one_line_that_sha256sum_reads_on_any_os(tmp_path, target):
+    # "해시  이름\n" 한 줄. 줄 끝에 "\r" 이 있으면 `sha256sum -c` 가 "이름\r" 이라는 파일을 찾다가 실패한다
+    stage = tmp_path / f"frame-demo-{target.label}"
+    stage.mkdir()
+    (stage / "README.txt").write_bytes(b"x")
+    archive = bundle.make_archive(stage, tmp_path / "out", target)
+    written = (archive.parent / f"{archive.name}.sha256").read_bytes()
+    assert written == f"{bundle.sha256_of(archive)}  {archive.name}\n".encode("ascii")
+
+
 @pytest.mark.skipif(os.name == "nt", reason="실행 권한·심볼릭 링크는 POSIX 에서만 확인")
 def test_posix_archive_keeps_exec_bits_and_symlinks(tmp_path):
     stage = tmp_path / "frame-demo-linux-x64"
@@ -236,6 +305,54 @@ def test_verify_rejects_a_checksum_mismatch(tmp_path):
     )
     with pytest.raises(bundle.BundleError, match="SHA-256"):
         bundle.verify(tmp_path, WINDOWS)
+
+
+def test_verify_says_so_when_the_checksum_file_is_missing(tmp_path):
+    (tmp_path / "frame-demo-windows-x64.zip").write_bytes(b"zip")
+    with pytest.raises(bundle.BundleError, match="sha256 파일이 없습니다"):
+        bundle.verify(tmp_path, WINDOWS)
+
+
+@pytest.mark.parametrize("content", ["", "\n", "   "], ids=["empty", "newline", "spaces"])
+def test_verify_reports_an_empty_checksum_file_instead_of_crashing(tmp_path, content):
+    (tmp_path / "frame-demo-windows-x64.zip").write_bytes(b"zip")
+    (tmp_path / "frame-demo-windows-x64.zip.sha256").write_text(content, encoding="utf-8")
+    with pytest.raises(bundle.BundleError, match="비어 있습니다"):
+        bundle.verify(tmp_path, WINDOWS)
+
+
+def test_verify_reports_a_broken_bundle_file_instead_of_crashing(tmp_path):
+    archive = tmp_path / "frame-demo-windows-x64.zip"
+    archive.write_bytes(b"not a zip file")
+    (tmp_path / f"{archive.name}.sha256").write_bytes(
+        f"{bundle.sha256_of(archive)}  {archive.name}\n".encode()
+    )
+    with pytest.raises(bundle.BundleError, match="풀 수 없습니다"):
+        bundle.verify(tmp_path, WINDOWS)
+
+
+def test_a_bundle_error_ends_the_command_with_a_message_not_a_traceback(tmp_path, capsys):
+    assert bundle.main(["verify", str(tmp_path / "missing.zip")], root=REPO) == 1
+    assert "번들 파일이 없습니다" in capsys.readouterr().err
+
+
+def _hangs(command, **kwargs):
+    """답하지 않는 프로그램: 시간 제한을 주고 불렀을 때만 돌아온다."""
+    assert kwargs.get("timeout"), "시간 제한 없이 부르면 멈춘 프로그램을 끝없이 기다린다"
+    raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+
+def test_a_git_that_does_not_answer_leaves_the_revision_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(bundle.subprocess, "run", _hangs)
+    assert bundle._git_sha(tmp_path) == "unknown"
+
+
+def test_a_bundled_python_that_does_not_answer_stops_the_build_with_a_message(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(bundle.subprocess, "run", _hangs)
+    with pytest.raises(bundle.BundleError, match="실행할 수 없습니다"):
+        bundle.install_app(tmp_path / "python", tmp_path)
 
 
 def test_targets_command_lists_every_bundle(capsys):

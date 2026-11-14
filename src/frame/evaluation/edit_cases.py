@@ -36,8 +36,7 @@ from typing import Any
 
 from frame.domain.enums import ChangeScope, RevisionKind
 from frame.domain.errors import ValidationError
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem
 
 _FIELDS = frozenset(
     {

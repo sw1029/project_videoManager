@@ -19,7 +19,7 @@ from frame.adapters.checker import (
     VlmConsistencyChecker,
 )
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.adapters.tracker import FakeObjectTracker
 from frame.application.errors import LLMTimeout
 from frame.application.ports.checker import CheckContext
@@ -28,7 +28,7 @@ from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.models import ReferenceImage, VideoVersion
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 from tests.support.clock import ManualClock
 from tests.support.video import find_ffmpeg, make_clip
 
@@ -42,7 +42,7 @@ FRAMES = 2  # 장면마다 뽑는 표본 프레임 수
 @pytest.fixture(scope="module")
 def videos(tmp_path_factory):
     if FFMPEG is None:
-        return {name: b"not-a-video" for name in ("red", "blue", "pattern")}
+        return dict.fromkeys(("red", "blue", "pattern"), b"not-a-video")
     folder = tmp_path_factory.mktemp("clips")
     return {
         "red": make_clip(FFMPEG, folder / "red.mp4", source="color=c=red"),
@@ -275,6 +275,55 @@ def test_vlm_compares_against_a_user_reference_image_when_there_is_one(store, ir
     barista_call = next(c for c in llm.calls if "- barista (person)" in c["user"])
     assert barista_call["images"][0].label.startswith("REF")
     assert len(barista_call["images"]) == 1 + 2 * FRAMES
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("kind", ["memory", "local_fs"])
+def test_vlm_judges_an_entity_whose_user_reference_is_an_external_address(
+    kind, ir, videos, tmp_path
+):
+    """사용자 참조가 외부 주소면 그 이미지를 읽지 못할 뿐, 객체는 판정한다 (감사 A-21).
+
+    로컬 저장소가 다른 곳의 주소에 예외를 내던 때에는 그 저장소에서만 이 객체가 늘 미판정이었다.
+    """
+    store = InMemoryArtifactStore() if kind == "memory" else LocalFileArtifactStore(tmp_path)
+    reference = ReferenceImage("img_1", "ver_1", "https://example.com/barista.png", "barista")
+    checker, _ = _vlm_checker(store, ir)
+
+    outcomes = checker.check(_context(store, ir, videos, references=(reference,)))
+
+    barista = next(o for o in outcomes if o.entity_key == "barista")
+    assert barista.verdict is Verdict.PASS, barista.detail
+
+
+@needs_ffmpeg
+def test_vlm_stops_asking_once_the_model_does_not_answer(store, ir, videos):
+    """객체 셋 가운데 첫 객체에서 모델이 답하지 않았다: 남은 객체는 묻지 않는다 (감사 A-24)."""
+    llm = ReplayLLMClient([LLMTimeout("응답 없음")])
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1)
+
+    outcomes = checker.check(_context(store, ir, videos))
+
+    assert [o.verdict for o in outcomes] == [Verdict.UNDETERMINED] * 3
+    assert outcomes[0].detail["reason"] == "LLM_TIMEOUT: 응답 없음"
+    assert all("묻지 않" in o.detail["reason"] for o in outcomes[1:])
+    assert len(llm.calls) == 1
+
+
+@needs_ffmpeg
+def test_vlm_keeps_the_other_verdicts_when_one_subject_fails_unexpectedly(store, ir, videos):
+    """예전에는 검수기 전체가 예외로 끝나 다른 객체의 판정까지 버려졌다 (감사 A-13)."""
+    llm = ReplayLLMClient(
+        [KeyError("frames")]
+    )  # 첫 객체에서만 터지고, 남은 둘은 재생할 응답이 없다
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1)
+
+    outcomes = checker.check(_context(store, ir, videos))
+
+    assert [o.verdict for o in outcomes] == [Verdict.UNDETERMINED] * 3
+    assert outcomes[0].detail["reason"] == "UNEXPECTED_ERROR: KeyError"
+    assert all(o.detail["reason"].startswith("LLM_BAD_RESPONSE") for o in outcomes[1:])
+    assert len(llm.calls) == 3  # 남은 객체는 그대로 물었다
 
 
 @needs_ffmpeg

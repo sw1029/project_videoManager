@@ -12,9 +12,9 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.fake_media import fake_video
 from frame.adapters.series.theme_extraction import FakeThemeExtractor
 from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
+from frame.adapters.shared.media.fake_media import fake_video
 from frame.application.ports.llm import JsonCompletion, LLMClient
 from frame.application.ports.series.theme_extraction import (
     ThemeExtractionError,

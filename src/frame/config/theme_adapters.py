@@ -62,7 +62,7 @@ class AdapterPicker:
         return choices[key]()
 
     def ffmpeg(self) -> str:
-        from frame.adapters.generator.ffmpeg import resolve_ffmpeg
+        from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 
         return resolve_ffmpeg(self.settings.video_ffmpeg)
 

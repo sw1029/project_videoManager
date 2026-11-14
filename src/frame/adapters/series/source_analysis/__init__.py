@@ -4,7 +4,7 @@
 밖에서 쓰는 이름: FakeMediaProber · FakeShotDetector. ffmpeg 구현은 조립이 고를 때 import 한다.
 
 모듈 지도
-- fake    FakeMediaProber · FakeShotDetector: 가짜 영상(adapters/fake_media.py)에 적힌 값을 그대로 돌려준다
+- fake    FakeMediaProber · FakeShotDetector: 가짜 영상(adapters/shared/media/fake_media.py)에 적힌 값을 그대로 돌려준다
 - ffmpeg  FfmpegMediaProber (`ffmpeg -i` 의 출력, 영상 코덱 허용 목록) · FfmpegShotDetector (장면 점수)
 """
 

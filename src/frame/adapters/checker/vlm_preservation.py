@@ -22,23 +22,27 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
-from frame.adapters.vlm_answers import match_answers
-from frame.application.errors import AdapterError
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import FrameSampler, midpoints
+from frame.adapters.shared.vlm.answers import match_answers
+from frame.adapters.shared.vlm.ask import ask_json
+from frame.adapters.shared.vlm.wording import described, predicate_words
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
+from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, EntityKind, KeepAspect, Verdict
 from frame.domain.ir import SceneSpec
 from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
+
+from ._guard import UnitGuard
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +110,13 @@ RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+class _Subject(TypedDict):
+    """검수 결과가 가리키는 대상. CheckOutcome 의 같은 이름 인자로 넘긴다."""
+
+    entity_key: str | None
+    scene_key: str
+
+
 @dataclass(frozen=True)
 class _Element:
     item: KeepItem
@@ -124,9 +135,10 @@ class VlmPreservationChecker(Checker):
         frames_per_scene: int = 2,
         max_side: int = 1024,
         timeout_s: float | None = 180.0,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
-        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(require_ffmpeg(ffmpeg))
         self._llm = llm
         self.frames_per_scene = max(1, int(frames_per_scene))  # 부모·자식에서 뽑는 프레임 쌍의 수
         self.max_side = max_side
@@ -136,6 +148,7 @@ class VlmPreservationChecker(Checker):
         if not ctx.is_revision:
             return []
         outcomes: list[CheckOutcome] = []
+        guard = UnitGuard("유지 요소 검수")
         for scene in ctx.ir.scenes:
             if scene.scene_key in ctx.reused_scene_keys:
                 outcomes.append(
@@ -148,11 +161,23 @@ class VlmPreservationChecker(Checker):
                     )
                 )
             else:
-                outcomes.extend(self._check_scene(ctx, scene))
+                outcomes.extend(self._check_scene(ctx, scene, guard))
         return outcomes
 
     # ---- 다시 만든 장면 하나 ----
-    def _check_scene(self, ctx: CheckContext, scene: SceneSpec) -> list[CheckOutcome]:
+    def _check_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
+        """다시 만든 장면 하나. 판정하지 못하면 (프레임·모델·예상 밖 오류) 이 장면만 미판정 한 건으로 남긴다."""
+        return guard.judge(
+            f"장면 {scene.scene_key}",
+            lambda: self._judge_scene(ctx, scene, guard),
+            undetermined=lambda reason: [self._undetermined(scene.scene_key, reason)],
+        )
+
+    def _judge_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
         key = scene.scene_key
         clip, parent = ctx.clips.get(key), ctx.parent_clips.get(key)
         if clip is None or parent is None:
@@ -165,12 +190,9 @@ class VlmPreservationChecker(Checker):
         if not elements:
             return []  # 이 장면에서 유지 여부를 볼 요소가 없다 (바꾸는 객체만 나오는 장면 등)
         ids = {f"E{n}": element for n, element in enumerate(elements, start=1)}
-        try:
-            images = self._frame_pairs(scene, parent.uri, clip.uri, parent.duration_ms)
-            answer = self._ask(scene, ids, changes, images)
-        except AdapterError as exc:
-            log.warning("유지 요소 검수 미판정 (장면 %s): %s: %s", key, exc.code, exc)
-            return [self._undetermined(key, f"{exc.code}: {exc}")]
+        guard.about_to_ask()
+        images = self._frame_pairs(scene, parent, clip)
+        answer = self._ask(scene, ids, changes, images)
         outcomes = []
         for index, (eid, element) in enumerate(ids.items()):
             shared: dict[str, Any] = {"method": "vlm_keep", "model": answer["model"]}
@@ -209,28 +231,34 @@ class VlmPreservationChecker(Checker):
             subject = row.entity_key or "the scene"
             old = row.before.expected_value if row.before is not None else "(none)"
             new = row.after.expected_value if row.after is not None else "(removed)"
-            lines.append(f"{subject} {_words(row.predicate)}: {old} -> {new}")
+            lines.append(f"{subject} {predicate_words(row.predicate)}: {old} -> {new}")
         intent = ctx.version.intent
         if not lines and intent is not None and intent.targets(scene.scene_key):
             subject = intent.entity_key or "the scene"
             lines.append(
-                f"{subject} {_words(intent.predicate)}: should now be {intent.value} "
+                f"{subject} {predicate_words(intent.predicate)}: should now be {intent.value} "
                 "(the BEFORE version may not show it)"
             )
         return lines
 
     def _frame_pairs(
-        self, scene: SceneSpec, parent_uri: str, clip_uri: str, duration_ms: int
+        self, scene: SceneSpec, parent: GeneratedClip, clip: GeneratedClip
     ) -> list[ImageInput]:
-        """부모(B1…)·자식(A1…)의 같은 시각 프레임. 부모 것을 먼저, 자식 것을 나중에 보여 준다."""
+        """부모(B1…)·자식(A1…)의 같은 시각 프레임. 부모 것을 먼저, 자식 것을 나중에 보여 준다.
+
+        시각은 두 클립 가운데 짧은 쪽의 길이 안에서 고른다. 길이가 다르면 (장면 길이를 바꾼 수정) 긴 쪽의 길이로
+        잡은 시각에는 짧은 쪽의 프레임이 없다.
+        """
         count = self.frames_per_scene
-        duration = duration_ms or scene.duration_ms
-        times = [int(duration * (index + 0.5) / count) for index in range(count)]
+        duration = min(
+            parent.duration_ms or scene.duration_ms, clip.duration_ms or scene.duration_ms
+        )
+        times = midpoints(duration, count)
         images = []
-        for prefix, name, uri in (("B", "BEFORE", parent_uri), ("A", "AFTER", clip_uri)):
-            video = self._store.get(uri)
+        for prefix, name, uri in (("B", "BEFORE", parent.uri), ("A", "AFTER", clip.uri)):
+            frames = self._sampler.clip(self._store.get(uri))
             for index, at_ms in enumerate(times, start=1):
-                frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+                frame = frames.at(at_ms, max_side=self.max_side)
                 label = f"{prefix}{index} — {name} at {at_ms / 1000:.1f}s"
                 images.append(ImageInput(frame.data, frame.media_type, label))
         return images
@@ -242,7 +270,7 @@ class VlmPreservationChecker(Checker):
         changes: Sequence[str],
         images: Sequence[ImageInput],
     ) -> dict[str, Any]:
-        lines = [f"Scene '{scene.scene_key}'" + _suffix(scene.description)]
+        lines = [f"Scene '{scene.scene_key}'" + described(scene.description)]
         lines.append(
             "Requested change (expected to differ): " + ("; ".join(changes) if changes else "none")
         )
@@ -250,25 +278,21 @@ class VlmPreservationChecker(Checker):
         for eid, element in ids.items():
             subject = element.item.entity_key or "the scene"
             lines.append(f"{eid}. {subject} — {_ASPECT_WORDS[element.item.aspect]}")
-        completion = self._llm.complete_json(
+        answer = ask_json(
+            self._llm,
             SYSTEM_PROMPT,
             "\n".join(lines),
             RESPONSE_SCHEMA,
             schema_name="preservation_audit",
             timeout_s=self.timeout_s,
             images=list(images),
+            read=lambda data: list(data["elements"]),
+            what="유지 요소 판정",
         )
-        try:
-            items = list(json.loads(completion.text)["elements"])
-        except (ValueError, KeyError, TypeError) as exc:
-            raise _BadAnswer(f"유지 요소 판정 응답을 해석하지 못했습니다: {exc}") from exc
         return {
-            "elements": match_answers(items, list(ids), field="id"),
-            "model": completion.model,
-            "usage": {
-                "input_tokens": completion.input_tokens,
-                "output_tokens": completion.output_tokens,
-            },
+            "elements": match_answers(answer.value, list(ids), field="id"),
+            "model": answer.model,
+            "usage": answer.usage,
         }
 
     def _outcome(
@@ -285,7 +309,7 @@ class VlmPreservationChecker(Checker):
             "aspect": str(item.aspect),
             "requested": element.requested,
         }
-        fields = {"entity_key": item.entity_key, "scene_key": scene.scene_key}
+        fields: _Subject = {"entity_key": item.entity_key, "scene_key": scene.scene_key}
         kept = str((reply or {}).get("kept") or "").strip().lower()
         if kept not in ("yes", "no"):
             detail["reason"] = (
@@ -323,10 +347,6 @@ class VlmPreservationChecker(Checker):
         )
 
 
-class _BadAnswer(AdapterError):
-    code = "LLM_BAD_RESPONSE"
-
-
 def _changed_entities(ctx: CheckContext, scene: SceneSpec) -> set[str]:
     """이 장면에서 이 수정이 바꾸는(바로잡는) 객체: 요구조건이 달라진 객체와 수정 의도의 대상."""
     changed: set[str] = set()
@@ -358,11 +378,3 @@ def _scene_level_changed(ctx: CheckContext, scene: SceneSpec) -> bool:
         return True
     intent = ctx.version.intent
     return intent is not None and intent.entity_key is None and intent.targets(scene.scene_key)
-
-
-def _words(predicate: str) -> str:
-    return predicate.replace("_", " ")
-
-
-def _suffix(text: str) -> str:
-    return f": {text.strip()}" if text.strip() else ""

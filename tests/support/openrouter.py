@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from frame.adapters.generator.ffmpeg import NormalizedVideo, VideoNormalizer, VideoProbe
+from frame.adapters.generator.normalizer import NormalizedVideo, VideoNormalizer
 from frame.adapters.generator.openrouter import OpenRouterVideoGenerator
-from frame.adapters.http_transport import HttpResponse, HttpTransport
+from frame.adapters.shared.http import HttpResponse, HttpTransport
+from frame.adapters.shared.media.probe import VideoProbe
 from frame.application.ports.artifact_store import ArtifactStore
 
 API_BASE = "https://openrouter.ai/api/v1"

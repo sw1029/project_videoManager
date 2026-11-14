@@ -7,7 +7,7 @@ import pytest
 from frame.domain.enums import ChangeScope, EntityKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 
 policy = DefaultPropagationPolicy()
 

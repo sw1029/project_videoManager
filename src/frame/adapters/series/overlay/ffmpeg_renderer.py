@@ -20,8 +20,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from frame.adapters.media_tools import MediaToolError, probe_media, run_ffmpeg, tail
-from frame.adapters.video_tools import require_ffmpeg
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg, tail
+from frame.adapters.shared.media.media_tools import MediaToolError, probe_media, run_ffmpeg
 from frame.application.errors import ConfigurationError
 from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
 from frame.domain.series.episode import OverlayItem

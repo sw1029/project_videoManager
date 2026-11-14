@@ -86,7 +86,10 @@ def test_remote_clients_can_read_status_but_not_set_keys(tmp_path):
 def test_status_tells_remote_devices_to_enter_the_key_on_the_server(tmp_path):
     """다른 기기(iPad 등)에서 볼 때는 입력란 대신 '서버 기기에서 입력' 안내를 띄울 수 있어야 한다."""
     client, _ = _client(_runtime(tmp_path), client=REMOTE)
-    for status in (client.get("/health").json()["llm_key"], client.get("/api/settings/llm-key").json()):
+    for status in (
+        client.get("/health").json()["llm_key"],
+        client.get("/api/settings/llm-key").json(),
+    ):
         assert status["runtime_entry"] is False
         assert status["runtime_entry_enabled"] is True
 

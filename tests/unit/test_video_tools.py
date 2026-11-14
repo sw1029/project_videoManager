@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
+import tempfile
+
 import pytest
 
-from frame.adapters.video_tools import (
-    Box,
-    VideoToolError,
-    extract_frame,
-    require_ffmpeg,
-    ssim,
-    video_size,
-)
+from frame.adapters.shared.media.ffmpeg import VideoToolError, require_ffmpeg
+from frame.adapters.shared.media.frames import Box, extract_frame
+from frame.adapters.shared.media.probe import video_size
+from frame.adapters.shared.media.similarity import ssim
 from frame.application.errors import ConfigurationError
 from tests.support.video import find_ffmpeg, make_clip
 
@@ -111,6 +109,15 @@ def test_garbage_input_raises_a_video_tool_error():
         ssim(FFMPEG, b"not a video", b"neither")
     with pytest.raises(VideoToolError):
         video_size(FFMPEG, b"not a video")
+
+
+def test_error_messages_do_not_show_the_servers_temporary_folder():
+    """ffmpeg 는 읽지 못한 파일의 경로를 출력한다. 그 꼬리가 검수 결과의 사유로 API 에 나간다 (감사 A-29)."""
+    with pytest.raises(VideoToolError) as raised:
+        extract_frame(FFMPEG, b"not a video", 0)
+
+    message = str(raised.value)
+    assert tempfile.gettempdir() not in message and "frame-frames-" not in message
 
 
 def test_missing_ffmpeg_is_a_configuration_error():

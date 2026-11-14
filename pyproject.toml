@@ -18,7 +18,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov", "httpx>=0.27", "ruff", "mypy", "jsonschema>=4"]
+# ruff·mypy 는 버전에 따라 검사 결과가 달라지므로 정확히 고정한다 (CI 게이트의 기준. ADR-0030)
+dev = ["pytest>=8", "pytest-cov", "httpx>=0.27", "ruff==0.17.4", "mypy==2.4.1", "jsonschema>=4"]
 llm = ["openai>=1.50"]
 # FRAME_GENERATOR=external_api 의 클립 정규화용 ffmpeg (PATH 에 ffmpeg 가 있으면 필요 없음)
 video = ["imageio-ffmpeg==0.6.0"]
@@ -33,7 +34,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# 실제 호출(slow)·GPU 테스트는 기본 실행에서 뺀다. 돌릴 때는 `-m slow` 를 준다 (명령줄의 -m 이 뒤에 와서 이긴다. ADR-0030)
+addopts = "-ra --strict-markers --strict-config -m 'not slow and not gpu'"
+xfail_strict = true
 markers = [
   "ac(id): 연결된 Acceptance Criteria ID (예: AC-01)",
   "slow: 실제 모델·외부 API를 호출하는 느린 테스트 (기본 제외)",
@@ -50,12 +53,85 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = [
+  "E", "F", "I", "B", "UP",
+  # 2026-11 감사에서 켠 것 (ADR-0030). 켤 때 위반이 없었거나 몇 건을 고쳤다
+  "PIE", "RET", "DTZ", "A", "ERA", "PGH", "PERF", "LOG", "G", "ASYNC", "EXE", "ICN", "INP", "RSE", "SLOT",
+  "BLE", "SIM", "C4", "PTH", "FURB", "ISC",
+  # 기준선(아래 파일별 예외·줄 단위 noqa)과 함께 켠 것: 보안 · print · 복잡도
+  "S", "T20", "C90",
+]
+ignore = [
+  # 모든 subprocess 호출에 걸려 신호가 없다. 위험한 형태(shell=True 는 S602, 셸 문자열은 S604·S605)는 그대로 잡는다
+  "S603",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 19  # 켤 때의 최댓값 (identity/vlm_crop.py 의 extract). 올리지 않고 내려간다
+
+[tool.ruff.lint.per-file-ignores]
+# 테스트는 assert 가 본업이고, 가짜 키와 난수는 보안 대상이 아니다
+"tests/**" = ["S101", "S105", "S106", "S311"]
+# 실제 호출 테스트는 결과를 사람이 읽게 찍는다
+"tests/live/**" = ["T20"]
+# 명령줄 도구는 표준 출력이 인터페이스다
+"src/frame/tools/**" = ["T20"]
+"scripts/**" = ["T20", "INP001"]
+# 기준선 (감사 C-04): 실행 중 불변식을 assert 로 확인하는 기존 파일. 목록에 더하지 않고 줄여 간다
+"src/frame/adapters/generator/cache.py" = ["S101"]
+"src/frame/adapters/generator/decorators.py" = ["S101"]
+"src/frame/adapters/generator/ledger.py" = ["S101"]
+"src/frame/adapters/generator/openrouter/generator.py" = ["S101"]
+"src/frame/adapters/llm/openai_client.py" = ["S101"]
+"src/frame/domain/services/comparison.py" = ["S101"]
+"src/frame/domain/services/identity.py" = ["S101"]
 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 120  # 코드는 100 칸으로 포맷하되, 한글 docstring/주석은 120 칸까지 허용
 
+[tool.ruff.format]
+# 기준선 (ADR-0030): 다른 브랜치(#10·#11·#12)가 고치고 있는 파일이라 지금 포맷하지 않는다.
+# 그 브랜치가 dev 에 들어온 뒤 포맷하고 이 목록을 지운다. 목록에는 더하지 않는다
+exclude = ["src/frame/presentation/app.py", "src/frame/presentation/schemas.py"]
+
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
+files = ["src"]
 strict = false
+warn_unused_configs = true  # 아래 예외가 더는 맞는 모듈이 없으면 알려 준다
+
+# 도메인은 strict 와 같은 수준으로 검사한다 (켤 때 0건). 다른 패키지는 strict 기준선(2026-11: 42건)을 줄인 뒤 여기에 더한다 (ADR-0030)
+[[tool.mypy.overrides]]
+module = ["frame.domain.*"]
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
+# 형 정보가 없는 외부 패키지
+[[tool.mypy.overrides]]
+module = ["imageio_ffmpeg"]
+ignore_missing_imports = true
+
+# 선택 설치(speech-local)라 검사 환경에 없는 외부 패키지. 쓰는 곳은 adapters/speech/faster_whisper.py 하나다
+[[tool.mypy.overrides]]
+module = ["faster_whisper"]
+ignore_missing_imports = true
+
+# 기준선: 다른 브랜치가 고치고 있는 파일의 오류 3건. 그 브랜치가 dev 에 들어온 뒤 고치고 이 두 항목을 지운다. 더하지 않는다
+[[tool.mypy.overrides]]
+module = ["frame.config.container"]
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = ["frame.adapters.persistence.sqlalchemy.repositories"]
+disable_error_code = ["attr-defined"]
