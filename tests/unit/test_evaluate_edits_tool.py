@@ -373,8 +373,9 @@ def test_ctrl_c_saves_finished_cases_and_the_interrupted_revision_then_exits_130
     assert interrupted["case_id"] == "second"
     revision = interrupted["revision_version_id"]
     assert container.queries.get_version(revision).version.state is VersionState.DRAFT
+    assert interrupted["state"] == "DRAFT"  # 접수 전에 멈췄다 → 서버가 다시 실행하지 않는다
     err = capsys.readouterr().err
-    assert "중단" in err and revision in err
+    assert "중단" in err and revision in err and "접수 전" in err
 
 
 def test_ctrl_c_inside_a_case_carries_what_was_done():
@@ -562,3 +563,25 @@ def test_revision_that_cannot_be_read_again_keeps_the_original_error():
 
     assert run.error_message == "RuntimeError: database is locked"
     assert run.revision_version_id is not None and run.version is None
+
+
+def test_revision_left_unfinished_by_an_error_is_flagged(tmp_path, capsys):
+    """오류로 끝났는데 수정 버전이 접수된 채 남으면, 서버를 켜면 다시 실행된다(과금)는 것을 알린다."""
+    container = _container(jobs="recording")
+    parent = generate(container, create_draft(container).version_id).version_id
+    broken = dataclasses.replace(
+        container, accept_generation=_FailingAfterAccept(container.accept_generation)
+    )
+
+    code, report = _run(tmp_path, broken, [_cup(parent)])
+
+    assert code == 0
+    case = report["cases"][0]
+    assert case["error"]["code"] == "UNEXPECTED_ERROR"
+    assert case["state"] == "QUEUED"
+    assert report["summary"]["unfinished_versions"] == [
+        {"case_id": "cup", "revision_version_id": case["revision_version_id"], "state": "QUEUED"}
+    ]
+    captured = capsys.readouterr()
+    assert "서버를 켜면" in captured.err  # 진행 줄
+    assert "서버를 켜면" in captured.out and case["revision_version_id"] in captured.out  # 요약

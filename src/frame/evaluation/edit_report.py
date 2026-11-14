@@ -18,6 +18,7 @@ from frame.application.ports.generator import ProductionPreview
 from frame.application.use_cases import RevisionPlan
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
+from frame.domain.state_machine import TERMINAL_STATES
 
 from .edit_metrics import (
     NON_TARGET_CHANGE_TARGET,
@@ -83,6 +84,20 @@ def judge(run: CaseRun) -> CaseJudgement:
     return CaseJudgement(keys, cases, {basis: evaluate_case(c) for basis, c in cases.items()})
 
 
+def left_unfinished(run: CaseRun) -> bool:
+    """수정 버전이 접수된 채(QUEUED·PROCESSING 등) 끝나지 않았는가.
+
+    같은 DB 로 서버를 켜면 재시작 복구(ADR-0013)가 이어서 실행한다 (QUEUED 는 생성부터라 과금된다).
+    접수 전(DRAFT)은 다시 실행되지 않는다.
+    """
+    version = run.version
+    return (
+        version is not None
+        and version.state is not VersionState.DRAFT
+        and version.state not in TERMINAL_STATES
+    )
+
+
 # ---- 보고서 ----
 
 
@@ -129,6 +144,7 @@ def _interrupted(run: CaseRun | None) -> dict[str, Any] | None:
     return {
         "case_id": run.spec.case_id,
         "revision_version_id": run.revision_version_id,
+        "state": str(run.version.state) if run.version is not None else None,
         "elapsed_s": run.elapsed_s,
     }
 
@@ -153,6 +169,16 @@ def _summary(
         "mean_non_target_change_rate": head["mean_non_target_change_rate"],
         "meets_target": head["meets_target"],
         "by_basis": by_basis,
+        # 오류로 끝났는데 접수된 채 남은 수정 버전: 서버를 켜면 다시 실행된다
+        "unfinished_versions": [
+            {
+                "case_id": r.spec.case_id,
+                "revision_version_id": r.revision_version_id,
+                "state": str(_state(r)),
+            }
+            for r in runs
+            if left_unfinished(r)
+        ],
         "recorded_cost_usd": _sum(_recorded_cost(r) for r in runs),
         "vlm_tokens": _add_tokens(_tokens(r.results) for r in runs),
         "elapsed_s": round(sum(r.elapsed_s for r in runs), 3),

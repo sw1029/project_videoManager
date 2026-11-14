@@ -31,9 +31,10 @@ from typing import Any
 
 from frame.application.errors import AdapterError, ConfigurationError
 from frame.config import Container, Settings, build_container
+from frame.domain.enums import VersionState
 from frame.evaluation.edit_cases import CaseFileError, load_cases
 from frame.evaluation.edit_metrics import PRESERVATION_BASES
-from frame.evaluation.edit_report import build_report, judge
+from frame.evaluation.edit_report import build_report, judge, left_unfinished
 from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, run_case
 
 # 측정 기준(detail.method)을 내는 보존 검수기 (FRAME_CHECKERS 의 키)
@@ -217,7 +218,10 @@ def _percent(value: float | None) -> str:
 def _progress(run: CaseRun, plan_only: bool) -> str:
     head = f"{run.spec.case_id}:"
     if run.error_code is not None:
-        return f"{head} 오류 {run.error_code}: {run.error_message} ({run.elapsed_s:.1f}s)"
+        line = f"{head} 오류 {run.error_code}: {run.error_message} ({run.elapsed_s:.1f}s)"
+        if left_unfinished(run):
+            line += f" · {_unfinished_text(run)}"
+        return line
     if plan_only:
         plan = run.plan
         # PlanRevision 은 오류가 없으면 늘 계획을 돌려준다. 없으면 계약 위반이라 멈춘다 (계획만 보는 실행이라 과금 없음)
@@ -243,15 +247,33 @@ def _interrupted_text(finished: int, total: int, interrupted: CaseRun | None, ou
         f"중단: 끝난 케이스 {finished}/{total}건을 결과에 남겼습니다 (complete: false) — {out}"
     ]
     if interrupted is not None:
-        case_id, revision = interrupted.spec.case_id, interrupted.revision_version_id
-        if revision is None:
-            lines.append(f"케이스 {case_id} 는 수정 버전을 만들기 전에 멈췄습니다")
-        else:
-            lines.append(
-                f"케이스 {case_id} 의 수정 버전 {revision} 이 끝나지 않았을 수 있습니다. 생성 접수까지 갔다면 "
-                "같은 DB 로 서버를 켤 때 재시작 복구가 이어서 실행합니다 (이미 과금된 작업은 다시 제출하지 않습니다)"
-            )
+        lines.append(_interrupted_case_text(interrupted))
     return "\n".join(lines)
+
+
+def _interrupted_case_text(run: CaseRun) -> str:
+    case_id, revision, version = run.spec.case_id, run.revision_version_id, run.version
+    if revision is None:
+        return f"케이스 {case_id} 는 수정 버전을 만들기 전에 멈췄습니다"
+    if left_unfinished(run):
+        return f"케이스 {case_id}: {_unfinished_text(run)}"
+    if version is None:  # 다시 읽지 못함
+        return (
+            f"케이스 {case_id} 의 수정 버전 {revision} 의 상태를 읽지 못했습니다. 생성 접수까지 갔다면 같은 DB 로 "
+            "서버를 켤 때 재시작 복구가 이어서 실행합니다 (이미 과금된 작업은 다시 제출하지 않습니다)"
+        )
+    if version.state is VersionState.DRAFT:
+        return f"케이스 {case_id} 의 수정 버전 {revision} 은 생성 접수 전에 멈춰 서버가 다시 실행하지 않습니다"
+    return f"케이스 {case_id} 의 수정 버전 {revision} 은 {version.state} 로 끝났습니다"
+
+
+def _unfinished_text(run: CaseRun) -> str:
+    """접수된 채 끝나지 않은 수정 버전 안내 (left_unfinished 인 케이스)."""
+    state = run.version.state if run.version is not None else "-"
+    return (
+        f"수정 버전 {run.revision_version_id} 이 {state} 로 남았습니다. 같은 DB 로 서버를 켜면 재시작 복구가 "
+        "이어서 실행합니다 (남은 생성·검수가 과금될 수 있습니다)"
+    )
 
 
 def _summary_text(report: Mapping[str, Any], out: Path) -> str:
@@ -295,6 +317,13 @@ def _summary_text(report: Mapping[str, Any], out: Path) -> str:
             lines.append(
                 f"주의: 기준 {summary['basis']} 의 보존 결과가 하나도 없습니다. "
                 f"FRAME_CHECKERS 에 {checker} 가 있는지 확인하세요"
+            )
+        unfinished = summary["unfinished_versions"]
+        if unfinished:
+            ids = ", ".join(f"{u['revision_version_id']}({u['state']})" for u in unfinished)
+            lines.append(
+                f"주의: 오류로 끝난 케이스의 수정 버전 {len(unfinished)}개가 접수된 채 남았습니다: {ids}. "
+                "같은 DB 로 서버를 켜면 재시작 복구가 이어서 실행합니다 (남은 생성·검수가 과금될 수 있습니다)"
             )
     lines.append(f"결과: {out}")
     return "\n".join(lines)
