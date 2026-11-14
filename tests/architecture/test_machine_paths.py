@@ -35,6 +35,7 @@ FOLDERS = (".github", "docker", "docs", "scripts", "src", "tests")
 TOP_LEVEL_SUFFIXES = (".md", ".toml", ".yml", ".yaml", ".example", ".cfg", ".ini", ".txt")
 TOP_LEVEL_NAMES = (".dockerignore", ".gitattributes", ".gitignore")
 SKIPPED_FOLDERS = ("__pycache__", "node_modules", ".pytest_cache", ".ruff_cache", ".mypy_cache")
+INSTALL_FOLDER_SUFFIX = ".egg-info"  # pip install -e 가 src 아래에 만드는 폴더 (커밋되지 않는다)
 BINARY_SUFFIXES = (
     ".png",
     ".jpg",
@@ -179,7 +180,9 @@ def _text_files() -> list[str]:
         for path in sorted((ROOT / folder).rglob("*"))
         if path.is_file()
         and path.suffix.lower() not in BINARY_SUFFIXES
-        and not any(part in SKIPPED_FOLDERS for part in path.parts)
+        and not any(
+            part in SKIPPED_FOLDERS or part.endswith(INSTALL_FOLDER_SUFFIX) for part in path.parts
+        )
     ]
     names += [
         path.name
