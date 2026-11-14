@@ -327,9 +327,8 @@ def test_ctrl_c_inside_a_case_carries_what_was_done():
         container, accept_generation=_InterruptingAccept(container.accept_generation, on_call=1)
     )
 
-    with pytest.raises(
-        KeyboardInterrupt
-    ) as info:  # 예상 밖 오류와 달리 케이스에 묻지 않고 올라간다
+    # 예상 밖 오류와 달리 케이스에 묻지 않고, 그때까지의 기록을 담아 올라간다
+    with pytest.raises(KeyboardInterrupt) as info:
         run_case(broken, spec)
 
     assert isinstance(info.value, CaseInterrupted)
