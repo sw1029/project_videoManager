@@ -1305,8 +1305,6 @@
           },
           "entity_key": {
             "description": "영문·숫자·밑줄로 된 64자 이하 식별자, 영문·숫자로 시작 (요구조건·추적·저장 경로의 키)",
-            "maxLength": 64,
-            "minLength": 1,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
             "title": "Entity Key",
             "type": "string"
@@ -1387,8 +1385,6 @@
           "entity_key": {
             "anyOf": [
               {
-                "maxLength": 64,
-                "minLength": 1,
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
                 "type": "string"
               },
@@ -1413,8 +1409,6 @@
           "related_entity_key": {
             "anyOf": [
               {
-                "maxLength": 64,
-                "minLength": 1,
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
                 "type": "string"
               },
@@ -1427,8 +1421,6 @@
           "scene_key": {
             "anyOf": [
               {
-                "maxLength": 64,
-                "minLength": 1,
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
                 "type": "string"
               },
@@ -1455,8 +1447,6 @@
           },
           "entity_keys": {
             "items": {
-              "maxLength": 64,
-              "minLength": 1,
               "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
               "type": "string"
             },
@@ -1485,8 +1475,6 @@
             "type": "array"
           },
           "scene_key": {
-            "maxLength": 64,
-            "minLength": 1,
             "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
             "title": "Scene Key",
             "type": "string"
@@ -3955,7 +3943,7 @@
     },
     "/api/versions/{version_id}/ir": {
       "put": {
-        "description": "본문은 GET /api/versions/{version_id} 의 ir 과 같은 모양이다 (읽기 전용 필드는 무시한다). 객체·장면 키는 영문·숫자·밑줄로 된 64자 이하다.\n\n수정 버전의 DRAFT 를 고치면 응답의 revision(수정 의도)은 처음 값 그대로다. 실제로 바뀐 장면은 GET /api/versions/{version_id}/comparison 의 conditions_changed 로 본다 (ADR-0023).",
+        "description": "본문은 GET /api/versions/{version_id} 의 ir 과 같은 모양이다 (읽기 전용 필드는 무시한다). 객체·장면 키는 영문·숫자·밑줄로 된 64자 이하이고 영문·숫자로 시작하며, 대소문자만 다른 키는 같은 키로 본다.\n\n수정 버전의 DRAFT 를 고치면 응답의 revision(수정 의도)은 처음 값 그대로다. 실제로 바뀐 장면은 GET /api/versions/{version_id}/comparison 의 conditions_changed 로 본다 (ADR-0023).",
         "operationId": "edit_draft_ir_api_versions__version_id__ir_put",
         "parameters": [
           {

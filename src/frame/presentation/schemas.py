@@ -21,7 +21,8 @@ MAX_SCENE_REQUIREMENTS = 50
 MIN_SCENE_MS = 500  # 보정이 장면 길이를 이 값보다 짧게 두지 않는다 (adapters/structurer/repair.py)
 # 객체·장면 키: 도메인 규칙(KEY_PATTERN)과 같은 식을 스키마에도 건다 (감사 A-01). 422 의 details 가 필드별로 나온다
 IR_KEY_PATTERN = f"^{KEY_PATTERN.pattern}$"
-IRKey = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=IR_KEY_PATTERN)]
+# 길이(1~64자)도 식이 묶으므로 따로 적지 않는다 (규칙을 바꿀 때 한 곳만 고치게, 델타 D11)
+IRKey = Annotated[str, StringConstraints(pattern=IR_KEY_PATTERN)]
 
 # ---- 요청 ----------------------------------------------------------------
 
