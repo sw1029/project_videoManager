@@ -102,7 +102,7 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 1. **test 잡의 실제 영상 테스트**: ffmpeg 를 쓰는 테스트 약 155개가 CI 에서 처음 돈다. 지금까지의 워크플로는 `video` extra 를
    설치하지 않아 이 테스트들을 건너뛰었다 — dev 에 들어온 시리즈·음성 어댑터의 ffmpeg 테스트(소리 편집 · 영상 분석 · 테마 추출 ·
    문구 합성)도 Linux 에서는 한 번도 돌지 않았다. 실행 머리말의 `ffmpeg:` 줄에 경로가 찍히는지 본다. Linux 에서만 실패하는 것이
-   있으면 그 테스트가 드러낸 문제다 (imageio-ffmpeg 가 가져오는 ffmpeg 의 판이 OS 마다 다르다).
+   있으면 그 테스트가 드러낸 문제다 (imageio-ffmpeg 가 가져오는 ffmpeg 는 OS 마다 다른 빌드다. 로컬에서 돌린 것은 Windows 용 7.1 이다).
 2. **건너뛴 테스트**: ubuntu 에서는 Windows 전용 1개만 건너뛰어야 한다. 화면 문구 합성의 ffmpeg 테스트 6개
    (`tests/contract/test_overlay_contract.py`)는 **한글 글꼴을 찾지 못하면 조용히 건너뛴다** — `FRAME_REQUIRE_FFMPEG` 는 ffmpeg 만 본다.
    실행 요약의 `SKIPPED … ffmpeg 또는 한글 글꼴 없음` 줄로 확인한다. 러너에 글꼴이 없어 건너뛰면 test 잡에 글꼴을 설치하는 단계
