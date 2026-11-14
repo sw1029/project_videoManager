@@ -104,7 +104,7 @@ class LLMChangeRequestInterpreter(ChangeRequestInterpreter):
         client: LLMClient,
         *,
         vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY,
-        timeout_s: float | None = 60.0,
+        timeout_s: float | None,  # 설정(FRAME_LLM_TIMEOUT_S)에서 온다 (ADR-0032)
     ) -> None:
         self._client = client
         self._vocabulary = vocabulary

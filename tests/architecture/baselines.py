@@ -56,22 +56,5 @@ COMPAT_PATH_IMPORTERS = frozenset(
 )
 
 # 설정에서 오는 인자인데 생성자가 기본값을 또 가진 것 ("생성자.인자") — P-19, ADR-0032.
-# 기본값을 지우고 값은 조립이 넘기게 고치면서 줄인다. 새로 더하지 않는다
-SETTINGS_ARGUMENTS_WITH_DEFAULTS = frozenset(
-    {
-        "ExtractTheme.min_slot_ms",
-        "LLMChangeRequestInterpreter.timeout_s",
-        "LLMStructurer.max_attempts",
-        "OpenAIJsonClient.strict",
-        "OpenAIJsonClient.temperature",
-        "OpenAIJsonClient.timeout_s",
-        "SsimPreservationChecker.threshold",
-        "UploadReferenceImage.max_bytes",
-        "VlmConsistencyChecker.frames_per_scene",
-        "VlmConsistencyChecker.threshold",
-        "VlmCropIdentityExtractor.verify_attributes",
-        "VlmPreservationChecker.frames_per_scene",
-        "VlmRequirementChecker.frames_per_scene",
-        "VlmRequirementChecker.threshold",
-    }
-)
+# 모두 고쳤다. 새로 더하지 않는다 (기본값을 지우고 값은 조립이 넘긴다)
+SETTINGS_ARGUMENTS_WITH_DEFAULTS: frozenset[str] = frozenset()

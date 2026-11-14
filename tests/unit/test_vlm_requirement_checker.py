@@ -62,9 +62,13 @@ def _reply(*verdicts, observed="", ids=None):
     return json.dumps({"requirements": items})
 
 
-def _checker(store, *replies, **options):
+def _checker(store, *replies, threshold=0.5, **options):
+    """threshold: 판정된 프레임 가운데 지킨 비율의 하한. 따로 주지 않은 테스트는 절반을 쓴다."""
     llm = ReplayLLMClient(list(replies))
-    return VlmRequirementChecker(store, FFMPEG, llm, frames_per_scene=FRAMES, **options), llm
+    checker = VlmRequirementChecker(
+        store, FFMPEG, llm, frames_per_scene=FRAMES, threshold=threshold, **options
+    )
+    return checker, llm
 
 
 def _all_yes():

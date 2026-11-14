@@ -120,8 +120,9 @@ class VlmConsistencyChecker(Checker):
         ffmpeg: str | None,
         llm: LLMClient,
         *,
-        frames_per_scene: int = 3,
-        threshold: float = 0.9,
+        # 표본 프레임 수와 임계값은 설정(FRAME_*_FRAMES · FRAME_*_THRESHOLD)에서 온다 (ADR-0032)
+        frames_per_scene: int,
+        threshold: float,
         max_side: int = 1024,  # 480p·720p 프레임은 줄이지 않고 그대로 보여 준다 (얼굴·문구 세부)
         timeout_s: float | None = 180.0,
         sampler: FrameSampler | None = None,

@@ -78,9 +78,10 @@ class OpenAIJsonClient(LLMClient):
         api_key: str | None = None,
         key_file: str | Path | None = None,
         base_url: str | None = None,
-        timeout_s: float = 60.0,
-        temperature: float | None = 0.0,
-        strict: bool = True,
+        # 아래 셋은 설정(FRAME_LLM_*)에서 온다 (ADR-0032). temperature 의 None 은 '보내지 않음' 이다
+        timeout_s: float,
+        temperature: float | None,
+        strict: bool,
         sdk_client: Any | None = None,
         env: Mapping[str, str] | None = None,
         key_source: LLMKeySource | None = None,

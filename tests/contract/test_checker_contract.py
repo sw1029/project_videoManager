@@ -37,6 +37,8 @@ needs_ffmpeg = pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video e
 NOW = ManualClock().now()
 SCENES = ("intro", "closeup", "outro")
 FRAMES = 2  # 장면마다 뽑는 표본 프레임 수
+KEPT = 0.9  # 고정 속성 유지율의 목표 (일관성 검수의 임계값)
+SSIM = 0.9  # 부모 클립 대비 SSIM 의 하한 (보존 검수의 임계값)
 
 
 @pytest.fixture(scope="module")
@@ -126,7 +128,7 @@ def _vlm_checker(store, ir, **answers):
         for entity in ir.entities
     ]
     llm = ReplayLLMClient(replies)
-    return VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES), llm
+    return VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES, threshold=KEPT), llm
 
 
 def _fake_consistency(store, ir):
@@ -300,7 +302,7 @@ def test_vlm_judges_an_entity_whose_user_reference_is_an_external_address(
 def test_vlm_stops_asking_once_the_model_does_not_answer(store, ir, videos):
     """객체 셋 가운데 첫 객체에서 모델이 답하지 않았다: 남은 객체는 묻지 않는다 (감사 A-24)."""
     llm = ReplayLLMClient([LLMTimeout("응답 없음")])
-    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1)
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1, threshold=KEPT)
 
     outcomes = checker.check(_context(store, ir, videos))
 
@@ -316,7 +318,7 @@ def test_vlm_keeps_the_other_verdicts_when_one_subject_fails_unexpectedly(store,
     llm = ReplayLLMClient(
         [KeyError("frames")]
     )  # 첫 객체에서만 터지고, 남은 둘은 재생할 응답이 없다
-    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1)
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1, threshold=KEPT)
 
     outcomes = checker.check(_context(store, ir, videos))
 
@@ -329,7 +331,7 @@ def test_vlm_keeps_the_other_verdicts_when_one_subject_fails_unexpectedly(store,
 @needs_ffmpeg
 def test_vlm_failure_is_undetermined_not_an_error(store, ir, videos):
     llm = ReplayLLMClient([LLMTimeout("응답 없음")] * 3)
-    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES)
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES, threshold=KEPT)
 
     outcomes = checker.check(_context(store, ir, videos))
 
@@ -361,7 +363,8 @@ def test_vlm_is_undetermined_for_clips_that_are_not_video(ir):
     ctx = CheckContext(version=_version(ir), ir=ir, clips=clips, tracks=_tracks(ir, clips))
     llm = ReplayLLMClient([])
 
-    outcomes = VlmConsistencyChecker(store, FFMPEG, llm).check(ctx)
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES, threshold=KEPT)
+    outcomes = checker.check(ctx)
 
     assert {o.verdict for o in outcomes} == {Verdict.UNDETERMINED}
     assert llm.calls == []  # 영상이 아니면 VLM 을 부르지 않는다
@@ -395,7 +398,7 @@ def _fake_preservation(store):
 
 
 def _ssim_preservation(store):
-    return SsimPreservationChecker(store, FFMPEG)
+    return SsimPreservationChecker(store, FFMPEG, threshold=SSIM)
 
 
 PRESERVATION = [
@@ -432,7 +435,8 @@ def test_ssim_measures_how_much_a_regenerated_scene_kept_of_its_parent(store, ir
     """intro 는 내용이 같은 클립, closeup 은 전혀 다른 클립으로 다시 만들어졌다."""
     ctx = _revision_context(store, ir, videos, child_colors={"closeup": "pattern"})
 
-    outcomes = {o.scene_key: o for o in SsimPreservationChecker(store, FFMPEG).check(ctx)}
+    checker = SsimPreservationChecker(store, FFMPEG, threshold=SSIM)
+    outcomes = {o.scene_key: o for o in checker.check(ctx)}
 
     same, changed = outcomes["intro"], outcomes["closeup"]
     assert same.verdict is Verdict.PASS and same.score == pytest.approx(1.0, abs=1e-3)
@@ -457,7 +461,8 @@ def test_ssim_is_undetermined_without_a_comparable_parent_clip(store, ir, videos
         "closeup", store.put("clips/ver_2/closeup.json", b"{}", "application/json"), 4000, "fp"
     )
 
-    outcomes = {o.scene_key: o for o in SsimPreservationChecker(store, FFMPEG).check(ctx)}
+    checker = SsimPreservationChecker(store, FFMPEG, threshold=SSIM)
+    outcomes = {o.scene_key: o for o in checker.check(ctx)}
 
     assert (outcomes["intro"].verdict, outcomes["intro"].score) == (Verdict.UNDETERMINED, None)
     assert outcomes["closeup"].verdict is Verdict.UNDETERMINED

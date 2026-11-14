@@ -132,7 +132,7 @@ class VlmPreservationChecker(Checker):
         ffmpeg: str | None,
         llm: LLMClient,
         *,
-        frames_per_scene: int = 2,
+        frames_per_scene: int,  # 설정(FRAME_PRESERVATION_FRAMES)에서 온다 (ADR-0032)
         max_side: int = 1024,
         timeout_s: float | None = 180.0,
         sampler: FrameSampler | None = None,

@@ -415,7 +415,7 @@ def test_rescoring_reports_the_current_scoring_error_instead_of_the_run_error(ca
 def test_llm_structurer_exposes_the_run_details_that_records_read():
     """기록은 구조화기의 시도 횟수·마지막 응답·보정 메모를 읽는다. 포트에 없는 속성이라 이름이 바뀌면 기록의 칸이
     조용히 비므로, LLMStructurer 가 그 이름을 지키는지 여기서 확인한다."""
-    assert isinstance(LLMStructurer(ReplayLLMClient([])), StructuringRunDetails)
+    assert isinstance(LLMStructurer(ReplayLLMClient([]), max_attempts=1), StructuringRunDetails)
     assert not isinstance(FakeStructurer(), StructuringRunDetails)
 
 

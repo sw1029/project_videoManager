@@ -75,7 +75,9 @@ def test_a_subject_that_came_out_wrong_is_not_the_reference_for_later_scenes(tmp
     container = make_container(
         artifact_store=store,
         generator=generator,
-        identity_extractor=VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8),
+        identity_extractor=VlmCropIdentityExtractor(
+            store, FFMPEG, llm, min_side=8, verify_attributes=True
+        ),
     )
     draft = create_draft(container)
     assert generate(container, draft.version_id).state is VersionState.COMPLETED

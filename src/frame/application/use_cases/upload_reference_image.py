@@ -30,8 +30,6 @@ from ..ports.artifact_store import ArtifactStore
 from ..ports.common import IdGenerator
 
 UPLOAD_PREFIX = "refs/uploads/"
-# 10 MiB. 생성기는 참조 이미지를 data URI 로 보내므로 작을수록 좋다
-DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 EXTENSIONS: dict[str, str] = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 # WebP 를 알아보는 데 필요한 머리의 길이: "RIFF" + 크기 4바이트 + "WEBP"
 _WEBP_HEADER_BYTES = 12
@@ -65,9 +63,8 @@ class UploadedReferenceImage:
 
 
 class UploadReferenceImage:
-    def __init__(
-        self, store: ArtifactStore, ids: IdGenerator, *, max_bytes: int = DEFAULT_MAX_BYTES
-    ) -> None:
+    def __init__(self, store: ArtifactStore, ids: IdGenerator, *, max_bytes: int) -> None:
+        # 크기 상한은 설정(FRAME_REFERENCE_IMAGE_MAX_BYTES)에서 온다 (ADR-0032)
         self._store = store
         self._ids = ids
         self.max_bytes = max_bytes

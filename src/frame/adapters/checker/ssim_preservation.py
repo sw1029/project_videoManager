@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 class SsimPreservationChecker(Checker):
     check_type = CheckType.PRESERVATION
 
-    def __init__(self, store: ArtifactStore, ffmpeg: str | None, *, threshold: float = 0.9) -> None:
+    def __init__(self, store: ArtifactStore, ffmpeg: str | None, *, threshold: float) -> None:
+        # threshold 는 설정(FRAME_PRESERVATION_THRESHOLD)에서 온다 (ADR-0032)
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.threshold = threshold
