@@ -281,16 +281,74 @@ def test_rescoring_with_a_revised_gold_keeps_the_run_and_updates_the_scores(case
     assert compare_records(record, rescored).cases[0].newly_missed == ("done:caption:color",)
 
 
-def test_rescoring_keeps_a_failed_case_failed(cases):
-    case = _case(cases, "ko-05-ramen-recipe")
+def _failed_record(case, *, error=None):
+    """두 번 시도해 실패한 실행의 기록. error 를 주면 실행 때의 오류를 그것으로 바꾼다."""
+    client = ReplayLLMClient(["not json", "not json"], model="replay-model")
     record = build_record(
-        _replay_runs([case], {case.case_id: "not json"}),
+        run_gold_set(LLMStructurer(client, max_attempts=2), [case]),
         structurer=_STRUCTURER,
         run_at="2026-11-14T10:00:00+09:00",
     )
+    if error is not None:
+        record["cases"][0]["error"] = error
+    return record
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        None,  # 'STRUCTURING_ERROR: … 2회 시도 후 실패' — 재생은 1회 시도라 문구가 달라질 뻔했다
+        "LLM_TIMEOUT: 응답을 기다리다 시간이 지났습니다",  # 첫 응답이 틀리고 재시도에서 시간 초과
+    ],
+)
+def test_rescoring_a_case_that_failed_again_keeps_the_error_of_the_run(cases, error):
+    """실행 때 실패했고 남은 응답을 재생해도 실패하면, 재생의 오류가 아니라 실행 때의 오류를 남긴다."""
+    case = _case(cases, "ko-05-ramen-recipe")
+    record = _failed_record(case, error=error)
+    original = record["cases"][0]
+    assert original["attempts"] == 2
+    if error is None:
+        assert "2회" in original["error"]
+
     rescored = rescore_record(record, [case], _replay_structurer, rescored_at="2026-11-15")
+    entry = rescored["cases"][0]
     assert rescored["summary"]["failures"] == 1
-    assert rescored["cases"][0]["error"]
+    assert entry["error"] == original["error"]
+    assert entry["attempts"] == 2
+    assert entry["requirements"] == {"tp": 0, "fp": 0, "fn": 6}
+
+
+def test_rescoring_scores_a_failed_case_whose_response_the_current_code_accepts(cases):
+    """실행 때는 실패했어도 지금 코드가 남은 응답을 받아들이면 (구조화기를 고친 뒤) 채점한다."""
+    case = _case(cases, "ko-05-ramen-recipe")
+    record = build_record(
+        _replay_runs([case], _perfect_responses([case])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    record["cases"][0]["error"] = "STRUCTURING_ERROR: 그때의 구조화기가 받아들이지 못했다"
+    rescored = rescore_record(record, [case], _replay_structurer, rescored_at="2026-11-15")
+    assert rescored["cases"][0]["error"] is None
+    assert rescored["summary"]["failures"] == 0
+
+
+def test_rescoring_reports_the_current_scoring_error_instead_of_the_run_error(cases, monkeypatch):
+    """재생에서 채점기가 깨지면 실행 때의 오류로 덮지 않는다 (지금 채점기의 결함이라서)."""
+    case = _case(cases, "ko-05-ramen-recipe")
+    record = build_record(
+        _replay_runs([case], _perfect_responses([case])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    record["cases"][0]["error"] = "STRUCTURING_ERROR: 그때의 구조화기가 받아들이지 못했다"
+
+    def broken_scoring(*args, **kwargs):
+        raise ZeroDivisionError("division by zero")
+
+    records_module = importlib.import_module("frame.evaluation.structuring._records")
+    monkeypatch.setattr(records_module, "score_case", broken_scoring)
+    rescored = rescore_record(record, [case], _replay_structurer, rescored_at="2026-11-15")
+    assert rescored["cases"][0]["error"] == "SCORING_ERROR: ZeroDivisionError: division by zero"
 
 
 # ---- 실행 정보 ---------------------------------------------------------------------

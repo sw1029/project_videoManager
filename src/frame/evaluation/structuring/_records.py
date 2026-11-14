@@ -12,7 +12,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlsplit, urlunsplit
@@ -42,6 +42,7 @@ _DIGITS = 4  # 기록에 남기는 비율의 소수 자릿수
 # 기록은 저장소에 커밋하는 파일이라, 오류 문구의 절대 경로(키 파일 위치·사용자 폴더)를 가리고 길이를 줄인다
 _ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|(?<![\w/:.~-])/(?=[^\s/]))[^\s'\"<>|]*")
 _MESSAGE_LIMIT = 300
+SCORING_ERROR = "SCORING_ERROR"  # 채점기 자신의 결함 (모델·구조화의 실패가 아니다)
 
 
 # ---- 실행 ----------------------------------------------------------------------
@@ -105,7 +106,7 @@ def run_gold_set(
                 score = score_case(case.case_id, case.spec, ir)
             except Exception as exc:  # noqa: BLE001
                 log.exception("골드 사례 %s 를 채점하다 오류가 났다 (채점기의 결함)", case.case_id)
-                score = failed_case(case.case_id, case.spec, _unexpected("SCORING_ERROR", exc))
+                score = failed_case(case.case_id, case.spec, _unexpected(SCORING_ERROR, exc))
         elapsed_ms = round((clock() - started) * 1000)
         completion = details.last_completion if details else None
         if completion is before:  # 이번 사례에서 응답을 받지 못했다
@@ -133,6 +134,11 @@ def _describe(exc: Exception) -> str:
 
 def _unexpected(code: str, exc: Exception) -> str:
     return f"{code}: {type(exc).__name__}: {public_message(str(exc))}"
+
+
+def _structuring_failed(error: str | None) -> bool:
+    """구조화가 실패한 사례의 오류인가 (채점기의 결함 SCORING_ERROR 는 아니다)."""
+    return error is not None and not error.startswith(f"{SCORING_ERROR}:")
 
 
 def public_message(text: str) -> str:
@@ -315,6 +321,9 @@ def rescore_record(
     (예: LLMStructurer(ReplayLLMClient([응답]), max_attempts=1)).
     실행 시각·구조화기·모델·시도 횟수·토큰·시간·보정 메모는 원래 기록의 것을 그대로 둔다.
     기록에 없는 골드 사례(나중에 더한 사례)는 건너뛰고, 응답 없이 실패했던 사례는 원래 오류로 다시 실패 처리한다.
+    응답이 남은 실패 사례를 재생해도 구조화가 실패하면 실행 때의 오류를 남긴다.
+    재생은 1회 시도라 문구가 달라지기 때문이다 (예: 재시도 끝의 시간 초과가 '1회 시도 후 실패' 로 바뀐다).
+    지금 코드가 그 응답을 받아들이면 채점하고, 채점기가 깨지면(SCORING_ERROR) 지금 오류를 남긴다.
     기록에는 있는데 골드에 없는 사례가 있으면 ValueError 다. 돈 들여 받은 응답을 조용히 지우지 않으려는 것이다.
     """
     cases = tuple(cases)
@@ -337,6 +346,8 @@ def rescore_record(
             score = failed_case(case.case_id, case.spec, error)
         else:
             score = run_gold_set(structurer_for(response), [case])[0].score
+            if _structuring_failed(score.error) and _structuring_failed(entry.get("error")):
+                score = replace(score, error=public_message(entry["error"]))
         tokens = entry.get("tokens") or {}
         runs.append(
             CaseRun(
