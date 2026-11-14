@@ -64,4 +64,6 @@ def test_openai_structures_a_korean_brief(live_settings):
     assert any(e.kind is EntityKind.PERSON for e in ir.entities)
     assert any(r.predicate == "color" for r in ir.iter_requirements())
     key = resolve_api_key(None, os.environ, live_settings.llm_key_file)
-    assert key not in ir.to_json()  # 키가 결과에 섞이지 않음
+    # `assert key not in ...` 로 쓰면 실패할 때 pytest 가 양쪽 값(실제 키)을 보고서에 싣는다
+    leaked = key in ir.to_json()
+    assert not leaked, "키가 구조화 결과에 섞였습니다"

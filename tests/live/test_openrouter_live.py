@@ -84,4 +84,6 @@ def test_openrouter_generates_one_vertical_scene(live_settings):
     assert meta["billed_seconds"] == 4
     assert meta["job_id"]
     key = resolve_openrouter_key(None, os.environ, live_settings.video_key_file)
-    assert key not in json.dumps(meta, ensure_ascii=False)  # 키가 결과에 섞이지 않음
+    # `assert key not in ...` 로 쓰면 실패할 때 pytest 가 양쪽 값(실제 키)을 보고서에 싣는다
+    leaked = key in json.dumps(meta, ensure_ascii=False)
+    assert not leaked, "키가 클립 메타데이터에 섞였습니다"
