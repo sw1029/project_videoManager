@@ -6,8 +6,8 @@ import json
 from contextlib import AbstractContextManager
 from typing import Any
 
-from frame.adapters.series.store._key_locks import KeyLocks
 from frame.adapters.series.store.artifact import check_document_id
+from frame.adapters.shared.locking import KeyedLocks
 from frame.application.ports.series.repositories import (
     EpisodeRepository,
     ThemeRecord,
@@ -39,7 +39,7 @@ class InMemoryThemeRepository(ThemeRepository):
 class InMemoryEpisodeRepository(EpisodeRepository):
     def __init__(self) -> None:
         self._documents: dict[str, dict[str, Any]] = {}
-        self._locks = KeyLocks()
+        self._locks = KeyedLocks(reentrant=True)  # 같은 스레드는 다시 들어간다 (포트의 계약)
 
     def lock(self, key: str) -> AbstractContextManager[None]:
         return self._locks.hold(key)

@@ -20,7 +20,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any, TypeVar
 
-from frame.adapters.series.store._key_locks import KeyLocks
+from frame.adapters.shared.locking import KeyedLocks
 from frame.application.errors import ConfigurationError, StorageError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.series.repositories import (
@@ -146,7 +146,8 @@ class ArtifactThemeRepository(ThemeRepository):
 class ArtifactEpisodeRepository(EpisodeRepository):
     def __init__(self, store: ArtifactStore) -> None:
         self._documents = _Documents(store, "episodes", "episode")
-        self._locks = KeyLocks()
+        # 같은 스레드는 다시 들어간다: 유스케이스가 그 키를 쥔 채 다른 유스케이스를 부른다 (화면 수정 -> 화면 검수)
+        self._locks = KeyedLocks(reentrant=True)
 
     def lock(self, key: str) -> AbstractContextManager[None]:
         return self._locks.hold(key)

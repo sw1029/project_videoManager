@@ -1,8 +1,14 @@
-"""키별 잠금 (ADR-0013): 같은 키의 작업은 한 번에 하나만. 기다리지 않고 얻어 보는 방법도 있다 (감사 A-09)."""
+"""키별 잠금 (ADR-0013): 같은 키의 작업은 한 번에 하나만. 기다리지 않고 얻어 보는 방법도 있다 (감사 A-09).
+
+구현은 하나다 (감사 P-20). 같은 스레드가 다시 들어가야 하는 쪽(편 · 테마 문서의 잠금 - 유스케이스가 다른 유스케이스를
+부른다)은 reentrant=True 로 만든다.
+"""
 
 from __future__ import annotations
 
 import threading
+
+import pytest
 
 from frame.adapters.shared.locking import KeyedLocks
 
@@ -71,6 +77,57 @@ def test_a_key_someone_else_holds_is_not_waited_for():
 
     with locks.try_hold("scene") as mine:
         assert mine is True  # 상대가 놓은 뒤에는 얻는다
+
+
+def test_a_reentrant_lock_lets_the_thread_that_holds_it_in_again():
+    """편 문서의 잠금: 화면 수정이 그 편의 키를 쥔 채 화면 검수(같은 키)를 부른다."""
+    locks = KeyedLocks(reentrant=True)
+    entered: list[str] = []
+
+    with locks.hold("ep_1"):
+        entered.append("outer")
+        with locks.hold("ep_1"):
+            entered.append("inner")
+        with locks.try_hold("ep_1") as mine:
+            assert mine is True  # 쥐고 있는 스레드는 기다리지 않는 쪽으로도 다시 얻는다
+
+    assert entered == ["outer", "inner"]
+
+
+def test_a_reentrant_lock_still_keeps_other_threads_out():
+    locks = KeyedLocks(reentrant=True)
+    inside, leave = threading.Event(), threading.Event()
+
+    def holder() -> None:
+        with locks.hold("ep_1"), locks.hold("ep_1"):
+            inside.set()
+            leave.wait(WAIT)
+
+    thread = threading.Thread(target=holder)
+    thread.start()
+    try:
+        assert inside.wait(WAIT)
+        with locks.try_hold("ep_1") as mine:
+            assert mine is False
+    finally:
+        leave.set()
+        thread.join(WAIT)
+
+    with locks.try_hold("ep_1") as mine:
+        assert mine is True  # 두 번 들어간 스레드가 두 번 다 나온 뒤에는 얻는다
+
+
+@pytest.mark.parametrize("reentrant", [False, True])
+def test_a_lock_nobody_uses_is_forgotten(reentrant):
+    """키는 장면 · 클립 · 편마다 생긴다. 쓰는 쪽이 없어진 잠금을 쌓아 두지 않는다."""
+    locks = KeyedLocks(reentrant=reentrant)
+
+    with locks.hold("a"), locks.hold("b"):
+        assert locks.in_use == 2
+        with locks.try_hold("a"):
+            assert locks.in_use == 2
+
+    assert locks.in_use == 0
 
 
 def test_a_failed_try_leaves_the_holder_untouched():

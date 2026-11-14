@@ -56,6 +56,8 @@ MOVED = {
     "frame.domain.services": "frame.domain.identity 와 frame.domain.comparison",
     # 테마의 키 규칙은 IR 의 것을 베낀 사본이었다 (P-20). 규칙은 한 곳에 있다
     "frame.domain.series.theme.KEY_FORMAT": "frame.domain.ir.KEY_PATTERN",
+    # 키별 잠금의 구현은 하나다 (P-20). 다시 들어가는 잠금은 KeyedLocks(reentrant=True)
+    "frame.adapters.series.store._key_locks": "frame.adapters.shared.locking",
 }
 
 # src 밖에서 frame 을 import 하는 곳

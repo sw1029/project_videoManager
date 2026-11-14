@@ -6,7 +6,9 @@
 모듈 지도
 - memory      InMemoryThemeRepository · InMemoryEpisodeRepository (테스트·오프라인)
 - artifact    ArtifactThemeRepository · ArtifactEpisodeRepository: 산출물 저장소에 JSON 문서로 둔다
-- _key_locks  (안쪽) 키마다 하나씩 쥐는 잠금 (같은 스레드는 다시 들어갈 수 있다. 프로세스 하나 안에서만 지킨다)
+
+잠금은 어댑터들이 함께 쓰는 키별 잠금이다 (frame.adapters.shared.locking.KeyedLocks, reentrant=True —
+같은 스레드는 다시 들어갈 수 있다). 프로세스 하나 안에서만 지킨다.
 """
 
 from frame.adapters.series.store.artifact import ArtifactEpisodeRepository, ArtifactThemeRepository
