@@ -1,9 +1,16 @@
-"""엔진/세션 팩토리. SQLite(테스트)와 MySQL 8.4(운영)를 같은 코드로 다룬다."""
+"""엔진/세션 팩토리. SQLite(테스트)와 MySQL 8.4(운영)를 같은 코드로 다룬다.
+
+in-memory SQLite 는 연결 하나가 곧 DB 라서 모든 스레드가 그 연결을 함께 쓴다 (StaticPool).
+스레드 디스패처로 돌면 요청 스레드·작업 스레드·주기 복구가 그 연결 위에서 서로의 트랜잭션에 끼어든다.
+그래서 이런 엔진의 세션(저장 단위)은 한 번에 하나만 열리게 한다 (감사 A-41).
+"""
 
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
+from typing import Any
 
 from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
@@ -58,4 +65,41 @@ def _add_missing_columns(engine: Engine) -> None:
 
 
 def make_session_factory(engine: Engine) -> Callable[[], Session]:
+    if isinstance(engine.pool, StaticPool):
+        # 연결이 하나뿐인 엔진: 세션을 한 번에 하나만 연다
+        return sessionmaker(
+            bind=engine,
+            class_=_OneAtATimeSession,
+            expire_on_commit=False,
+            autoflush=True,
+            gate=threading.RLock(),
+        )
     return sessionmaker(bind=engine, expire_on_commit=False, autoflush=True)
+
+
+class _OneAtATimeSession(Session):
+    """연결 하나를 모든 스레드가 함께 쓰는 엔진의 세션. 열 때 문을 잠그고 close() 에서 연다.
+
+    저장 단위(UnitOfWork)는 짧게 열고 반드시 닫으므로, 다른 스레드는 그동안만 기다린다. 같은 스레드가 저장 단위
+    안에서 또 하나를 여는 것은 막지 않는다 (재진입 잠금).
+    """
+
+    def __init__(self, *args: Any, gate: Any, **kwargs: Any) -> None:
+        gate.acquire()
+        self._gate = gate
+        try:
+            super().__init__(*args, **kwargs)
+        except BaseException:
+            self._leave()
+            raise
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            self._leave()
+
+    def _leave(self) -> None:
+        gate, self._gate = self._gate, None
+        if gate is not None:
+            gate.release()
