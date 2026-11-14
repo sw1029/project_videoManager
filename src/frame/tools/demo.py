@@ -8,6 +8,7 @@
 래퍼: Windows 는 scripts\\setup.cmd · scripts\\run.cmd, macOS·Linux 는 sh scripts/setup.sh · sh scripts/run.sh
 
 의존성을 설치하기 전에도 실행되므로 frame 의 다른 모듈(pydantic·fastapi 사용)을 import 하지 않는다.
+표준 라이브러리만 쓰는 frame.adapters.shared.api_keys (키 파일 읽는 규칙)만 가져온다.
 시연 상태(DB·산출물·키 파일)는 저장소의 .demo/ 에 두며 git 에서 제외된다.
 """
 
@@ -33,6 +34,8 @@ import urllib.request
 import webbrowser
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path, PurePath
+
+from frame.adapters.shared.api_keys import find_key
 
 MIN_PYTHON = (3, 11)
 MIN_NODE = 18
@@ -98,9 +101,14 @@ def parse_node_major(text: str) -> int | None:
 
 
 def extract_key(text: str) -> str | None:
-    """키 파일 내용에서 sk- 키를 찾는다 (키만 있는 줄과 OPENAI_API_KEY=... 줄 모두)."""
-    match = _KEY_TOKEN.search(text or "")
-    return match.group(0) if match else None
+    """키 파일 내용이나 입력에서 OpenAI 키(sk-...)를 찾는다 (키만 있는 줄과 OPENAI_API_KEY=... 줄 모두).
+
+    다른 서비스의 키는 집지 않는다: 다른 환경 변수의 값과 OpenRouter 키(sk-or-...)는 OpenAI 키가 아니다.
+    """
+    key = find_key(text or "", name="OPENAI_API_KEY", token=_KEY_TOKEN)
+    if key is None or _KEY_TOKEN.fullmatch(key) is None or key.startswith("sk-or-"):
+        return None
+    return key
 
 
 def npm_install_command(frontend: Path) -> list[str]:

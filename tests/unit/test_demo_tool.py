@@ -147,6 +147,29 @@ def test_extract_key_from_bare_or_assignment_lines():
     assert demo.extract_key("") is None
 
 
+def test_extract_key_never_takes_another_services_key():
+    """키 파일에 다른 서비스의 키가 함께 있어도 OpenAI 키만 집는다 (감사 A-25)."""
+    other = "sk-or-v1-" + "f00d" * 12
+
+    assert demo.extract_key(f"OPENROUTER_API_KEY={other}\nOPENAI_API_KEY={KEY}\n") == KEY
+    assert demo.extract_key(f"OPENROUTER_API_KEY={other}\n") is None
+    assert demo.extract_key(other) is None  # OpenRouter 키는 OpenAI 키 자리에 쓸 수 없다
+    assert demo.extract_key("OPENAI_API_KEY=sk-short\n") is None
+    assert demo.extract_key(f"DB_PASSWORD=hunter2\n# {KEY}\n") is None
+
+
+def test_the_launcher_runs_on_the_standard_library_alone():
+    """의존성을 설치하기 전에도 실행된다. site-packages 없이 import 되는지 본다 (다른 모듈을 끌어오면 깨진다)."""
+    src = Path(demo.__file__).resolve().parents[2]
+    code = f"import sys; sys.path.insert(0, {str(src)!r}); import frame.tools.demo"
+
+    done = subprocess.run(
+        [sys.executable, "-S", "-c", code], capture_output=True, text=True, check=False
+    )
+
+    assert done.returncode == 0, done.stderr[-400:]
+
+
 def test_npm_install_prefers_ci_with_lockfile(tmp_path):
     assert demo.npm_install_command(tmp_path)[:2] == ["npm", "install"]
     (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")

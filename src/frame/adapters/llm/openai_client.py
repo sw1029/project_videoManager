@@ -2,6 +2,7 @@
 
 - 키는 LLMKeySource 에서 호출 시점에 얻는다: 화면 입력 키 > 설정 키 > OPENAI_API_KEY > 키 파일.
   키가 바뀌면 SDK 클라이언트를 새로 만든다. 키는 로그·예외에 남기지 않는다.
+  OpenRouter 키(sk-or-...)는 OpenAI 주소로 보내지 않는다 (다른 회사에 키가 드러난다).
 - require_key_at_start=True(기본)면 생성 시점에 키가 없을 때 바로 실패한다 (서버 기동 단계 조기 실패).
   화면 키 입력(FRAME_LLM_RUNTIME_KEY)을 쓰면 False 로 두어 키 없이 기동하고, 키가 없을 때의 호출만 실패시킨다.
 - base_url 을 주면 OpenAI 호환 서버(vLLM, Ollama 등 로컬 3090 환경)를 같은 코드로 호출한다.
@@ -23,12 +24,13 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from frame.application.errors import LLMBadResponse, LLMRateLimited, LLMTimeout, LLMUnavailable
 from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient, LLMKeySource
 
 from .key_store import LLMKeyStore
-from .keys import mask_key, read_key_file
+from .keys import OPENROUTER_PREFIX, mask_key, read_key_file
 
 __all__ = ["OpenAIJsonClient", "is_reasoning_model", "mask_key", "resolve_api_key"]
 
@@ -126,6 +128,11 @@ class OpenAIJsonClient(LLMClient):
         key = self.key_source.resolve()
         if not key:
             raise LLMUnavailable(self.key_source.describe_missing())
+        if key.startswith(OPENROUTER_PREFIX) and _goes_to_openai(self.base_url):
+            raise LLMUnavailable(
+                "설정된 키는 OpenRouter 키(sk-or-...)라서 OpenAI 주소로 보내지 않습니다. "
+                "OpenAI 키를 설정하거나 FRAME_LLM_BASE_URL 을 그 키를 받는 주소로 바꾸세요"
+            )
         fingerprint = _fingerprint(key)
         with self._lock:
             if self._cached is None or self._cached[0] != fingerprint:
@@ -210,6 +217,15 @@ class OpenAIJsonClient(LLMClient):
             input_tokens=getattr(usage, "prompt_tokens", None),
             output_tokens=getattr(usage, "completion_tokens", None),
         )
+
+
+def _goes_to_openai(base_url: str | None) -> bool:
+    """요청이 OpenAI 의 주소로 가는가. 주소를 주지 않으면 SDK 가 OPENAI_BASE_URL, 없으면 OpenAI 로 보낸다."""
+    target = base_url or os.environ.get("OPENAI_BASE_URL")
+    if not target:
+        return True
+    host = urlsplit(target).hostname or ""
+    return host == "openai.com" or host.endswith(".openai.com")
 
 
 def _image_parts(images: Sequence[ImageInput], detail: str) -> list[dict[str, Any]]:

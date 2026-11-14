@@ -78,6 +78,7 @@ from frame.adapters.http_transport import (
     TransportError,
     UrllibTransport,
 )
+from frame.adapters.shared import api_keys
 from frame.application.errors import (
     ConfigurationError,
     GenerationError,
@@ -240,9 +241,10 @@ def resolve_openrouter_key(
         path = Path(key_file)
         if not path.is_file():
             raise ConfigurationError(f"OpenRouter 키 파일이 없습니다: {path}")
-        match = _KEY_TOKEN.search(path.read_text(encoding="utf-8", errors="ignore"))
-        if match:
-            return match.group(0)
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        found = api_keys.find_key(text, name=KEY_ENV, token=_KEY_TOKEN)
+        if found is not None and found.startswith("sk-or-"):
+            return found
         raise ConfigurationError(f"키 파일에서 OpenRouter 키(sk-or-...)를 찾지 못했습니다: {path}")
     raise ConfigurationError(
         f"OpenRouter API 키가 없습니다. {KEY_ENV} 환경 변수 또는 FRAME_VIDEO_KEY_FILE 을 설정하세요"
@@ -250,8 +252,8 @@ def resolve_openrouter_key(
 
 
 def mask_key(key: str) -> str:
-    """진단용 표시. 끝 4자리만 (ADR-0010)."""
-    return f"...{key[-4:]}" if len(key) > 8 else "***"
+    """진단용 표시. 끝 4자리만 (ADR-0010). 짧은 키는 아무것도 보이지 않는다."""
+    return api_keys.mask_key(key)
 
 
 # ---- 모델 메타데이터 ---------------------------------------------------------------------

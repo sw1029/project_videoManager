@@ -24,7 +24,7 @@
 | 수정 의도 · 변경 계획 | `revision.py` `RevisionIntent`, `services/propagation.py`, `services/revision_planning.py` | `ports/change_request.py` · `use_cases/create_revision.py`, `plan_revision.py` | `adapters/change_request/` |
 | 추적 | `tracking.py` | `ports/tracker.py` `ObjectTracker` · `pipeline/stages.py` `TrackStage` | `adapters/tracker/` |
 | 영상 처리 (ffmpeg) | — | — | `adapters/generator/ffmpeg.py`, `adapters/video_tools.py` |
-| LLM·VLM 과 API 키 | — | `ports/llm.py` `LLMClient`·`LLMKeySource` | `adapters/llm/`, `adapters/vlm_answers.py` |
+| LLM·VLM 과 API 키 | — | `ports/llm.py` `LLMClient`·`LLMKeySource` | `adapters/llm/`, `adapters/vlm_answers.py`, 키 파일 읽기·키 표시 `adapters/shared/api_keys.py` |
 | 저장 (산출물 · DB) | `artifacts.py` | `ports/artifact_store.py`, `ports/repositories.py`, `ports/unit_of_work.py` | `adapters/storage/`, `adapters/persistence/` |
 | 작업 실행 · 복구 | `state_machine.py` | `ports/jobs.py` `JobDispatcher` · `use_cases/run_generation_pipeline.py`, `recover_pending_versions.py` · `pipeline/` | `adapters/jobs/`, `presentation/recovery.py` |
 | HTTP API | — | `dto.py`, `use_cases/queries.py` | `presentation/` |
@@ -46,6 +46,7 @@
 | `src/frame/application/use_cases/` | 유스케이스 하나가 모듈 하나 | `CreateProject`, `StructureRequirements`, `AcceptGeneration`, `RunGenerationPipeline`, `CreateRevision`, `PlanRevision`, `ProjectQueries`, `RecoverPendingVersions` |
 | `src/frame/application/pipeline/` | 생성 → 추적 → 검수 단계와 실행기 | `PipelineRunner`, `GenerateStage`, `TrackStage`, `CheckStage`, `PipelineContext` |
 | `src/frame/adapters/` | 포트의 구현. 최상위 모듈 넷(`common.py` ID·시계, `http_transport.py`, `video_tools.py`, `vlm_answers.py`)은 어댑터들이 함께 쓴다 | — |
+| `src/frame/adapters/shared/` | 어댑터 패키지들이 함께 쓰는 것 (어댑터끼리는 서로 import 하지 않는다). 아직 최상위에 남은 공용 모듈 넷이 차례로 이리 온다 | `api_keys` (`find_key`, `mask_key`) |
 | `src/frame/adapters/structurer/` | 구조화 | `RuleBasedStructurer`, `LLMStructurer`, `FakeStructurer` |
 | `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 최종 영상 조립, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `DelegatingVideoGenerator` (데코레이터의 바탕), `FfmpegVideoAssembler`, `FakeVideoAssembler` |
 | `src/frame/adapters/identity/` | 정체성 기준 이미지 뽑기 | `VlmCropIdentityExtractor`, `FrameIdentityExtractor`, `FakeIdentityExtractor` |

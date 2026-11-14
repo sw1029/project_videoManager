@@ -67,6 +67,45 @@ def test_mask_key_hides_the_middle():
     assert "abcdefg" not in mask_key("sk-abcdefghijklmnop")
 
 
+# ---- 다른 회사의 키 (감사 A-25) -----------------------------------------------------------
+
+OPENROUTER_KEY = "sk-or-v1-" + "f00d" * 12
+
+
+@pytest.mark.parametrize("base_url", [None, "https://api.openai.com/v1"])
+def test_an_openrouter_key_is_never_sent_to_the_openai_address(base_url):
+    """키 파일을 잘못 지정했거나 두 키가 한 파일에 있을 때. 보내면 다른 회사에 키가 드러난다."""
+    created = []
+
+    with pytest.raises(LLMUnavailable) as excinfo:
+        OpenAIJsonClient(
+            model="gpt-4.1-mini",
+            api_key=OPENROUTER_KEY,
+            env={},
+            base_url=base_url,
+            sdk_factory=created.append,
+        )
+
+    assert created == []  # SDK 클라이언트를 만들지도 않았다
+    assert "OpenRouter" in str(excinfo.value) and OPENROUTER_KEY not in str(excinfo.value)
+    assert "f00d" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://localhost:8001/v1"])
+def test_an_openrouter_key_may_go_to_an_address_that_takes_it(base_url):
+    created = []
+
+    OpenAIJsonClient(
+        model="openai/gpt-4.1-mini",
+        api_key=OPENROUTER_KEY,
+        env={},
+        base_url=base_url,
+        sdk_factory=lambda key: created.append(key) or _sdk(_response("{}")),
+    ).complete_json("s", "u", {"type": "object"})
+
+    assert created == [OPENROUTER_KEY]
+
+
 # ---- 요청 형식 -------------------------------------------------------------
 
 
