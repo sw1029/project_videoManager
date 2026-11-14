@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from dataclasses import replace
 
 import pytest
 
 from frame.adapters.checker import VlmRequirementChecker
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import LLMBadResponse, LLMTimeout
 from frame.application.ports.checker import CheckContext
 from frame.domain.artifacts import GeneratedClip
@@ -273,6 +274,33 @@ def test_clips_that_are_not_video_are_undetermined_without_asking(store, ir):
 
     assert len(outcomes) == 8 and {o.verdict for o in outcomes} == {Verdict.UNDETERMINED}
     assert llm.calls == []
+
+
+def test_the_reason_of_an_unreadable_clip_does_not_show_the_servers_folders(ir, tmp_path):
+    """미판정 사유는 검수 결과에 저장되고 API 응답으로 나간다. 서버의 폴더가 실리면 안 된다 (감사 P-20 · A-29).
+
+    검수기는 클립을 저장소에서 꺼내 임시 폴더에서 읽는다. ffmpeg 는 읽지 못한 파일의 경로를 출력에 찍고,
+    단위 방어(UnitGuard)는 어댑터 오류의 문구를 사유에 그대로 싣는다. 그 문구에서 임시 폴더는 <tmp> 로 바뀌어 있다.
+    저장소가 파일이어도 (저장 루트의 경로가 있다) 사유에는 그 경로가 닿지 않는다.
+    """
+    store = LocalFileArtifactStore(tmp_path / "artifacts")
+    clips = {}
+    for scene in ir.scenes:
+        uri = store.put(f"clips/ver_1/{scene.scene_key}.mp4", b"not a video at all", "video/mp4")
+        clips[scene.scene_key] = GeneratedClip(scene.scene_key, uri, scene.duration_ms, "fp")
+    version = VideoVersion("ver_1", "prj_1", VersionState.PROCESSING, NOW, ir=ir)
+    checker, llm = _checker(store)
+
+    outcomes = checker.check(CheckContext(version=version, ir=ir, clips=clips, tracks=()))
+
+    assert len(outcomes) == 8 and {o.verdict for o in outcomes} == {Verdict.UNDETERMINED}
+    assert llm.calls == []
+    for reason in {o.detail["reason"] for o in outcomes}:
+        assert reason.startswith("VIDEO_TOOL_ERROR: ")
+        assert tempfile.gettempdir().lower() not in reason.lower()
+        assert str(tmp_path).lower() not in reason.lower()
+        # ffmpeg 가 읽지 못한 파일의 이름을 찍었다면 그 폴더는 가려져 있다
+        assert "clip.mp4" not in reason or "<tmp>" in reason
 
 
 def _parent_result(key, verdict, score, **detail):
