@@ -63,7 +63,7 @@ from frame.domain.theme import (
 from frame.domain.video_analysis import ScreenText
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
-PROMPT_VERSION = "2026-11-14.4"
+PROMPT_VERSION = "2026-11-14.5"
 SCHEMA_NAME = "theme_observation"
 _CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
@@ -105,6 +105,8 @@ Slots (one entry per slot, in order)
 - purpose: what this part does in the format, worded so that it fits any episode
   ("the host greets the viewer", "close-up of today's product").
 - description: what this video actually shows in the slot.
+- purpose and description say what is filmed (people, objects, actions, place). Do not describe
+  overlay text there ("shows the price"): overlay text is recorded in screen_texts and text_rules.
 - entity_keys: the entities visible in the slot.
 - requirements: what is visible in the slot. Object attributes ({attributes}) and what the entity
   does ({transient}) need entity_key. Relations ({relations}) need entity_key and

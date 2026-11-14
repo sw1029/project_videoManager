@@ -59,6 +59,8 @@ def test_answer_becomes_episode_content():
     assert llm.calls[0]["schema"] == RESPONSE_SCHEMA and llm.calls[0]["system"] == SYSTEM_PROMPT
     # 얹는 문구는 조건에 넣지 않고, 물건에 찍힌 글자는 그 객체의 조건이다
     assert "never put it into" in SYSTEM_PROMPT and "physically on an object" in SYSTEM_PROMPT
+    # 장면 설명은 영상 모델의 프롬프트가 된다: 얹는 문구·가격을 설명에 적지 않게 한다
+    assert "never mention overlay text, titles, captions or prices" in SYSTEM_PROMPT
 
 
 def test_brief_values_survive_whatever_the_model_says():
@@ -153,3 +155,71 @@ def test_parse_content_rejects_malformed_documents():
     stray = copy.deepcopy(matcha_content_document())
     stray["slots"][0]["variables"].append({"key": "menu", "value": "다른 메뉴"})
     assert parse_content(theme, stray).slots[0].variables == {"caption": "오늘은 초록초록!"}
+
+
+def test_invented_predicates_are_sent_back():
+    """첫 실호출에서 모델이 speaks·overlay_text·text_on_cup 같은 술어를 지어냈다."""
+    invented = copy.deepcopy(matcha_content_document())
+    invented["slots"][0]["requirements"].append(
+        {
+            "entity_key": None,
+            "related_entity_key": None,
+            "predicate": "overlay_text",
+            "value": "오늘의 메뉴",
+        }
+    )
+    planner, llm = _planner(invented, matcha_content_document())
+    planner.plan(_request())
+
+    assert planner.attempts == 2
+    assert "unknown predicate 'overlay_text'" in llm.calls[1]["user"]
+    assert (
+        "outfit" in SYSTEM_PROMPT
+        and "looks_at" in SYSTEM_PROMPT
+        and "never invent one" in SYSTEM_PROMPT
+    )
+
+
+def test_line_too_long_to_speak_is_sent_back_with_the_count_and_the_limit():
+    """녹음은 사람이 한다. 빠르기를 올려도 장면에 들어가지 않는 문장은 기획 단계에서 되돌린다."""
+    long_line = copy.deepcopy(matcha_content_document())
+    long_line["slots"][1]["narration"] = (
+        "이 초록빛 말차 라떼는 부드럽고 고소한 맛이 특징이라 누구나 좋아해요."
+    )
+    planner, llm = _planner(long_line, matcha_content_document())
+    content = planner.plan(_request())
+
+    assert planner.attempts == 2 and content.slots[1].narration == "말차 라떼입니다."
+    retry = llm.calls[1]["user"]
+    assert "narration is too long" in retry and "slot 'show' narration has 29 characters" in retry
+    assert "the limit is 19" in retry
+
+
+def test_line_slightly_over_the_estimate_is_accepted():
+    """어림이 예산을 조금 넘는 줄은 받는다: 녹음을 붙일 때 빠르기를 1.15배까지 올릴 수 있다."""
+    slightly = copy.deepcopy(matcha_content_document())
+    slightly["slots"][0]["narration"] = (
+        "안녕하세요! 오늘은 신선한 말차 라떼를 소개할게요."  # 21글자, 어림 3.8초
+    )
+    planner, _ = _planner(slightly)
+    request = _request()
+    plan = build_episode_plan(request.theme, request.brief, planner.plan(request))
+
+    assert planner.attempts == 1 and plan.line("L1").fits is False
+
+
+def test_relation_value_is_always_the_related_entity():
+    """모델이 관계의 값에 다른 말을 적어 와도(holds = "holds the cup") 값은 상대 객체 키다."""
+    document = copy.deepcopy(matcha_content_document())
+    document["slots"][1]["requirements"][0]["value"] = "holds the cup up"
+    content = parse_content(cafe_theme(), document)
+
+    holds = content.slots[1].requirements[0]
+    assert (holds.predicate, holds.expected_value, holds.related_entity_key) == (
+        "holds",
+        "mug",
+        "mug",
+    )
+    document["slots"][1]["requirements"][0]["related_entity_key"] = None
+    with pytest.raises(ValueError, match="needs related_entity_key"):
+        parse_content(cafe_theme(), document)

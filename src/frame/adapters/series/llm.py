@@ -7,6 +7,8 @@
   녹음은 사람이 하므로, 대본이 장면보다 길면 뒤에서 고칠 수 없다.
 - 요청이 준 변수의 값은 그대로 쓴다. 모델이 다른 값을 내도 요청의 값이 이긴다.
 - 낸 내용이 build_episode_plan 을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts).
+  어휘에 없는 술어(모델이 지어낸 speaks·overlay_text 같은 것)와, 빠르기를 올려도 장면에 들어가지 않는
+  말할 문장도 되돌려 보낸다 (첫 실호출에서 둘 다 나왔다).
 """
 
 from __future__ import annotations
@@ -27,13 +29,27 @@ from frame.domain.episode import (
 )
 from frame.domain.errors import DomainError, ValidationError
 from frame.domain.ir import EntitySpec, RequirementSpec
+from frame.domain.services.narration import DEFAULT_NARRATION_POLICY
 from frame.domain.theme import Theme, VariableScope
+from frame.domain.video_analysis import spoken_characters
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
-PROMPT_VERSION = "2026-11-14.2"
+PROMPT_VERSION = "2026-11-14.4"
 SCHEMA_NAME = "episode_content"
 
-SYSTEM_PROMPT = """You write one new episode of an existing short-form video series.
+_SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
+_PREDICATES = {
+    "attributes": ", ".join(
+        s.name
+        for s in DEFAULT_VOCABULARY.specs()
+        if not s.relational and not s.transient and s.name not in _SCENE_LEVEL
+    ),
+    "doing": ", ".join(s.name for s in DEFAULT_VOCABULARY.specs() if s.transient),
+    "relations": ", ".join(s.name for s in DEFAULT_VOCABULARY.specs() if s.relational),
+    "scene": ", ".join(_SCENE_LEVEL),
+}
+
+SYSTEM_PROMPT = f"""You write one new episode of an existing short-form video series.
 You get the series theme (fixed cast, scene slots, style, on-screen text rules, narration tone) and
 the request for this episode. Return ONLY JSON that matches the schema.
 
@@ -41,17 +57,25 @@ What stays fixed is added by the system, so do not repeat or change it: the slot
 lengths, the fixed attributes of the cast, the style conditions, where on-screen text goes.
 
 What you write, for every slot of the theme (same slot_key, same order, no extra slots):
-- description: what happens in the scene in this episode, following the slot's purpose. One
-  sentence, in the language of the request.
+- description: what the camera films in the scene in this episode (people, objects, actions,
+  place), following the slot's purpose. One sentence, in the language of the request. It becomes
+  the prompt of a video model, so never mention overlay text, titles, captions or prices in it,
+  even when the slot's purpose does: the system adds those afterwards.
 - entity_keys: episode-specific entities that appear in the scene (define them in `entities`), and
   any cast member you add to a slot where it is not already listed.
 - requirements: conditions that belong to this episode only (the colour of today's product, what
-  the host does). Attribute and action predicates need entity_key; relations (holds, wears, near,
-  looks_at, on) need entity_key and related_entity_key; scene-level predicates use entity_key null.
-  Values are short lowercase English phrases. Never restate a fixed attribute of the cast.
+  the host does). Use ONLY these predicate names, never invent one:
+  object attributes ({_PREDICATES["attributes"]}) and what an entity does
+  ({_PREDICATES["doing"]}) need entity_key; relations ({_PREDICATES["relations"]}) need
+  entity_key and related_entity_key; scene-level conditions ({_PREDICATES["scene"]}) use
+  entity_key null. What someone does is an "action" with the deed as its value
+  ("waves hand to camera"), not a predicate of its own. Values are short lowercase English
+  phrases (text and brand keep the exact spelling). Never restate a fixed attribute of the cast.
 - narration: the sentence a person will record for this scene, in the narration language and tone
   of the theme, following the slot's narration purpose. It must be speakable within the scene:
-  stay within the character limit given for the slot (letters and digits, no spaces). Use "" for
+  count the letters and digits (not spaces or punctuation) and stay within the character limit
+  given for the slot. A person records it, so a line that is too long cannot be fixed later;
+  prefer a short line. Use "" for
   a silent slot.
 - variables: values for SLOT-scope variables in this slot (for example a per-scene caption).
 
@@ -154,7 +178,8 @@ class LLMSeriesPlanner(SeriesPlanner):
             self.last_completion = completion
             try:
                 content = parse_content(request.theme, json.loads(completion.text))
-                build_episode_plan(request.theme, request.brief, content, self._policy)
+                plan = build_episode_plan(request.theme, request.brief, content, self._policy)
+                _check_narration_fits(request.theme, plan.script, self._policy)
                 return content
             except (ValueError, KeyError, TypeError, DomainError) as exc:
                 last_error = (
@@ -252,14 +277,27 @@ def parse_content(theme: Theme, document: Any) -> EpisodeContent:
         requirements = []
         for raw in item.get("requirements") or ():
             predicate = DEFAULT_VOCABULARY.normalize(str(raw.get("predicate") or ""))
+            if DEFAULT_VOCABULARY.spec(predicate) is None:
+                raise ValueError(
+                    f"unknown predicate '{predicate}' in slot '{slot_key}'. Use only the listed "
+                    "predicate names: an action goes into 'action', text printed on an object into "
+                    "'text', and overlay text is never a requirement"
+                )
             related = raw.get("related_entity_key") or None
-            if DEFAULT_VOCABULARY.is_relational(predicate) is not True:
+            value = str(raw.get("value") or "")
+            if DEFAULT_VOCABULARY.is_relational(predicate) is True:
+                if related is None:
+                    raise ValueError(
+                        f"relation '{predicate}' in slot '{slot_key}' needs related_entity_key"
+                    )
+                value = str(related)  # 관계의 값은 상대 객체 키다 (모델이 다른 말을 적어 와도)
+            else:
                 related = None  # 속성 조건은 상대 객체를 갖지 않는다
             requirements.append(
                 RequirementSpec(
                     scene_key=slot_key,
                     predicate=predicate,
-                    expected_value=str(raw.get("value") or ""),
+                    expected_value=value,
                     entity_key=raw.get("entity_key") or None,
                     related_entity_key=related,
                 )
@@ -287,6 +325,24 @@ def parse_content(theme: Theme, document: Any) -> EpisodeContent:
         for item in document.get("entities") or ()
     )
     return EpisodeContent(tuple(slots), entities, _pairs(document.get("variables")))
+
+
+def _check_narration_fits(theme: Theme, script: Any, policy: PlanPolicy) -> None:
+    """빠르기를 올려도 장면에 들어가지 않을 문장이 있으면 ValueError (모델에 되돌려 보낸다)."""
+    pace = theme.narration.pace_cps or policy.default_pace_cps
+    too_long = []
+    for line in script:
+        stretched = line.budget_ms * DEFAULT_NARRATION_POLICY.max_tempo
+        if line.estimated_ms is not None and line.estimated_ms > stretched:
+            limit = int(line.budget_ms / 1000 * pace)
+            too_long.append(
+                f"slot '{line.scene_key}' narration has {spoken_characters(line.text)} characters, "
+                f"the limit is {limit}"
+            )
+    if too_long:
+        raise ValueError(
+            "narration is too long to be spoken within the scene: " + "; ".join(too_long)
+        )
 
 
 def _pairs(raw: Any) -> dict[str, str]:

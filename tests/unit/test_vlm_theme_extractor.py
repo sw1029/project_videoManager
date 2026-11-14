@@ -453,6 +453,7 @@ def test_system_prompt_lists_the_vocabulary_and_the_rules():
     assert '"mug", not "red_mug"' in prompt
     assert "{menu} {price}" in prompt  # 틀의 예는 중괄호 그대로 보인다
     assert "ENGLISH phrase" in prompt and "Use only the predicate names" in prompt
+    assert "Do not describe" in prompt and "overlay text there" in prompt
     assert "present is null" in prompt
 
 
