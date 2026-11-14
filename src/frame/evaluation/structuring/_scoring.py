@@ -164,14 +164,15 @@ def _score_requirements(
     answers: dict[str, list[RequirementSpec]] = {}  # 골드 조건 키 → 그 조건을 겨냥한 모델 조건
     spurious: dict[tuple[Any, ...], str] = {}  # 골드 좌표의 자리 → 처음 본 모델 조건 키
     for req in predicted.iter_requirements():
-        context = (
-            scene_map.get(req.scene_key),
-            project(req.entity_key, entity_map),
-            project(req.related_entity_key, entity_map),
-        )
-        target = _target(by_context.get(context, ()), req)
+        # 골드 시간에 놓을 수 없는 장면(검증을 거치지 않은 IR 의 전체 길이가 0)이면 None 이고,
+        # 그 장면의 조건은 어떤 골드 조건과도 맞지 않아 골드에 없는 조건으로 센다
+        scene = scene_map.get(req.scene_key)
+        entity = project(req.entity_key, entity_map)
+        related = project(req.related_entity_key, entity_map)
+        candidates = by_context.get((scene, entity, related), ()) if scene is not None else ()
+        target = _target(candidates, req)
         if target is None:
-            spurious.setdefault((*context, req.predicate), req.key)
+            spurious.setdefault((scene, entity, related, req.predicate), req.key)
         else:
             answers.setdefault(target.key, []).append(req)
 

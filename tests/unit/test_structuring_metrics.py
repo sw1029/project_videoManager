@@ -7,8 +7,9 @@ import time
 
 import pytest
 
+from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
-from frame.domain.ir import IntermediateRepresentation
+from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
 from frame.evaluation.structuring import (
     GoldSpec,
     Tally,
@@ -468,6 +469,30 @@ def test_failed_case_misses_every_required_item():
     assert score.predicted_scene_count == 0 and not score.scene_count_match
     assert score.boundary_error_ms is None and score.duration_error_ms is None
     assert score.error == "LLM_TIMEOUT: 시간 초과"
+
+
+def test_requirements_of_scenes_that_cannot_be_placed_in_time_are_spurious():
+    """검증을 거치지 않은 IR(구조화기 계약 위반)의 전체 길이가 0 이면 장면을 골드 시간에 놓을 수 없다.
+
+    그 장면의 요구조건은 골드에 없는 조건으로 세고, 채점은 멈추지 않는다.
+    """
+    predicted = IntermediateRepresentation(
+        entities=(EntitySpec("cup", EntityKind.PROP, "빨간 머그컵"),),
+        scenes=(
+            SceneSpec(
+                "s1",
+                0,
+                0,
+                entity_keys=("cup",),
+                requirements=(RequirementSpec("s1", "color", "red", "cup"),),
+            ),
+        ),
+    )
+    score = score_case("case", GoldSpec.from_document(_gold_document()), predicted)
+    assert score.requirements == Tally(fp=1, fn=7)
+    assert score.spurious_requirements == ("s1:cup:color",)
+    assert score.appearances == Tally(fn=3)
+    assert score.entities == Tally(tp=1, fn=1)
 
 
 def test_gold_must_be_a_valid_ir():
