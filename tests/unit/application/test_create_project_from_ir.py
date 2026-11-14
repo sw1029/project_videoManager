@@ -83,14 +83,20 @@ def test_invalid_ir_is_rejected_at_once_and_nothing_is_saved(container):
 
 def test_reference_images_must_point_to_objects_of_the_ir(container):
     with pytest.raises(ValidationError) as excinfo:
-        _create(container, reference_images=(ReferenceImageInput("mem://refs/logo.png", "logo"),))
+        _create(
+            container,
+            reference_images=(ReferenceImageInput("https://example.com/refs/logo.png", "logo"),),
+        )
     assert "참조 이미지" in excinfo.value.message
 
     result = _create(
-        container, reference_images=(ReferenceImageInput("mem://refs/cup.png", "cup"),)
+        container,
+        reference_images=(ReferenceImageInput("https://example.com/refs/cup.png", "cup"),),
     )
     stored = container.queries.get_version(result.version_id).reference_images
-    assert [(r.image_uri, r.entity_key) for r in stored] == [("mem://refs/cup.png", "cup")]
+    assert [(r.image_uri, r.entity_key) for r in stored] == [
+        ("https://example.com/refs/cup.png", "cup")
+    ]
 
 
 def test_target_duration_is_checked_against_the_scenes(container):

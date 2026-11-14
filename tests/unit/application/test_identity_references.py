@@ -192,13 +192,15 @@ def test_revision_of_a_version_made_without_anchors_takes_them_from_existing_cli
 
 def test_user_reference_is_the_anchor_for_its_entity():
     rig = Rig()
-    user = ReferenceImageInput("mem://refs/barista.png", "barista")
+    user = ReferenceImageInput("https://example.com/refs/barista.png", "barista")
 
     rig.original(references=[user])
 
     assert rig.extracted() == [("intro", ("cup",))]  # 바리스타는 뽑지 않는다
     assert rig.identity_of("outro") == []
-    assert [r.image_uri for r in rig.requests()["outro"].references] == ["mem://refs/barista.png"]
+    assert [r.image_uri for r in rig.requests()["outro"].references] == [
+        "https://example.com/refs/barista.png"
+    ]
     assert rig.identity_of("closeup") == ["cup"]
 
 

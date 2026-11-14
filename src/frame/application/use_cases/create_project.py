@@ -8,6 +8,7 @@
   아무것도 저장하지 않고 거부한다 (422).
 
 참조 이미지 (#12): POST /api/reference-images 로 올린 이미지(refs/uploads/...)는 refs/{project_id}/... 로 옮겨 남긴다.
+서버 저장소의 주소는 업로드 결과만 받고, 외부 주소는 그대로 둔다 (감사 A-19).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from ..ports.jobs import Job, JobDispatcher
 from ..ports.structurer import IrDocumentStructurer, ReferenceImageInput, StructuredDocument
 from ..ports.unit_of_work import UnitOfWorkFactory
 from ..structuring_rules import check_reference_entities, check_target_duration
-from .upload_reference_image import claim_uploaded_reference
+from .upload_reference_image import resolve_reference_uri
 
 
 class CreateProject:
@@ -69,7 +70,8 @@ class CreateProject:
             seed=command.seed,
             ir=None if structured is None else structured.ir,
         )
-        # 올린 참조 이미지는 저장하기 전에 프로젝트 자리로 옮긴다 (#12). 없어진 업로드면 여기서 거부한다
+        # 올린 참조 이미지는 저장하기 전에 프로젝트 자리로 옮긴다 (#12).
+        # 없어진 업로드와 업로드가 아닌 저장소 주소는 여기서 거부한다 (감사 A-19)
         references = [self._reference(ref, version) for ref in command.reference_images]
         with self._uow_factory() as uow:
             uow.projects.add(project)
@@ -94,7 +96,7 @@ class CreateProject:
         reference_image_id = self._ids.new_id("img")
         image_uri = ref.image_uri
         if self._artifact_store is not None:
-            image_uri = claim_uploaded_reference(
+            image_uri = resolve_reference_uri(
                 self._artifact_store,
                 image_uri,
                 project_id=version.project_id,

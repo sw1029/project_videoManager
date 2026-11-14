@@ -89,14 +89,38 @@ def test_project_creation_moves_uploads_under_the_project(container):
     assert store.content_type(stored[0].image_uri) == "image/png"
 
 
-def test_other_uris_are_kept_as_they_are(container):
+def test_external_addresses_are_kept_as_they_are(container):
     refs = [
         ReferenceImageInput("https://example.com/style.png"),
-        ReferenceImageInput("mem://refs/cup.png", "cup"),
+        ReferenceImageInput("https://example.com/cup.png", "cup"),
     ]
     draft = create_draft(container, references=refs)
     stored = container.queries.get_version(draft.version_id).reference_images
-    assert [r.image_uri for r in stored] == ["https://example.com/style.png", "mem://refs/cup.png"]
+    assert [r.image_uri for r in stored] == [r.image_uri for r in refs]
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mem://refs/cup.png",  # 업로드를 거치지 않은 저장소 주소
+        "mem://clips/ver_0009/intro.mp4",  # 다른 버전의 클립
+        "mem://refs/prj_0009/img_0001.png",  # 다른 프로젝트의 참조 이미지
+        "mem://refs/uploads/../clips/x.png",  # 업로드처럼 보이지만 모양이 다르다
+    ],
+)
+def test_store_addresses_other_than_uploads_are_rejected(container, uri):
+    """감사 A-19: 이 저장소의 주소는 POST /api/reference-images 로 올린 결과만 받는다 (저장 루트 안의 아무 파일이나
+    참조 이미지로 내려받게 되지 않도록). 아무것도 저장하지 않는다."""
+    command = CreateProjectCommand(
+        "카페", CAFE_PROMPT, reference_images=(ReferenceImageInput(uri, "cup"),)
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        container.create_project.execute(command)
+
+    assert "올린 이미지" in excinfo.value.message
+    with pytest.raises(NotFound):
+        container.queries.get_project("prj_0001")
 
 
 def test_a_missing_upload_is_rejected_and_nothing_is_saved(container):

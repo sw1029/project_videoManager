@@ -74,7 +74,8 @@ def test_unparseable_prompt_fails_with_reason(container):
 
 def test_reference_image_for_unknown_entity_fails_validation(container):
     result = create_draft(
-        container, references=[ReferenceImageInput("mem://refs/logo.png", entity_key="logo")]
+        container,
+        references=[ReferenceImageInput("https://example.com/refs/logo.png", entity_key="logo")],
     )
     version = version_of(container, result.version_id)
     assert version.state is VersionState.FAILED
@@ -83,8 +84,8 @@ def test_reference_image_for_unknown_entity_fails_validation(container):
 
 def test_reference_images_are_stored_with_the_version(container):
     refs = [
-        ReferenceImageInput("mem://refs/cup.png", "cup"),
-        ReferenceImageInput("mem://refs/style.png"),
+        ReferenceImageInput("https://example.com/refs/cup.png", "cup"),
+        ReferenceImageInput("https://example.com/refs/style.png"),
     ]
     result = create_draft(container, references=refs)
     stored = container.queries.get_version(result.version_id).reference_images

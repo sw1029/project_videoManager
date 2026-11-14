@@ -130,7 +130,9 @@ def test_unknown_version_is_not_found(container):
 
 
 def test_objects_with_reference_images_must_stay(container):
-    draft = create_draft(container, references=[ReferenceImageInput("mem://refs/cup.png", "cup")])
+    draft = create_draft(
+        container, references=[ReferenceImageInput("https://example.com/refs/cup.png", "cup")]
+    )
     document = version_of(container, draft.version_id).ir.to_dict()
     document["entities"] = [e for e in document["entities"] if e["entity_key"] != "cup"]
     for scene in document["scenes"]:

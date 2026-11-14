@@ -194,29 +194,53 @@ def test_a_missing_upload_is_rejected_when_creating_the_project():
     assert "upl_9999" in response.json()["error_message"]
 
 
-def test_addresses_outside_the_store_are_still_not_served(tmp_path):
-    """저장 루트 밖 경로·외부 주소를 막는 기존 검사는 그대로다 (업로드처럼 보이는 주소도 옮기지 않는다)."""
-    client, container = _client(artifact_store=LocalFileArtifactStore(tmp_path / "store"))
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "local://refs/uploads/../../secret.png",
+        "local://../secret.png",
+        "local://clips/ver_x/intro.mp4",
+    ],
+)
+def test_store_addresses_other_than_uploads_are_rejected(tmp_path, uri):
+    """감사 A-19: 이 저장소의 주소는 업로드 결과만 받는다. 저장 루트 밖·다른 버전의 파일을 가리키는 주소는 422."""
+    client, _ = _client(artifact_store=LocalFileArtifactStore(tmp_path / "store"))
     (tmp_path / "secret.png").write_bytes(png_bytes())
-    references = [
-        {"image_uri": "local://refs/uploads/../../secret.png", "entity_key": "cup"},
-        {"image_uri": "local://../secret.png"},
-        {"image_uri": "https://example.com/cup.png"},
-    ]
+
+    response = client.post(
+        "/api/projects",
+        json={
+            "title": "카페",
+            "ir": cafe_block_document(),
+            "reference_images": [{"image_uri": uri, "entity_key": "cup"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
+    assert client.get("/api/projects/prj_0001").status_code == 404
+
+
+def test_external_addresses_are_kept_but_not_served(tmp_path):
+    """외부 주소는 지금처럼 남기되 서버가 내려 주지 않는다 (image_url 없음, 내려받기 404)."""
+    client, _ = _client(artifact_store=LocalFileArtifactStore(tmp_path / "store"))
 
     created = client.post(
         "/api/projects",
-        json={"title": "카페", "ir": cafe_block_document(), "reference_images": references},
+        json={
+            "title": "카페",
+            "ir": cafe_block_document(),
+            "reference_images": [{"image_uri": "https://example.com/cup.png", "entity_key": "cup"}],
+        },
     ).json()
 
     version = client.get(f"/api/versions/{created['version_id']}").json()
-    assert [r["image_uri"] for r in version["reference_images"]] == [
-        r["image_uri"] for r in references
-    ]
-    assert [r["image_url"] for r in version["reference_images"]] == [None, None, None]
-    for reference in version["reference_images"]:
-        path = f"/api/versions/{version['version_id']}/reference-images/{reference['reference_image_id']}"
-        assert client.get(path).status_code == 404
+    [reference] = version["reference_images"]
+    assert (reference["image_uri"], reference["image_url"]) == ("https://example.com/cup.png", None)
+    path = (
+        f"/api/versions/{version['version_id']}/reference-images/{reference['reference_image_id']}"
+    )
+    assert client.get(path).status_code == 404
 
 
 def test_uploads_without_a_declared_size_are_refused_before_reading():

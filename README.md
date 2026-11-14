@@ -101,7 +101,8 @@ API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바�
   `repair_notes` 를 돌려준다. 생성이 접수된 뒤에는 409 `VERSION_NOT_EDITABLE` ([ADR-0023](docs/adr/0023-direct-ir-input-draft-edit-and-display-name.md)).
 - **참조 이미지 업로드**: `POST /api/reference-images` 에 multipart `file`(PNG·JPEG·WebP)을 올리면 `image_uri` 를 돌려준다.
   그 값을 `POST /api/projects` 의 `reference_images[].image_uri` 에 쓰면 서버가 `refs/{project_id}/` 로 옮겨 버전의 참조 이미지로 남기고,
-  `reference_images[].image_url` 로 내려받을 수 있다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)).
+  `reference_images[].image_url` 로 내려받을 수 있다. 서버 저장소의 주소(`local://`·`mem://`)는 업로드 결과만 받고(그 밖은 422),
+  외부 주소(`https://…`)는 그대로 남긴다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)).
 
 화면 개발용 백엔드 실행 예시 (데이터 유지 + 비동기 실행 + 영상 Range 지원):
 
