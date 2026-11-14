@@ -14,6 +14,7 @@ from frame.application.ports.series.repositories import (
     EpisodeRepository,
     ThemeRecord,
     ThemeRepository,
+    theme_lock_key,
 )
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
 from frame.domain.errors import NotFound, ValidationError
@@ -48,6 +49,12 @@ class AdoptAnchors:
         self._uow_factory = uow_factory
 
     def execute(self, command: AdoptAnchorsCommand) -> AdoptAnchorsResult:
+        # 테마 문서를 읽고 -> 고쳐 -> 덮어쓴다. 같은 문서를 고쳐 쓰는 CorrectSourceScript 와 같은 키를 쥔다:
+        # 쥐지 않으면 그 사이에 고친 대본이 이 저장에 지워진다 (감사 BTS-D03·D38)
+        with self._episodes.lock(theme_lock_key(command.theme_id)):
+            return self._adopt(command)
+
+    def _adopt(self, command: AdoptAnchorsCommand) -> AdoptAnchorsResult:
         record = self._themes.get(command.theme_id)
         if record is None:
             raise NotFound(

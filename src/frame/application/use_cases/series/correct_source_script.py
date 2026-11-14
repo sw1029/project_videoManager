@@ -18,6 +18,7 @@ from frame.application.ports.series.repositories import (
     EpisodeRepository,
     ThemeRecord,
     ThemeRepository,
+    theme_lock_key,
 )
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.script import LineKind
@@ -51,10 +52,11 @@ class CorrectSourceScriptResult:
 class CorrectSourceScript:
     def __init__(self, themes: ThemeRepository, episodes: EpisodeRepository) -> None:
         self._themes = themes
-        self._episodes = episodes  # 테마의 키를 쥐는 데만 쓴다 (편 순번을 매길 때와 같은 키)
+        self._episodes = episodes  # 테마의 키를 쥐는 데만 쓴다 (편 순번·기준 이미지 채택과 같은 키)
 
     def execute(self, command: CorrectSourceScriptCommand) -> CorrectSourceScriptResult:
-        with self._episodes.lock(command.theme_id):  # 읽고 -> 고쳐 -> 덮어쓰는 사이를 지킨다
+        # 읽고 -> 고쳐 -> 덮어쓰는 사이를 지킨다. 같은 테마 문서를 고쳐 쓰는 AdoptAnchors 와 같은 키다
+        with self._episodes.lock(theme_lock_key(command.theme_id)):
             return self._correct(command)
 
     def _correct(self, command: CorrectSourceScriptCommand) -> CorrectSourceScriptResult:

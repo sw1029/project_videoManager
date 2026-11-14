@@ -81,13 +81,24 @@ class ThemeRepository(ABC):
     def list(self) -> list[ThemeRecord]: ...
 
 
+def theme_lock_key(theme_id: str) -> str:
+    """테마의 키 (EpisodeRepository.lock 에 준다).
+
+    그 테마의 편 순번을 매기는 유스케이스와, 테마 문서를 읽고 → 고쳐 → 덮어쓰는 유스케이스가 쥔다.
+    키를 한 곳에서 지어, 같은 테마를 다루는 유스케이스가 서로 다른 키를 쥐는 일이 없게 한다 (감사 BTS-D38:
+    한쪽은 "<id>", 다른 쪽은 "theme:<id>" 를 쥐었고 기준 이미지 채택은 아무 키도 쥐지 않았다).
+    """
+    return f"theme:{theme_id}"
+
+
 class EpisodeRepository(ABC):
     """계약
     - save 는 같은 episode_id 의 편을 덮어쓴다. get 은 없으면 None. list_by_theme 은 순번 순서.
     - lock(key) 는 그 키를 쥐는 동안 같은 키의 다른 스레드를 기다리게 한다. 같은 스레드는 다시 들어갈 수 있다.
       편 문서는 읽고 → 고쳐 → 통째로 덮어쓰므로, 유스케이스는 편 id 를 쥐고 그 사이를 지난다.
       그러지 않으면 오래 걸리는 합성·인식 도중에 다른 유스케이스가 한 수정이 지워진다 (감사 BTS-24).
-      편의 순번은 테마의 키("theme:<id>")를 쥐고 매긴다. 한 프로세스 안의 잠금이다.
+      편의 순번은 테마의 키(theme_lock_key)를 쥐고 매긴다. 테마 문서를 읽고 → 고쳐 → 덮어쓰는 유스케이스
+      (기준 이미지 채택 · 원본 대본 교정)도 같은 키를 쥔다. 한 프로세스 안의 잠금이다.
     """
 
     @abstractmethod

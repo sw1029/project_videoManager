@@ -17,6 +17,7 @@ from frame.application.ports.series.planning import EarlierEpisode, PlanningRequ
 from frame.application.ports.series.repositories import (
     EpisodeRepository,
     ThemeRepository,
+    theme_lock_key,
 )
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
 from frame.domain.enums import ReferenceOrigin, VersionState
@@ -119,7 +120,7 @@ class CreateEpisode:
             uow.commit()
 
         # 순번은 테마의 키를 쥐고 매긴다. 기획(오래 걸린다)하는 동안 다른 편이 생겨도 번호가 겹치지 않는다
-        with self._episodes.lock(f"theme:{theme.theme_id}"):
+        with self._episodes.lock(theme_lock_key(theme.theme_id)):
             taken = [e.index for e in self._episodes.list_by_theme(theme.theme_id)]
             episode = Episode(
                 episode_id=self._ids.new_id("epi"),
