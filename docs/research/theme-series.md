@@ -248,7 +248,7 @@ IR 은 영상 한 편의 조건이고, 테마는 편 사이의 규칙이다 (ADR
 | 포트 | `application/ports/series/`, `application/ports/speech.py` | 원본 분석 · 테마 추출 · 기획 · 소리 편집 · 후반 합성 · 저장, 음성 인식 |
 | 유스케이스 | `application/use_cases/series/` | 유스케이스 하나가 모듈 하나 (아홉 개) |
 | 어댑터 | `adapters/series/`, `adapters/speech/` | 포트마다 하위 패키지 (fake 와 실제 구현) |
-| 설정·조립 | `config/theme_settings.py`, `config/theme_wiring.py` | 환경 변수 읽기, 어댑터 고르기와 유스케이스 묶기 |
+| 설정·조립 | `config/theme_settings.py`, `config/theme_adapters.py`, `config/theme_wiring.py` | 환경 변수 읽기, 개념별 어댑터 고르기, 유스케이스 묶기 |
 
 미룬 것은 까닭과 함께 세션 노트의 '감사 반영 (11-14)' 표에 있다 (공용 모듈로 모으는 일은 머지 뒤 감사 세션이 한다).
 

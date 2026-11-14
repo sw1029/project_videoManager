@@ -1,7 +1,7 @@
 """로컬 음성 인식 어댑터 (FRAME_SPEECH_RECOGNIZER=faster_whisper, ADR-0028).
 
 faster-whisper (Whisper 를 CTranslate2 로 돌린다) 로 이 컴퓨터에서 받아 적는다. 과금이 없고 소리가 밖으로 나가지 않는다.
-- 선택 설치다: pip install -e ".[speech-local]". 꾸러미가 없으면 조립할 때 설정 오류로 알린다 (config/theme_wiring).
+- 선택 설치다: pip install -e ".[speech-local]". 꾸러미가 없으면 조립할 때 설정 오류로 알린다 (config/theme_adapters).
 - 모델·장치·연산 방식·말 구간 검출은 설정이 정한다 (FRAME_SPEECH_LOCAL_*, config/theme_settings.py). 여기에는 기본값을
   두지 않는다. 모델은 이름(처음 쓸 때 받는다)이거나 받아 둔 폴더의 경로다.
 - 말 구간 검출 (꾸러미에 든 Silero VAD): 말이 있는 곳만 받아 적는다. 끄면 말이 없는 소리에서 문장을 지어내고

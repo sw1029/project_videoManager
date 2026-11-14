@@ -146,7 +146,7 @@
 | 포트 | `application/ports/series/source_analysis.py`·`theme_extraction.py`, `application/ports/speech.py` |
 | 유스케이스 | `application/use_cases/series/extract_theme.py` |
 | 어댑터 | `adapters/series/source_analysis/`, `adapters/series/theme_extraction/`, `adapters/speech/` |
-| 설정·조립 | `config/theme_settings.py`, `config/theme_wiring.py` |
+| 설정·조립 | `config/theme_settings.py`, `config/theme_wiring.py` (입구·묶음), `config/theme_adapters.py` (개념별 어댑터 고르기) |
 
 ## 결과
 - 영상 한 편에서 `테마 + 원본 IR + 화면 문구 + 숏폼 판정` 이 나오고, 정답과 견줘 잴 수 있다.
