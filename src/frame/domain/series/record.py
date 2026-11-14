@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
@@ -123,10 +123,17 @@ class Episode:
         """수정 버전을 만들기 시작했다. 기준 버전은 그 버전이 끝난 뒤에 옮긴다."""
         return replace(self, pending_version_id=version_id)
 
-    def settled(self, state: VersionState | None, ir: IntermediateRepresentation | None) -> Episode:
+    def settled(
+        self,
+        state: VersionState | None,
+        ir: IntermediateRepresentation | None,
+        remade_scene_keys: Collection[str] = (),
+    ) -> Episode:
         """만들고 있던 수정 버전의 결말을 반영한다 (state·ir 는 그 버전의 것, 버전이 없으면 None).
 
         - COMPLETED: 그 버전이 기준 버전이 된다. 계획의 IR 도 그 버전의 것으로 바꾼다 (조건을 고친 수정이면 달라진다).
+          그 버전에서 클립이 바뀐 장면(remade_scene_keys)의 가린 문구는 계획에서 뺀다: 옛 클립의 자리를 가린 것이라
+          새 클립 위에 얹으면 안 된다 (감사 BTS-D01). 새 클립의 글자는 그 버전의 검수가 다시 본다.
         - FAILED 또는 없어짐: 수정 버전을 잊는다. 기준 버전은 그대로라 편은 계속 쓸 수 있다.
         - 그 밖(초안·대기·만드는 중): 그대로 둔다.
         """
@@ -134,7 +141,8 @@ class Episode:
             return self
         if state is VersionState.COMPLETED and ir is not None:
             moved = self.with_version(self.pending_version_id)
-            return replace(moved, plan=replace(moved.plan, ir=ir), pending_version_id=None)
+            plan = replace(moved.plan.without_patches_of(remade_scene_keys), ir=ir)
+            return replace(moved, plan=plan, pending_version_id=None)
         if state is None or state is VersionState.FAILED:
             return replace(self, pending_version_id=None)
         return self

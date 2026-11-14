@@ -21,9 +21,10 @@ from frame.domain.enums import VersionState
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation, SceneSpec
 from frame.domain.screen import Region, TextRole
-from frame.domain.series.episode import build_episode_plan
+from frame.domain.series.episode import OverlayItem, OverlayKind, build_episode_plan
 from frame.domain.series.narration import LineAlignment, LineStatus, Placement, PlacementStatus
 from frame.domain.series.record import Episode, NarrationResult, RenderResult
+from frame.domain.series.screen_correction import patch_overlay_id
 from frame.domain.series.shortform import check_platforms
 from frame.domain.series.source_analysis import ScreenText, VideoAnalysis, shots_from_cuts
 from frame.domain.series.theme import AnchorOrigin
@@ -268,6 +269,43 @@ def test_pending_revision_becomes_the_base_only_when_it_completes():
         assert dropped.history == () and dropped.render == episode.render
     assert episode.settled(VersionState.COMPLETED, changed) is episode  # 기다리는 버전이 없다
     assert Episode.from_dict(waiting.to_dict()) == waiting
+
+
+def test_patches_of_remade_scenes_are_dropped_when_the_revision_becomes_the_base():
+    """가린 문구(PATCH)는 그 클립의 그 자리를 가린 것이다 (감사 BTS-D01).
+
+    장면을 다시 만든 수정 버전이 기준 버전이 되면 그 장면의 가린 문구를 계획에서 빼고 메모로 알린다.
+    다시 만들지 않은 장면의 가린 문구와, 테마의 문구 틀에서 온 문구는 그대로다.
+    """
+    episode = _episode()
+
+    def patch(scene_key: str) -> OverlayItem:
+        return OverlayItem(
+            overlay_id=patch_overlay_id(scene_key, "mug", "text"),
+            scene_key=scene_key,
+            text="FRAME",
+            start_ms=0,
+            end_ms=1000,
+            region=Region(0.3, 0.4, 0.3, 0.1),
+            kind=OverlayKind.PATCH,
+        )
+
+    plan = episode.plan.with_overlay(patch("closeup")).with_overlay(patch("show"))
+    waiting = replace(episode, plan=plan).with_pending("ver_2")
+
+    done = waiting.settled(VersionState.COMPLETED, plan.ir, remade_scene_keys=("closeup",))
+
+    kept = [o.overlay_id for o in done.plan.overlays]
+    assert "closeup:patch:mug:text" not in kept and "show:patch:mug:text" in kept
+    assert "closeup:price" in kept  # 문구 틀에서 온 문구는 새 클립에도 얹는다
+    assert len(done.plan.notes) == len(plan.notes) + 1
+    assert "closeup:patch:mug:text" in done.plan.notes[-1]
+    # 다시 만든 장면이 없으면 계획의 문구와 메모는 그대로다
+    same = waiting.settled(VersionState.COMPLETED, plan.ir)
+    assert same.plan.overlays == plan.overlays and same.plan.notes == plan.notes
+    # 수정 버전이 실패했으면 가린 문구도 그대로다 (기준 버전의 클립이 그대로이므로)
+    failed = waiting.settled(VersionState.FAILED, None, remade_scene_keys=("closeup",))
+    assert failed.plan == plan
 
 
 def test_artifact_repository_needs_a_store_with_predictable_uris():

@@ -318,6 +318,84 @@ def test_patch_with_another_text_does_not_settle_the_requirement():
     assert [i.issue_id for i in report.issues] == [issue_id] and report.patched == ()
 
 
+def _patch_then_repair(repaired: str):
+    """컵의 글자를 가린 뒤, repaired 의 조건을 다시 맞추는 수정 버전을 끝까지 만든 편. (컨테이너, 편, 수정 버전 id)"""
+    container = _container(failing=("closeup:mug:text", repaired))
+    episode = _ready(container, _content_with_scene_text())
+    report = _check(container, episode)
+    text_issue = next(i for i in report.issues if i.kind is IssueKind.SCENE_TEXT)
+    region = Region(0.35, 0.45, 0.3, 0.06)
+    _correct(container, episode, patches=(PatchRegion(text_issue.issue_id, region),))
+    result = _correct(container, episode, issue_ids=(f"requirement:{repaired}",), generate=True)
+    dispatcher_of(container).run_all()
+    return container, episode, result.pending_version_id
+
+
+def test_patch_does_not_outlive_the_clip_it_was_made_for():
+    """가린 문구는 그 클립의 그 자리를 가린 것이다. 그 장면을 다시 만들면 새 클립 위에 옛 글자를 덮지 않는다.
+
+    장면을 다시 만든 수정 버전이 기준 버전이 될 때 그 장면의 가린 문구를 빼고 메모로 알린다.
+    새 클립의 글자는 그 버전의 요구 반영 검수가 다시 본다: 고친 것(patched)으로 치지 않는다 (감사 BTS-D01).
+    """
+    container, episode, revision_id = _patch_then_repair("closeup:latte:color")
+    before = version_of(container, episode.version_id)
+
+    report = _check(container, episode)
+
+    current = series_of(container).episodes.get(episode.episode_id)
+    assert current.version_id == revision_id
+    assert version_of(container, revision_id).clips["closeup"].uri != before.clips["closeup"].uri
+    assert [o.overlay_id for o in current.plan.overlays if o.kind is OverlayKind.PATCH] == []
+    assert "closeup:patch:mug:text" in current.plan.notes[-1]
+    assert current.plan.overlay("closeup:price").text == "말차 라떼 5,000원"  # 다른 문구는 그대로
+    assert "requirement:closeup:mug:text" in [i.issue_id for i in report.issues]
+    assert report.patched == ()
+    # 완성본에도 옛 가린 문구가 없다
+    rendered = series_of(container).render_episode.execute(episode.episode_id)
+    assert rendered.episode.plan.overlays == current.plan.overlays
+
+
+def test_patch_stays_when_another_scene_is_remade():
+    """다시 만들지 않은 장면의 클립은 부모의 것 그대로다. 그 장면의 가린 문구는 여전히 맞다."""
+    container, episode, revision_id = _patch_then_repair("show:latte:color")
+    before = version_of(container, episode.version_id)
+
+    report = _check(container, episode)
+
+    current = series_of(container).episodes.get(episode.episode_id)
+    assert current.version_id == revision_id
+    assert version_of(container, revision_id).clips["closeup"].uri == before.clips["closeup"].uri
+    assert current.plan.overlay("closeup:patch:mug:text").text == "FRAME"
+    assert report.patched == ("requirement:closeup:mug:text",)
+
+
+def test_report_from_before_a_patch_does_not_remake_the_patched_text():
+    """가리기는 버전을 바꾸지 않아, 가리기 전의 검수 보고서가 그대로 통과한다 (감사 BTS-D02).
+
+    그 보고서로 이미 가린 글자를 짚고 생성까지 요청해도 클립을 다시 만들지 않는다 (과금 없음).
+    가릴 자리를 다시 주는 것은 된다 (가린 문구를 갈아 끼운다. 무료).
+    """
+    container, generator = _spied(failing=("closeup:mug:text",))
+    episode = _ready(container, _content_with_scene_text())
+    stale = _check(container, episode)
+    issue_id = stale.issues[0].issue_id
+    region = Region(0.35, 0.45, 0.3, 0.06)
+    _correct(container, episode, patches=(PatchRegion(issue_id, region),), report=stale)
+    generated = len(generator.requests)
+
+    again = _correct(container, episode, issue_ids=(issue_id,), generate=True, report=stale)
+
+    assert [s.status for s in again.steps] == [StepStatus.SKIPPED]
+    assert "이미 가리고" in again.steps[0].note
+    assert again.pending_version_id is None and again.episode.pending_version_id is None
+    dispatcher_of(container).run_all()
+    assert len(generator.requests) == generated
+    moved = Region(0.3, 0.5, 0.3, 0.06)
+    repatched = _correct(container, episode, patches=(PatchRegion(issue_id, moved),), report=stale)
+    assert [s.status for s in repatched.steps] == [StepStatus.APPLIED]
+    assert repatched.episode.plan.overlay("closeup:patch:mug:text").region == moved
+
+
 def test_patch_is_only_for_scene_text_and_known_issues():
     container = _container(failing=("closeup:latte:color",))
     episode = _ready(container)

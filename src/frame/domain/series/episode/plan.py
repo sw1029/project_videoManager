@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
@@ -225,6 +225,25 @@ class EpisodePlan:
     def without_overlay(self, overlay_id: str) -> EpisodePlan:
         self.overlay(overlay_id)  # 없으면 NotFound
         return replace(self, overlays=tuple(o for o in self.overlays if o.overlay_id != overlay_id))
+
+    def without_patches_of(self, scene_keys: Collection[str]) -> EpisodePlan:
+        """다시 만든 장면의 가린 문구(PATCH)를 뺀 새 계획. 뺀 것은 메모로 남긴다.
+
+        가린 문구는 그 클립의 그 자리를 가린 것이다. 클립이 바뀌었는데 남겨 두면 새 클립 위에 옛 글자를 덮고,
+        검수는 그 문구가 제 글자로 읽히므로 통과시킨다 (감사 BTS-D01). 문구 틀에서 온 문구는 그대로 둔다.
+        """
+        stale = tuple(
+            o for o in self.overlays if o.kind is OverlayKind.PATCH and o.scene_key in scene_keys
+        )
+        if not stale:
+            return self
+        notes = tuple(
+            f"장면 '{o.scene_key}' 을 다시 만들어 가린 문구 '{o.overlay_id}' ('{o.text}') 를 뺐습니다. "
+            "새 클립의 글자는 검수에서 다시 확인하세요"
+            for o in stale
+        )
+        kept = tuple(o for o in self.overlays if o not in stale)
+        return replace(self, overlays=kept, notes=(*self.notes, *notes))
 
     def validate(self) -> None:
         self.ir.validate()

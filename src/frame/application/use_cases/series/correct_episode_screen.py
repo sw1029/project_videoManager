@@ -47,6 +47,7 @@ from frame.domain.series.screen_correction import (
     fix_overlay_text,
     patch_scene_text,
     repair_axis,
+    without_patched,
 )
 from frame.domain.services.propagation import AttributeChange
 
@@ -59,7 +60,8 @@ class CorrectScreenCommand:
     patches: tuple[PatchRegion, ...] = ()
     keep: tuple[KeepItem, ...] = ()  # 클립을 다시 만들 때 그대로 둘 요소
     generate: bool = False  # 수정 버전의 생성을 바로 접수한다 (과금). 기본은 초안까지
-    # 방금 받은 검수 보고서. 주면 검수를 다시 돌리지 않는다 (화면 문구 읽기는 문구마다 유료 호출 한 번이다)
+    # 방금 받은 검수 보고서. 주면 검수를 다시 돌리지 않는다 (화면 문구 읽기는 문구마다 유료 호출 한 번이다).
+    # 가리기는 버전을 바꾸지 않으므로 가리기 전의 보고서도 받는다. 그 보고서의 이미 가린 글자는 다시 만들지 않는다
     report: ScreenReport | None = None
 
 
@@ -67,7 +69,7 @@ class CorrectScreenCommand:
 class CorrectScreenResult:
     episode: Episode
     steps: tuple[CorrectionStep, ...]
-    report: ScreenReport  # 고치기 전의 검수 결과
+    report: ScreenReport  # 고치기 전의 검수 결과 (문구를 고치거나 가린 뒤에는 낡은 것이다)
 
     @property
     def pending_version_id(self) -> str | None:
@@ -126,6 +128,8 @@ class CorrectEpisodeScreen:
 
         plan = episode.plan
         named = set(command.issue_ids)
+        # 받은 보고서가 가리기 전의 것이면 가린 글자가 아직 어긋난 곳으로 들어 있다 (감사 BTS-D02)
+        already_patched = set(without_patched(plan, issues)[1])
         steps: list[CorrectionStep] = []
         clip_edits: list[ScreenIssue] = []
         for issue in issues:
@@ -141,6 +145,15 @@ class CorrectEpisodeScreen:
             elif issue.issue_id in patches:
                 plan, step = patch_scene_text(plan, issue, patches[issue.issue_id])
                 steps.append(step)
+            elif issue.issue_id in already_patched:
+                steps.append(
+                    correction_step(
+                        issue,
+                        StepStatus.SKIPPED,
+                        "이미 가리고 다시 쓴 글자입니다. 클립을 다시 만들지 않습니다 "
+                        "(가릴 자리를 바꾸려면 patches 로 다시 주세요)",
+                    )
+                )
             elif issue.issue_id in named:
                 clip_edits.append(issue)
             else:
