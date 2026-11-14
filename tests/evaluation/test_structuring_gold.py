@@ -305,3 +305,28 @@ def test_structurer_without_run_details_leaves_those_fields_empty(cases):
     assert run.score.requirements == Tally(tp=6)
     assert (run.response, run.model, run.attempts, run.input_tokens) == (None, None, None, None)
     assert run.repair_notes == ()
+
+
+def test_unexpected_error_fails_only_that_case_and_the_run_continues(cases):
+    """구조화기 안의 결함(KeyError 등)이 나도 그 사례만 실패로 남기고 나머지를 돈다 (돈 들인 응답을 잃지 않게)."""
+    first, second = _case(cases, "ko-05-ramen-recipe"), _case(cases, "ko-03-dog-park")
+
+    class Flaky(FakeStructurer):
+        def structure(self, request):
+            if request.prompt == first.brief:
+                raise KeyError("scenes")
+            return second.spec.ir
+
+    runs = run_gold_set(Flaky(), [first, second])
+    assert runs[0].score.error == "UNEXPECTED_ERROR: KeyError: 'scenes'"
+    assert runs[0].score.requirements == Tally(fn=6)
+    assert runs[1].score.error is None and runs[1].score.requirements.fn == 0
+
+
+def test_interrupt_still_stops_the_run(cases):
+    class Interrupted(FakeStructurer):
+        def structure(self, request):
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_gold_set(Interrupted(), cases[:1])

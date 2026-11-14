@@ -86,6 +86,13 @@ def run_gold_set(
             notes = tuple(details.last_repair_notes) if details else ()
         except (AdapterError, DomainError) as exc:
             score = failed_case(case.case_id, case.spec, _describe(exc))
+        except Exception as exc:  # noqa: BLE001
+            # 구조화기 안의 결함(KeyError 등)도 그 사례의 실패로 남기고 다음 사례를 돈다.
+            # 기록은 끝에 한 번 쓰므로, 여기서 멈추면 앞서 돈 들인 응답까지 잃는다.
+            # Ctrl+C(BaseException)는 그대로 멈춘다.
+            score = failed_case(
+                case.case_id, case.spec, f"UNEXPECTED_ERROR: {type(exc).__name__}: {exc}"
+            )
         elapsed_ms = round((clock() - started) * 1000)
         completion = details.last_completion if details else None
         if completion is before:  # 이번 사례에서 응답을 받지 못했다
