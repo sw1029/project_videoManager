@@ -39,12 +39,14 @@ def resolve_revision(
 
     - CHANGE 인데 달라지는 것이 없으면 ValidationError (REPAIR 를 안내한다).
     - REPAIR 인데 값이 요구조건과 다르거나 그 요구조건이 없으면 ValidationError.
+    - CHANGE 가 중간표현의 규칙(IntermediateRepresentation.validate)을 깨뜨리면 ValidationError.
     """
     kept = normalize_keep(ir, keep, change)
     if kind is RevisionKind.REPAIR:
         return ResolvedRevision(RevisionKind.REPAIR, ir, repair_targets(ir, change), None, kept)
     propagated = policy.apply(ir, change)
     if propagated.changed_scene_keys:
+        _keep_the_rules(ir, propagated.ir)
         targets = propagated.changed_scene_keys
         return ResolvedRevision(
             RevisionKind.CHANGE, propagated.ir, targets, _previous_value(ir, change, targets), kept
@@ -55,6 +57,23 @@ def resolve_revision(
             "그 장면을 다시 만들려면 kind=REPAIR 로 요청하세요"
         )
     return ResolvedRevision(RevisionKind.REPAIR, ir, repair_targets(ir, change), None, kept)
+
+
+def _keep_the_rules(before: IntermediateRepresentation, after: IntermediateRepresentation) -> None:
+    """수정한 중간표현이 규칙을 지키는지 본다. 규칙은 IntermediateRepresentation.validate() 한 곳에 있다.
+
+    구조화 결과는 그 검사를 거친다. 수정 전파의 결과도 거쳐야 구조화에서 거부되는 것이 수정으로 만들어지지 않는다
+    (예: 배경 객체가 관계의 주체가 되는 수정). 수정 전부터 규칙에 어긋나 있던 중간표현(규칙이 생기기 전의 것)은
+    이 수정이 만든 문제가 아니므로 막지 않는다.
+    """
+    try:
+        after.validate()
+    except ValidationError:
+        try:
+            before.validate()
+        except ValidationError:
+            return
+        raise
 
 
 def revision_draft(
