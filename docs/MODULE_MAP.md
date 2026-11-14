@@ -28,7 +28,7 @@
 | 저장 (산출물 · DB) | `artifacts.py` | `ports/artifact_store.py`, `ports/repositories.py`, `ports/unit_of_work.py` | `adapters/storage/`, `adapters/persistence/` |
 | 작업 실행 · 복구 | `state_machine.py` | `ports/jobs.py` `JobDispatcher` · `use_cases/run_generation_pipeline.py`, `recover_pending_versions.py` · `pipeline/` | `adapters/jobs/`, `presentation/recovery.py` |
 | HTTP API | — | `dto.py`, `use_cases/queries.py` | `presentation/` |
-| 조립 (설정 → 어댑터) | — | — | `config/` |
+| 조립 (설정 → 어댑터) | — | — | `config/` — 설정 `settings.py`, 키 → 어댑터 `registrations/<포트>.py`, 엮기 `container.py` |
 | 성공 지표 평가 | `metrics.py` | — | `evaluation/` |
 | 실행 도구 (시연 런처 · 번들) | — | — | `tools/`, `scripts/` |
 
@@ -57,7 +57,8 @@
 | `src/frame/adapters/persistence/` | 저장소와 저장 단위 — 메모리 구현 | `InMemoryUnitOfWork`, `in_memory_uow_factory` |
 | `src/frame/adapters/persistence/sqlalchemy/` | 저장소와 저장 단위 — SQLAlchemy 구현 | `SqlAlchemyUnitOfWork`, `sqlalchemy_uow_factory`, `create_engine_from_url` |
 | `src/frame/adapters/jobs/` | 작업 디스패처 | `InlineJobDispatcher`, `ThreadPoolJobDispatcher`, `RecordingJobDispatcher` |
-| `src/frame/config/` | 조립 지점 | `Settings`, `AdapterRegistry`, `Container`, `build_container` |
+| `src/frame/config/` | 조립 지점 | `Settings`, `AdapterRegistry`, `default_registry`, `Container`, `build_container` |
+| `src/frame/config/registrations/` | 기본 등록 — 설정 키가 어느 어댑터가 되는지 (모듈 하나가 포트 하나) | `register_defaults`, 포트별 `register` (`llm`, `structurer`, `change_request`, `generator`, `assembler`, `identity`, `tracker`, `checker`, `storage`, `persistence`, `jobs`) |
 | `src/frame/presentation/` | HTTP API | `create_app`, 스키마 `schemas.py`, 응답 변환 `mappers.py`, 오류 응답 `errors.py` |
 | `src/frame/presentation/routers/` | 자원별 라우터 | `projects`, `versions`, `settings`, `vocabulary` |
 | `src/frame/evaluation/` | 성공 지표 평가 | `evaluate_case`, `evaluate_cases` |
