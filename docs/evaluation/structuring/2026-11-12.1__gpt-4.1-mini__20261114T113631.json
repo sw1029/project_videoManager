@@ -31,17 +31,17 @@
    "ko-09-jeju-travel",
    "ko-10-gym-promo"
   ],
-  "fingerprint": "81904948a5b2db5434debd5fe927dd7cc124fb1a3cbf3290c4d5e802ddd7be3e"
+  "fingerprint": "76982b6b2fa85f55795f038c9d76c026c11fa8442e9068c718fd150eff633fc4"
  },
  "summary": {
   "cases": 15,
   "failures": 0,
   "entity_recall": 0.9615,
-  "entity_precision": 0.8065,
-  "requirement_precision": 0.7988,
-  "requirement_recall": 0.7005,
-  "requirement_f1": 0.7464,
-  "appearance_f1": 0.908,
+  "entity_precision": 0.8475,
+  "requirement_precision": 0.8302,
+  "requirement_recall": 0.7059,
+  "requirement_f1": 0.763,
+  "appearance_f1": 0.924,
   "scene_count_match_rate": 1.0,
   "mean_boundary_error_ms": 0.0,
   "mean_duration_error_ms": 0.0,
@@ -54,17 +54,17 @@
   "totals": {
    "entities": {
     "tp": 50,
-    "fp": 12,
+    "fp": 9,
     "fn": 2
    },
    "requirements": {
-    "tp": 131,
-    "fp": 33,
-    "fn": 56
+    "tp": 132,
+    "fp": 27,
+    "fn": 55
    },
    "appearances": {
     "tp": 79,
-    "fp": 14,
+    "fp": 11,
     "fn": 2
    }
   },
@@ -78,11 +78,11 @@
    "cases": 5,
    "failures": 0,
    "entity_recall": 1.0,
-   "entity_precision": 0.9,
-   "requirement_precision": 0.8,
-   "requirement_recall": 0.7213,
-   "requirement_f1": 0.7586,
-   "appearance_f1": 0.9677,
+   "entity_precision": 0.9474,
+   "requirement_precision": 0.8491,
+   "requirement_recall": 0.7377,
+   "requirement_f1": 0.7895,
+   "appearance_f1": 0.9836,
    "scene_count_match_rate": 1.0,
    "mean_boundary_error_ms": 0.0,
    "mean_duration_error_ms": 0.0,
@@ -92,11 +92,11 @@
    "cases": 10,
    "failures": 0,
    "entity_recall": 0.9412,
-   "entity_precision": 0.7619,
-   "requirement_precision": 0.7982,
+   "entity_precision": 0.8,
+   "requirement_precision": 0.8208,
    "requirement_recall": 0.6905,
-   "requirement_f1": 0.7404,
-   "appearance_f1": 0.875,
+   "requirement_f1": 0.75,
+   "appearance_f1": 0.8909,
    "scene_count_match_rate": 1.0,
    "mean_boundary_error_ms": 0.0,
    "mean_duration_error_ms": 0.0,
@@ -258,16 +258,16 @@
     "fn": 0
    },
    "requirements": {
-    "tp": 8,
-    "fp": 4,
-    "fn": 4
+    "tp": 9,
+    "fp": 2,
+    "fn": 3
    },
    "appearances": {
     "tp": 5,
     "fp": 0,
     "fn": 0
    },
-   "requirement_f1": 0.6667,
+   "requirement_f1": 0.7826,
    "scenes": {
     "expected": 3,
     "predicted": 3,
@@ -281,17 +281,10 @@
     "jog:watch:color",
     "face:watch:color"
    ],
-   "mismatched_requirements": [
-    {
-     "key": "jog:runner:action",
-     "expected": "checks while jogging",
-     "actual": "jogging"
-    }
-   ],
+   "mismatched_requirements": [],
    "spurious_requirements": [
     "rotation_shot:-:location",
-    "rotation_shot:-:lighting",
-    "runner_check:runner:looks_at:smartwatch"
+    "rotation_shot:-:lighting"
    ],
    "attempts": 1,
    "model": "gpt-4.1-mini-2025-04-14",
@@ -309,20 +302,20 @@
    "error": null,
    "entities": {
     "tp": 4,
-    "fp": 1,
+    "fp": 0,
     "fn": 0
    },
    "requirements": {
     "tp": 14,
-    "fp": 3,
+    "fp": 2,
     "fn": 3
    },
    "appearances": {
     "tp": 8,
-    "fp": 1,
+    "fp": 0,
     "fn": 0
    },
-   "requirement_f1": 0.8235,
+   "requirement_f1": 0.8485,
    "scenes": {
     "expected": 3,
     "predicted": 3,
@@ -330,9 +323,7 @@
     "duration_error_ms": 0
    },
    "missed_entities": [],
-   "spurious_entities": [
-    "neon_signs"
-   ],
+   "spurious_entities": [],
    "missed_requirements": [
     "bag:tall_friend:action",
     "bag:bag:material",
@@ -340,7 +331,6 @@
    ],
    "mismatched_requirements": [],
    "spurious_requirements": [
-    "handing_bag:friend_taller:near:friend_shorter",
     "handing_bag:friend_taller:looks_at:friend_shorter",
     "handing_bag:friend_shorter:looks_at:friend_taller"
    ],
@@ -470,7 +460,7 @@
    },
    "requirements": {
     "tp": 10,
-    "fp": 1,
+    "fp": 0,
     "fn": 2
    },
    "appearances": {
@@ -478,7 +468,7 @@
     "fp": 0,
     "fn": 0
    },
-   "requirement_f1": 0.8696,
+   "requirement_f1": 0.9091,
    "scenes": {
     "expected": 3,
     "predicted": 3,
@@ -492,9 +482,7 @@
     "fetch:ball:color"
    ],
    "mismatched_requirements": [],
-   "spurious_requirements": [
-    "scene_2:owner:holds:red_ball"
-   ],
+   "spurious_requirements": [],
    "attempts": 1,
    "model": "gpt-4.1-mini-2025-04-14",
    "tokens": {
@@ -564,7 +552,7 @@
    },
    "requirements": {
     "tp": 5,
-    "fp": 1,
+    "fp": 0,
     "fn": 1
    },
    "appearances": {
@@ -572,7 +560,7 @@
     "fp": 0,
     "fn": 0
    },
-   "requirement_f1": 0.8333,
+   "requirement_f1": 0.9091,
    "scenes": {
     "expected": 3,
     "predicted": 3,
@@ -585,9 +573,7 @@
     "add_eggs:pot:color"
    ],
    "mismatched_requirements": [],
-   "spurious_requirements": [
-    "adding_eggs:hand:near:silver_pot"
-   ],
+   "spurious_requirements": [],
    "attempts": 1,
    "model": "gpt-4.1-mini-2025-04-14",
    "tokens": {
@@ -706,20 +692,20 @@
    "error": null,
    "entities": {
     "tp": 1,
-    "fp": 1,
+    "fp": 0,
     "fn": 1
    },
    "requirements": {
     "tp": 3,
-    "fp": 3,
+    "fp": 2,
     "fn": 5
    },
    "appearances": {
     "tp": 2,
-    "fp": 1,
+    "fp": 0,
     "fn": 1
    },
-   "requirement_f1": 0.4286,
+   "requirement_f1": 0.4615,
    "scenes": {
     "expected": 2,
     "predicted": 2,
@@ -729,9 +715,7 @@
    "missed_entities": [
     "desk"
    ],
-   "spurious_entities": [
-    "frame_os_text"
-   ],
+   "spurious_entities": [],
    "missed_requirements": [
     "product:laptop:on:desk",
     "product:desk:material",
@@ -742,7 +726,6 @@
    "mismatched_requirements": [],
    "spurious_requirements": [
     "living_room_scene:laptop:on:frame_os_text",
-    "living_room_scene:frame_os_text:text",
     "camera_orbit_scene:-:action"
    ],
    "attempts": 1,
@@ -761,7 +744,7 @@
    "error": null,
    "entities": {
     "tp": 3,
-    "fp": 5,
+    "fp": 4,
     "fn": 0
    },
    "requirements": {
@@ -771,7 +754,7 @@
    },
    "appearances": {
     "tp": 4,
-    "fp": 5,
+    "fp": 4,
     "fn": 0
    },
    "requirement_f1": 0.56,
@@ -786,8 +769,7 @@
     "drone",
     "red_windbreaker",
     "seagull2",
-    "seagull3",
-    "coastal_trail"
+    "seagull3"
    ],
    "missed_requirements": [
     "aerial:-:camera",
@@ -864,5 +846,9 @@
    "repair_notes": [],
    "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"trainer\",\"kind\":\"PERSON\",\"description\":\"트레이너\"},{\"entity_key\":\"member\",\"kind\":\"PERSON\",\"description\":\"회원\"},{\"entity_key\":\"dumbbell\",\"kind\":\"PROP\",\"description\":\"덤벨\"},{\"entity_key\":\"treadmill\",\"kind\":\"PROP\",\"description\":\"러닝머신\"},{\"entity_key\":\"fit_zone_logo\",\"kind\":\"PROP\",\"description\":\"'FIT ZONE' 로고\"}],\"scenes\":[{\"scene_key\":\"trainer_with_dumbbell\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"검은 민소매 티를 입은 트레이너가 덤벨을 들고 미소 짓는다\",\"entity_keys\":[\"trainer\",\"dumbbell\",\"fit_zone_logo\"],\"requirements\":[{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"trainer\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"black sleeveless t shirt\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"trainer\",\"related_entity_key\":\"dumbbell\",\"predicate\":\"holds\",\"expected_value\":\"dumbbell\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"trainer\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"smiling\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"fit_zone_logo\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom right\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]},{\"scene_key\":\"member_running\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"회원이 러닝머신 위에서 달린다\",\"entity_keys\":[\"member\",\"treadmill\",\"fit_zone_logo\"],\"requirements\":[{\"scene_key\":\"member_running\",\"entity_key\":\"member\",\"related_entity_key\":\"treadmill\",\"predicate\":\"on\",\"expected_value\":\"treadmill\"},{\"scene_key\":\"member_running\",\"entity_key\":\"member\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"running\"},{\"scene_key\":\"member_running\",\"entity_key\":\"fit_zone_logo\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom right\"},{\"scene_key\":\"member_running\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]},{\"scene_key\":\"high_five_scene\",\"planned_start_ms\":8000,\"planned_end_ms\":12000,\"description\":\"트레이너와 회원이 하이파이브를 한다\",\"entity_keys\":[\"trainer\",\"member\",\"fit_zone_logo\"],\"requirements\":[{\"scene_key\":\"high_five_scene\",\"entity_key\":\"trainer\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"raises hand for high five\"},{\"scene_key\":\"high_five_scene\",\"entity_key\":\"member\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"raises hand for high five\"},{\"scene_key\":\"high_five_scene\",\"entity_key\":\"fit_zone_logo\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom right\"},{\"scene_key\":\"high_five_scene\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]}]}"
   }
- ]
+ ],
+ "rescored": {
+  "at": "2026-11-14T11:47:32+09:00",
+  "gold_fingerprint_before": "81904948a5b2db5434debd5fe927dd7cc124fb1a3cbf3290c4d5e802ddd7be3e"
+ }
 }
