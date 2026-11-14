@@ -12,6 +12,7 @@
    - 술어·값은 IR 의 어휘로 정규화한다. 어휘에 없는 술어는 버린다.
    - 관계 술어의 상대가 객체가 아니면(카메라를 본다) 행동 조건으로 옮긴다.
    - 관계·일시적 술어는 고정 속성이 될 수 없다. 배경·문구 객체는 고정 출연이 되지 않는다.
+   - 카메라 조건은 스타일에 두지 않는다 (자리마다 다르다. 스타일에 두면 모든 장면의 조건이 된다).
    - 말 빠르기·자리별 말의 예는 모델이 아니라 받아 적은 말소리에서 계산한다.
    - 기준 이미지는 붙이지 않는다 (외부 영상의 화면을 잘라 두지 않는다. 필요하면 AdoptAnchors 로 붙인다).
 5. 다듬은 결과가 테마·IR 의 규칙을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts).
@@ -62,10 +63,12 @@ from frame.domain.theme import (
 from frame.domain.video_analysis import ScreenText
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
-PROMPT_VERSION = "2026-11-14.3"
+PROMPT_VERSION = "2026-11-14.4"
 SCHEMA_NAME = "theme_observation"
 _CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
+# 자리마다 달라지는 장면 조건: 스타일(모든 장면의 조건)에는 두지 않는다
+_SLOT_ONLY = frozenset({"camera"})
 _NON_KEY = re.compile(r"[^a-z0-9]+")
 # 객체 키에 들어오면 걷어내는 겉모습 낱말 (색·크기·새것). 키는 '무엇인가' 만 말한다
 _LOOK_WORDS = frozenset(
@@ -116,8 +119,9 @@ Slots (one entry per slot, in order)
   "waves hand to camera"), whatever language the video and the other fields use. The only
   exceptions are text and brand, which keep the exact spelling seen on screen.
 
-Style: conditions that hold for the whole video (scene-level predicates only), 3 to 5 palette
-colour names, and notes on composition, texture and editing feel.
+Style: conditions that hold for the whole video (scene-level predicates only, and never camera:
+framing changes from slot to slot, so camera belongs to the slots), 3 to 5 palette colour names,
+and notes on composition, texture and editing feel.
 
 On-screen text
 - Text added in editing (OVERLAY) is never an entity and never a requirement: it goes only into
@@ -409,9 +413,13 @@ def build_theme(
 
     cast = _cast(raw_entities, key_of, entities, notes)
     cast_keys = {c.entity_key for c in cast}
-    style_conditions = _scene_conditions(
-        (document.get("style") or {}).get("conditions"), notes, "스타일"
-    )
+    style_conditions = [
+        condition
+        for condition in _scene_conditions(
+            (document.get("style") or {}).get("conditions"), notes, "스타일"
+        )
+        if condition.predicate not in _SLOT_ONLY
+    ]
     style_by_predicate = {c.predicate: c for c in style_conditions}
 
     overlay_texts = {

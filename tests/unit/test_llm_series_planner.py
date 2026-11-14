@@ -57,6 +57,8 @@ def test_answer_becomes_episode_content():
     assert content.slots[0].variables == {"caption": "오늘은 초록초록!"}
     assert planner.attempts == 1 and planner.last_completion is not None
     assert llm.calls[0]["schema"] == RESPONSE_SCHEMA and llm.calls[0]["system"] == SYSTEM_PROMPT
+    # 얹는 문구는 조건에 넣지 않고, 물건에 찍힌 글자는 그 객체의 조건이다
+    assert "never put it into" in SYSTEM_PROMPT and "physically on an object" in SYSTEM_PROMPT
 
 
 def test_brief_values_survive_whatever_the_model_says():

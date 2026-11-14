@@ -506,3 +506,17 @@ def test_overlay_text_written_as_an_entity_is_kept_out_of_the_source_ir():
     assert not any("price_text" in key for key in closeup)
     assert any("price_text" in note and "얹은 문구" in note for note in notes)
     assert len(texts) == 3  # 화면에서 읽은 문구로는 그대로 남는다
+
+
+def test_camera_is_never_a_style_condition():
+    """카메라는 자리마다 다르다. 스타일에 적어 오면 빼서, 모든 장면의 조건이 되지 않게 한다."""
+    document = cafe_observation()
+    document["style"]["conditions"].append({"predicate": "camera", "value": "static and close up"})
+    theme, ir, _, _ = _build(document)
+
+    assert [c.predicate for c in theme.style.conditions] == ["lighting", "mood"]
+    cameras = {
+        s.scene_key: [r.expected_value for r in s.requirements if r.predicate == "camera"]
+        for s in ir.scenes
+    }
+    assert cameras == {"slot_1": [], "slot_2": [], "slot_3": ["close up"], "slot_4": []}

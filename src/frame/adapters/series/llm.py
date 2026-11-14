@@ -30,7 +30,7 @@ from frame.domain.ir import EntitySpec, RequirementSpec
 from frame.domain.theme import Theme, VariableScope
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
-PROMPT_VERSION = "2026-11-14.1"
+PROMPT_VERSION = "2026-11-14.2"
 SCHEMA_NAME = "episode_content"
 
 SYSTEM_PROMPT = """You write one new episode of an existing short-form video series.
@@ -61,7 +61,9 @@ Also:
 - variables (top level): values for EPISODE-scope variables that the request left empty. Never
   change a value the request gives.
 - Keep the episode different from the earlier episodes listed, but inside the same theme.
-- Do not put on-screen text into requirements: on-screen text comes from the text rules."""
+- Overlay text (titles, captions, prices) comes from the text rules: never put it into
+  requirements. Text that is physically on an object in the scene (a label printed on a cup) is a
+  text requirement on that entity, with the exact spelling as its value."""
 
 
 def _object(properties: dict[str, Any]) -> dict[str, Any]:
