@@ -489,7 +489,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 | 작업 실행 · 복구 | `state_machine.py`, `progress.py` | `ports/jobs.py` · `use_cases/accept_generation.py`, `run_generation_pipeline.py`, `recover_pending_versions.py` · `pipeline/` | `adapters/jobs/`, `presentation/recovery.py` | 구조는 맞다 (T-02, A-06 은 동작) |
 | 추적 | `tracking.py` | `ports/tracker.py` · `pipeline/stages.py` `TrackStage` | `adapters/tracker/` | 뼈대 구현 (A-31) |
 | HTTP API | — | `dto.py`, `use_cases/queries.py` | `presentation/` | 섞임: 기술 종류로 묶은 `schemas.py`·`mappers.py`·`dto.py` (M-03, K-05) |
-| 조립 (설정 → 어댑터) | — | — | `config/` | 섞임: 등록 함수 하나에 포트 10종 (M-02) |
+| 조립 (설정 → 어댑터) | — | — | `config/` | 섞임: 등록 함수 하나에 포트 10종 (M-02) — 해결 `5a98ae9` |
 | 평가 | `metrics.py` | — | `evaluation/` | 작업 중 브랜치 둘이 같은 층에 모듈을 더한다 (P-06) |
 | 실행 도구 | — | — | `tools/` | 섞임: 런처 한 파일에 일곱 가지 (M-05) |
 
@@ -653,7 +653,16 @@ src/frame/
   `def register(reg: AdapterRegistry) -> None` 을 하나씩 두고 `default_registry()` 는 그것들을 차례로 부른다.
   어댑터를 더하는 사람은 자기 포트의 파일만 고친다 (지금은 모든 브랜치가 같은 함수를 고친다).
   `AdapterRegistry.build` 는 `Any` 를 돌려준다 — `build[T](port: type[T], ...) -> T` 로 타입을 준다.
-- 담당·시점: **감사 · 결정** — 공용 파일이다. 감사 시점에 네 브랜치 모두 이 파일을 건드리지 않았다. 지금 할지 정해야 한다 (§12.3 결정 3) · 상태: 열림
+- 담당·시점: **감사 · 지금** (§12.3 결정 3 — 사용자: 지금 분해) · 상태: **해결** (`5a98ae9` — 포트마다 등록 모듈 하나 `config/registrations/{llm,structurer,change_request,generator,assembler,identity,tracker,checker,storage,persistence,jobs}.py`, 팩토리들이 함께 기대는 것은 `_dependencies.py` (`artifact_store`·`job_handlers`·`ffmpeg_path`·`llm_client`·`vlm_client`). `default_registry()` 는 `register_defaults()` 를 부른다.
+  분해 전후로 등록된 (포트, 키) 32개가 같은 것을 견줘 확인했고, 키 목록·키마다 만들어지는 것·팩토리가 같은 레지스트리에서 LLM 을 찾는 것을
+  `tests/unit/test_adapter_registry.py` 로 고정했다. `frame.config.registry` 의 `AdapterRegistry`·`BuildContext`·`default_registry` 는 그대로다.)
+  - 조립기 등록을 `assembler.py` 로 따로 뒀다 (제안의 10개에서 11개로) — 목표 배치의 `adapters/assembler/` 와 같은 경계다.
+  - 남긴 것 ①: `build` 의 반환 타입. 포트가 추상 클래스라 mypy 가 `type[T]` 자리에 받지 않고(`type-abstract`), `UnitOfWork` 키는 저장 단위가 아니라
+    그것을 여는 함수를, `off` 는 None 을 돌려준다. 반환 계약부터 고쳐야 하는데 부르는 곳이 `container.py` 다 (#10·theme-series 가 고치는 파일, P-02 와 함께).
+  - 남긴 것 ②: `ARCHITECTURE.md`(§4 트리·§5 절차 3·§6 패턴 표)와 `TDD_WORKFLOW.md`(§4·§5)의 '`config/registry.py` 에 한 줄' 문장.
+    #21·#10 이 고친 파일이라 머지 뒤에 고친다 (P-11). 그때까지는 `registry.py` 머리말이 새 자리를 가리킨다.
+  - theme-series 의 등록은 머지 뒤 `config/registrations/series.py` 로 들어온다 (그 이름을 비워 뒀다). `config/theme_wiring.py` 의
+    `ffmpeg()`·`llm()`·`vlm()` 는 그때 `_dependencies` 의 `ffmpeg_path`·`llm_client`·`vlm_client` 로 합친다.
 
 ### M-03 · 중간 · `presentation/schemas.py`(523줄)·`mappers.py`(493줄) 가 모든 API 를 한 파일에 담는다
 - 어디: `src/frame/presentation/schemas.py`, `mappers.py`, `routers/versions.py`(260줄, 엔드포인트 10개).
@@ -885,6 +894,10 @@ O-02 개발 도구만 고정(`f159528`) · O-06 일부(`7eec504`) · O-07 해결
 O-14 일부(`3293469` strict-config·xfail_strict, `fe5e1c7` mypy 대상, `a40a801` .gitignore. `.gitattributes` 는 남김) ·
 D-04 일부(`681501d` ADR 색인을 따로 둠. 본문은 머지 뒤).
 
+2단계 뒤에 찾아 고친 것: `scripts/check.py` 가 출력을 파일이나 파이프로 돌린 한국어 Windows(cp949)에서, 테스트가 다 통과한 뒤 커버리지 줄을
+찍다가 `UnicodeEncodeError` 로 죽었다 (줄에 든 긴 줄표가 cp949 에 없다. 콘솔에 바로 찍을 때와 CI 의 ubuntu 에서는 나지 않는다).
+`ca7389a` 로 고쳤고, 그때까지 테스트가 없던 판정 부분(커버리지 하한 통과·미달·읽지 못함, 실패한 검사 이름, cp949 출력)을 테스트 7개로 적었다.
+
 2단계에서 달라진 계획: G1 의 기준선은 2파일(`app.py`·`schemas.py`)이다. G3 는 전체 하한을 90 이 아니라 89 로 두고 제품 코드(tools 제외) 95 를 더했다 —
 tools 에 OS 별 코드가 있어 전체 값이 러너에 따라 흔들린다. G5 는 `domain`·`application` 부터가 아니라 `src` 전체를 켰다 (오류가 24건뿐이었다).
 
@@ -970,7 +983,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 - theme-series 가 `adapters/media_tools.py` 에 ffmpeg 실행기·영상 정보 읽기·SSIM 을 새로 썼다 (R-03 의 세 벌째). 감사 세션의 공용 실행기는
   그 모듈의 `run_ffmpeg(cmd, timeout_s, cwd=None)`·`tail(log, lines=3)` 와 같은 이름·인자로 만들어, 머지 뒤 import 만 바꾸면 되게 한다.
 - theme-series 의 설정·조립(`config/theme_wiring.py`)은 `Settings`·레지스트리를 거치지 않는다. 병렬 작업 중 충돌을 피하려는 선택이었고,
-  머지 뒤 M-02(등록을 포트별 모듈로)·A-03(설정 읽기 통일)과 함께 합친다.
+  M-02 는 끝났다 (`5a98ae9`). 머지 뒤 그 등록을 `config/registrations/series.py` 로 옮기고 A-03(설정 읽기 통일)과 함께 합친다.
 - 구조화 프롬프트·보정 규칙은 #17 의 골드셋 기록이 기대고 있어 그 브랜치가 dev 에 들어가기 전에는 고치지 않는다 (P-16).
 - 네 브랜치 모두 `ruff check` 는 통과하고, 새로 쓴 파일은 포맷돼 있다. 계층 방향 위반도 없다.
 
@@ -1008,7 +1021,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | 14 | 테스트 지원 코드 모으기, 큰 테스트 파일 나누기 | T-11 | 10·9 번과 같은 경계로 |
 | 15 | ADR 보완 줄, 낡은 코드 주석, 쓰이지 않는 코드 | D-07, D-08, C-10 | — |
 
-`config/registry.py` 분해(M-02)는 §12.3 결정 3 을 기다린다.
+`config/registry.py` 분해(M-02)는 §12.3 결정 3(지금 분해)에 따라 묶음 가 1 다음에 했다 (`5a98ae9`).
 
 ### 12.2 머지 뒤로 미루는 것
 
@@ -1024,7 +1037,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | P-08 | 장면 조건 해시 내용·타임라인 검사를 도메인 함수로, 해시·키 이름 맞추기 | #10·#11·#12 (`ir.py`), theme-series | R-01, R-08, K-01 |
 | P-09 | presentation 의 스키마·매퍼·라우터 분해, 요청 → 명령 변환 | #10·#11·#12 | M-03, R-05 |
 | P-10 | 요청 제한기 기록 정리 | #10·#11·#12 | A-08 |
-| P-11 | 문서: `ARCHITECTURE.md` §3.1 표·§4 트리·§8 API 표·§12 ADR 목록, README, `.env` 안내와 `.env.example` | #21·#10·#17 (문서를 고친 브랜치 모두) | L-02, D-01, D-02, D-03, D-04, D-08 |
+| P-11 | 문서: `ARCHITECTURE.md` §3.1 표·§4 트리·§8 API 표·§12 ADR 목록, README, `.env` 안내와 `.env.example`. `ARCHITECTURE.md` §5 절차 3·§6 패턴 표와 `TDD_WORKFLOW.md` §4·§5 의 등록 자리를 `config/registrations/<포트>.py` 로 | #21·#10·#17 (문서를 고친 브랜치 모두) | L-02, D-01, D-02, D-03, D-04, D-08, M-02 |
 | P-12 | `presentation/app.py`·`schemas.py` 포맷 (#10 세션이 하지 않았을 때), `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
 | P-13 | Repository·UnitOfWork 계약 테스트 (commit·rollback·예외 종류), `save` 의 계약 | #10·#11·#12 | T-05, A-12 |
 | P-14 | OpenAPI 계약 서명 강화, 오류 응답 명세, CORS `DELETE`·저장소 URI 직접 지정 막기 (#10 세션이 하지 않았을 때) | #10·#11·#12 | T-09, D-05, A-04, A-19 |
@@ -1042,7 +1055,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
    import-linter·bandit·radon 은 설치하지 않는다. `pip-audit` 은 CI 잡 안에서만 설치한다 (로컬 설치 없음).
 2. **ADR 번호** — 감사 세션은 0030(CI 품질 게이트와 기준선 방식)·0031(개념 단위 배치 규칙·용어집·호환 import)을 쓴다.
    머지 순서가 정해지면 빈 번호(0028·0029)를 당길지 정한다.
-3. **공용 파일 리팩터링의 순서** — `config/registry.py` 분해(M-02)를 지금 할지. 감사 시점에 네 브랜치 모두 이 파일을 건드리지 않았다
+3. **공용 파일 리팩터링의 순서** — **결정됨 (2026-11-14 사용자: 지금 분해. `5a98ae9`).** `config/registry.py` 분해(M-02)를 지금 할지. 감사 시점에 네 브랜치 모두 이 파일을 건드리지 않았다
    (theme-series 는 `config/theme_wiring.py` 를 따로 두고 `container.py` 만 고친다). 지금 하면 뒤에 등록을 더하는 브랜치가 새 구조를 따르면 된다.
 4. **지표·정책** — A-06(리스 하트비트, 스키마 변경), A-17·A-18(보존율 정의, 연구 문서 §7 결정 2), A-22(일관성 검수에서 판정된 프레임이
    표본의 몇 % 에 못 미치면 미판정으로 볼지 — 제안 50%), A-35(편집 거절 뒤 진행 중인 같은 작업을 이어 받을지, 지금처럼 새로 제출할지).
