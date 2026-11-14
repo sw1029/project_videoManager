@@ -6,6 +6,8 @@
 - 케이스 하나의 실패(부모 없음, 검증 오류, 생성 실패, 시간 초과, 예상 밖 오류)는 그 케이스에 기록하고
   다음 케이스로 간다. 예상 밖 오류(DB 잠금 등)는 UNEXPECTED_ERROR 로 남기고 트레이스백은 로그로 낸다.
   Ctrl+C 는 막지 않는다. 그때까지의 기록을 담은 CaseInterrupted(KeyboardInterrupt 하위)로 올려 보낸다.
+- 수정 버전을 만든 뒤 오류·Ctrl+C 로 끝나면 그 버전을 한 번 더 읽어 마지막 상태를 남긴다
+  (접수된 채 끝나지 않은 버전은 서버를 켜면 다시 실행되므로 찾을 수 있어야 한다).
 - 기록을 판정하고 결과 파일의 내용을 만드는 일은 edit_report 가 한다.
 """
 
@@ -161,5 +163,20 @@ def run_case(
         # 코드 이름은 생성 파이프라인이 같은 경우에 남기는 것과 맞춘다 (application/pipeline/runner.py)
         run.error_code, run.error_message = "UNEXPECTED_ERROR", f"{type(exc).__name__}: {exc}"
     finally:
+        if run.revision_version_id is not None and run.version is None:
+            run.version = _read_again(app.queries, run.revision_version_id)
         run.elapsed_s = round(monotonic() - started, 3)
     return run
+
+
+def _read_again(queries: ProjectQueries, version_id: str) -> VideoVersion | None:
+    """오류(또는 Ctrl+C)로 끝난 케이스의 수정 버전을 한 번 더 읽는다.
+
+    상태·클립·비용을 결과에 남기고, 접수된 채 끝나지 않은 버전(같은 DB 로 서버를 켜면 재시작 복구가
+    이어서 실행한다, ADR-0013)을 알리기 위해서다. 읽지 못하면 None 이고 케이스의 원래 오류는 그대로 둔다.
+    """
+    try:
+        return queries.get_version(version_id).version
+    except Exception:  # noqa: BLE001 - 기록을 보태려는 읽기라, 실패해도 원래 오류를 덮지 않는다
+        log.warning("수정 버전 %s 을 다시 읽지 못했습니다", version_id, exc_info=True)
+        return None

@@ -504,3 +504,61 @@ def test_unexpected_error_after_the_revision_was_made_keeps_its_version_id():
     assert run.revision_version_id is not None
     assert run.version.state is VersionState.COMPLETED
     assert run.results == ()
+
+
+class _FailingAfterAccept:
+    """생성 접수(DRAFT → QUEUED)까지 한 뒤 예외. 그 뒤의 일(결과 저장 등)에서 난 오류를 흉내 낸다."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def execute(self, version_id):
+        self.inner.execute(version_id)
+        raise RuntimeError("database is locked")
+
+
+def test_error_after_accepting_records_the_state_the_revision_was_left_in():
+    """접수 뒤 오류로 끝난 케이스도 수정 버전의 마지막 상태를 남긴다 (서버를 켜면 다시 실행될 버전을 찾게)."""
+    container = _container(jobs="recording")  # 접수만 하고 작업은 돌지 않는다 → QUEUED 로 남는다
+    parent = generate(container, create_draft(container).version_id).version_id
+    (spec,) = parse_cases([_cup(parent)])
+    broken = dataclasses.replace(
+        container, accept_generation=_FailingAfterAccept(container.accept_generation)
+    )
+
+    run = run_case(broken, spec)
+
+    assert run.error_message == "RuntimeError: database is locked"
+    assert run.version is not None
+    assert run.version.version_id == run.revision_version_id
+    assert run.version.state is VersionState.QUEUED
+
+
+def test_revision_that_cannot_be_read_again_keeps_the_original_error():
+    class ParentOnly:
+        """부모는 읽히고 수정 버전은 읽히지 않는다."""
+
+        def __init__(self, inner, parent):
+            self.inner, self.parent = inner, parent
+
+        def get_version(self, version_id):
+            if version_id != self.parent:
+                raise RuntimeError("다시 읽지 못함")
+            return self.inner.get_version(version_id)
+
+        def get_checks(self, version_id):
+            return self.inner.get_checks(version_id)
+
+    container = _container(jobs="recording")
+    parent = generate(container, create_draft(container).version_id).version_id
+    (spec,) = parse_cases([_cup(parent)])
+    broken = dataclasses.replace(
+        container,
+        accept_generation=_FailingAfterAccept(container.accept_generation),
+        queries=ParentOnly(container.queries, parent),
+    )
+
+    run = run_case(broken, spec)
+
+    assert run.error_message == "RuntimeError: database is locked"
+    assert run.revision_version_id is not None and run.version is None
