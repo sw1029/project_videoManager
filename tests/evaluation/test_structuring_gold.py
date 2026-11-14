@@ -216,10 +216,15 @@ def test_record_round_trip_replay_and_comparison(cases, tmp_path):
     summary = format_summary(worse)
     assert "ko-01-cafe-concept" in summary and "show_cup:cup:color" in summary
 
-    # 골드셋을 고친 뒤의 기록과는 같은 잣대가 아니라고 알린다
+    # 골드셋을 고친 뒤의 기록과는 같은 잣대가 아니라고 알리고, 기준 기록을 다시 채점하는 명령을 알려 준다
     edited = {**worse, "gold": {**worse["gold"], "fingerprint": "다른 골드셋"}}
     other = compare_records(base, edited)
-    assert not other.same_gold and "골드셋이 다르다" in format_comparison(other)
+    assert not other.same_gold
+    hint = format_comparison(other)
+    assert "골드셋이 다르다" in hint
+    assert "python -m frame.tools.evaluate_structuring rescore <기준 기록> --write" in hint
+    # 다시 채점하는 명령 자신의 출력(전 → 후)에서는 골드가 다른 것이 당연하니 권하지 않는다
+    assert "골드셋이 다르다" not in format_comparison(other, rescore_hint=False)
 
 
 def test_latest_record_of_an_empty_folder_is_none(tmp_path):

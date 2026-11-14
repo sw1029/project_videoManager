@@ -90,7 +90,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     print(format_summary(rescored))
-    print(format_comparison(compare_records(record, rescored)))
+    comparison = compare_records(record, rescored)
+    gold = "골드 그대로" if comparison.same_gold else "골드가 바뀌었다"
+    print(f"[rescore] 다시 채점 전 → 후 ({gold})")
+    print(format_comparison(comparison, rescore_hint=False))
     if args.write:
         print(f"[rescore] 고쳐 씀: {save_record(rescored, path)}")
     return 0

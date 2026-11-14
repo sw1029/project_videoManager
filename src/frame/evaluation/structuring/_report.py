@@ -50,12 +50,16 @@ def format_summary(record: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_comparison(comparison: RecordComparison) -> str:
+def format_comparison(comparison: RecordComparison, *, rescore_hint: bool = True) -> str:
+    """두 기록의 표. rescore_hint: 골드셋이 다르면 기준 기록을 다시 채점하라고 권하는 줄을 넣는다.
+
+    다시 채점하는 명령 자신의 출력(전 → 후)에서는 골드가 다른 것이 당연해서 끈다.
+    """
     lines = [f"기준 {comparison.baseline}", f"비교 {comparison.candidate}"]
-    if not comparison.same_gold:
+    if not comparison.same_gold and rescore_hint:
         lines.append(
-            "  ※ 골드셋이 다르다. 기준 기록의 원본 응답을 지금 골드로 다시 채점한 뒤 견줄 것 "
-            "(recorded_responses + ReplayLLMClient)"
+            "  ※ 골드셋이 다르다. 기준 기록을 지금 골드로 다시 채점한 뒤 견줄 것: "
+            "python -m frame.tools.evaluate_structuring rescore <기준 기록> --write"
         )
     if comparison.only_in_baseline or comparison.only_in_candidate:
         lines.append(

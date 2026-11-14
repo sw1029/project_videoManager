@@ -60,7 +60,9 @@ def test_rescore_shows_and_with_write_rewrites_the_record(tmp_path, capsys):
 
     assert evaluate_structuring.main(["rescore", str(path), "--gold", str(GOLD_DIR)]) == 0
     assert read_record(path)["gold"]["fingerprint"] == "옛 골드"  # --write 없이는 보여 주기만
-    assert "골드셋이 다르다" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "[rescore] 다시 채점 전 → 후 (골드가 바뀌었다)" in out
+    assert "골드셋이 다르다" not in out  # 다시 채점하라는 안내를 다시 채점하는 명령이 내지 않는다
 
     assert (
         evaluate_structuring.main(["rescore", str(path), "--gold", str(GOLD_DIR), "--write"]) == 0
