@@ -27,11 +27,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from frame.application.errors import ConfigurationError
 from frame.application.ports.audio import AudioEditor
@@ -65,6 +66,9 @@ from frame.domain.theme import DEFAULT_MIN_SLOT_MS
 
 from .registry import AdapterRegistry, BuildContext
 from .settings import Settings
+
+log = logging.getLogger(__name__)
+N = TypeVar("N", int, float)
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 
@@ -101,6 +105,15 @@ class ThemeSettings:
         def text(name: str, default: str) -> str:
             return (src.get(f"FRAME_{name}") or "").strip() or default
 
+        def number(name: str, default: N, cast: Callable[[str], N]) -> N:
+            raw = text(name, "")
+            if not raw:
+                return default
+            try:
+                return cast(raw)
+            except ValueError:
+                raise ConfigurationError(f"FRAME_{name}: 숫자가 아닙니다: {raw!r}") from None
+
         platforms = tuple(
             p.strip().upper() for p in text("SHORTFORM_PLATFORMS", "").split(",") if p.strip()
         )
@@ -111,10 +124,10 @@ class ThemeSettings:
             speech_model=text("SPEECH_MODEL", base.speech_model),
             speech_base_url=text("SPEECH_BASE_URL", "") or None,
             speech_key_file=text("SPEECH_KEY_FILE", "") or None,
-            speech_timeout_s=float(text("SPEECH_TIMEOUT_S", str(base.speech_timeout_s))),
+            speech_timeout_s=number("SPEECH_TIMEOUT_S", base.speech_timeout_s, float),
             extractor=text("THEME_EXTRACTOR", base.extractor),
-            extractor_frames=int(text("THEME_FRAMES", str(base.extractor_frames))),
-            extractor_attempts=int(text("THEME_ATTEMPTS", str(base.extractor_attempts))),
+            extractor_frames=number("THEME_FRAMES", base.extractor_frames, int),
+            extractor_attempts=number("THEME_ATTEMPTS", base.extractor_attempts, int),
             planner=text("SERIES_PLANNER", base.planner),
             audio=text("AUDIO_EDITOR", base.audio),
             overlay=text("OVERLAY_RENDERER", base.overlay),
@@ -122,8 +135,8 @@ class ThemeSettings:
             text_reader=text("SCREEN_TEXT_READER", base.text_reader),
             store=text("THEME_STORE", base.store),
             platforms=platforms or base.platforms,
-            min_slot_ms=int(text("THEME_MIN_SLOT_MS", str(base.min_slot_ms))),
-            shot_threshold=float(text("SHOT_THRESHOLD", str(base.shot_threshold))),
+            min_slot_ms=number("THEME_MIN_SLOT_MS", base.min_slot_ms, int),
+            shot_threshold=number("SHOT_THRESHOLD", base.shot_threshold, float),
         )
 
 
@@ -187,7 +200,9 @@ def build_theme_services(
     speech_recognizer, theme_extractor, series_planner, audio_editor, overlay_renderer, screen_text_reader.
     """
     ov = dict(overrides or {})
-    ts: ThemeSettings = ov.get("theme_settings") or ThemeSettings.from_env()
+    # 환경 변수는 서버 입구에서 한 번만 읽어 넘긴다 (presentation/main.py). 여기서 읽으면 설정을 직접 넘긴
+    # 테스트·도구의 컨테이너에도 셸의 FRAME_THEME_* 가 끼어든다 (감사 BTS-13)
+    ts: ThemeSettings = ov.get("theme_settings") or ThemeSettings()
     store = _require(ctx.artifact_store, "artifact_store")
     ids: IdGenerator = ctx.ids
     clock: Clock = ctx.clock
@@ -219,15 +234,23 @@ def build_theme_services(
         )
 
     # ---- 저장 ----
+    # 문서 저장소는 키로 주소를 알 수 있는 산출물 저장소가 필요하다. 그렇지 않으면 메모리로 물러난다
+    # (생성 캐시와 같은 방식). 이 기능을 쓰지 않는 서버의 기동을 막지 않는다 (감사 BTS-13)
+    documents_ok = store.uri_for("themes/index.json") is not None
+    if not documents_ok and ts.store == "artifact":
+        log.warning(
+            "산출물 저장소가 키로 주소를 알려 주지 않아 테마·편을 메모리에 둡니다 (다시 시작하면 사라집니다)"
+        )
+
     def _artifact_themes() -> ThemeRepository:
         from frame.adapters.theme_store import ArtifactThemeRepository
 
-        return ArtifactThemeRepository(store)
+        return ArtifactThemeRepository(store) if documents_ok else _memory_themes()
 
     def _artifact_episodes() -> EpisodeRepository:
         from frame.adapters.theme_store import ArtifactEpisodeRepository
 
-        return ArtifactEpisodeRepository(store)
+        return ArtifactEpisodeRepository(store) if documents_ok else _memory_episodes()
 
     def _memory_themes() -> ThemeRepository:
         from frame.adapters.theme_store import InMemoryThemeRepository

@@ -62,6 +62,10 @@ CSS_COLOR_NAMES = frozenset(
     ).split()
 )
 _VARIABLE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# 자리 키는 그대로 IR 의 장면 키가 되고 (장면 키는 저장 키에 들어간다) 고정 출연 키는 객체 키가 된다.
+# 그래서 IR 의 키와 같은 형식만 받는다: 영문·숫자로 시작, 영문·숫자·밑줄, 64자까지 (감사 BTS-14)
+KEY_FORMAT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,63}")
+_THEME_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 
 
 class SourceOrigin(StrEnum):
@@ -598,6 +602,10 @@ class Theme:
     def validate(self) -> None:
         if not self.theme_id.strip() or not self.title.strip():
             raise ValidationError("테마에는 id 와 제목이 있어야 합니다")
+        if not _THEME_ID.fullmatch(self.theme_id):
+            raise ValidationError(
+                f"테마 id 의 형식이 잘못되었습니다: {self.theme_id!r} (영문·숫자·밑줄·붙임표, 64자까지)"
+            )
         self._validate_format()
         self._validate_cast()
         _require_scene_level("스타일", self.style.conditions)
@@ -617,6 +625,7 @@ class Theme:
         keys = [slot.slot_key for slot in slots]
         if len(keys) != len(set(keys)) or not all(k.strip() for k in keys):
             raise ValidationError(f"장면 자리의 키는 비어 있지 않고 유일해야 합니다: {keys}")
+        _require_keys("장면 자리", keys)
         cast_keys = {c.entity_key for c in self.cast}
         for slot in slots:
             if slot.duration_ms <= 0:
@@ -632,6 +641,7 @@ class Theme:
         keys = [c.entity_key for c in self.cast]
         if len(keys) != len(set(keys)) or not all(k.strip() for k in keys):
             raise ValidationError(f"고정 출연의 키는 비어 있지 않고 유일해야 합니다: {keys}")
+        _require_keys("고정 출연", keys)
         for member in self.cast:
             seen: set[str] = set()
             for condition in member.fixed_attributes:
@@ -749,6 +759,14 @@ class Theme:
         payload = self.to_dict()
         payload.pop("theme_id")
         return canonical_hash(payload)
+
+
+def _require_keys(owner: str, keys: Sequence[str]) -> None:
+    bad = [key for key in keys if not KEY_FORMAT.fullmatch(key)]
+    if bad:
+        raise ValidationError(
+            f"{owner}의 키는 영문·숫자로 시작하고 영문·숫자·밑줄만 쓸 수 있습니다 (64자까지): {bad}"
+        )
 
 
 def _require_scene_level(owner: str, conditions: Sequence[Condition]) -> None:

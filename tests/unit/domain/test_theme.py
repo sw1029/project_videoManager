@@ -263,3 +263,49 @@ def test_colour_notation_is_normalised_to_css_names_or_hex():
     assert color_name("dark_slate_gray") == "darkslategray"
     for unknown in ("shiny rainbow", "rgba(0,0,0,0.5)", "#fff", "", None, "white:enable=0"):
         assert color_name(unknown) is None
+
+
+# ---- 키의 형식 (감사 BTS-14) ----
+@pytest.mark.parametrize("bad", ["../x", "a b", "한글", "-lead", "a" * 65, "show.closeup", "a/b"])
+def test_slot_and_cast_keys_follow_the_ir_key_format(bad):
+    """자리 키는 그대로 IR 의 장면 키가 되고, 장면 키는 저장 키에 들어간다. 고정 출연 키는 객체 키가 된다.
+
+    그래서 IR 의 키와 같은 형식(영문·숫자로 시작, 영문·숫자·밑줄, 64자까지)만 받는다.
+    """
+    theme = cafe_theme()
+    first = theme.format.slots[0]
+    renamed = replace(
+        theme,
+        format=replace(theme.format, slots=(replace(first, slot_key=bad), *theme.format.slots[1:])),
+    )
+    with pytest.raises(ValidationError, match="키"):
+        renamed.validate()
+
+    member = theme.cast[0]
+    recast = replace(theme, cast=(replace(member, entity_key=bad), *theme.cast[1:]))
+    with pytest.raises(ValidationError):
+        recast.validate()
+
+    with pytest.raises(ValidationError, match="id"):
+        replace(theme, theme_id=bad).validate()
+
+
+def test_usual_keys_pass():
+    for key in ("slot_1", "S1", "greeting", "a" * 64, "2nd_take"):
+        theme = cafe_theme()
+        first = theme.format.slots[0]
+        slots = (replace(first, slot_key=key), *theme.format.slots[1:])
+        rules = tuple(
+            replace(r, slot_keys=tuple(key if k == first.slot_key else k for k in r.slot_keys))
+            for r in theme.text_rules
+        )
+        beats = tuple(
+            replace(b, slot_key=key) if b.slot_key == first.slot_key else b
+            for b in theme.narration.beats
+        )
+        replace(
+            theme,
+            format=replace(theme.format, slots=slots),
+            text_rules=rules,
+            narration=replace(theme.narration, beats=beats),
+        ).validate()

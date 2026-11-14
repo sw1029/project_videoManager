@@ -304,3 +304,66 @@ def test_frame_extraction_retries_are_set_apart_from_the_llm_retries():
     custom = ThemeSettings.from_env({"FRAME_THEME_EXTRACTOR": "vlm", "FRAME_THEME_ATTEMPTS": "1"})
     assert custom.extractor_attempts == 1
     assert make_container(settings, theme_settings=custom).series.extractor.max_attempts == 1
+
+
+# ---- 환경 변수는 입구에서 한 번만 읽는다 (감사 BTS-13) ----
+def test_container_does_not_read_theme_settings_from_the_process_environment(monkeypatch):
+    """build_container 에 설정을 직접 넘기면 셸의 FRAME_THEME_* 가 끼어들지 않는다 (테스트·도구가 격리된다)."""
+    monkeypatch.setenv("FRAME_THEME_STORE", "memory")
+    monkeypatch.setenv("FRAME_SPEECH_RECOGNIZER", "off")
+    monkeypatch.setenv("FRAME_THEME_FRAMES", "not a number")
+
+    series = make_container().series
+
+    assert isinstance(series.themes, ArtifactThemeRepository)
+    assert isinstance(series.recognizer, FakeSpeechRecognizer)
+    assert series.settings == ThemeSettings()
+
+
+def test_server_entry_reads_the_theme_settings_once(monkeypatch):
+    from frame.presentation.main import create_default_app
+
+    monkeypatch.setenv("FRAME_THEME_STORE", "memory")
+    monkeypatch.setenv("FRAME_SPEECH_RECOGNIZER", "off")
+    series = create_default_app().state.container.series
+
+    assert isinstance(series.themes, InMemoryThemeRepository) and series.recognizer is None
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("FRAME_THEME_FRAMES", "three"),
+        ("FRAME_THEME_ATTEMPTS", "2.5"),
+        ("FRAME_THEME_MIN_SLOT_MS", ""),
+        ("FRAME_SHOT_THRESHOLD", "high"),
+        ("FRAME_SPEECH_TIMEOUT_S", "soon"),
+    ],
+)
+def test_setting_that_is_not_a_number_names_the_variable(name, value):
+    """숫자가 아닌 설정은 변수 이름이 든 ConfigurationError 다 (이름 없는 ValueError 로 서버 기동을 막지 않는다)."""
+    if not value:  # 빈 값은 기본값이다
+        assert ThemeSettings.from_env({name: value}) == ThemeSettings()
+        return
+    with pytest.raises(ConfigurationError, match=name):
+        ThemeSettings.from_env({name: value})
+
+
+def test_theme_store_falls_back_to_memory_when_the_artifact_store_cannot_name_uris():
+    """키로 주소를 지을 수 없는 산출물 저장소에서는 테마 저장소가 메모리로 물러난다. 서버 기동을 막지 않는다."""
+    from frame.application.ports.artifact_store import ArtifactStore
+
+    class OpaqueStore(ArtifactStore):
+        def put(self, key, data, content_type=None):
+            return "remote://1"
+
+        def get(self, uri):
+            return b""
+
+        def exists(self, uri):
+            return False
+
+    series = make_container(artifact_store=OpaqueStore()).series
+
+    assert isinstance(series.themes, InMemoryThemeRepository)
+    assert type(series.episodes).__name__ == "InMemoryEpisodeRepository"
