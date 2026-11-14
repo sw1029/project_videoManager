@@ -30,6 +30,17 @@ MOVED = [
     ("frame.adapters.video_tools", "video_size", "frame.adapters.shared.media.probe"),
     ("frame.adapters.video_tools", "ssim", "frame.adapters.shared.media.similarity"),
     ("frame.adapters.generator.ffmpeg", "resolve_ffmpeg", "frame.adapters.shared.media.ffmpeg"),
+    ("frame.adapters.generator.ffmpeg", "probe_video", "frame.adapters.shared.media.probe"),
+    ("frame.adapters.generator.ffmpeg", "VideoProbe", "frame.adapters.shared.media.probe"),
+    (
+        "frame.adapters.generator.ffmpeg",
+        "FfmpegVideoNormalizer",
+        "frame.adapters.generator.normalizer",
+    ),
+    ("frame.adapters.generator.ffmpeg", "NormalizedVideo", "frame.adapters.generator.normalizer"),
+    ("frame.adapters.generator.ffmpeg", "VideoNormalizer", "frame.adapters.generator.normalizer"),
+    ("frame.application.ports.generator", "VideoAssembler", "frame.application.ports.assembler"),
+    ("frame.application.ports", "VideoAssembler", "frame.application.ports.assembler"),
 ]
 
 

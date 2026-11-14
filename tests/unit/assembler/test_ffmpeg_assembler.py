@@ -10,12 +10,10 @@ import subprocess
 
 import pytest
 
-from frame.adapters.generator.ffmpeg import (
-    FfmpegVideoAssembler,
-    FfmpegVideoNormalizer,
-    probe_video,
-)
+from frame.adapters.assembler import FfmpegVideoAssembler
+from frame.adapters.generator.normalizer import FfmpegVideoNormalizer
 from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
+from frame.adapters.shared.media.probe import probe_video
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import GeneratedClip

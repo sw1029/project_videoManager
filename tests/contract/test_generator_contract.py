@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import pytest
 
+from frame.adapters.assembler import FakeVideoAssembler
 from frame.adapters.generator import (
     CachingVideoGenerator,
     DelegatingVideoGenerator,
-    FakeVideoAssembler,
     FakeVideoGenerator,
     RetryingVideoGenerator,
     TimeoutVideoGenerator,

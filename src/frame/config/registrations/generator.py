@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from frame.adapters.generator import FakeVideoGenerator, OpenRouterVideoGenerator
-from frame.adapters.generator.ffmpeg import FfmpegVideoNormalizer
+from frame.adapters.generator.normalizer import FfmpegVideoNormalizer
 from frame.adapters.generator.openrouter import resolve_openrouter_key
 from frame.application.ports import VideoGenerator
 

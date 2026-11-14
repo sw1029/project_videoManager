@@ -58,23 +58,24 @@ def test_modules_at_the_top_of_adapters_are_only_the_compat_ones():
         if name.startswith(ADAPTERS + ".") and name.count(".") == 2 and not _is_package(name)
     }
 
-    assert top_level == set(COMPAT_ADAPTER_MODULES)
+    assert top_level == {name for name in COMPAT_ADAPTER_MODULES if name.count(".") == 2}
 
 
 def test_compat_modules_only_re_export_names_from_their_new_home():
     """호환 모듈은 구현을 담지 않는다: 새 자리에서 가져온 이름을 __all__ 로 다시 내보내기만 한다."""
     wrong = []
-    for old, new in COMPAT_ADAPTER_MODULES.items():
-        body = parse(old).body
+    for old, homes in COMPAT_ADAPTER_MODULES.items():
         defined = [
             node.name
-            for node in body
+            for node in parse(old).body
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
         ]
-        sources = [node.module or "" for node in body if isinstance(node, ast.ImportFrom)]
-        elsewhere = [m for m in sources if m != new and not m.startswith(new + ".")]
+        sources = [item.imported for item in internal_imports() if item.importer == old]
+        elsewhere = [
+            m for m in sources if not any(m == home or m.startswith(home + ".") for home in homes)
+        ]
         if defined or elsewhere or not sources:
-            wrong.append(f"{old}: 정의 {defined}, {new} 밖에서 가져옴 {elsewhere}")
+            wrong.append(f"{old}: 정의 {defined}, {homes} 밖에서 가져옴 {elsewhere}")
 
     assert not wrong, "호환 모듈이 구현을 담거나 새 자리 밖의 이름을 내보낸다:\n" + "\n".join(wrong)
 

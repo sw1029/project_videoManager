@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from frame.adapters.generator import FakeVideoAssembler, FfmpegVideoAssembler
+from frame.adapters.assembler import FakeVideoAssembler, FfmpegVideoAssembler
 from frame.adapters.generator.openrouter import output_size
 from frame.application.ports import VideoAssembler
 

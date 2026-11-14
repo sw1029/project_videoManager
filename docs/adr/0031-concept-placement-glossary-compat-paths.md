@@ -56,7 +56,11 @@
   | `frame.adapters.http_transport` | `frame.adapters.shared.http` |
   | `frame.adapters.video_tools` | `frame.adapters.shared.media` (`frames` · `probe` · `similarity` · `ffmpeg`) |
   | `frame.adapters.vlm_answers` | `frame.adapters.shared.vlm.answers` |
-  | `frame.adapters.generator.ffmpeg.resolve_ffmpeg` (이름 하나) | `frame.adapters.shared.media.ffmpeg.resolve_ffmpeg` |
+  | `frame.adapters.generator.ffmpeg` | 클립 정규화 `frame.adapters.generator.normalizer`, ffmpeg 찾기 `frame.adapters.shared.media.ffmpeg`, 클립 검사 `frame.adapters.shared.media.probe` |
+  | `frame.application.ports.generator.VideoAssembler` (이름 하나) | `frame.application.ports.assembler.VideoAssembler` |
+
+  최종 영상 조립기(`FfmpegVideoAssembler` · `FakeVideoAssembler`)는 `frame.adapters.assembler` 로 옮겼고 옛 경로를 남기지 않았다
+  (어댑터 패키지끼리 import 하지 않는다. 작업 중인 브랜치의 새 코드는 이 이름을 쓰지 않는다).
 
 ### 4. 용어집
 - `docs/GLOSSARY.md` — 낱말 하나에 뜻 하나, 한국어 이름과 코드 이름을 짝짓는다. 낱말은 연구 문서와 ADR 의 것을 따른다.

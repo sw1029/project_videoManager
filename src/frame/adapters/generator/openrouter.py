@@ -104,7 +104,6 @@ from frame.domain.services.comparison import RequirementChangeKind, compare_requ
 
 from .abandonment import stop_if_abandoned
 from .cache import KeyedLocks, generation_key
-from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer
 from .ledger import (
     COMPLETED,
     FAILED,
@@ -114,6 +113,7 @@ from .ledger import (
     JobRecord,
     build_job_ledger,
 )
+from .normalizer import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer
 
 log = logging.getLogger(__name__)
 

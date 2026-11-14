@@ -1,6 +1,6 @@
 """영상 생성 포트 (US-01, E2).
 
-장면(Scene) 단위로 생성하고 조립(Assemble)한다. 장면 단위이므로 수정 버전에서는
+장면(Scene) 단위로 생성한다 (이은 것이 최종 영상이다 - 조립 포트는 assembler.py). 장면 단위이므로 수정 버전에서는
 조건이 바뀐 장면만 재생성하고 나머지 장면 클립은 그대로 재사용할 수 있다 (비대상 보존).
 구현: Fake, 외부 API(OpenRouter 영상 API, ADR-0011). 후보: diffusers 로컬 추론(CogVideoX/Wan 등).
 각 어댑터는 IR -> 모델별 프롬프트/파라미터 변환(PromptCompiler)을 내부에 캡슐화한다.
@@ -23,7 +23,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -33,6 +33,7 @@ from frame.domain.hashing import canonical_hash
 from frame.domain.ir import EntitySpec, RequirementSpec, SceneSpec
 from frame.domain.revision import KeepItem
 
+from .assembler import VideoAssembler
 from .structurer import ReferenceImageInput
 
 
@@ -207,13 +208,6 @@ class VideoGenerator(ABC):
         설정을 바꿨을 때 이전 결과가 재사용되지 않는다. 데코레이터는 감싼 생성기의 값을 그대로 돌려준다.
         """
         return {"generator": type(self).__name__}
-
-
-class VideoAssembler(ABC):
-    """장면 클립을 순서대로 이어 붙여 최종 영상을 만든다 (ffmpeg concat 등)."""
-
-    @abstractmethod
-    def assemble(self, version_id: str, clips: Sequence[GeneratedClip]) -> VideoArtifact: ...
 
 
 __all__ = [

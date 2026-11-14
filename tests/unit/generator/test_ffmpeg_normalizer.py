@@ -10,8 +10,9 @@ import tempfile
 
 import pytest
 
-from frame.adapters.generator.ffmpeg import FfmpegVideoNormalizer, probe_video
+from frame.adapters.generator.normalizer import FfmpegVideoNormalizer
 from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
+from frame.adapters.shared.media.probe import probe_video
 from frame.application.errors import ConfigurationError, GenerationError
 
 
