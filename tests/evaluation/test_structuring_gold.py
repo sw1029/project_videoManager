@@ -14,6 +14,7 @@ import pytest
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.structurer import FakeStructurer, LLMStructurer
 from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
+from frame.application.errors import LLMUnavailable
 from frame.domain.enums import EntityKind
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 from frame.evaluation.structuring import (
@@ -375,3 +376,38 @@ def test_record_and_summary_say_when_entities_were_matched_in_order(cases, monke
     assert record["cases"][0]["entity_matching"] == "greedy"
     assert record["summary"]["greedy_entity_matchings"] == ["ko-01-cafe-concept"]
     assert "차례로 고른 사례" in format_summary(record)
+
+
+# ---- 커밋되는 기록에 경로·계정이 새지 않게 ------------------------------------------------
+@pytest.mark.parametrize(
+    "error",
+    [
+        LLMUnavailable(
+            r"키 파일이 없습니다: C:\Users\someone\keys\openai.txt. 다른 방법도 있습니다"
+        ),
+        LLMUnavailable("키 파일이 없습니다: D:/secrets/key.txt"),
+        OSError("[Errno 2] No such file or directory: '/home/someone/.config/frame/key'"),
+        OSError(r"network share \\fileserver\team\key.txt is offline"),
+    ],
+)
+def test_error_messages_in_records_hide_absolute_paths(cases, error):
+    case = _case(cases, "ko-05-ramen-recipe")
+    message = run_gold_set(FakeStructurer(error=error), [case])[0].score.error
+    assert "<경로>" in message
+    for leaked in ("someone", "secrets", "fileserver", "C:\\", "D:/"):
+        assert leaked not in message
+
+
+def test_long_error_messages_are_shortened(cases):
+    case = _case(cases, "ko-05-ramen-recipe")
+    message = run_gold_set(FakeStructurer(error=LLMUnavailable("x" * 2000)), [case])[0].score.error
+    assert message.startswith("LLM_UNAVAILABLE: ") and len(message) <= 320
+
+
+def test_record_drops_account_and_query_parts_of_urls():
+    record = build_record(
+        [],
+        structurer={**_STRUCTURER, "base_url": "http://user:pw@localhost:8001/v1?token=abc#x"},
+        run_at="2026-11-14",
+    )
+    assert record["structurer"]["base_url"] == "http://localhost:8001/v1"

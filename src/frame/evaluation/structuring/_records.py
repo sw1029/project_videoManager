@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import urlsplit, urlunsplit
 
 from frame.application.errors import AdapterError
 from frame.application.ports.llm import JsonCompletion
@@ -35,6 +36,9 @@ from ._summary import (
 
 RECORD_VERSION = 1
 _DIGITS = 4  # 기록에 남기는 비율의 소수 자릿수
+# 기록은 저장소에 커밋하는 파일이라, 오류 문구의 절대 경로(키 파일 위치·사용자 폴더)를 가리고 길이를 줄인다
+_ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|(?<![\w/:.~-])/(?=[^\s/]))[^\s'\"<>|]*")
+_MESSAGE_LIMIT = 300
 
 
 # ---- 실행 ----------------------------------------------------------------------
@@ -92,7 +96,9 @@ def run_gold_set(
             # 기록은 끝에 한 번 쓰므로, 여기서 멈추면 앞서 돈 들인 응답까지 잃는다.
             # Ctrl+C(BaseException)는 그대로 멈춘다.
             score = failed_case(
-                case.case_id, case.spec, f"UNEXPECTED_ERROR: {type(exc).__name__}: {exc}"
+                case.case_id,
+                case.spec,
+                f"UNEXPECTED_ERROR: {type(exc).__name__}: {public_message(str(exc))}",
             )
         elapsed_ms = round((clock() - started) * 1000)
         completion = details.last_completion if details else None
@@ -116,7 +122,28 @@ def run_gold_set(
 
 def _describe(exc: Exception) -> str:
     code = getattr(exc, "code", None) or type(exc).__name__
-    return f"{code}: {exc}"
+    return f"{code}: {public_message(str(exc))}"
+
+
+def public_message(text: str) -> str:
+    """커밋되는 기록에 남길 문구: 절대 경로는 <경로> 로 가리고, 길면 자른다."""
+    masked = _ABSOLUTE_PATH.sub("<경로>", text)
+    return masked if len(masked) <= _MESSAGE_LIMIT else masked[: _MESSAGE_LIMIT - 1] + "…"
+
+
+def _public_url(value: Any) -> Any:
+    """URL 이면 계정(user:pw@)·질의·조각을 뺀 주소, 아니면 그대로 (기록에 접속 정보가 새지 않게)."""
+    if not isinstance(value, str):
+        return value
+    parts = urlsplit(value)
+    if not (parts.scheme and parts.netloc):
+        return value
+    host = parts.hostname or ""
+    try:
+        netloc = f"{host}:{parts.port}" if parts.port else host
+    except ValueError:  # 포트가 숫자가 아니다
+        netloc = host
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 # ---- 기록 만들기·읽기 ---------------------------------------------------------------
@@ -129,7 +156,10 @@ def build_record(
     return {
         "record_version": RECORD_VERSION,
         "run_at": run_at,
-        "structurer": {**structurer, "reported_models": reported},
+        "structurer": {
+            **{key: _public_url(value) for key, value in structurer.items()},
+            "reported_models": reported,
+        },
         "gold": {
             "cases": len(runs),
             "case_ids": [r.case.case_id for r in runs],
@@ -293,7 +323,8 @@ def rescore_record(
             continue
         response = entry.get("response")
         if response is None:
-            score = failed_case(case.case_id, case.spec, entry.get("error") or "응답 없음")
+            error = public_message(entry.get("error") or "응답 없음")
+            score = failed_case(case.case_id, case.spec, error)
         else:
             score = run_gold_set(structurer_for(response), [case])[0].score
         tokens = entry.get("tokens") or {}
