@@ -10,11 +10,11 @@ numpy·OpenCV 같은 추가 패키지 없이 ffmpeg 하나로 처리한다.
 from __future__ import annotations
 
 import re
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from frame.adapters.shared.media.ffmpeg import FfmpegNotRun, run_ffmpeg, tail
 from frame.application.errors import AdapterError, ConfigurationError
 
 _SIZE = re.compile(r"Stream #\d+:\d+.*?: Video: .*?, (\d{2,5})x(\d{2,5})")
@@ -108,7 +108,7 @@ def extract_frame(
         cmd += [*codec, str(target)]
         code, log = _run(cmd, timeout_s)
         if code != 0 or not target.is_file() or target.stat().st_size == 0:
-            raise VideoToolError(f"프레임을 뽑지 못했습니다 ({at_ms} ms): {_tail(log)}")
+            raise VideoToolError(f"프레임을 뽑지 못했습니다 ({at_ms} ms): {tail(log)}")
         return Image(target.read_bytes(), media_type)
 
 
@@ -120,7 +120,7 @@ def video_size(ffmpeg: str, media: bytes, timeout_s: float = 60.0) -> tuple[int,
         _, log = _run([ffmpeg, "-hide_banner", "-nostdin", "-i", str(source)], timeout_s)
     match = _SIZE.search(log)
     if match is None:
-        raise VideoToolError(f"영상 크기를 읽지 못했습니다: {_tail(log)}")
+        raise VideoToolError(f"영상 크기를 읽지 못했습니다: {tail(log)}")
     return int(match.group(1)), int(match.group(2))
 
 
@@ -141,7 +141,7 @@ def ssim(ffmpeg: str, first: bytes, second: bytes, timeout_s: float = 300.0) -> 
         code, log = _run(cmd, timeout_s)
     match = _SSIM_ALL.search(log)
     if code != 0 or match is None:
-        raise VideoToolError(f"두 영상을 비교하지 못했습니다: {_tail(log)}")
+        raise VideoToolError(f"두 영상을 비교하지 못했습니다: {tail(log)}")
     try:
         value = float(match.group(1))
     except ValueError as exc:
@@ -152,21 +152,8 @@ def ssim(ffmpeg: str, first: bytes, second: bytes, timeout_s: float = 300.0) -> 
 
 
 def _run(cmd: list[str], timeout_s: float) -> tuple[int, str]:
+    """공용 실행기로 돌린다. 실행 자체가 안 되면 이 모듈의 오류(VideoToolError)로 올린다."""
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=timeout_s,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows 콘솔 창 안 띄움
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise VideoToolError(f"ffmpeg 가 {timeout_s:g}초 안에 끝나지 않았습니다") from exc
-    except OSError as exc:
-        raise VideoToolError(f"ffmpeg 를 실행하지 못했습니다: {exc}") from exc
-    return proc.returncode, proc.stderr.decode("utf-8", errors="replace")
-
-
-def _tail(log: str, lines: int = 3) -> str:
-    useful = [line.strip() for line in log.replace("\r", "\n").splitlines() if line.strip()]
-    return " | ".join(useful[-lines:])[-400:] or "(출력 없음)"
+        return run_ffmpeg(cmd, timeout_s)
+    except FfmpegNotRun as exc:
+        raise VideoToolError(str(exc)) from exc

@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from frame.adapters.shared.media.ffmpeg import FfmpegNotRun, run_ffmpeg, tail
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.generator import GeneratedClip, VideoArtifact, VideoAssembler
@@ -94,11 +94,11 @@ def probe_video(ffmpeg: str, path: str | Path, timeout_s: float = 120.0) -> Vide
     cmd += ["-map", "0:v:0", "-c", "copy", "-f", "null", "-"]
     code, log = _run(cmd, timeout_s)
     if code != 0:
-        raise GenerationError(f"ffmpeg 가 영상을 읽지 못했습니다: {_tail(log)}", retryable=False)
+        raise GenerationError(f"ffmpeg 가 영상을 읽지 못했습니다: {tail(log)}", retryable=False)
     video_line = _VIDEO_LINE.search(log)
     if video_line is None:
         raise GenerationError(
-            f"ffmpeg 가 영상 스트림을 찾지 못했습니다: {_tail(log)}", retryable=False
+            f"ffmpeg 가 영상 스트림을 찾지 못했습니다: {tail(log)}", retryable=False
         )
     line = video_line.group(0)
     codec = _CODEC.search(line)
@@ -156,9 +156,7 @@ class FfmpegVideoNormalizer(VideoNormalizer):
             cmd += ["-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
             code, log = _run(cmd, self.timeout_s)
             if code != 0 or not out.is_file():
-                raise GenerationError(
-                    f"ffmpeg 정규화에 실패했습니다: {_tail(log)}", retryable=False
-                )
+                raise GenerationError(f"ffmpeg 정규화에 실패했습니다: {tail(log)}", retryable=False)
             probe = probe_video(self.ffmpeg, out, self.timeout_s)
             if probe.frames != frames or (probe.width, probe.height) != (width, height):
                 raise GenerationError(
@@ -291,7 +289,7 @@ class FfmpegVideoAssembler(VideoAssembler):
         cmd += ["-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
         code, log = _run(cmd, self.timeout_s)
         if code != 0 or not out.is_file():
-            raise GenerationError(f"ffmpeg 조립에 실패했습니다: {_tail(log)}", retryable=False)
+            raise GenerationError(f"ffmpeg 조립에 실패했습니다: {tail(log)}", retryable=False)
         frames = probe_video(self.ffmpeg, out, self.timeout_s).frames
         if frames != expected:
             raise GenerationError(
@@ -306,23 +304,11 @@ class FfmpegVideoAssembler(VideoAssembler):
 
 
 def _run(cmd: list[str], timeout_s: float) -> tuple[int, str]:
+    """공용 실행기로 돌린다. 실행 자체가 안 되면 다시 해도 소용없는 생성 오류로 올린다."""
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=timeout_s,
-            check=False,
-            creationflags=getattr(
-                subprocess, "CREATE_NO_WINDOW", 0
-            ),  # Windows 콘솔 창을 띄우지 않음
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise GenerationError(
-            f"ffmpeg 가 {timeout_s:g}초 안에 끝나지 않았습니다", retryable=False
-        ) from exc
-    except OSError as exc:
-        raise GenerationError(f"ffmpeg 를 실행하지 못했습니다: {exc}", retryable=False) from exc
-    return proc.returncode, proc.stderr.decode("utf-8", errors="replace")
+        return run_ffmpeg(cmd, timeout_s)
+    except FfmpegNotRun as exc:
+        raise GenerationError(str(exc), retryable=False) from exc
 
 
 def _duration_ms(log: str) -> int | None:
@@ -331,8 +317,3 @@ def _duration_ms(log: str) -> int | None:
         return None
     hours, minutes, seconds = int(match.group(1)), int(match.group(2)), float(match.group(3))
     return round((hours * 3600 + minutes * 60 + seconds) * 1000)
-
-
-def _tail(log: str, lines: int = 3) -> str:
-    useful = [line.strip() for line in log.replace("\r", "\n").splitlines() if line.strip()]
-    return " | ".join(useful[-lines:])[-400:] or "(출력 없음)"

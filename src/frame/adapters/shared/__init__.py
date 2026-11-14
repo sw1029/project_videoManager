@@ -8,6 +8,7 @@
 
 모듈 지도
     api_keys    API 키 다루기: 키 파일에서 키 찾기, 화면·로그에 보일 표시
+    media/      영상 처리 도구 (ffmpeg 실행기)
 """
 
 __all__: list[str] = []
