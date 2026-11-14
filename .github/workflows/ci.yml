@@ -87,22 +87,26 @@ jobs:
       - run: pip-audit --skip-editable --progress-spinner off
 
   overlay-font:
-    # 화면 문구 합성의 ffmpeg 테스트를 한글 글꼴이 있는 러너에서 돌린다 (보고서 §12.3 결정 11).
-    # 다른 잡의 러너에는 한글 글꼴이 없어 이 테스트 9개가 건너뛰어진다. Linux 에서 돈 적이 없는 테스트라
-    # 처음에는 결과만 보고 머지를 막지 않는다. 통과하는 것을 본 뒤에 test 잡으로 옮긴다 (docs/CI.md 6절)
+    # 화면 문구 합성의 ffmpeg 테스트를, 그릴 수 있는 러너에서 돌린다 (보고서 §12.3 결정 11 · A-43).
+    # 다른 잡의 러너에서는 이 테스트 9개가 건너뛰어진다: 한글 글꼴이 없고, video extra 가 Linux 에 가져오는 ffmpeg 에는
+    # 글자를 그리는 drawtext 필터가 없다. 그래서 이 잡은 글꼴과 시스템 ffmpeg 를 깐다 (PATH 의 ffmpeg 가 먼저 쓰인다).
+    # Linux 에서 통과한 적이 없는 테스트라 결과만 보고 머지를 막지 않는다. 통과하는 것을 본 뒤에 필수로 할지 정한다
     runs-on: ubuntu-latest
     timeout-minutes: 15
     continue-on-error: true
     env:
       FRAME_REQUIRE_FFMPEG: "1"
-      # 글꼴을 찾지 못하면 건너뛰지 않고 실패한다 (건너뛴 채 통과로 보이지 않게)
+      # 글꼴이나 글자를 그리는 ffmpeg 를 찾지 못하면 건너뛰지 않고 실패한다 (건너뛴 채 통과로 보이지 않게)
       FRAME_REQUIRE_KOREAN_FONT: "1"
+      FRAME_REQUIRE_DRAWTEXT: "1"
     steps:
       - uses: actions/checkout@v4
-      - name: 한글 글꼴 (Noto Sans CJK)
+      - name: 한글 글꼴 (Noto Sans CJK) 과 drawtext 필터가 든 ffmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg
+          ffmpeg -hide_banner -version
+          ffmpeg -hide_banner -filters | grep " drawtext "
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"

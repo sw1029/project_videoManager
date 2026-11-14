@@ -10,17 +10,24 @@ from frame.config import Container
 from tests.support.factories import cafe_ir, create_draft, dispatcher_of, make_container
 from tests.support.switches import (
     is_loopback,
+    missing_drawtext_message,
     missing_ffmpeg_message,
     missing_korean_font_message,
     shell_leak_names,
 )
-from tests.support.video import find_ffmpeg, find_korean_font
+from tests.support.video import can_draw_text, find_ffmpeg, find_korean_font
 
 
 def pytest_report_header(config: pytest.Config) -> list[str]:
     """실제 영상 테스트가 도는지 한눈에 보이게 한다 (ffmpeg · 한글 글꼴이 없으면 그 테스트들은 건너뛴다)."""
+    ffmpeg = find_ffmpeg()
+    drawing = (
+        ""
+        if ffmpeg is None or can_draw_text(ffmpeg)
+        else " (drawtext 필터 없음 — 화면 문구 합성 테스트는 건너뜀)"
+    )
     return [
-        f"ffmpeg: {find_ffmpeg() or '없음 — 실제 영상 테스트는 건너뜀'}",
+        f"ffmpeg: {ffmpeg or '없음 — 실제 영상 테스트는 건너뜀'}{drawing}",
         f"한글 글꼴: {find_korean_font() or '없음 — 화면 문구 합성 테스트는 건너뜀'}",
     ]
 
@@ -28,11 +35,14 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
 def pytest_sessionstart(session: pytest.Session) -> None:
     """CI 는 FRAME_REQUIRE_FFMPEG=1 로 돈다: ffmpeg 가 없으면 조용히 건너뛰지 않고 실패한다 (ADR-0030).
 
-    한글 글꼴을 깐 잡은 FRAME_REQUIRE_KOREAN_FONT=1 로 돈다: 글꼴을 찾지 못하면 같은 식으로 실패한다.
+    화면 문구 합성을 도는 잡은 FRAME_REQUIRE_KOREAN_FONT=1 · FRAME_REQUIRE_DRAWTEXT=1 로 돈다:
+    한글 글꼴이나 글자를 그리는 ffmpeg 를 찾지 못하면 같은 식으로 실패한다.
     """
+    ffmpeg = find_ffmpeg()
     messages = (
-        missing_ffmpeg_message(os.environ, find_ffmpeg()),
+        missing_ffmpeg_message(os.environ, ffmpeg),
         missing_korean_font_message(os.environ, find_korean_font()),
+        missing_drawtext_message(os.environ, can_draw_text=can_draw_text(ffmpeg)),
     )
     for message in messages:
         if message is not None:

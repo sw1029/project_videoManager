@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 
 from frame.adapters.series.overlay.ffmpeg_renderer import resolve_font
-from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
-from frame.application.errors import ConfigurationError
+from frame.adapters.shared.media.ffmpeg import available_filters, resolve_ffmpeg
+from frame.application.errors import AdapterError, ConfigurationError
 
 
 def find_ffmpeg() -> str | None:
@@ -15,6 +15,19 @@ def find_ffmpeg() -> str | None:
         return resolve_ffmpeg()
     except ConfigurationError:
         return None
+
+
+def can_draw_text(ffmpeg: str | None) -> bool:
+    """이 ffmpeg 에 글자를 그리는 필터(drawtext)가 있는가. 없으면 화면 문구 합성 테스트는 건너뛴다.
+
+    video extra 가 Linux 에 가져오는 ffmpeg 에는 없다 (감사 A-43).
+    """
+    if ffmpeg is None:
+        return False
+    try:
+        return "drawtext" in available_filters(ffmpeg)
+    except AdapterError:
+        return False
 
 
 def find_korean_font() -> str | None:

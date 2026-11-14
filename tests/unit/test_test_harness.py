@@ -14,10 +14,12 @@ import pytest
 from tests.support.pins import exact_pins, pin_problems
 from tests.support.switches import (
     API_KEY_VARIABLES,
+    drawtext_required,
     ffmpeg_required,
     is_loopback,
     korean_font_required,
     live_tests_enabled,
+    missing_drawtext_message,
     missing_ffmpeg_message,
     missing_korean_font_message,
     shell_leak_names,
@@ -112,6 +114,23 @@ def test_a_missing_korean_font_fails_the_run_only_when_required():
     assert "한글 글꼴을 찾지 못했습니다" in (missing_korean_font_message(required, None) or "")
     assert missing_korean_font_message(required, "fonts/korean.ttc") is None
     assert missing_korean_font_message({}, None) is None  # 로컬과 다른 잡에서는 지금처럼 건너뛴다
+
+
+def test_an_ffmpeg_that_draws_text_is_required_only_when_asked():
+    assert drawtext_required({"FRAME_REQUIRE_DRAWTEXT": "1"})
+    assert not drawtext_required({})
+    assert not drawtext_required(
+        {"FRAME_REQUIRE_FFMPEG": "1"}
+    )  # ffmpeg 가 있다고 글자를 그릴 수 있는 것은 아니다
+
+
+def test_an_ffmpeg_without_drawtext_fails_the_run_only_when_required():
+    """화면 문구 합성을 돌리려는 CI 잡은 drawtext 가 없는 ffmpeg 를 만나면 건너뛰지 않고 실패한다 (감사 A-43)."""
+    required = {"FRAME_REQUIRE_DRAWTEXT": "1"}
+
+    assert "drawtext" in (missing_drawtext_message(required, can_draw_text=False) or "")
+    assert missing_drawtext_message(required, can_draw_text=True) is None
+    assert missing_drawtext_message({}, can_draw_text=False) is None  # 다른 잡과 로컬은 건너뛴다
 
 
 def test_pytest_leaves_paid_tests_out_by_default():

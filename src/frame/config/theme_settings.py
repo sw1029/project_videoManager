@@ -20,7 +20,7 @@
 | FRAME_THEME_ATTEMPTS | 2 | vlm 추출의 재질의 횟수 (프레임이 붙는 요청이라 LLM 설정과 따로 둔다) |
 | FRAME_SERIES_PLANNER | template · llm | 편의 내용 기획 |
 | FRAME_AUDIO_EDITOR | fake · ffmpeg | 녹음 자르기·놓기·붙이기 |
-| FRAME_OVERLAY_RENDERER | fake · ffmpeg | 화면 문구 얹기 |
+| FRAME_OVERLAY_RENDERER | fake · ffmpeg | 화면 문구 얹기. ffmpeg 는 drawtext 필터가 든 ffmpeg 가 있어야 한다 (아래) |
 | FRAME_OVERLAY_FONT | (없으면 한글 글꼴을 찾는다) | 화면 문구의 글꼴 파일 |
 | FRAME_SCREEN_TEXT_READER | off · fake · vlm | 얹은 문구를 화면에서 읽어 확인 |
 | FRAME_THEME_STORE | artifact · memory | 테마·편 문서를 두는 곳 |
@@ -30,6 +30,9 @@
 | FRAME_SHOT_THRESHOLD | 0.3 | ffmpeg 컷 찾기의 scene 점수 하한 |
 
 숫자 설정은 범위를 본다 (validate): 어긋나면 기동할 때 변수 이름이 든 설정 오류다.
+화면 문구 얹기(ffmpeg)는 drawtext 필터로 그린다. video extra 가 Windows · macOS 에 가져오는 ffmpeg 에는 그 필터가 있고,
+Linux 에 가져오는 것에는 없다 (libharfbuzz 없이 빌드됐다). Linux 에서는 drawtext 가 든 ffmpeg 를 PATH 에 두거나
+FRAME_VIDEO_FFMPEG 로 지정한다 (apt install ffmpeg). 없으면 기동할 때 그렇게 알린다 (감사 A-43).
 로컬 인식(faster_whisper)은 선택 설치다: pip install -e ".[speech-local]". 모델은 미리 받아 둔다 — 받는 명령과
 잰 판(저장소·revision·sha256)은 docs/adr/0028-script-extraction-and-evidence.md 결정 9 에 있다.
 """

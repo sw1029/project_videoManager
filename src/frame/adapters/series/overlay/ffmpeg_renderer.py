@@ -1,4 +1,9 @@
-"""ffmpeg drawtext 로 장면 클립에 화면 문구를 얹는다 (ADR-0027). 추가 설치 없이 글꼴 파일 하나만 있으면 된다.
+"""ffmpeg drawtext 로 장면 클립에 화면 문구를 얹는다 (ADR-0027).
+
+drawtext 필터가 든 ffmpeg 와 글꼴 파일 하나가 있으면 된다.
+- video extra 가 Windows · macOS 에 가져오는 ffmpeg 에는 drawtext 가 있다. Linux 에 가져오는 것에는 없다
+  (libharfbuzz 없이 빌드됐다 - 감사 A-43). 필터가 없는 ffmpeg 로는 렌더러가 만들어지지 않는다:
+  조립할 때 무엇을 할지 알린다.
 
 - 문구마다: (띠가 있으면) drawbox 로 영역을 칠하고, drawtext 로 영역 가운데에 글자를 그린다.
   둘 다 그 문구의 시간에만 켠다 (enable). 그 밖의 시간·영역의 그림은 그대로이고 다시 인코딩만 된다.
@@ -20,14 +25,14 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from frame.adapters.shared.media.ffmpeg import require_ffmpeg, tail
+from frame.adapters.shared.media.ffmpeg import available_filters, require_ffmpeg, tail
 from frame.adapters.shared.media.media_tools import (
     WORK_TIMEOUT_S,
     MediaToolError,
     probe_media,
     run_ffmpeg,
 )
-from frame.application.errors import ConfigurationError
+from frame.application.errors import AdapterError, ConfigurationError
 from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
 from frame.domain.series.episode import OverlayItem
 from frame.domain.series.theme import color_name
@@ -157,7 +162,18 @@ class _Canvas(NamedTuple):
     frames: int
 
 
+# 이 구현이 그리는 데 쓰는 필터. 이 필터가 없는 ffmpeg 빌드가 있다 (감사 A-43)
+REQUIRED_FILTERS = ("drawbox", "drawtext")
+
+
 class FfmpegOverlayRenderer(OverlayRenderer):
+    """ffmpeg 의 drawbox · drawtext 로 문구를 얹는다.
+
+    만들 때 확인하는 것: ffmpeg 가 있고, 글꼴 파일이 있고, 그 ffmpeg 에 그리는 필터가 있다.
+    하나라도 없으면 ConfigurationError 다 - 조립할 때(서버 기동) 드러나게 한다.
+    확인하지 않으면 장면을 다 만든 뒤 문구를 얹는 순간마다 실패한다.
+    """
+
     def __init__(
         self,
         ffmpeg: str | None,
@@ -171,6 +187,7 @@ class FfmpegOverlayRenderer(OverlayRenderer):
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.font_file = _checked_font(font_file)  # 굵은 문구에 쓴다
         self.regular_font_file = _checked_font(regular_font_file or font_file)
+        _check_filters(self._ffmpeg)
         self.crf = crf
         self.preset = preset
         self.timeout_s = timeout_s
@@ -260,6 +277,22 @@ def _font_id(path: str) -> str:
     """글꼴의 지문: 파일 이름 + 내용의 해시 앞부분. 폴더는 넣지 않는다 (저장소의 키에 경로가 남지 않게)."""
     file = Path(path)
     return f"{file.name}-{hashlib.sha256(file.read_bytes()).hexdigest()[:8]}"
+
+
+def _check_filters(ffmpeg: str) -> None:
+    """이 ffmpeg 로 문구를 그릴 수 있는가. 그리는 필터가 없으면 무엇을 할지 알리는 ConfigurationError."""
+    try:
+        present = available_filters(ffmpeg)
+    except AdapterError as exc:
+        raise ConfigurationError(f"ffmpeg 의 필터를 확인하지 못했습니다: {exc}") from exc
+    missing = [name for name in REQUIRED_FILTERS if name not in present]
+    if missing:
+        raise ConfigurationError(
+            f"이 ffmpeg 로는 화면 문구를 그릴 수 없습니다: {' · '.join(missing)} 필터가 없습니다. "
+            "ffmpeg 6.1 부터 drawtext 는 libharfbuzz 와 함께 빌드해야 들어가는데, video extra(imageio-ffmpeg)가 "
+            "Linux 에 가져오는 ffmpeg 는 그렇게 빌드되지 않았습니다. drawtext 가 든 ffmpeg 를 PATH 에 두거나 "
+            "(Debian · Ubuntu: apt install ffmpeg) FRAME_VIDEO_FFMPEG 로 그 실행 파일을 지정하세요"
+        )
 
 
 def _checked_font(path: str) -> str:
