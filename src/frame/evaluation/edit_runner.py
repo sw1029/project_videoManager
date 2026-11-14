@@ -130,6 +130,9 @@ def run_case(
                 keep=spec.keep,
             )
         )
+        # 계약 위반. 두 실행(--plan-only 와 일반)이 같은 길로 이 케이스의 오류가 되게 여기서 거른다
+        if run.plan is None:
+            raise RuntimeError("변경 계획을 돌려받지 못했습니다 (PlanRevision 계약 위반)")
         if not plan_only:
             revision = app.create_revision.execute(
                 CreateRevisionCommand(

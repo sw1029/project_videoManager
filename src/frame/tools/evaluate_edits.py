@@ -217,16 +217,14 @@ def _percent(value: float | None) -> str:
 
 def _progress(run: CaseRun, plan_only: bool) -> str:
     head = f"{run.spec.case_id}:"
-    if run.error_code is not None:
+    plan = run.plan
+    # run_case 는 계획 없이 끝난 케이스를 늘 오류로 남긴다. plan 조건은 아래에서 계획을 쓰기 위한 것이다
+    if run.error_code is not None or plan is None:
         line = f"{head} 오류 {run.error_code}: {run.error_message} ({run.elapsed_s:.1f}s)"
         if left_unfinished(run):
             line += f" · {_unfinished_text(run)}"
         return line
     if plan_only:
-        plan = run.plan
-        # PlanRevision 은 오류가 없으면 늘 계획을 돌려준다. 없으면 계약 위반이라 멈춘다 (계획만 보는 실행이라 과금 없음)
-        if plan is None:
-            raise RuntimeError(f"{run.spec.case_id}: 오류 없이 끝났는데 변경 계획이 없습니다")
         cost = "-" if plan.estimated_cost_usd is None else f"${plan.estimated_cost_usd:.3f}"
         return (
             f"{head} 계획 {plan.kind} · 다시 만들 장면 {len(plan.target_scene_keys)} "

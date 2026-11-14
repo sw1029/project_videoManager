@@ -287,22 +287,35 @@ def test_plan_only_reports_the_plan_without_creating_revisions(tmp_path):
     assert summary["regenerate_scenes"] == 2
 
 
-def test_plan_only_case_that_ends_without_a_plan_fails_loudly(tmp_path):
-    """오류 없이 끝났는데 계획이 없으면(유스케이스 계약 위반) 진행 줄을 지어내지 않고 멈춘다.
+@pytest.mark.parametrize("options", [(), ("--plan-only",)], ids=["run", "plan-only"])
+def test_case_without_a_plan_is_recorded_and_the_run_continues(tmp_path, options):
+    """계획을 돌려주지 않은 케이스(PlanRevision 계약 위반)는 두 실행 모두 그 케이스의 오류로 남고 다음으로 간다."""
 
-    python -O 에서도 사라지지 않는 명시적 확인이다. 계획만 보는 실행이라 과금은 없다.
-    """
+    class NoPlanForBlack:
+        def __init__(self, inner):
+            self.inner = inner
 
-    class NoPlan:
         def execute(self, command):
-            return None
+            if command.change.new_value == "black":
+                return None
+            return self.inner.execute(command)
 
     container = _container()
     parent = _parent(container)
-    broken = dataclasses.replace(container, plan_revision=NoPlan())
+    broken = dataclasses.replace(container, plan_revision=NoPlanForBlack(container.plan_revision))
 
-    with pytest.raises(RuntimeError, match="변경 계획이 없습니다"):
-        _run(tmp_path, broken, [_cup(parent)], "--plan-only")
+    code, report = _run(
+        tmp_path,
+        broken,
+        [_cup(parent, case_id="first", new_value="black"), _cup(parent)],
+        *options,
+    )
+
+    assert code == 0
+    first, cup = report["cases"]
+    assert first["error"]["code"] == "UNEXPECTED_ERROR"
+    assert "변경 계획" in first["error"]["message"]
+    assert cup["error"] is None and cup["plan"] is not None
 
 
 def test_report_is_rewritten_after_each_case(tmp_path):
