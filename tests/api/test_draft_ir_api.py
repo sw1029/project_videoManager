@@ -167,3 +167,28 @@ def test_display_names_can_be_given_and_are_returned(api):
     names = {e["entity_key"]: e["display_name"] for e in response.json()["ir"]["entities"]}
     assert names == {"barista": None, "cup": "컵 01", "cafe": None}
     assert response.json()["repair_notes"] == []
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda ir: ir["scenes"][0].update(scene_key="../ver_victim/intro"),
+        lambda ir: ir["entities"][0].update(entity_key="a:b"),
+        lambda ir: ir["scenes"][1].update(entity_keys=["cup", "../x"]),
+        lambda ir: ir["scenes"][0]["requirements"][0].update(related_entity_key="컵"),
+    ],
+    ids=["scene-key", "entity-key", "scene-entity-keys", "requirement-key"],
+)
+def test_ir_keys_must_be_ascii_identifiers(api, mutate):
+    """감사 A-01: 키는 저장 경로·요구조건 키에 들어가므로 영문·숫자·밑줄만 받는다 (422, 저장하지 않음)."""
+    client, container = api
+    draft = _draft(client, container)
+    ir = copy.deepcopy(draft["ir"])
+    mutate(ir)
+
+    response = client.put(f"/api/versions/{draft['version_id']}/ir", json=ir)
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
+    assert response.json()["details"]
+    assert client.get(f"/api/versions/{draft['version_id']}").json()["ir"] == draft["ir"]

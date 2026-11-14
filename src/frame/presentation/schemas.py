@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, StringConstraints, model_validator
+
+from frame.domain.ir import KEY_PATTERN
 
 # ---- 입력 제한 (공개 데모에서 LLM 비용·저장 용량을 지키기 위한 상한) ----------------
 
@@ -17,6 +19,9 @@ MAX_IR_ENTITIES = 50
 MAX_IR_SCENES = 60
 MAX_SCENE_REQUIREMENTS = 50
 MIN_SCENE_MS = 500  # 보정이 장면 길이를 이 값보다 짧게 두지 않는다 (adapters/structurer/repair.py)
+# 객체·장면 키: 도메인 규칙(KEY_PATTERN)과 같은 식을 스키마에도 건다 (감사 A-01). 422 의 details 가 필드별로 나온다
+IR_KEY_PATTERN = f"^{KEY_PATTERN.pattern}$"
+IRKey = Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=IR_KEY_PATTERN)]
 
 # ---- 요청 ----------------------------------------------------------------
 
@@ -27,8 +32,8 @@ class ReferenceImageIn(BaseModel):
 
 
 class IREntityIn(BaseModel):
-    entity_key: str = Field(
-        min_length=1, max_length=64, description="영문 snake_case 식별자 (요구조건·추적의 키)"
+    entity_key: IRKey = Field(
+        description="영문·숫자·밑줄로 된 64자 이하 식별자, 영문·숫자로 시작 (요구조건·추적·저장 경로의 키)"
     )
     kind: str = Field(
         min_length=1,
@@ -41,19 +46,19 @@ class IREntityIn(BaseModel):
 
 
 class IRRequirementIn(BaseModel):
-    scene_key: str | None = Field(default=None, max_length=64)  # 생략하면 그 요구조건이 속한 장면
-    entity_key: str | None = Field(default=None, max_length=64)  # null 이면 장면 수준 조건
-    related_entity_key: str | None = Field(default=None, max_length=64)  # 관계 술어의 상대 객체
+    scene_key: IRKey | None = None  # 생략하면 그 요구조건이 속한 장면
+    entity_key: IRKey | None = None  # null 이면 장면 수준 조건
+    related_entity_key: IRKey | None = None  # 관계 술어의 상대 객체
     predicate: str = Field(min_length=1, max_length=64)  # GET /api/vocabulary/predicates
     expected_value: str = Field(default="", max_length=300)  # 관계 술어는 비우면 상대 객체 키
 
 
 class IRSceneIn(BaseModel):
-    scene_key: str = Field(min_length=1, max_length=64)
+    scene_key: IRKey  # 객체 키와 같은 형식 (클립 저장 경로에 들어간다)
     planned_start_ms: int = Field(ge=0, le=MAX_TARGET_DURATION_MS)
     planned_end_ms: int = Field(gt=0, le=MAX_TARGET_DURATION_MS)
     description: str = Field(default="", max_length=1000)
-    entity_keys: list[str] = Field(default_factory=list, max_length=MAX_IR_ENTITIES)
+    entity_keys: list[IRKey] = Field(default_factory=list, max_length=MAX_IR_ENTITIES)
     requirements: list[IRRequirementIn] = Field(
         default_factory=list, max_length=MAX_SCENE_REQUIREMENTS
     )

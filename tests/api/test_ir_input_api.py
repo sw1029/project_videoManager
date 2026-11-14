@@ -137,3 +137,31 @@ def test_prompt_only_requests_still_start_structuring(api):
         "repair_notes": [],
     }
     assert len(dispatcher_of(container).pending) == 1
+
+
+@pytest.mark.parametrize(
+    ("where", "key"),
+    [
+        ("scene", "../ver_victim/intro"),  # 저장 경로를 벗어나는 장면 키 (감사 A-01 재현값)
+        ("scene", "a/b"),
+        ("entity", "a:b"),  # 요구조건 키의 경계를 흐린다
+        ("entity", "-"),  # 장면 수준 조건의 자리 표시와 겹친다
+        ("entity", "컵"),
+    ],
+)
+def test_keys_that_are_not_ascii_identifiers_are_rejected_per_field(api, where, key):
+    client, container, _ = api
+    document = cafe_block_document()
+    if where == "scene":
+        document["scenes"][0]["scene_key"] = key
+    else:
+        document["entities"][0]["entity_key"] = key
+
+    response = client.post("/api/projects", json={"title": "카페", "ir": document})
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error_code"] == "VALIDATION_ERROR"
+    field = "scene_key" if where == "scene" else "entity_key"
+    assert any(d["loc"].endswith(field) for d in body["details"])
+    assert client.get("/api/projects/prj_0001").status_code == 404

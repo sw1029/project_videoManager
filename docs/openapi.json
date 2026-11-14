@@ -1304,9 +1304,10 @@
             "title": "Display Name"
           },
           "entity_key": {
-            "description": "영문 snake_case 식별자 (요구조건·추적의 키)",
+            "description": "영문·숫자·밑줄로 된 64자 이하 식별자, 영문·숫자로 시작 (요구조건·추적·저장 경로의 키)",
             "maxLength": 64,
             "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
             "title": "Entity Key",
             "type": "string"
           },
@@ -1387,6 +1388,8 @@
             "anyOf": [
               {
                 "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
                 "type": "string"
               },
               {
@@ -1411,6 +1414,8 @@
             "anyOf": [
               {
                 "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
                 "type": "string"
               },
               {
@@ -1423,6 +1428,8 @@
             "anyOf": [
               {
                 "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
                 "type": "string"
               },
               {
@@ -1448,6 +1455,9 @@
           },
           "entity_keys": {
             "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
               "type": "string"
             },
             "maxItems": 50,
@@ -1477,6 +1487,7 @@
           "scene_key": {
             "maxLength": 64,
             "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_]{0,63}$",
             "title": "Scene Key",
             "type": "string"
           }
