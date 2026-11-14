@@ -6,6 +6,8 @@
 - ATTRIBUTE, 영역이 없는 SCENE_TEXT: 그 요구조건이 걸린 장면만 다시 만드는 수정 버전(REPAIR)을 만들고 생성을 접수한다.
   편은 새 버전을 가리키고, 예전 버전은 history 에 남는다. 한 번에 한 가지 조건만 보낸다
   (수정 버전 하나는 한 가지 의도를 갖는다, ADR-0017). 나머지는 그 버전이 끝난 뒤 다시 고친다.
+- CONSISTENCY (같은 객체가 장면마다 다르게 보임): 그 장면에서 그 객체의 모습 조건 하나를 축으로 같은 수정 버전(REPAIR)을
+  만든다. 그런 조건이 없으면 알리기만 한다.
 - NARRATION: 자동으로 고칠 수 없다. 다시 녹음할 줄을 알려 준다 (AttachNarration 에 그 줄만 주면 갈아 끼운다).
 - 화면에서 다르게 읽힌 문구(계획은 맞음): 글꼴·영역의 문제라 자동으로 고치지 않고 알린다.
 
@@ -25,6 +27,7 @@ from frame.domain.errors import NotFound, ValidationError
 from frame.domain.revision import KeepItem
 from frame.domain.screen import Region, TextRole
 from frame.domain.series import Episode
+from frame.domain.services.identity import appearance_attributes
 from frame.domain.services.propagation import AttributeChange
 from frame.domain.theme import TextStyle
 
@@ -146,17 +149,37 @@ class CorrectEpisodeScreen:
     def _edit_clips(
         self, episode: Episode, issues: Sequence[ScreenIssue], command: CorrectScreenCommand
     ) -> tuple[Episode, list[CorrectionStep]]:
-        """같은 조건(객체·술어·값)이 걸린 장면들을 한 수정 버전으로 다시 만든다. 다른 조건은 다음으로 미룬다."""
+        """같은 조건(객체·술어·값)이 걸린 장면들을 한 수정 버전으로 다시 만든다. 다른 조건은 다음으로 미룬다.
+
+        다시 맞추기(REPAIR)는 요구조건 하나를 축으로 한다 (ADR-0017). 장면마다 다르게 보인 객체(CONSISTENCY)는
+        틀린 요구조건이 없으므로, 그 장면에서 그 객체의 모습 조건 하나를 축으로 삼는다. 없으면 알리기만 한다.
+        """
+        axes: dict[str, tuple[str | None, str, str]] = {}
+        skipped: list[CorrectionStep] = []
+        for issue in issues:
+            axis = _axis(episode.plan, issue)
+            if axis is None:
+                skipped.append(
+                    _step(
+                        issue,
+                        StepStatus.SKIPPED,
+                        f"장면 '{issue.scene_key}' 에 '{issue.entity_key}' 의 모습 조건이 없어 "
+                        "다시 맞출 축이 없습니다. 조건을 더한 뒤 다시 만드세요",
+                    )
+                )
+            else:
+                axes[issue.issue_id] = axis
+        issues = [i for i in issues if i.issue_id in axes]
+        if not issues:
+            return episode, skipped
         first = issues[0]
-        target = (first.entity_key, first.predicate, first.expected)
-        group = [i for i in issues if (i.entity_key, i.predicate, i.expected) == target]
+        target = axes[first.issue_id]
+        group = [i for i in issues if axes[i.issue_id] == target]
         rest = [i for i in issues if i not in group]
-        if first.predicate is None:
-            raise ValidationError(f"요구조건을 알 수 없어 고칠 수 없습니다: {first.issue_id}")
         change = AttributeChange(
-            entity_key=first.entity_key,
-            predicate=first.predicate,
-            new_value=first.expected,
+            entity_key=target[0],
+            predicate=target[1],
+            new_value=target[2],
             scope=ChangeScope.SCENES,
             scene_keys=tuple(dict.fromkeys(i.scene_key for i in group)),
         )
@@ -190,7 +213,21 @@ class CorrectEpisodeScreen:
             )
             for issue in rest
         ]
-        return episode.with_version(created.version_id), steps
+        return episode.with_version(created.version_id), [*steps, *skipped]
+
+
+def _axis(plan: EpisodePlan, issue: ScreenIssue) -> tuple[str | None, str, str] | None:
+    """그 어긋남을 다시 맞출 축: (객체, 술어, 지켜져야 하는 값). 없으면 None."""
+    if issue.kind is IssueKind.CONSISTENCY:
+        if issue.entity_key is None:
+            return None
+        looks = appearance_attributes(plan.ir.scene(issue.scene_key), issue.entity_key)
+        for predicate, value in looks.items():
+            return issue.entity_key, predicate, value
+        return None
+    if issue.predicate is None:
+        raise ValidationError(f"요구조건을 알 수 없어 고칠 수 없습니다: {issue.issue_id}")
+    return issue.entity_key, issue.predicate, issue.expected
 
 
 def _selected(report: ScreenReport, issue_ids: Sequence[str]) -> list[ScreenIssue]:

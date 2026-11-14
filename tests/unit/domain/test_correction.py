@@ -129,3 +129,76 @@ def test_one_patch_overlay_per_requirement():
     """가린 문구의 id 는 요구조건(장면·객체·술어)으로 정해진다. 검수가 그 id 로 고친 것을 알아본다."""
     assert patch_overlay_id("closeup", "mug", "text") == "closeup:patch:mug:text"
     assert patch_overlay_id("closeup", None, "text") == "closeup:patch:scene:text"
+
+
+# ---- 같은 객체가 장면마다 다르게 보임 ----
+def _inconsistent(entity_key="cup", warnings=(), verdict=Verdict.FAIL):
+    return CheckResult(
+        check_id=f"chk_consistency_{entity_key}",
+        version_id="ver_1",
+        check_type=CheckType.CONSISTENCY,
+        verdict=verdict,
+        score=0.5,
+        entity_key=entity_key,
+        warnings=tuple(warnings),
+        detail={"reference": "first_visible_frame"},
+    )
+
+
+def test_failed_consistency_check_becomes_an_issue_in_each_warned_scene(ir):
+    """요구조건은 맞아도 같은 객체가 장면마다 다르면 화면이 틀린 것이다."""
+    warning = WarningInterval("closeup", 4000, 8000, "cup: 기준과 다른 모습 (cup shape)")
+    issues = issues_from_checks(ir, [_inconsistent(warnings=[warning])])
+
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.issue_id == "consistency:closeup:cup"
+    assert (issue.kind, issue.method) == (IssueKind.CONSISTENCY, CorrectionMethod.CLIP_EDIT)
+    assert (issue.scene_key, issue.start_ms, issue.end_ms) == ("closeup", 4000, 8000)
+    assert issue.entity_key == "cup" and issue.predicate is None and issue.requirement_key is None
+    assert "cup shape" in issue.observed and issue.expected == ""
+    assert issue.detail == {
+        "check_id": "chk_consistency_cup",
+        "score": 0.5,
+        "reference": "first_visible_frame",
+    }
+
+
+def test_consistency_issue_without_warnings_covers_every_scene_of_the_entity(ir):
+    issues = issues_from_checks(ir, [_inconsistent()])
+
+    assert [i.scene_key for i in issues] == [
+        s.scene_key for s in ir.scenes if "cup" in s.entity_keys
+    ]
+    assert issues and all(i.kind is IssueKind.CONSISTENCY for i in issues)
+
+
+def test_passed_or_entityless_consistency_checks_are_not_issues(ir):
+    warning = WarningInterval("gone", 0, 1000, "없는 장면")
+    results = [
+        _inconsistent(verdict=Verdict.PASS),
+        _inconsistent(verdict=Verdict.UNDETERMINED),
+        _inconsistent(entity_key=None),
+        _inconsistent(entity_key="ghost"),  # 이 IR 에 없는 객체
+        _inconsistent(warnings=[warning]),  # 이 IR 에 없는 장면
+    ]
+
+    assert issues_from_checks(ir, results) == ()
+
+
+def test_consistency_issues_come_after_the_requirement_issues_of_their_scene(ir):
+    warning = WarningInterval("intro", 0, 4000, "cup: 기준과 다른 모습")
+    issues = issues_from_checks(
+        ir,
+        [
+            _inconsistent(warnings=[warning]),
+            _result("closeup:cup:color"),
+            _result("intro:cup:color"),
+        ],
+    )
+
+    assert [i.issue_id for i in issues] == [
+        "requirement:intro:cup:color",
+        "consistency:intro:cup",
+        "requirement:closeup:cup:color",
+    ]

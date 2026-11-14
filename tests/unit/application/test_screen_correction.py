@@ -24,6 +24,7 @@ from frame.application.series import (
     StepStatus,
 )
 from frame.config.theme_wiring import ThemeSettings
+from frame.domain.checks import WarningInterval
 from frame.domain.correction import CorrectionMethod, IssueKind
 from frame.domain.enums import KeepAspect, RevisionKind, VersionState
 from frame.domain.episode import OverlayKind
@@ -41,7 +42,7 @@ from tests.support.series import (
     series_container,
     series_of,
 )
-from tests.support.themes import matcha_content
+from tests.support.themes import cafe_theme, matcha_content
 
 
 def _container(*, failing=(), reader=None, **overrides):
@@ -399,6 +400,75 @@ def test_same_condition_in_several_scenes_goes_into_one_revision_and_others_wait
         "closeup",
     )
     assert {s.status for s in picked.steps} == {StepStatus.DRAFTED}
+
+
+# ---- 국소 수정: 같은 객체가 장면마다 다르게 보임 ----
+def _inconsistent_latte(**overrides):
+    """말차 라떼가 클로즈업 장면에서 기준과 다르게 나온 편. 요구조건은 모두 맞다."""
+    warning = WarningInterval("closeup", 8000, 12000, "latte: 기준과 다른 모습 (cup shape)")
+    checkers = (
+        FakeRequirementChecker(),
+        FakeConsistencyChecker(warnings_by_entity={"latte": [warning]}),
+        FakePreservationChecker(),
+    )
+    return _spied(checkers=checkers, **overrides)
+
+
+def test_object_that_looks_different_in_one_scene_is_found_and_only_that_scene_is_remade():
+    """둘째 실호출: 요구조건은 모두 통과했는데 같은 컵이 장면마다 달랐다. 화면 검수가 그것을 놓치면 안 된다.
+
+    고칠 때는 그 장면에서 그 객체의 모습 조건 하나를 축으로 다시 맞추는(REPAIR) 수정 버전을 만든다.
+    """
+    container, generator = _inconsistent_latte()
+    episode = _ready(container)
+    before = version_of(container, episode.version_id)
+    generator.requests.clear()
+
+    report = _check(container, episode)
+    assert [(i.issue_id, i.kind) for i in report.issues] == [
+        ("consistency:closeup:latte", IssueKind.CONSISTENCY)
+    ]
+
+    result = _correct(container, episode)
+
+    step = result.steps[0]
+    assert (step.status, step.method) == (StepStatus.GENERATING, CorrectionMethod.CLIP_EDIT)
+    dispatcher_of(container).run_all()
+    revision = version_of(container, result.pending_version_id)
+    assert revision.intent.kind is RevisionKind.REPAIR
+    assert revision.intent.target_scene_keys == ("closeup",)
+    assert (revision.intent.entity_key, revision.intent.predicate) == ("latte", "color")
+    assert [r.scene.scene_key for r in generator.requests] == ["closeup"]
+    for scene_key in ("greeting", "show", "outro"):
+        assert revision.clips[scene_key].uri == before.clips[scene_key].uri
+
+
+def test_inconsistent_object_without_a_look_condition_in_that_scene_is_reported_not_remade():
+    """그 장면에 그 객체의 모습 조건이 없으면 다시 맞출 축이 없다. 알리기만 한다."""
+    warning = WarningInterval("greeting", 0, 4000, "barista: 기준과 다른 모습")
+    theme = replace(
+        cafe_theme(),
+        cast=tuple(replace(c, fixed_attributes=()) for c in cafe_theme().cast),
+    )
+    store = InMemoryArtifactStore()
+    container = series_container(
+        artifact_store=store,
+        generator=FakeVideoGenerator(store),
+        checkers=(
+            FakeRequirementChecker(),
+            FakeConsistencyChecker(warnings_by_entity={"barista": [warning]}),
+            FakePreservationChecker(),
+        ),
+    )
+    save_theme(container, theme)
+    episode = _ready(container)
+
+    result = _correct(container, episode)
+
+    assert [(s.issue_id, s.status) for s in result.steps] == [
+        ("consistency:greeting:barista", StepStatus.SKIPPED)
+    ]
+    assert "조건이 없어" in result.steps[0].note and result.pending_version_id is None
 
 
 # ---- 국소 수정: 녹음 ----
