@@ -1,9 +1,28 @@
+"""로컬 파일 산출물 저장소: 저장 루트 아래의 파일로 둔다 (URI 는 local://<키>).
+
+쓰기는 같은 폴더의 임시 파일에 다 쓴 뒤 바꿔 끼운다. 작업 원장·생성 캐시의 기록이 여기에 있어서,
+쓰는 도중 끊기거나 다른 스레드가 읽어도 잘린 기록이 보이면 안 된다 (잘린 기록은 '없음' 으로 읽혀 다시 과금된다).
+"""
+
 from __future__ import annotations
 
+import contextlib
+import os
+import time
+import uuid
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from frame.application.errors import StorageError
 from frame.application.ports.artifact_store import ArtifactStore, check_artifact_key
+
+# Windows 는 다른 스레드·프로세스가 파일을 열고 있는 동안 바꿔 끼우기·읽기를 거절한다 (PermissionError).
+# 그런 순간은 짧으므로 잠깐씩 기다리며 다시 한다. 이만큼 기다려도 잠겨 있으면 그만둔다
+_BUSY_WAIT_S = 1.0
+_BUSY_PAUSE_S = 0.005
+
+_T = TypeVar("_T")
 
 
 class LocalFileArtifactStore(ArtifactStore):
@@ -20,15 +39,28 @@ class LocalFileArtifactStore(ArtifactStore):
 
     def put(self, key: str, data: bytes, content_type: str | None = None) -> str:
         path = self._path_for(key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with temporary.open("wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            _while_busy(lambda: temporary.replace(path))
+        except OSError as exc:
+            with contextlib.suppress(OSError):
+                temporary.unlink(missing_ok=True)
+            raise StorageError(f"산출물을 쓰지 못했습니다: {key} ({_reason(exc)})") from exc
         return f"{self.SCHEME}{key}"
 
     def get(self, uri: str) -> bytes:
         path = self._path_for(self._key_of(uri))
         if not path.is_file():
             raise StorageError(f"산출물이 없습니다: {uri}")
-        return path.read_bytes()
+        try:
+            return _while_busy(path.read_bytes)
+        except OSError as exc:
+            raise StorageError(f"산출물을 읽지 못했습니다: {uri} ({_reason(exc)})") from exc
 
     def exists(self, uri: str) -> bool:
         try:
@@ -58,3 +90,22 @@ class LocalFileArtifactStore(ArtifactStore):
         if self._root not in path.parents and path != self._root:
             raise StorageError(f"저장 루트를 벗어난 키: {key}")
         return path
+
+
+def _while_busy(action: Callable[[], _T]) -> _T:
+    """파일이 잠깐 잠겨 있으면(PermissionError) 기다렸다 다시 한다. 끝까지 잠겨 있으면 그 오류를 올린다."""
+    deadline = time.monotonic() + _BUSY_WAIT_S
+    pause = _BUSY_PAUSE_S
+    while True:
+        try:
+            return action()
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(pause)
+            pause = min(pause * 2, 0.05)
+
+
+def _reason(exc: OSError) -> str:
+    """오류의 종류만 남긴다. 서버의 경로가 든 원문은 싣지 않는다 (감사 A-29)."""
+    return f"{type(exc).__name__}: {exc.strerror or '입출력 오류'}"
