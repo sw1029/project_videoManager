@@ -144,6 +144,24 @@ def test_a_failing_handler_does_not_take_the_worker_down(caplog):
     assert "handler exploded" in caplog.text
 
 
+def test_finished_jobs_are_not_kept_forever():
+    """끝난 작업의 Future 를 계속 쥐고 있으면 서버가 도는 동안 목록이 끝없이 자란다 (감사 A-07)."""
+    handlers = JobHandlerRegistry()
+    handlers.register("work", lambda job: None)
+    dispatcher = ThreadPoolJobDispatcher(handlers)
+    try:
+        for _ in range(50):
+            dispatcher.dispatch(_job())
+        dispatcher.wait()
+        deadline = time.monotonic() + WAIT
+        while dispatcher.futures and time.monotonic() < deadline:
+            time.sleep(0.01)  # 끝난 작업을 목록에서 빼는 것은 작업 스레드가 한다
+    finally:
+        dispatcher.shutdown()
+
+    assert dispatcher.futures == []
+
+
 def test_wait_covers_the_jobs_that_are_still_running():
     handlers = JobHandlerRegistry()
     release = threading.Event()
