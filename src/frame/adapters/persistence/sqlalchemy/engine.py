@@ -21,6 +21,9 @@ from .models import Base
 
 log = logging.getLogger(__name__)
 
+# SQLite 파일 DB 에서 쓰기가 겹쳤을 때 기다리는 시간. 넘기면 'database is locked'
+_SQLITE_BUSY_TIMEOUT_MS = 30_000
+
 
 def create_engine_from_url(url: str) -> Engine:
     if url.startswith("sqlite"):
@@ -32,9 +35,14 @@ def create_engine_from_url(url: str) -> Engine:
         )
 
         @event.listens_for(engine, "connect")
-        def _enable_foreign_keys(dbapi_connection, _record):  # type: ignore[no-untyped-def]
+        def _configure(dbapi_connection, _record):  # type: ignore[no-untyped-def]
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")  # FK 로 무결성 규칙 3·4·5 를 강제
+            if not in_memory:
+                # 요청 스레드·작업 스레드·진행 기록·주기 복구가 같은 파일에 쓴다 (감사 A-14).
+                # WAL 이면 쓰는 동안에도 읽을 수 있고, 겹친 쓰기는 바로 실패하지 않고 기다린다
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
             cursor.close()
 
         return engine
