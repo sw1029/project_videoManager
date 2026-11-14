@@ -19,6 +19,8 @@ from frame.config import Settings, build_container
 from frame.presentation.app import create_app
 
 DEFAULT_OUTPUT = Path("docs/openapi.json")
+# 스키마를 따라 내려가는 깊이의 상한 (서로를 가리키는 스키마에서 멈춘다)
+_MAX_DEPTH = 8
 
 
 def build_spec() -> dict[str, Any]:
@@ -46,7 +48,7 @@ def _fields(
     schema: dict[str, Any], components: dict[str, Any], prefix: str, depth: int = 0
 ) -> set[str]:
     node = _resolve(schema, components)
-    if depth > 8:
+    if depth > _MAX_DEPTH:
         return set()
     if node.get("type") == "array" and "items" in node:
         return _fields(node["items"], components, f"{prefix}[]", depth + 1) or {f"{prefix}[]"}

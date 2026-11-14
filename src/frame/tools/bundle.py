@@ -533,6 +533,9 @@ def build(
 # ---- 확인 ---------------------------------------------------------------------------------
 
 
+_PROBE_LINES = 2  # 동봉 Python 에 물어 받는 답의 줄 수 (verify 의 code)
+
+
 def minimal_env() -> dict[str, str]:
     """Python·Node 가 설치되지 않은 기기처럼: PATH 는 시스템 폴더만 두고 PYTHON*·가상환경 설정은 뺀다."""
     if os.name == "nt":
@@ -625,13 +628,14 @@ def verify(path: Path, target: Target) -> int:
         root = (Path(tmp) / top_dir(target)).resolve()
         python = bundled_python(root, target)
         env = minimal_env()
+        # 두 줄을 찍는다: 파이썬의 판, frame 꾸러미의 위치
         code = "import frame, platform; print(platform.python_version()); print(frame.__file__)"
         probe = launcher._ask([str(python), "-I", "-c", code], env=env, cwd=root)
         lines = probe.stdout.splitlines() if probe is not None else []
         inside = (
             probe is not None
             and probe.returncode == 0
-            and len(lines) == 2
+            and len(lines) == _PROBE_LINES
             and Path(lines[1]).resolve().is_relative_to(root)
         )
         check(

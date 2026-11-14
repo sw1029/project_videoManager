@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from frame.application.errors import AdapterError
 from frame.application.ports.sound import SoundReader
 from frame.domain.errors import ValidationError
+from frame.domain.series.narration import MAX_TRACK_TEMPO, MIN_TRACK_TEMPO
 
 
 class AudioError(AdapterError):
@@ -45,8 +46,10 @@ class TrackCut:
             raise ValidationError(f"트랙 조각의 번호·시각은 0 이상이어야 합니다: {self}")
         if self.source_end_ms <= self.source_start_ms:
             raise ValidationError(f"트랙 조각의 끝이 시작보다 뒤여야 합니다: {self}")
-        if not (math.isfinite(self.tempo) and 0.5 <= self.tempo <= 2.0):
-            raise ValidationError(f"트랙 조각의 빠르기는 0.5~2.0 이어야 합니다: {self.tempo}")
+        if not (math.isfinite(self.tempo) and MIN_TRACK_TEMPO <= self.tempo <= MAX_TRACK_TEMPO):
+            raise ValidationError(
+                f"트랙 조각의 빠르기는 {MIN_TRACK_TEMPO}~{MAX_TRACK_TEMPO} 이어야 합니다: {self.tempo}"
+            )
 
 
 class AudioEditor(SoundReader):

@@ -33,6 +33,8 @@ UPLOAD_PREFIX = "refs/uploads/"
 # 10 MiB. 생성기는 참조 이미지를 data URI 로 보내므로 작을수록 좋다
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 EXTENSIONS: dict[str, str] = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+# WebP 를 알아보는 데 필요한 머리의 길이: "RIFF" + 크기 4바이트 + "WEBP"
+_WEBP_HEADER_BYTES = 12
 _UPLOAD_NAME = re.compile(r"[A-Za-z0-9_-]{1,100}\.(?:png|jpg|webp)")
 EXTERNAL_SCHEMES = frozenset(
     {"http", "https"}
@@ -50,7 +52,7 @@ def sniff_image_type(data: bytes) -> str | None:
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+    if len(data) >= _WEBP_HEADER_BYTES and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
     return None
 

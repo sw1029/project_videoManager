@@ -67,6 +67,7 @@ import time
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from http import HTTPStatus
 from typing import Any, NamedTuple
 from urllib.parse import quote, urlsplit
 
@@ -668,7 +669,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             )
         except TransportError:
             return None, True, None
-        if resp.status != 200:
+        if resp.status != HTTPStatus.OK:
             return None, _may_pass(resp.status), None
         try:
             data = self._json(resp)
@@ -1115,7 +1116,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             resp = self._http.request("GET", url, timeout=timeout or self.request_timeout_seconds)
         except TransportError as exc:
             raise GenerationError(f"OpenRouter 영상 모델 목록을 받지 못했습니다: {exc}") from exc
-        if resp.status != 200:
+        if resp.status != HTTPStatus.OK:
             raise GenerationError(
                 f"OpenRouter 영상 모델 목록을 받지 못했습니다: {resp.status} {_hint(resp.status)}"
             )
@@ -1263,7 +1264,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 continue
             if resp.status in _GONE:  # 만료됐거나 다른 서버의 작업: 이어 받을 수 없다
                 raise self._gone("상태 조회", resp, job_id)
-            if resp.status != 200:
+            if resp.status != HTTPStatus.OK:
                 raise self._http_error("상태 조회", resp, retryable=False, job_id=job_id)
             data = self._json(resp, job_id)
             state = str(data.get("status") or "")
@@ -1291,7 +1292,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             except TransportError as exc:
                 last = str(exc)
             else:
-                if resp.status == 200:
+                if resp.status == HTTPStatus.OK:
                     if not _looks_like_video(resp):
                         raise _JobUnrecoverable(
                             f"OpenRouter 작업 {job_id} 의 결과가 영상이 아닙니다 "
@@ -1392,13 +1393,17 @@ def _may_pass(status: int) -> bool:
 
     GET 은 과금과 무관해 다시 물어도 된다 (ADR-0011). 상태 조회·결과 내려받기·부모 작업 조회가 이 기준 하나를 쓴다.
     """
-    return status in _TRANSIENT_GET or status >= 500
+    return status in _TRANSIENT_GET or status >= HTTPStatus.INTERNAL_SERVER_ERROR
 
 
 def _hint(status: int) -> str:
     if status in _STATUS_HINTS:
         return _STATUS_HINTS[status]
-    return "OpenRouter 서버 오류" if status >= 500 else "예상하지 못한 응답"
+    return (
+        "OpenRouter 서버 오류"
+        if status >= HTTPStatus.INTERNAL_SERVER_ERROR
+        else "예상하지 못한 응답"
+    )
 
 
 def _error_message(resp: HttpResponse) -> str:

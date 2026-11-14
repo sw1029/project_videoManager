@@ -25,6 +25,8 @@ from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio
 
 SPEECH_SAMPLE_RATE = 16000
+# 빠르기가 1 과 이만큼도 다르지 않으면 바꾸지 않은 것으로 본다 (필터를 넣지 않는다)
+_SAME_TEMPO = 1e-6
 
 
 class FfmpegAudioEditor(AudioEditor):
@@ -124,7 +126,7 @@ class FfmpegAudioEditor(AudioEditor):
                     f"atrim=start={cut.source_start_ms / 1000:.3f}:end={cut.source_end_ms / 1000:.3f},"
                     f"asetpts=PTS-STARTPTS,aformat=sample_rates={self.sample_rate}:channel_layouts=mono"
                 )
-                if abs(cut.tempo - 1.0) > 1e-6:
+                if abs(cut.tempo - 1.0) > _SAME_TEMPO:
                     chain += f",atempo={cut.tempo:.6f}"
                 chain += f",adelay={cut.target_start_ms}:all=1[c{number}]"
                 chains.append(chain)

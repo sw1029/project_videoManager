@@ -17,6 +17,7 @@ import math
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
+from http import HTTPStatus
 from typing import Any
 
 from frame.adapters.shared.http import (
@@ -113,15 +114,17 @@ class OpenAISpeechRecognizer(SpeechRecognizer):
             raise SpeechServiceError(
                 f"음성 인식 API 인증 실패 ({response.status}): API 키를 확인하세요"
             )
-        if response.status == 429:
+        if response.status == HTTPStatus.TOO_MANY_REQUESTS:
             raise SpeechServiceError("음성 인식 API 요청 한도 초과 (429)")
-        if response.status >= 500:
+        if response.status >= HTTPStatus.INTERNAL_SERVER_ERROR:
             raise SpeechServiceError(f"음성 인식 API 서버 오류 ({response.status})")
         if response.status in _SOUND_STATUSES:
             raise SpeechRecognitionError(
                 f"음성 인식 API 오류 {response.status}: {_error_message(response)}"
             )
-        if response.status >= 400:  # 402 잔액 · 404 주소나 모델 이름 · 408 시간 초과 …
+        if (
+            response.status >= HTTPStatus.BAD_REQUEST
+        ):  # 402 잔액 · 404 주소나 모델 이름 · 408 시간 초과 …
             raise SpeechServiceError(
                 f"음성 인식 API 를 쓸 수 없습니다 ({response.status}): {_error_message(response)}"
             )

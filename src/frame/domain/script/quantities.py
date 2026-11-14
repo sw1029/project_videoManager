@@ -262,7 +262,7 @@ def mentions(text: str, value: str) -> bool:
     for quantity in reversed(wanted):
         rest = rest[: quantity.start] + rest[quantity.end :]
     remainder = canonical_text(rest)
-    return len(remainder) < 2 or remainder in canonical_text(text)
+    return len(remainder) <= 1 or remainder in canonical_text(text)
 
 
 def canonical_text(text: str) -> str:
