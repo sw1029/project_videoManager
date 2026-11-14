@@ -2,7 +2,8 @@
 
 1. 원본의 컷을 다시 만들 수 있는 장면 자리로 묶는다 (slot_spans_from_shots).
 2. 자리마다 표본 프레임을 고르게 뽑는다 (ffmpeg). 전체 프레임 수에 상한을 두고 자리마다 나눈다.
-3. 모델을 한 번 부른다 (_prompt·_schema). 응답은 _theme_builder 가 테마·원본 IR 로 다듬는다.
+3. 모델을 한 번 부른다 (_prompt·_schema). 말소리는 받아쓰기 그대로가 아니라 대본의 줄로 준다
+   (어느 자리에서 한 말인지, 말로 한 수는 값으로). 응답은 _theme_builder 가 테마·원본 IR 로 다듬는다.
 4. 다듬은 결과가 규칙을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts, 프레임이 붙는 요청이라
    글만 보내는 호출과 따로 둔다). 재질의마다 무엇이 걸렸는지 기록에 남긴다.
 5. 얹은 문구의 영역은 문구마다 프레임 한 장으로 다시 묻는다 (_text_locator). 한 번에 여러 개를 물은 상자는 어긋난다.
@@ -34,7 +35,7 @@ from frame.domain.series.theme import (
 )
 
 from ._answer_parts import _slot_index, _squash
-from ._prompt import PROMPT_VERSION, SCHEMA_NAME, build_system_prompt
+from ._prompt import PROMPT_VERSION, SCHEMA_NAME, build_system_prompt, script_block
 from ._schema import RESPONSE_SCHEMA
 from ._theme_builder import build_theme
 
@@ -245,14 +246,5 @@ class VlmThemeExtractor(ThemeExtractor):
             lines.append(f"S{index + 1} {start / 1000:.1f}-{end / 1000:.1f}s (frames: {labels})")
         cuts = ", ".join(f"{s.duration_ms / 1000:.1f}" for s in request.analysis.shots)
         lines.append(f"Original shot lengths in seconds: {cuts}")
-        transcript = request.analysis.transcript
-        if transcript is None or transcript.is_empty:
-            lines.append("Transcript: none (no speech was recognised).")
-        else:
-            lines.append(f"Transcript (language: {transcript.language or 'unknown'}):")
-            lines += [
-                f"[{s.start_ms / 1000:.1f}-{s.end_ms / 1000:.1f}] {s.text.strip()}"
-                for s in transcript.segments
-                if s.text.strip()
-            ]
+        lines += script_block(request.analysis.transcript, spans)
         return "\n".join(lines)

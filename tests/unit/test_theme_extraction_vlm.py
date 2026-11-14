@@ -8,7 +8,7 @@ import json
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.series.theme_extraction._prompt import build_system_prompt
+from frame.adapters.series.theme_extraction._prompt import build_system_prompt, script_block
 from frame.adapters.series.theme_extraction._schema import RESPONSE_SCHEMA
 from frame.adapters.series.theme_extraction._theme_builder import build_theme
 from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
@@ -193,6 +193,25 @@ def test_screen_texts_keep_what_was_read_with_time_and_region():
     cut = texts[1].region  # 화면 밖으로 나간 박스는 화면 안으로 잘린다
     assert (cut.x, cut.y, cut.w) == (0.1, 0.72, 0.8) and cut.h == pytest.approx(0.28)
     assert texts[2].region is None
+
+
+def test_script_lines_in_the_prompt_name_their_slots_and_spoken_values():
+    """말로 한 수는 값으로도 적어 준다. 화면의 문구와 견줄 수 있게 (오천 원 = 5000원)."""
+    said = Transcript(
+        "ko",
+        (
+            SpeechSegment(3000, 6000, "두 자리에 걸친 말입니다."),
+            SpeechSegment(8600, 10400, "가격은 오천 원, 두 잔에 만 원."),
+        ),
+    )
+
+    block = script_block(said, SPANS)
+
+    assert block[1:] == [
+        "line 1 [S2+S1 3.0-6.0s] 두 자리에 걸친 말입니다.",
+        "line 2 [S3 8.6-10.4s] 가격은 오천 원, 두 잔에 만 원. (values: 5000원, 2잔, 10000원)",
+    ]
+    assert script_block(None, SPANS) == ["Script: none (no speech was recognised)."]
 
 
 def test_narration_comes_from_the_transcript_not_from_the_model():
@@ -400,7 +419,10 @@ def test_frames_are_sampled_per_slot_and_described_in_the_prompt(video):
     ]
     user = call["user"]
     assert "S3 8.0-12.0s (frames: S3-F1 8.7s, S3-F2 10.0s, S3-F3 11.3s)" in user
-    assert "[8.6-10.4] 가격은 4,500원." in user and "Transcript (language: ko)" in user
+    # 말은 받아쓰기 그대로가 아니라 대본의 줄로 준다: 어느 자리에서 한 말인지, 수는 값으로
+    assert "Script (language: ko)" in user
+    assert "line 3 [S3 8.6-10.4s] 가격은 4,500원. (values: 4500원)" in user
+    assert "line 1 [S1 0.4-2.6s] 안녕하세요, 오늘의 메뉴예요." in user
     assert "480x854 (9:16), 16.0 s, audio: yes" in user
     # 설명은 한국어로, 조건의 값은 영어로 (첫 실호출에서 값까지 한국어로 왔다)
     assert "narration_purpose in Korean" in user and "value in English" in user
@@ -421,7 +443,7 @@ def test_frame_budget_is_shared_between_slots(video):
         "S3-F1",
         "S4-F1",
     ]
-    assert "Transcript: none" in llm.calls[0]["user"]
+    assert "Script: none" in llm.calls[0]["user"]
 
 
 @needs_ffmpeg
