@@ -22,15 +22,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg
-from frame.adapters.shared.media.frames import extract_frame
+from frame.adapters.shared.media.frames import FrameSampler, midpoints
 from frame.adapters.shared.vlm.answers import match_answers
+from frame.adapters.shared.vlm.ask import ask_json
+from frame.adapters.shared.vlm.wording import described, predicate_words
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
@@ -133,9 +134,10 @@ class VlmPreservationChecker(Checker):
         frames_per_scene: int = 2,
         max_side: int = 1024,
         timeout_s: float | None = 180.0,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
-        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(require_ffmpeg(ffmpeg))
         self._llm = llm
         self.frames_per_scene = max(1, int(frames_per_scene))  # 부모·자식에서 뽑는 프레임 쌍의 수
         self.max_side = max_side
@@ -218,12 +220,12 @@ class VlmPreservationChecker(Checker):
             subject = row.entity_key or "the scene"
             old = row.before.expected_value if row.before is not None else "(none)"
             new = row.after.expected_value if row.after is not None else "(removed)"
-            lines.append(f"{subject} {_words(row.predicate)}: {old} -> {new}")
+            lines.append(f"{subject} {predicate_words(row.predicate)}: {old} -> {new}")
         intent = ctx.version.intent
         if not lines and intent is not None and intent.targets(scene.scene_key):
             subject = intent.entity_key or "the scene"
             lines.append(
-                f"{subject} {_words(intent.predicate)}: should now be {intent.value} "
+                f"{subject} {predicate_words(intent.predicate)}: should now be {intent.value} "
                 "(the BEFORE version may not show it)"
             )
         return lines
@@ -240,12 +242,12 @@ class VlmPreservationChecker(Checker):
         duration = min(
             parent.duration_ms or scene.duration_ms, clip.duration_ms or scene.duration_ms
         )
-        times = [int(duration * (index + 0.5) / count) for index in range(count)]
+        times = midpoints(duration, count)
         images = []
         for prefix, name, uri in (("B", "BEFORE", parent.uri), ("A", "AFTER", clip.uri)):
-            video = self._store.get(uri)
+            frames = self._sampler.clip(self._store.get(uri))
             for index, at_ms in enumerate(times, start=1):
-                frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+                frame = frames.at(at_ms, max_side=self.max_side)
                 label = f"{prefix}{index} — {name} at {at_ms / 1000:.1f}s"
                 images.append(ImageInput(frame.data, frame.media_type, label))
         return images
@@ -257,7 +259,7 @@ class VlmPreservationChecker(Checker):
         changes: Sequence[str],
         images: Sequence[ImageInput],
     ) -> dict[str, Any]:
-        lines = [f"Scene '{scene.scene_key}'" + _suffix(scene.description)]
+        lines = [f"Scene '{scene.scene_key}'" + described(scene.description)]
         lines.append(
             "Requested change (expected to differ): " + ("; ".join(changes) if changes else "none")
         )
@@ -265,25 +267,21 @@ class VlmPreservationChecker(Checker):
         for eid, element in ids.items():
             subject = element.item.entity_key or "the scene"
             lines.append(f"{eid}. {subject} — {_ASPECT_WORDS[element.item.aspect]}")
-        completion = self._llm.complete_json(
+        answer = ask_json(
+            self._llm,
             SYSTEM_PROMPT,
             "\n".join(lines),
             RESPONSE_SCHEMA,
             schema_name="preservation_audit",
             timeout_s=self.timeout_s,
             images=list(images),
+            read=lambda data: list(data["elements"]),
+            what="유지 요소 판정",
         )
-        try:
-            items = list(json.loads(completion.text)["elements"])
-        except (ValueError, KeyError, TypeError) as exc:
-            raise _BadAnswer(f"유지 요소 판정 응답을 해석하지 못했습니다: {exc}") from exc
         return {
-            "elements": match_answers(items, list(ids), field="id"),
-            "model": completion.model,
-            "usage": {
-                "input_tokens": completion.input_tokens,
-                "output_tokens": completion.output_tokens,
-            },
+            "elements": match_answers(answer.value, list(ids), field="id"),
+            "model": answer.model,
+            "usage": answer.usage,
         }
 
     def _outcome(
@@ -338,10 +336,6 @@ class VlmPreservationChecker(Checker):
         )
 
 
-class _BadAnswer(AdapterError):
-    code = "LLM_BAD_RESPONSE"
-
-
 def _changed_entities(ctx: CheckContext, scene: SceneSpec) -> set[str]:
     """이 장면에서 이 수정이 바꾸는(바로잡는) 객체: 요구조건이 달라진 객체와 수정 의도의 대상."""
     changed: set[str] = set()
@@ -373,11 +367,3 @@ def _scene_level_changed(ctx: CheckContext, scene: SceneSpec) -> bool:
         return True
     intent = ctx.version.intent
     return intent is not None and intent.entity_key is None and intent.targets(scene.scene_key)
-
-
-def _words(predicate: str) -> str:
-    return predicate.replace("_", " ")
-
-
-def _suffix(text: str) -> str:
-    return f": {text.strip()}" if text.strip() else ""

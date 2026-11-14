@@ -12,7 +12,9 @@
     FakeRequirementChecker · FakeConsistencyChecker · FakePreservationChecker    결정적 가짜 구현
 
 모듈 지도
-    vlm_requirement · vlm_consistency · vlm_preservation    VLM 검수기 (프레임 표본 -> 질의 -> 판정)
+    vlm_requirement · vlm_consistency · vlm_preservation    VLM 검수기 (프레임 표본 -> 질의 -> 판정).
+        프레임은 shared/media 의 FrameSampler 로 뽑고, 질의는 shared/vlm 의 ask_json 으로 한다.
+        검수기마다 다른 것은 질의 글 · 응답 형식 · 판정 규칙이다
     ssim_preservation                                       구조 유사도(SSIM)로 견주는 보존 검수기
     fake                                                    가짜 검수기 셋
 """

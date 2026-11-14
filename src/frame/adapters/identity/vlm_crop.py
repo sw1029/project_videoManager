@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg
-from frame.adapters.shared.media.frames import Box, extract_frame
+from frame.adapters.shared.media.frames import Box, ClipFrames, FrameSampler
 from frame.adapters.shared.media.probe import video_size
 from frame.adapters.shared.vlm.answers import match_answers
 from frame.application.errors import AdapterError, LLMBadResponse
@@ -87,9 +87,11 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         timeout_s: float | None = 90.0,
         reuse_existing: bool = True,
         verify_attributes: bool = True,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(self._ffmpeg)
         self._llm = llm
         self.positions = tuple(
             positions
@@ -139,14 +141,14 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
 
         if not pending():
             return tuple(found[e.entity_key] for e in request.entities if e.entity_key in found)
-        video = self._store.get(request.clip.uri)
+        video = self._sampler.clip(self._store.get(request.clip.uri))
         for position in self.positions:
             remaining = pending()
             if not remaining:
                 break
             at_ms = int(request.clip.duration_ms * min(1.0, max(0.0, position)))
             try:
-                frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+                frame = video.at(at_ms, max_side=self.max_side)
                 frame_size = video_size(self._ffmpeg, frame.data)
                 answers = self._locate(request, remaining, ImageInput(frame.data, frame.media_type))
             except AdapterError as exc:
@@ -227,7 +229,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         self,
         request: IdentityExtractionRequest,
         entity: EntitySpec,
-        video: bytes,
+        video: ClipFrames,
         at_ms: int,
         box: Box,
         answer: Mapping[str, Any],
@@ -237,18 +239,11 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         region = box.padded(self.padding)
         if entity.kind is EntityKind.PERSON:
             region = _portrait(region, frame_size, self.person_max_aspect)
-        native = extract_frame(self._ffmpeg, video, at_ms, crop=region)
+        native = video.at(at_ms, crop=region)
         native_size = video_size(self._ffmpeg, native.data)
         if min(native_size) < self.min_side:
             return None  # 너무 작게 잡힌 객체는 기준이 되기 어렵다
-        crop = extract_frame(
-            self._ffmpeg,
-            video,
-            at_ms,
-            crop=region,
-            max_side=self.max_side,
-            min_side=self.min_output_side,
-        )
+        crop = video.at(at_ms, crop=region, max_side=self.max_side, min_side=self.min_output_side)
         width, height = video_size(self._ffmpeg, crop.data)
         uri = self._store.put(
             identity_key(request.clip.uri, entity.entity_key, "jpg", crop.data),

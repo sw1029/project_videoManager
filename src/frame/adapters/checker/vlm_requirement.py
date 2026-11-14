@@ -27,15 +27,16 @@ Fake 검수기는 클립을 보지 않아 항상 PASS 였다. 컨셉 화면의 '
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg
-from frame.adapters.shared.media.frames import extract_frame
+from frame.adapters.shared.media.frames import FrameSampler, midpoints
 from frame.adapters.shared.vlm.answers import match_answers
+from frame.adapters.shared.vlm.ask import ask_json
+from frame.adapters.shared.vlm.wording import described, predicate_words
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
@@ -126,9 +127,10 @@ class VlmRequirementChecker(Checker):
         threshold: float = 0.5,
         max_side: int = 1024,
         timeout_s: float | None = 180.0,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
-        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(require_ffmpeg(ffmpeg))
         self._llm = llm
         self.frames_per_scene = max(1, int(frames_per_scene))
         self.threshold = threshold  # 고정 속성·장면 조건: 판정된 프레임 가운데 yes 의 비율 하한
@@ -205,10 +207,10 @@ class VlmRequirementChecker(Checker):
     def _frames(self, scene: SceneSpec, video: bytes, clip_duration_ms: int) -> list[_Frame]:
         count = self.frames_per_scene
         duration = clip_duration_ms or scene.duration_ms
+        clip = self._sampler.clip(video)
         frames = []
-        for index in range(count):
-            at_ms = int(duration * (index + 0.5) / count)  # 구간의 가운데
-            image = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+        for index, at_ms in enumerate(midpoints(duration, count)):  # 구간마다의 가운데
+            image = clip.at(at_ms, max_side=self.max_side)
             frame_id = f"F{index + 1}"
             frames.append(
                 _Frame(
@@ -230,12 +232,14 @@ class VlmRequirementChecker(Checker):
         ids: Mapping[str, RequirementSpec],
         frames: Sequence[_Frame],
     ) -> dict[str, Any]:
-        lines = [f"Scene '{scene.scene_key}'" + _suffix(scene.description)]
+        lines = [f"Scene '{scene.scene_key}'" + described(scene.description)]
         if scene.entity_keys:
             lines.append("Subjects in this scene:")
             for key in scene.entity_keys:
                 entity = ctx.ir.entity(key)
-                lines.append(f"- {key} ({str(entity.kind).lower()})" + _suffix(entity.description))
+                lines.append(
+                    f"- {key} ({str(entity.kind).lower()})" + described(entity.description)
+                )
         lines.append(
             "Frames in time order: "
             + ", ".join(f"{f.frame_id} ({f.at_ms / 1000:.1f}s)" for f in frames)
@@ -245,25 +249,21 @@ class VlmRequirementChecker(Checker):
             f"{rid}. {_statement(requirement)}{_changed_note(ctx, requirement)}"
             for rid, requirement in ids.items()
         ]
-        completion = self._llm.complete_json(
+        answer = ask_json(
+            self._llm,
             SYSTEM_PROMPT,
             "\n".join(lines),
             RESPONSE_SCHEMA,
             schema_name="requirement_audit",
             timeout_s=self.timeout_s,
             images=[f.image for f in frames],
+            read=lambda data: list(data["requirements"]),
+            what="요구 반영 판정",
         )
-        try:
-            items = list(json.loads(completion.text)["requirements"])
-        except (ValueError, KeyError, TypeError) as exc:
-            raise _BadAnswer(f"요구 반영 판정 응답을 해석하지 못했습니다: {exc}") from exc
         return {
-            "requirements": match_answers(items, list(ids), field="id"),
-            "model": completion.model,
-            "usage": {
-                "input_tokens": completion.input_tokens,
-                "output_tokens": completion.output_tokens,
-            },
+            "requirements": match_answers(answer.value, list(ids), field="id"),
+            "model": answer.model,
+            "usage": answer.usage,
         }
 
     # ---- 판정 ----
@@ -360,10 +360,6 @@ class VlmRequirementChecker(Checker):
         ]
 
 
-class _BadAnswer(AdapterError):
-    code = "LLM_BAD_RESPONSE"
-
-
 def _rule(requirement: RequirementSpec) -> str:
     """행동·자세 같은 일시적 조건과 관계는 장면 안에서 한 번 보이면 된다. 나머지는 프레임의 과반이 지켜야 한다."""
     if requirement.is_relational or DEFAULT_VOCABULARY.is_transient(requirement.predicate):
@@ -371,20 +367,14 @@ def _rule(requirement: RequirementSpec) -> str:
     return RULE_SHARE
 
 
-def _words(predicate: str) -> str:
-    return predicate.replace("_", " ")
-
-
-def _suffix(text: str) -> str:
-    return f": {text.strip()}" if text.strip() else ""
-
-
 def _statement(requirement: RequirementSpec) -> str:
     """요구조건 한 줄: 'cup — color: teal', 'barista — holds cup', 'the scene — lighting: warm'."""
     subject = requirement.entity_key or "the scene"
     if requirement.related_entity_key is not None:
-        return f"{subject} — {_words(requirement.predicate)} {requirement.related_entity_key}"
-    return f"{subject} — {_words(requirement.predicate)}: {requirement.expected_value}"
+        return (
+            f"{subject} — {predicate_words(requirement.predicate)} {requirement.related_entity_key}"
+        )
+    return f"{subject} — {predicate_words(requirement.predicate)}: {requirement.expected_value}"
 
 
 def _changed_note(ctx: CheckContext, requirement: RequirementSpec) -> str:
@@ -425,11 +415,11 @@ def _warning_message(requirement: RequirementSpec, observed: str) -> str:
     subject = requirement.entity_key or "장면"
     if requirement.related_entity_key is not None:
         text = (
-            f"{subject} {_words(requirement.predicate)} {requirement.related_entity_key}: "
+            f"{subject} {predicate_words(requirement.predicate)} {requirement.related_entity_key}: "
             "요구한 관계가 보이지 않음"
         )
     else:
-        text = f"{subject} {_words(requirement.predicate)}: 요구 '{requirement.expected_value}'"
+        text = f"{subject} {predicate_words(requirement.predicate)}: 요구 '{requirement.expected_value}'"
     return text + (f", 화면: {observed}" if observed else "")
 
 

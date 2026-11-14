@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from frame.adapters.shared.media.frames import Box
+from frame.adapters.shared.vlm.wording import predicate_words
 from frame.application.ports.identity import IdentityExtractionRequest
 from frame.domain.ir import EntitySpec
 from frame.domain.services.identity import appearance_attributes
@@ -105,7 +106,7 @@ def user_prompt(
     for entity in entities:
         details = [entity.description.strip()] if entity.description.strip() else []
         details += [
-            f"{r.predicate.replace('_', ' ')}: {r.expected_value}"
+            f"{predicate_words(r.predicate)}: {r.expected_value}"
             for r in scene.requirements
             if r.entity_key == entity.entity_key and not r.is_relational
         ]
@@ -124,7 +125,7 @@ def user_prompt(
 def fixed_attributes(request: IdentityExtractionRequest, entity: EntitySpec) -> list[str]:
     """이 장면에서 객체가 지켜야 하는 고정 속성 ('술어: 값'). 관계와 행동·자세 같은 일시적 술어는 뺀다."""
     return [
-        f"{predicate.replace('_', ' ')}: {value}"
+        f"{predicate_words(predicate)}: {value}"
         for predicate, value in appearance_attributes(request.scene, entity.entity_key).items()
     ]
 

@@ -10,8 +10,9 @@
     ffmpeg        찾기: resolve_ffmpeg (설정 → PATH → imageio-ffmpeg), require_ffmpeg (경로가 꼭 필요한 어댑터용)
                   실행: run_ffmpeg (종료 코드와 출력), run_reading (영상을 읽는 도구용), tail (출력의 끝)
                   오류: FfmpegNotRun (실행하지 못했거나 시간 안에 끝나지 않음), VideoToolError (영상을 읽지 못함)
-    frames        프레임 뽑기: extract_frame, 정규화 좌표의 사각형 Box, 뽑은 이미지 Image
-    probe         영상 정보: video_size (가로, 세로)
+    frames        프레임 뽑기: FrameSampler (같은 클립의 같은 프레임을 다시 뽑지 않는다 - 어댑터는 이것을 쓴다),
+                  midpoints (표본 시각), extract_frame, 정규화 좌표의 사각형 Box, 뽑은 이미지 Image
+    probe         영상 정보: video_size (가로, 세로), probe_video (코덱 · 크기 · fps · 프레임 수 · 길이)
     similarity    두 영상의 구조 유사도: ssim
 """
 
