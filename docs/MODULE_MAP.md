@@ -1,7 +1,7 @@
 # 모듈 지도 — 어디에 무엇이 있나
 
 뒤에 들어오는 사람이 "이 일은 어디에 있는가" 를 찾는 문서다. 개념에서 시작해 패키지와 포트·주요 클래스로 내려간다.
-배치 규칙은 ADR-0031(개념 단위 배치), 낱말은 `docs/GLOSSARY.md` 를 따른다 (둘 다 준비 중).
+배치 규칙은 [ADR-0031](adr/0031-concept-placement-glossary-compat-paths.md)(개념 단위 배치), 낱말은 [GLOSSARY.md](GLOSSARY.md) 를 따른다.
 계층과 의존 방향은 [ARCHITECTURE.md](ARCHITECTURE.md) §3 에 있다.
 
 이 문서는 코드와 함께 고친다. 패키지를 더하거나 옮기면 §2 의 표를 고쳐야 테스트가 통과한다
