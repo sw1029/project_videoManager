@@ -4,6 +4,7 @@
 느린 생성기는 실제 sleep 대신 Event 로 막아 결정적으로 시험한다 (테스트 끝에서 풀어 준다).
 """
 
+import _thread
 import logging
 import threading
 import time
@@ -215,6 +216,67 @@ def test_wait_abandoned_reports_workers_still_running(store, release, ir):
     assert generator.wait_abandoned(0.01) is False  # 아직 내부 호출이 끝나지 않았다
     release.set()
     assert generator.wait_abandoned(WAIT) is True
+
+
+# ---- 기다리는 동안의 Ctrl+C (델타 감사 B21-D07) ----
+class AnnouncingSlowGenerator(SlowGenerator):
+    """내부 호출이 시작됐음을 알리는 느린 생성기."""
+
+    def __init__(self, inner, release, started: threading.Event, error=None) -> None:
+        super().__init__(inner, release, error)
+        self.started = started
+
+    def generate_scene(self, request):
+        self.started.set()
+        return super().generate_scene(request)
+
+
+def _press_ctrl_c_once(started: threading.Event) -> None:
+    """내부 호출이 시작되면 주 스레드에 Ctrl+C 를 건다 (호출한 쪽은 그때 장면을 기다리고 있다)."""
+
+    def press() -> None:
+        if started.wait(WAIT):
+            _thread.interrupt_main()
+
+    threading.Thread(target=press, name="press-ctrl-c", daemon=True).start()
+
+
+def test_ctrl_c_reaches_the_caller_while_it_waits_for_the_scene(store, release, ir):
+    """시간 제한 아래에서 장면을 기다리는 동안에도 Ctrl+C 가 곧 닿는다.
+
+    Windows 에서는 Event.wait 이 Ctrl+C 로 깨지 않는다. 기다림 하나로 두면 KeyboardInterrupt 가 그 장면이 끝나거나
+    제한에 닿은 뒤에야 온다 (평가 CLI 의 종료 코드 130 이 그만큼 늦는다). 기다림을 짧게 끊어 돌면 그 사이에 온다.
+    """
+    started = threading.Event()
+    slow = AnnouncingSlowGenerator(FakeVideoGenerator(store), release, started)
+    generator = TimeoutVideoGenerator(slow, timeout_seconds=WAIT * 4)
+    _press_ctrl_c_once(started)
+
+    began = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        generator.generate_scene(_request(ir))
+
+    assert time.monotonic() - began < WAIT / 2  # 제한도 내부 호출도 기다리지 않았다
+    assert generator.timeouts == 0  # 시간 초과가 아니다
+
+
+def test_a_worker_left_by_ctrl_c_does_not_start_another_attempt(store, release, ir):
+    """Ctrl+C 로 호출한 쪽이 떠난 작업 스레드도 버려진 것이다: 다음 시도(재제출 = 재과금)를 시작하지 않는다."""
+    started = threading.Event()
+    flaky = AnnouncingSlowGenerator(
+        FakeVideoGenerator(store), release, started, error=GenerationError("일시 오류")
+    )
+    generator = TimeoutVideoGenerator(
+        RetryingVideoGenerator(flaky, retries=3, sleep=pause_before_retry),
+        timeout_seconds=WAIT * 4,
+    )
+    _press_ctrl_c_once(started)
+    with pytest.raises(KeyboardInterrupt):
+        generator.generate_scene(_request(ir))
+
+    release.set()  # 첫 시도가 '일시 오류(retryable)' 로 끝난다 -> Retry 가 다음 시도를 하려 한다
+    assert generator.wait_abandoned(WAIT)
+    assert flaky.calls == 1 and generator.timeouts == 0
 
 
 def test_profile_is_the_wrapped_generators():

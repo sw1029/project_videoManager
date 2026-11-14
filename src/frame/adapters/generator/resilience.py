@@ -157,6 +157,25 @@ def pause_before_retry(seconds: float) -> None:
     pause_unless_abandoned(seconds, "다시 시도하지 않습니다")
 
 
+# 호출한 쪽이 장면을 기다릴 때 한 번에 기다리는 길이 (초). Ctrl+C 가 이 안에 닿는다
+_WAIT_SLICE_S = 0.2
+
+
+def _wait_for(done: threading.Event, seconds: float) -> bool:
+    """done 이 켜지기를 seconds 까지 기다린다. 켜졌으면 True. 기다림을 _WAIT_SLICE_S 씩 끊어 돈다.
+
+    Event.wait(seconds) 한 번과 결과가 같다. 끊어 도는 까닭은 Ctrl+C 다: Windows 에서는 잠금을 기다리는 동안
+    KeyboardInterrupt 가 전달되지 않고, 기다림에서 돌아온 뒤에야 온다.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return done.is_set()
+        if done.wait(min(remaining, _WAIT_SLICE_S)):
+            return True
+
+
 class TimeoutVideoGenerator(DelegatingVideoGenerator):
     """장면 하나를 만드는 시간을 timeout_seconds 로 제한한다. 넘으면 GenerationTimeout(retryable=False).
 
@@ -167,6 +186,9 @@ class TimeoutVideoGenerator(DelegatingVideoGenerator):
     - 마감 뒤에 나온 결과는 버린다 (버전은 이미 FAILED). 과금됐을 수 있는 산출물을 회수하도록 URI 를 경고 로그로 남긴다.
     - 시간 초과는 재시도하지 않는다: 외부 작업이 접수돼 계속 돌고 있을 수 있어 다시 제출하면 또 과금된다.
     - 미리보기는 생성이 아니므로 시간 제한을 걸지 않는다 (감싼 생성기가 스스로 짧게 끝낸다).
+    - 호출한 쪽은 기다림을 짧게 끊어 돈다 (_wait_for). Windows 에서는 Event.wait 이 Ctrl+C 로 깨지 않아, 한 번에
+      기다리면 KeyboardInterrupt 가 그 장면이 끝나거나 제한에 닿은 뒤에야 온다 (델타 감사 B21-D07).
+      기다리다 끊기면 (Ctrl+C) 그 작업 스레드도 버려진 것으로 친다: 다음 시도와 새 제출을 하지 않는다.
     """
 
     def __init__(self, inner: VideoGenerator, timeout_seconds: float) -> None:
@@ -204,7 +226,16 @@ class TimeoutVideoGenerator(DelegatingVideoGenerator):
             target=work, name=f"frame-generate-{request.scene.scene_key}", daemon=True
         )
         worker.start()
-        if not done.wait(self.timeout_seconds):
+        try:
+            finished = _wait_for(done, self.timeout_seconds)
+        except BaseException:
+            # 기다리다 끊겼다 (Ctrl+C). 작업 스레드는 멈출 수 없으니, 시간 초과로 버릴 때처럼 신호를 켠다
+            with self._lock:
+                if not done.is_set():
+                    abandoned.set()
+                    self._abandoned.add(worker)
+            raise
+        if not finished:
             with self._lock:
                 if not done.is_set():  # 마감과 완료가 겹치면 완료를 따른다
                     abandoned.set()
