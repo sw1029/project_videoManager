@@ -106,7 +106,7 @@ jobs:
           exit 1
 
   frontend:
-    # frontend/ 가 있는 브랜치에서만 빌드한다 (dev 에는 아직 없어 단계가 건너뛰어진다)
+    # frontend/ 가 있는 브랜치에서만 빌드한다 (없는 브랜치에서는 단계가 건너뛰어진다)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

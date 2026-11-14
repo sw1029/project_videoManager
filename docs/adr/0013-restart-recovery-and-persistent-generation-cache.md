@@ -36,6 +36,8 @@
 - 접수(202) 직후, **폴링 전에** `ledger/openrouter/<키>.json` 에 작업을 남긴다. 키는 캐시와 같은 `generation_key`.
   내용: `job_id`, `status`(submitted · completed · failed), `submitted_at`(벽시계), `version_id`, `scene_key`, `profile`,
   `details`(과금 초·seed·참조 이미지 수·프롬프트·예상 비용·generation_id), `clip_uri`, `clip_metadata`, `error`. 키·서명 URL 은 넣지 않는다.
+  - 보완 (2026-11-14, 감사 D-07): 원장의 상태는 넷이다. ADR-0021 이 `released` 를 더했다 — 작업은 끝났지만 그 결과가 이 키의 결과가 아닌 경우
+    (편집하지 못해 새로 생성한 임시 결과). 이어 받지 않는다.
 - 같은 키의 요청은 원장을 먼저 본다.
 
   | 원장 | 동작 | `metadata.ledger` |
@@ -97,6 +99,7 @@
   - 여러 서버 프로세스가 한 DB 를 쓰면 기동 복구가 다른 프로세스의 PROCESSING 을 회수한다 (in-process 디스패처는 원래 지원하지 않는 구성).
   - 캐시·원장 항목은 지우지 않는다 (작은 JSON). 정리는 산출물 폴더와 함께 한다.
   - SQL 저장소는 클립 metadata 를 저장하지 않으므로(ADR-0011 남은 일) 캐시 적중 기록은 로그와 캐시 항목에만 남는다.
+    - 보완 (2026-11-14, 감사 D-07): ADR-0016 부터 SQL 저장소도 클립 메타데이터를 저장한다 (`scenes.clip_metadata_json`).
   - API(`VersionOut`)에는 `queued_at`·`started_at`·`attempt` 를 아직 내보내지 않는다 (프론트 계약 변경은 따로).
   - LLM 응답 캐시(#7 의 선택 항목)는 하지 않았다.
   - 실호출 테스트(`tests/live/test_openrouter_live.py`)를 같은 조건으로 24시간 안에 다시 돌리면 원장이 이전 결과를 다시 쓰므로

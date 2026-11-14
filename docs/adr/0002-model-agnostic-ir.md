@@ -8,6 +8,8 @@
 ## 결정
 IR(`domain/ir.py`)은 장면·객체·속성/관계 조건·시간만 담는 불변 값 객체로 두고, 모델별 변환(`compile_prompt`)은 생성 어댑터 안에서만 한다.
 검수 기준(REQUIREMENT)도 IR 의 요구조건 키(`scene:entity:predicate`)로 참조한다.
+- 보완 (2026-11-14, 감사 D-07): 키의 꼴은 ADR-0007 에서 넓어졌다. 관계 조건은 상대 객체가 붙어 `scene:entity:predicate:related` 이고,
+  장면 수준 조건은 객체 자리가 `-` 다 (`RequirementSpec.key`).
 
 ## 결과
 - 같은 IR 로 여러 생성기를 비교 실험할 수 있다 (변인 통제).
