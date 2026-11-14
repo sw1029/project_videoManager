@@ -304,7 +304,7 @@ def test_failing_to_hear_a_gap_again_keeps_the_first_transcript():
     버리면 내레이션 없는 테마를 유료로 뽑아 저장하고, 같은 영상은 그 테마를 계속 돌려준다.
     """
     spy = _FailsAfterTheFirstCall(
-        SpeechRecognitionError("그 구간을 알아듣지 못했습니다: C:\\somewhere\\part.wav")
+        SpeechRecognitionError("그 구간을 알아듣지 못했습니다: somewhere/part.wav")
     )
     series = series_of(series_container(speech_recognizer=spy))
 

@@ -162,7 +162,7 @@ def test_unreadable_overlay_is_a_note_not_an_issue():
 
     검수 보고는 그대로 밖으로 나간다. 오류 원문에는 서버의 임시 폴더 경로나 공급자의 글이 들 수 있다.
     """
-    odd = AdapterError("ffmpeg: Error opening input file C:\\Temp\\frame-probe-x\\source")
+    odd = AdapterError("ffmpeg: Error opening input file scratch/frame-probe-x/source")
     reader = FakeScreenTextReader(error=odd)
     container = _container(reader=reader)
     report = _check(container, _ready(container))
@@ -170,7 +170,7 @@ def test_unreadable_overlay_is_a_note_not_an_issue():
     assert report.ok and report.checked_overlays == 0
     assert len(report.notes) == 3 and all("읽지 못했습니다" in note for note in report.notes)
     assert all("ADAPTER_ERROR" in note for note in report.notes)
-    assert not any("frame-probe" in note or "Temp" in note for note in report.to_dict()["notes"])
+    assert not any("frame-probe" in note or "scratch" in note for note in report.to_dict()["notes"])
 
 
 @pytest.mark.parametrize("down", [LLMTimeout("응답 없음"), LLMUnavailable("연결할 수 없습니다")])
