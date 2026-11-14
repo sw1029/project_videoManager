@@ -225,15 +225,19 @@ class TimeoutVideoGenerator(DelegatingVideoGenerator):
         worker = threading.Thread(
             target=work, name=f"frame-generate-{request.scene.scene_key}", daemon=True
         )
-        worker.start()
         try:
+            # 스레드를 띄우는 것도 이 안에 둔다: 내부 호출은 뜨자마자 시작하고, 그때 온 Ctrl+C 는
+            # start() 에서 돌아오는 길에 전달될 수 있다 (스레드는 이미 돌고 있다)
+            worker.start()
             finished = _wait_for(done, self.timeout_seconds)
         except BaseException:
-            # 기다리다 끊겼다 (Ctrl+C). 작업 스레드는 멈출 수 없으니, 시간 초과로 버릴 때처럼 신호를 켠다
+            # 기다리다 끊겼다 (Ctrl+C). 작업 스레드는 멈출 수 없으니, 시간 초과로 버릴 때처럼 신호를 켠다.
+            # 스레드가 뜨지 못했으면 (is_alive 가 아니다) 기다릴 것이 없다
             with self._lock:
                 if not done.is_set():
                     abandoned.set()
-                    self._abandoned.add(worker)
+                    if worker.is_alive():
+                        self._abandoned.add(worker)
             raise
         if not finished:
             with self._lock:

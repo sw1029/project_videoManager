@@ -279,6 +279,56 @@ def test_a_worker_left_by_ctrl_c_does_not_start_another_attempt(store, release, 
     assert flaky.calls == 1 and generator.timeouts == 0
 
 
+def test_a_worker_is_abandoned_even_if_ctrl_c_lands_while_it_is_being_started(
+    store, release, ir, monkeypatch
+):
+    """Ctrl+C 가 작업 스레드를 띄우는 사이에 (기다림에 들어가기 전에) 닿아도 그 스레드는 버려진 것이다.
+
+    내부 호출은 작업 스레드가 뜨자마자 시작한다. 그때 온 인터럽트는 호출한 쪽이 Thread.start() 에서 돌아오는 길에
+    전달될 수 있다 — 스레드는 이미 돌고 있다. 그 순서를 지어내 본다: 스레드를 띄운 뒤 start() 가
+    KeyboardInterrupt 를 낸다.
+    """
+    start = threading.Thread.start
+
+    def start_then_interrupt(thread: threading.Thread) -> None:
+        start(thread)
+        if thread.name.startswith("frame-generate-"):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(threading.Thread, "start", start_then_interrupt)
+    flaky = SlowGenerator(FakeVideoGenerator(store), release, error=GenerationError("일시 오류"))
+    generator = TimeoutVideoGenerator(
+        RetryingVideoGenerator(flaky, retries=3, sleep=pause_before_retry),
+        timeout_seconds=WAIT * 4,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        generator.generate_scene(_request(ir))
+    monkeypatch.undo()
+    workers = [t for t in threading.enumerate() if t.name.startswith("frame-generate-")]
+
+    release.set()  # 첫 시도가 '일시 오류(retryable)' 로 끝난다 -> Retry 가 다음 시도를 하려 한다
+    for worker in workers:
+        worker.join(WAIT)
+    assert workers and not any(worker.is_alive() for worker in workers)
+    assert flaky.calls == 1 and generator.wait_abandoned(WAIT)
+
+
+def test_a_generation_that_cannot_start_its_worker_leaves_nothing_behind(store, ir, monkeypatch):
+    """작업 스레드를 띄우지 못하면 (스레드를 더 만들 수 없다) 그 오류가 그대로 나가고, 기다릴 스레드도 남지 않는다."""
+
+    def refuse(thread: threading.Thread) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    generator = TimeoutVideoGenerator(FakeVideoGenerator(store), timeout_seconds=WAIT)
+
+    with pytest.raises(RuntimeError, match="start new thread"):
+        generator.generate_scene(_request(ir))
+
+    monkeypatch.undo()
+    assert generator.wait_abandoned(WAIT) and generator.timeouts == 0
+
+
 def test_profile_is_the_wrapped_generators():
     """다른 데코레이터처럼 감싼 생성기의 생성 프로필(생성 캐시 키에 쓰임)을 그대로 돌려준다."""
 
