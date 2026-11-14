@@ -13,6 +13,7 @@ from frame.application.dto import CreateProjectCommand
 from frame.config import Settings
 from frame.domain.enums import RevisionKind, VersionState
 from frame.evaluation.edit_cases import load_cases, parse_cases
+from frame.evaluation.edit_metrics import NON_TARGET_CHANGE_TARGET, SUCCESS_RATE_TARGET
 from frame.evaluation.edit_runner import CaseInterrupted, run_case
 from frame.tools import evaluate_edits
 from tests.support.checkers import MethodPreservationChecker
@@ -707,3 +708,14 @@ def test_checker_hint_is_not_shown_when_check_results_could_not_be_read(tmp_path
         1,
     )  # 생성은 끝났고 검수 결과를 못 읽었다
     assert "FRAME_CHECKERS" not in capsys.readouterr().out
+
+
+def test_help_states_the_targets_from_the_metric_constants(capsys):
+    """도움말의 목표값은 edit_metrics 의 상수에서 온다 (따로 적은 글자가 아니다)."""
+    with pytest.raises(SystemExit):
+        evaluate_edits.main(["--help"])
+
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert f"성공률(목표 {SUCCESS_RATE_TARGET:.0%} 이상)" in help_text
+    assert f"비대상 변경률(목표 {NON_TARGET_CHANGE_TARGET:.0%} 이하)" in help_text
+    assert "%%" not in help_text

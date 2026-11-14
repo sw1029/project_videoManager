@@ -39,7 +39,11 @@ from frame.application.errors import AdapterError, ConfigurationError
 from frame.config import Container, Settings, build_container
 from frame.domain.enums import VersionState
 from frame.evaluation.edit_cases import CaseFileError, EditCaseSpec, load_cases
-from frame.evaluation.edit_metrics import PRESERVATION_BASES
+from frame.evaluation.edit_metrics import (
+    NON_TARGET_CHANGE_TARGET,
+    PRESERVATION_BASES,
+    SUCCESS_RATE_TARGET,
+)
 from frame.evaluation.edit_report import build_report, judge, left_unfinished
 from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, run_case
 
@@ -160,7 +164,11 @@ def main(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m frame.tools.evaluate_edits",
-        description="지표 1 평가: 단일 속성 수정의 성공률(목표 80%% 이상)과 비대상 변경률(목표 10%% 이하)",
+        # 설명문은 %(prog) 가 없으면 % 포맷을 거치지 않으므로 % 를 한 번만 쓴다
+        description=(
+            f"지표 1 평가: 단일 속성 수정의 성공률(목표 {SUCCESS_RATE_TARGET:.0%} 이상)과 "
+            f"비대상 변경률(목표 {NON_TARGET_CHANGE_TARGET:.0%} 이하)"
+        ),
     )
     parser.add_argument(
         "--cases",
