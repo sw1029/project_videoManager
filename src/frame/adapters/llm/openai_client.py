@@ -8,6 +8,8 @@
   로컬 서버가 strict json_schema 를 지원하지 않으면 strict=False 로 두고 호출자(LLMStructurer)의 검증·재시도에 맡긴다.
 - 추론 모델(o*, gpt-5*)은 temperature 를 받지 않으므로 보내지 않는다.
 - images 를 주면 user 메시지를 글 + 이미지(data URI) 조각으로 보낸다 (이미지를 읽는 모델이어야 한다).
+- 실패는 모두 LLMError 로 알린다: SDK 가 내는 오류 전부와, 응답에 choices·message 가 없거나 본문이 글이 아닌 경우까지.
+  다른 예외가 새면 부르는 쪽(검수기·구조화기)이 '판정 불가·구조화 실패' 로 다루지 못한다.
 """
 
 from __future__ import annotations
@@ -174,14 +176,26 @@ class OpenAIJsonClient(LLMClient):
             raise LLMUnavailable("OpenAI 인증 실패 (401): API 키를 확인하세요") from exc
         except openai.APIStatusError as exc:
             raise LLMUnavailable(f"OpenAI 오류 {exc.status_code}: {_safe_message(exc)}") from exc
+        except openai.APIResponseValidationError as exc:
+            raise LLMBadResponse("OpenAI 응답의 형식이 예상과 다릅니다") from exc
+        except (
+            openai.OpenAIError
+        ) as exc:  # SDK 가 내는 그 밖의 오류도 이 클라이언트 밖으로는 LLMError 다
+            raise LLMUnavailable(f"OpenAI 호출 실패: {type(exc).__name__}") from exc
 
-        message = response.choices[0].message
-        refusal = getattr(message, "refusal", None)
+        try:
+            message = response.choices[0].message
+            refusal = getattr(message, "refusal", None)
+            content = message.content
+        except (AttributeError, IndexError, TypeError) as exc:
+            # OpenAI 호환 서버는 choices 를 비우거나 빼고 답할 때가 있다
+            raise LLMBadResponse("응답에 choices·message 가 없습니다") from exc
         if refusal:
             raise LLMBadResponse(f"모델이 응답을 거부했습니다: {refusal}")
-        content = message.content
         if not content:
             raise LLMBadResponse("빈 응답을 받았습니다")
+        if not isinstance(content, str):
+            raise LLMBadResponse("응답 본문이 글이 아닙니다")
         usage = getattr(response, "usage", None)
         return JsonCompletion(
             text=content,

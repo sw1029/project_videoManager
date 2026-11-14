@@ -135,6 +135,63 @@ def test_sdk_errors_map_to_llm_error_codes(error, code):
     assert excinfo.value.code == code
 
 
+# ---- 응답 모양과 그 밖의 SDK 오류 (감사 A-13) ----------------------------------------------
+# 이 클라이언트의 실패는 모두 LLMError 여야 한다. 다른 예외가 새면 검수기·구조화기가 '판정 불가·구조화 실패' 로
+# 다루지 못하고 유료 생성이 끝난 버전이 예상 밖 오류로 끝난다.
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        SimpleNamespace(choices=[], model="m", usage=None),
+        SimpleNamespace(choices=None, model="m", usage=None),
+        SimpleNamespace(model="m", usage=None),
+        SimpleNamespace(choices=[SimpleNamespace(message=None)], model="m", usage=None),
+    ],
+    ids=["empty-choices", "null-choices", "no-choices", "no-message"],
+)
+def test_an_answer_without_a_message_is_a_bad_response(response):
+    """OpenAI 호환 서버는 choices 를 비우거나 빼고 답할 때가 있다."""
+    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+
+    with pytest.raises(LLMBadResponse, match="choices"):
+        client.complete_json("s", "u", {"type": "object"})
+
+
+def test_content_that_is_not_text_is_a_bad_response():
+    response = _response([{"type": "text", "text": "{}"}])
+    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+
+    with pytest.raises(LLMBadResponse, match="글이 아닙니다"):
+        client.complete_json("s", "u", {"type": "object"})
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (
+            openai.APIResponseValidationError(
+                response=httpx.Response(200, request=httpx.Request("POST", "https://x")), body=None
+            ),
+            "LLM_BAD_RESPONSE",
+        ),
+        (
+            openai.APIError("boom", request=httpx.Request("POST", "https://x"), body=None),
+            "LLM_UNAVAILABLE",
+        ),
+        (openai.OpenAIError("something the SDK adds later"), "LLM_UNAVAILABLE"),
+    ],
+    ids=["response-validation", "api-error", "any-sdk-error"],
+)
+def test_the_rest_of_the_sdk_errors_are_llm_errors_too(error, code):
+    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(error=error))
+
+    with pytest.raises(LLMError) as excinfo:
+        client.complete_json("s", "u", {"type": "object"})
+
+    assert excinfo.value.code == code
+
+
 # ---- 호출 시점 키 해석 (화면 입력 키 지원) -------------------------------------------------
 
 
