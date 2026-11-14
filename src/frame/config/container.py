@@ -283,7 +283,6 @@ def build_container(
         ),
     )
     container.series = build_theme_services(
-        settings=settings,
         registry=registry,
         ctx=ctx,
         uow_factory=uow_factory,

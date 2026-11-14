@@ -26,6 +26,13 @@ from frame.application.ports import (
 )
 from frame.application.ports.change_request import ChangeRequestInterpreter
 from frame.application.ports.llm import LLMClient
+from frame.application.ports.series.audio import AudioEditor
+from frame.application.ports.series.overlay import OverlayRenderer, ScreenTextReader
+from frame.application.ports.series.planning import SeriesPlanner
+from frame.application.ports.series.repositories import EpisodeRepository, ThemeRepository
+from frame.application.ports.series.source_analysis import MediaProber, ShotDetector
+from frame.application.ports.series.theme_extraction import ThemeExtractor
+from frame.application.ports.speech import SpeechRecognizer
 from frame.config import (
     AdapterRegistry,
     BuildContext,
@@ -33,6 +40,7 @@ from frame.config import (
     build_container,
     default_registry,
 )
+from frame.config.theme_settings import ThemeSettings
 
 # 포트 -> 설정에 쓸 수 있는 키 (FRAME_GENERATOR=external_api 의 external_api). 어댑터를 더하면 이 표에도 올린다
 DEFAULT_KEYS: dict[type, list[str]] = {
@@ -55,11 +63,28 @@ DEFAULT_KEYS: dict[type, list[str]] = {
     ArtifactStore: ["local_fs", "memory"],
     UnitOfWork: ["memory", "sqlalchemy"],
     JobDispatcher: ["inline", "recording", "thread"],
+    # 테마·시리즈 기능의 포트. 어느 키를 쓸지는 테마 설정(FRAME_THEME_* 등)이 정한다
+    ThemeRepository: ["artifact", "memory"],
+    EpisodeRepository: ["artifact", "memory"],
+    MediaProber: ["fake", "ffmpeg"],
+    ShotDetector: ["fake", "ffmpeg"],
+    SpeechRecognizer: ["fake", "faster_whisper", "off", "openai"],
+    ThemeExtractor: ["fake", "vlm"],
+    SeriesPlanner: ["llm", "template"],
+    AudioEditor: ["fake", "ffmpeg"],
+    OverlayRenderer: ["fake", "ffmpeg"],
+    ScreenTextReader: ["fake", "off", "vlm"],
 }
 
 # 키·패키지·네트워크 같은 바깥 것이 있어야 만들어지는 어댑터. 각자의 테스트가 따로 본다
-# (openai: tests/unit/test_settings.py, external_api: tests/unit/generator/test_openrouter_config.py)
-NEEDS_THE_OUTSIDE = {(LLMClient, "openai"), (VideoGenerator, "external_api")}
+# (openai: tests/unit/test_settings.py, external_api: tests/unit/generator/test_openrouter_config.py,
+#  로컬 인식의 꾸러미와 모델 폴더: tests/unit/test_local_speech.py, 한글 글꼴: tests/unit/test_theme_wiring.py)
+NEEDS_THE_OUTSIDE = {
+    (LLMClient, "openai"),
+    (VideoGenerator, "external_api"),
+    (SpeechRecognizer, "faster_whisper"),
+    (OverlayRenderer, "ffmpeg"),
+}
 
 # 자리(설정 키)는 있지만 구현이 아직 없는 뼈대 어댑터. 고르면 서버가 뜨지 않는다 (감사 A-31)
 SKELETONS = [(VideoGenerator, "diffusers"), (ObjectTracker, "opencv")]
@@ -90,6 +115,7 @@ def context(tmp_path):
         clock=FixedClock(),
         artifact_store=InMemoryArtifactStore(),
         handlers=JobHandlerRegistry(),
+        theme_settings=ThemeSettings(),
     )
 
 
@@ -104,8 +130,10 @@ def test_the_default_registry_offers_these_keys(port):
 def test_every_default_adapter_can_be_built(port, key, context):
     built = default_registry().build(port, key, context)
 
-    if (port, key) == (IdentityReferenceExtractor, "off"):
-        assert built is None  # 기준 이미지를 쓰지 않는다
+    if key == "off":
+        assert (
+            built is None
+        )  # 그 일을 하지 않는다 (기준 이미지 · 말소리 받아 적기 · 화면의 글자 읽기)
     elif port is UnitOfWork:
         assert isinstance(built(), UnitOfWork)  # 저장 단위를 여는 팩토리를 돌려준다
     else:
@@ -148,6 +176,16 @@ def test_an_unknown_key_names_the_port_and_the_available_keys(context):
     assert all(key in message for key in DEFAULT_KEYS[VideoGenerator])
 
 
+def test_an_unknown_key_names_the_setting_when_the_caller_gives_it(context):
+    """키를 정한 설정 변수의 이름을 넘기면, 없는 키를 알릴 때 그 이름을 댄다 (무엇을 고칠지 보이게)."""
+    with pytest.raises(ConfigurationError) as raised:
+        default_registry().build(MediaProber, "magic", context, setting="FRAME_THEME_MEDIA")
+
+    message = str(raised.value)
+    assert "FRAME_THEME_MEDIA" in message and "'magic'" in message
+    assert all(key in message for key in DEFAULT_KEYS[MediaProber])
+
+
 def test_a_registered_factory_replaces_the_one_under_the_same_key(context):
     registry = AdapterRegistry()
     registry.register(ArtifactStore, "memory", lambda ctx: "first")
@@ -165,6 +203,9 @@ def test_a_registered_factory_replaces_the_one_under_the_same_key(context):
         (IdentityReferenceExtractor, "fake", "artifact_store"),
         (Checker, "ssim_preservation", "artifact_store"),
         (JobDispatcher, "inline", "handlers"),
+        (ThemeRepository, "artifact", "artifact_store"),
+        (ShotDetector, "ffmpeg", "theme_settings"),
+        (SpeechRecognizer, "openai", "theme_settings"),
     ],
     ids=lambda value: getattr(value, "__name__", value),
 )
@@ -188,13 +229,16 @@ def test_adapters_that_read_text_or_images_find_the_llm_in_the_same_registry(con
 
     registry.build(RequirementStructurer, "llm", context)
     registry.build(ChangeRequestInterpreter, "llm", context)
-    assert asked == ["text-model", "text-model"]
+    registry.build(SeriesPlanner, "llm", context)
+    assert asked == ["text-model"] * 3
 
     asked.clear()
     registry.build(IdentityReferenceExtractor, "vlm_crop", context)
     for key in ("vlm_consistency", "vlm_requirement", "vlm_preservation"):
         registry.build(Checker, key, context)
-    assert asked == ["vision-model"] * 4
+    registry.build(ThemeExtractor, "vlm", context)
+    registry.build(ScreenTextReader, "vlm", context)
+    assert asked == ["vision-model"] * 6
 
 
 def test_the_vlm_model_falls_back_to_the_llm_model(context):

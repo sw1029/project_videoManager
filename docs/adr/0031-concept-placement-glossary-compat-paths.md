@@ -76,6 +76,8 @@
   | `frame.domain.services.identity` | `frame.domain.identity` |
   | `frame.domain.services.comparison` | `frame.domain.comparison` |
   | `frame.evaluation.edit_cases` · `edit_runner` · `edit_report` · `edit_metrics`, `frame.evaluation` 이 내보내던 이름 | `frame.evaluation.edits` (패키지 입구에서 가져온다) |
+  | `frame.config.theme_adapters` (어댑터 고르기) | `frame.config.registrations.series` · `frame.config.registrations.speech` (등록부에 올린다. 고르는 함수는 없어졌다) |
+  | `frame.adapters.generator.openrouter._checked_base_url` (빌려 쓰던 안쪽 이름) | `frame.adapters.shared.http.secure_base_url` |
 
 ### 4. 용어집
 - `docs/GLOSSARY.md` — 낱말 하나에 뜻 하나, 한국어 이름과 코드 이름을 짝짓는다. 낱말은 연구 문서와 ADR 의 것을 따른다.

@@ -33,7 +33,7 @@
 | 저장 (산출물 · DB) | `artifacts.py` | `ports/artifact_store.py`, `ports/repositories.py`, `ports/unit_of_work.py` | `adapters/storage/`, `adapters/persistence/` |
 | 작업 실행 · 복구 | `state_machine.py` | `ports/jobs.py` `JobDispatcher` · `use_cases/run_generation_pipeline.py`, `recover_pending_versions.py` · `pipeline/` | `adapters/jobs/`, `presentation/recovery.py` |
 | HTTP API | — | `dto.py`, `use_cases/queries.py` | `presentation/` |
-| 조립 (설정 → 어댑터) | — | — | `config/` — 설정 `settings.py`, 키 → 어댑터 `registrations/<포트>.py`, 엮기 `container.py`. 테마·시리즈는 `theme_settings.py` · `theme_adapters.py` · `theme_wiring.py` (`Container.series`) |
+| 조립 (설정 → 어댑터) | — | — | `config/` — 설정 `settings.py`, 키 → 어댑터 `registrations/<포트>.py`, 엮기 `container.py`. 테마·시리즈는 설정 `theme_settings.py`, 키 → 어댑터 `registrations/series.py` · `speech.py`, 엮기 `theme_wiring.py` (`Container.series`) |
 | 성공 지표 평가 | `metrics.py` | — | `evaluation/` — 지표 1 (수정 케이스) `edits/`, 구조화 골드셋 `structuring/`. 실행은 `tools/evaluate_edits.py` · `evaluate_structuring.py` |
 | 실행 도구 (시연 런처 · 번들) | — | — | `tools/`, `scripts/` |
 
@@ -83,8 +83,8 @@
 | `src/frame/adapters/series/audio/` | 소리 편집 — 소리 뽑기, 무음 재기, 녹음을 잘라 장면에 놓기, 영상에 트랙 붙이기. 소리 읽기 포트도 여기서 구현한다 | `FakeAudioEditor`. `ffmpeg` 의 `FfmpegAudioEditor` |
 | `src/frame/adapters/series/overlay/` | 후반 합성 — 화면 문구 얹기와 화면의 글자 읽기 | `FakeOverlayRenderer`, `FakeScreenTextReader`. `ffmpeg_renderer` 의 `FfmpegOverlayRenderer`, `vlm_reader` 의 `VlmScreenTextReader`, `caching_reader` 의 `CachingScreenTextReader` |
 | `src/frame/adapters/series/store/` | 테마·편 저장 — 문서 하나씩 두고, 편마다 읽고 고쳐 덮어쓰는 사이를 잠근다 | `InMemoryThemeRepository`, `InMemoryEpisodeRepository`, `ArtifactThemeRepository`, `ArtifactEpisodeRepository` |
-| `src/frame/config/` | 조립 지점 | `Settings`, `AdapterRegistry`, `default_registry`, `Container`, `build_container`. 테마·시리즈: `ThemeSettings` (`theme_settings.py`), `build_theme_services` (`theme_wiring.py`), 어댑터 고르기 `theme_adapters.py` |
-| `src/frame/config/registrations/` | 기본 등록 — 설정 키가 어느 어댑터가 되는지 (모듈 하나가 포트 하나) | `register_defaults`, 포트별 `register` (`llm`, `structurer`, `change_request`, `generator`, `assembler`, `identity`, `tracker`, `checker`, `storage`, `persistence`, `jobs`) |
+| `src/frame/config/` | 조립 지점 | `Settings`, `AdapterRegistry`, `default_registry`, `Container`, `build_container`. 테마·시리즈: `ThemeSettings` (`theme_settings.py`), `build_theme_services` · `ThemeServices` (`theme_wiring.py`) |
+| `src/frame/config/registrations/` | 기본 등록 — 설정 키가 어느 어댑터가 되는지 (모듈 하나가 포트 하나) | `register_defaults`, 포트별 `register` (`llm`, `structurer`, `change_request`, `generator`, `assembler`, `identity`, `tracker`, `checker`, `storage`, `persistence`, `jobs`, 음성 인식 `speech`, 테마·시리즈 기능의 포트 `series`) |
 | `src/frame/presentation/` | HTTP API | `create_app`, 스키마 `schemas.py`, 응답 변환 `mappers.py`, 오류 응답 `errors.py` |
 | `src/frame/presentation/routers/` | 자원별 라우터 | `projects`, `versions`, `reference_images`, `settings`, `vocabulary` |
 | `src/frame/evaluation/` | 성공 지표 평가 — 연구 지표를 재는 도구. 모델을 직접 부르지 않는다 | — (아래 패키지를 import 한다) |

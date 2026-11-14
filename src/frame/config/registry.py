@@ -18,6 +18,7 @@ from frame.application.ports import ArtifactStore, Clock, IdGenerator, JobHandle
 from frame.application.ports.llm import LLMKeySource
 
 from .settings import Settings
+from .theme_settings import ThemeSettings
 
 __all__ = ["AdapterRegistry", "BuildContext", "Factory", "default_registry"]
 
@@ -32,6 +33,9 @@ class BuildContext:
     artifact_store: ArtifactStore | None = None
     handlers: JobHandlerRegistry | None = None
     llm_keys: LLMKeySource | None = None  # 화면 입력 키를 OpenAI 클라이언트와 설정 API 가 공유
+    theme_settings: ThemeSettings | None = (
+        None  # 테마·시리즈 기능의 설정. 그 기능의 팩토리가 읽는다
+    )
 
 
 Factory = Callable[[BuildContext], Any]
@@ -44,10 +48,15 @@ class AdapterRegistry:
     def register(self, port: type, key: str, factory: Factory) -> None:
         self._factories[(port.__name__, key)] = factory
 
-    def build(self, port: type, key: str, ctx: BuildContext) -> Any:
+    def build(self, port: type, key: str, ctx: BuildContext, *, setting: str | None = None) -> Any:
+        """setting 은 이 키를 정한 설정 변수의 이름이다. 주면 없는 키를 알릴 때 그 이름을 댄다."""
         try:
             factory = self._factories[(port.__name__, key)]
         except KeyError as exc:
+            if setting is not None:
+                raise ConfigurationError(
+                    f"{setting} 에 '{key}' 어댑터가 없습니다. 사용 가능: {self.keys(port)}"
+                ) from exc
             raise ConfigurationError(
                 f"{port.__name__} 에 '{key}' 어댑터가 등록되어 있지 않습니다. "
                 f"사용 가능: {self.keys(port)}"

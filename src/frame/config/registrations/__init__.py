@@ -21,7 +21,10 @@
     storage          ArtifactStore                산출물 저장
     persistence      UnitOfWork                   영속성
     jobs             JobDispatcher                작업 디스패처
-    _dependencies    팩토리들이 함께 기대는 것 (먼저 만들어진 객체 · ffmpeg 경로 · LLM 클라이언트)
+    speech           SpeechRecognizer             음성 인식 (말소리 받아 적기)
+    series           테마·시리즈 기능의 포트 아홉   저장 · 영상 분석 · 테마 추출 · 편 기획 · 소리 편집 · 화면 문구
+                     (이 둘의 키는 테마·시리즈 설정 config/theme_settings.py 가 정한다)
+    _dependencies    팩토리들이 함께 기대는 것 (먼저 만들어진 객체 · ffmpeg 경로 · LLM 클라이언트와 주소)
 
 어댑터를 더하는 절차
     1. 포트를 구현한 어댑터를 frame.adapters 의 그 포트 패키지에 둔다.
@@ -42,6 +45,8 @@ from . import (
     jobs,
     llm,
     persistence,
+    series,
+    speech,
     storage,
     structurer,
     tracker,
@@ -62,6 +67,8 @@ _PORT_MODULES = (
     storage,
     persistence,
     jobs,
+    speech,
+    series,
 )
 
 

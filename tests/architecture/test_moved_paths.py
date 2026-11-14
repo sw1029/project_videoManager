@@ -40,6 +40,8 @@ MOVED = {
     "frame.evaluation.EditEvaluation": "frame.evaluation.edits.EditEvaluation",
     "frame.evaluation.evaluate_case": "frame.evaluation.edits.evaluate_case",
     "frame.evaluation.evaluate_cases": "frame.evaluation.edits.evaluate_cases",
+    # 테마·시리즈의 어댑터 고르기는 다른 포트와 같은 등록부로 갔다 (M-02 의 연속)
+    "frame.config.theme_adapters": "frame.config.registrations.series 와 frame.config.registrations.speech",
     # 수정 의도와 그 규칙 (M-07)
     "frame.domain.services.propagation": "frame.domain.revision",
     "frame.domain.services.revision_planning": "frame.domain.revision.resolution",
