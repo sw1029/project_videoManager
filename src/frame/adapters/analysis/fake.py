@@ -107,9 +107,14 @@ class FakeThemeExtractor(ThemeExtractor):
 
     ENTITY_KEY = "subject"
 
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(self, error: Exception | None = None, signature: str = "fake") -> None:
         self._error = error
+        self._signature = signature
         self.requests: list[ThemeExtractionRequest] = []
+
+    @property
+    def signature(self) -> str:
+        return self._signature
 
     def extract(self, request: ThemeExtractionRequest) -> ThemeExtraction:
         self.requests.append(request)

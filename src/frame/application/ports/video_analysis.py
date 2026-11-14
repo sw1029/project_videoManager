@@ -32,7 +32,19 @@ class VideoAnalysisError(AdapterError):
 
 
 class SpeechRecognitionError(AdapterError):
+    """말소리를 받아 적지 못했다 (알아들을 수 없는 소리, 잘못된 응답)."""
+
     code = "SPEECH_RECOGNITION_ERROR"
+
+
+class SpeechServiceError(SpeechRecognitionError):
+    """인식 서비스를 쓸 수 없다: 키 없음·인증 실패·한도 초과·연결 실패·서버 오류.
+
+    소리의 문제가 아니라 설정·환경의 문제다. 부른 쪽은 이 오류를 넘기고 다음 유료 단계로 가지 않는다
+    (감사 BTS-29: 설정 오류인데 돈을 쓰고 내레이션 없는 테마가 저장됐다).
+    """
+
+    code = "SPEECH_SERVICE_ERROR"
 
 
 class ThemeExtractionError(AdapterError):
@@ -112,7 +124,13 @@ class ThemeExtractor(ABC):
     - 외부 영상(EXTERNAL)에서는 기준 이미지를 붙이지 않는다 (Theme.validate 가 막는다).
     - 화면 문구의 시각은 영상 길이 안이다.
     - 실패는 ThemeExtractionError 또는 다른 AdapterError (LLM 호출 실패 등).
+    - signature 는 추출기 설정의 지문이다 (모델·프롬프트 판·프레임 수). 같은 영상에 다른 결과를 낼 수 있는 설정이
+      바뀌면 달라진다. 같은 영상·같은 지문의 테마가 있으면 유스케이스가 다시 뽑지 않는다 (감사 BTS-12).
     """
+
+    @property
+    @abstractmethod
+    def signature(self) -> str: ...
 
     @abstractmethod
     def extract(self, request: ThemeExtractionRequest) -> ThemeExtraction: ...

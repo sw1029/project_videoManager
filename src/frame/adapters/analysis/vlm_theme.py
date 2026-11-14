@@ -308,6 +308,15 @@ class VlmThemeExtractor(ThemeExtractor):
         self.max_refined_texts = max(0, int(max_refined_texts))  # 다시 묻는 호출 수의 상한
         self.last_completion: JsonCompletion | None = None  # 디버깅·기록용 원본 응답
 
+    @property
+    def signature(self) -> str:
+        model = getattr(self._llm, "model", "?")
+        regions = "refined" if self.refine_text_regions else "plain"
+        return (
+            f"vlm_frames:{model}:{PROMPT_VERSION}:{self.frames_per_slot}x{self.max_frames}"
+            f"@{self.max_side}:{regions}:{self.language}"
+        )
+
     def extract(self, request: ThemeExtractionRequest) -> ThemeExtraction:
         analysis = request.analysis
         spans = slot_spans_from_shots(analysis.shots, min_slot_ms=request.min_slot_ms)

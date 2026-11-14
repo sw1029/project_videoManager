@@ -11,6 +11,7 @@ from frame.adapters.analysis import FakeSpeechRecognizer, FakeThemeExtractor
 from frame.adapters.fake_media import fake_video
 from frame.application.ports.video_analysis import (
     SpeechRecognitionError,
+    SpeechServiceError,
     ThemeExtraction,
     ThemeExtractionError,
 )
@@ -119,13 +120,30 @@ def test_only_selected_platforms_decide_the_criteria():
     ).verdict.within
 
 
-def test_speech_failure_does_not_stop_the_extraction():
-    failing = FakeSpeechRecognizer(error=SpeechRecognitionError("인식 서버 응답 없음"))
+def test_speech_that_cannot_be_understood_does_not_stop_the_extraction():
+    """알아듣지 못한 것은 내용의 문제다: 내레이션 없이 뽑는다. 메모에는 오류 코드만 남긴다 (원문은 로그로)."""
+    failing = FakeSpeechRecognizer(
+        error=SpeechRecognitionError(
+            "음성 인식 API 오류 400: C:\\Users\\someone\\clip.wav 를 읽지 못함"
+        )
+    )
     series = series_of(series_container(speech_recognizer=failing))
     record = series.extract_theme.execute(_command()).record
 
     assert record.analysis.transcript is None and not record.theme.narration.present
-    assert any("인식 서버 응답 없음" in note for note in record.notes)
+    assert any("SPEECH_RECOGNITION_ERROR" in note for note in record.notes)
+    assert not any("someone" in note or "400" in note for note in record.notes)
+
+
+def test_speech_service_failure_stops_before_the_paid_extraction():
+    """키 없음·인증 실패·한도 초과·연결 실패는 설정·환경의 문제다. 내레이션 없는 테마를 돈 들여 만들지 않는다."""
+    extractor = FakeThemeExtractor()
+    failing = FakeSpeechRecognizer(error=SpeechServiceError("음성 인식 API 인증 실패 (401)"))
+    series = series_of(series_container(speech_recognizer=failing, theme_extractor=extractor))
+
+    with pytest.raises(SpeechServiceError):
+        series.extract_theme.execute(_command())
+    assert extractor.requests == [] and series.themes.list() == []
 
 
 def test_silent_video_or_recognizer_off_gives_no_transcript():
@@ -176,3 +194,49 @@ def test_result_that_breaks_the_contract_is_not_saved(mode):
 def test_empty_video_is_rejected():
     with pytest.raises(ValidationError):
         series_of(series_container()).extract_theme.execute(_command(b""))
+
+
+# ---- 같은 영상은 다시 뽑지 않는다 (감사 BTS-12) ----
+def test_same_video_is_not_extracted_twice():
+    """같은 영상·같은 추출기면 앞서 뽑은 테마를 돌려준다. 인식도 추출도 다시 부르지 않고, 테마가 둘 생기지 않는다."""
+    recognizer, extractor = FakeSpeechRecognizer(), FakeThemeExtractor()
+    series = series_of(series_container(speech_recognizer=recognizer, theme_extractor=extractor))
+    first = series.extract_theme.execute(_command())
+    assert first.reused is False and first.record.detail["extractor"] == extractor.signature
+
+    again = series.extract_theme.execute(_command(title="다른 제목으로 다시"))
+
+    assert again.reused is True and again.record == first.record and again.verdict.within
+    assert len(recognizer.calls) == 1 and len(extractor.requests) == 1
+    assert len(series.themes.list()) == 1
+
+
+def test_forced_or_differently_configured_extraction_runs_again():
+    extractor = FakeThemeExtractor()
+    series = series_of(series_container(theme_extractor=extractor))
+    first = series.extract_theme.execute(_command()).record
+
+    forced = series.extract_theme.execute(_command(force=True))
+    assert forced.reused is False and forced.record.theme.theme_id != first.theme.theme_id
+    assert len(extractor.requests) == 2
+
+    # 다른 영상, 다른 언어는 다른 입력이다
+    series.extract_theme.execute(_command(fake_video(transcript=SAID, duration_ms=20000)))
+    series.extract_theme.execute(_command(language="en"))
+    assert len(extractor.requests) == 4
+
+    # 추출기의 설정이 바뀌면(모델·프롬프트 판) 예전 결과를 쓰지 않는다
+    other = FakeThemeExtractor(signature="fake:2")
+    changed = series_of(series_container(theme_extractor=other))
+    changed.themes.save(first)
+    assert changed.extract_theme.execute(_command()).reused is False
+
+
+def test_failed_extraction_leaves_no_copy_of_the_source():
+    """추출이 실패하면 영상의 사본도 남기지 않는다 (주인 없는 사본)."""
+    container = series_container(theme_extractor=_BrokenExtractor("error"))
+    command = _command(origin=SourceOrigin.FRAME_GENERATED, keep_source=True)
+
+    with pytest.raises(ThemeExtractionError):
+        series_of(container).extract_theme.execute(command)
+    assert not any("source" in uri for uri in container.artifact_store._blobs)

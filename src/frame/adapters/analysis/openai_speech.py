@@ -27,6 +27,7 @@ from frame.application.ports.video_analysis import (
     SpeechAudio,
     SpeechRecognitionError,
     SpeechRecognizer,
+    SpeechServiceError,
 )
 from frame.domain.video_analysis import SpeechSegment, Transcript, Word
 
@@ -69,7 +70,7 @@ class OpenAISpeechRecognizer(SpeechRecognizer):
             raise SpeechRecognitionError("인식할 음성이 비어 있습니다")
         key = self._keys.resolve()
         if not key:
-            raise SpeechRecognitionError(self._keys.describe_missing())
+            raise SpeechServiceError(self._keys.describe_missing())
         fields: list[tuple[str, str]] = [("model", self.model)]
         if self.word_timestamps:
             fields += [
@@ -92,16 +93,20 @@ class OpenAISpeechRecognizer(SpeechRecognizer):
                 timeout=self.timeout_s,
             )
         except TransportError as exc:
-            raise SpeechRecognitionError(f"음성 인식 API 에 닿지 못했습니다: {exc}") from exc
+            raise SpeechServiceError(f"음성 인식 API 에 닿지 못했습니다: {exc}") from exc
         document = self._document(response)
         self.last_usage = document.get("usage") if isinstance(document.get("usage"), dict) else None
         return _transcript(document, language, audio.duration_ms)
 
     def _document(self, response: HttpResponse) -> dict[str, Any]:
-        if response.status == 401:
-            raise SpeechRecognitionError("음성 인식 API 인증 실패 (401): API 키를 확인하세요")
+        if response.status in (401, 403):
+            raise SpeechServiceError(
+                f"음성 인식 API 인증 실패 ({response.status}): API 키를 확인하세요"
+            )
         if response.status == 429:
-            raise SpeechRecognitionError("음성 인식 API 요청 한도 초과 (429)")
+            raise SpeechServiceError("음성 인식 API 요청 한도 초과 (429)")
+        if response.status >= 500:
+            raise SpeechServiceError(f"음성 인식 API 서버 오류 ({response.status})")
         if response.status >= 400:
             raise SpeechRecognitionError(
                 f"음성 인식 API 오류 {response.status}: {_error_message(response)}"
