@@ -1,7 +1,7 @@
 """구조화 골드셋 기록을 견주고 다시 채점하는 도구 (US-06 AC-11, docs/STRUCTURING_DESIGN.md §10).
 
-    python -m frame.tools.structuring_eval compare <기준 기록.json> <비교 기록.json>
-    python -m frame.tools.structuring_eval rescore <기록.json> [--gold tests/evaluation/structuring_gold] [--write]
+    python -m frame.tools.evaluate_structuring compare <기준 기록.json> <비교 기록.json>
+    python -m frame.tools.evaluate_structuring rescore <기록.json> [--gold tests/evaluation/structuring_gold] [--write]
 
 - compare: 대표 지표와 사례별 변화를 표로 낸다. 지표가 하나라도 나빠지면 종료 코드 1.
 - rescore: 기록에 남은 원본 응답을 지금 골드로 다시 채점한다 (모델을 부르지 않는다).

@@ -300,8 +300,8 @@ StructuringReport
 |---|---|---|
 | CI | `pytest -m "not slow and not gpu"` (`tests/unit/test_structuring_metrics.py`, `tests/evaluation/test_structuring_gold.py`) | 없음 (`ReplayLLMClient`) |
 | 실제 모델 | `FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> pytest -m slow tests/live/test_structuring_gold_live.py -s` | 15건. 첫 실행은 104초, 호출 22회(재시도 7회), 약 $0.03 |
-| 기록 비교 | `python -m frame.tools.structuring_eval compare <기준.json> <비교.json>` | 없음. 회귀가 있으면 종료 코드 1 |
-| 다시 채점 | `python -m frame.tools.structuring_eval rescore <기록.json> [--write]` | 없음. 기록의 원본 응답을 지금 골드로 채점 |
+| 기록 비교 | `python -m frame.tools.evaluate_structuring compare <기준.json> <비교.json>` | 없음. 회귀가 있으면 종료 코드 1 |
+| 다시 채점 | `python -m frame.tools.evaluate_structuring rescore <기록.json> [--write]` | 없음. 기록의 원본 응답을 지금 골드로 채점 |
 
 CI 는 세 가지를 확인한다.
 - 골드가 IR 규칙과 프롬프트 규칙을 지키는가
@@ -327,7 +327,7 @@ CI 는 세 가지를 확인한다.
 - 비교: 실제 실행 테스트는 기록 폴더(주지 않으면 `docs/evaluation/structuring/`)의 가장 최근 기록과 견준 표를 출력한다.
   지표별 변화와 회귀 표시, 사례별로 새로 놓친 조건과 새로 맞춘 조건이 나온다.
   코드에서는 `compare_records(read_record(a), read_record(b))` 로 견준다.
-- 골드셋을 고치면 지문이 달라지고, 비교 표가 같은 잣대가 아니라고 경고한다. 이때는 옛 기록을 `structuring_eval rescore --write` 로
+- 골드셋을 고치면 지문이 달라지고, 비교 표가 같은 잣대가 아니라고 경고한다. 이때는 옛 기록을 `evaluate_structuring rescore --write` 로
   지금 골드에 다시 채점한다. 모델을 다시 부르지 않고, 실행 정보(시각·모델·시도·토큰)는 그대로 두며 `rescored`(시각·이전 골드 지문)가 붙는다.
 - 프롬프트를 바꿀 때 순서
   1. `PROMPT_VERSION` 을 올린다.

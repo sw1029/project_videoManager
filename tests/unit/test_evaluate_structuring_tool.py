@@ -1,4 +1,4 @@
-"""구조화 골드셋 기록을 견주고 다시 채점하는 도구 (frame.tools.structuring_eval). 모델은 부르지 않는다."""
+"""구조화 골드셋 기록을 견주고 다시 채점하는 도구 (frame.tools.evaluate_structuring). 모델은 부르지 않는다."""
 
 import json
 from pathlib import Path
@@ -12,7 +12,7 @@ from frame.evaluation.structuring import (
     run_gold_set,
     write_record,
 )
-from frame.tools import structuring_eval
+from frame.tools import evaluate_structuring
 
 GOLD_DIR = Path(__file__).resolve().parents[1] / "evaluation" / "structuring_gold"
 
@@ -42,9 +42,9 @@ def test_compare_prints_the_table_and_exits_1_on_regression(tmp_path, capsys):
         _record(cases, worse_responses, "v2", "2026-11-15T10:00:00+09:00"), tmp_path
     )
 
-    assert structuring_eval.main(["compare", str(base), str(worse)]) == 1
+    assert evaluate_structuring.main(["compare", str(base), str(worse)]) == 1
     assert "← 회귀" in capsys.readouterr().out
-    assert structuring_eval.main(["compare", str(base), str(base)]) == 0
+    assert evaluate_structuring.main(["compare", str(base), str(base)]) == 0
 
 
 def test_rescore_shows_and_with_write_rewrites_the_record(tmp_path, capsys):
@@ -54,11 +54,13 @@ def test_rescore_shows_and_with_write_rewrites_the_record(tmp_path, capsys):
     path = tmp_path / "renamed-record.json"
     path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
 
-    assert structuring_eval.main(["rescore", str(path), "--gold", str(GOLD_DIR)]) == 0
+    assert evaluate_structuring.main(["rescore", str(path), "--gold", str(GOLD_DIR)]) == 0
     assert read_record(path)["gold"]["fingerprint"] == "옛 골드"  # --write 없이는 보여 주기만
     assert "골드셋이 다르다" in capsys.readouterr().out
 
-    assert structuring_eval.main(["rescore", str(path), "--gold", str(GOLD_DIR), "--write"]) == 0
+    assert (
+        evaluate_structuring.main(["rescore", str(path), "--gold", str(GOLD_DIR), "--write"]) == 0
+    )
     rewritten = read_record(path)
     assert rewritten["gold"]["fingerprint"] != "옛 골드"
     assert rewritten["rescored"]["gold_fingerprint_before"] == "옛 골드"
