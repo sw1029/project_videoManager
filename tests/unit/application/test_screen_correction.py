@@ -258,6 +258,62 @@ def test_wrong_scene_text_is_patched_over_when_a_region_is_given():
     assert rendered.composed_now == ("closeup",)
 
 
+def _patched(reader=None):
+    """컵의 글자가 틀려 가리고 다시 쓴 편. (컨테이너, 생성기, 편, 고친 어긋남의 id, 가린 문구의 id)"""
+    container, generator = _spied(failing=("closeup:mug:text",), reader=reader)
+    episode = _ready(container, _content_with_scene_text())
+    issue = _check(container, episode).issues[0]
+    patch = PatchRegion(issue.issue_id, Region(0.35, 0.45, 0.3, 0.06))
+    step = _correct(container, episode, patches=(patch,)).steps[0]
+    series_of(container).render_episode.execute(episode.episode_id)
+    return container, generator, episode, issue.issue_id, step.overlay_id
+
+
+def test_patched_scene_text_is_settled_and_the_patch_is_read_on_screen():
+    """클립은 그대로이므로 요구 반영 검수는 여전히 FAIL 이다. 가린 뒤에는 그것을 다시 어긋난 곳으로 세지 않는다.
+
+    대신 가린 문구가 화면에서 제대로 읽히는지를 다른 문구와 같이 완성본에서 확인한다.
+    """
+    container, generator, episode, issue_id, overlay_id = _patched()
+    generated = len(generator.requests)
+
+    report = _check(container, episode)
+
+    assert overlay_id == "closeup:patch:mug:text"
+    assert report.ok and report.patched == (issue_id,)
+    assert report.checked_overlays == 4  # 문구 3 + 가린 문구 1
+    assert report.to_dict()["patched"] == [issue_id]
+    # 다시 고치라고 해도 고칠 것이 없다: 클립을 다시 만들지 않는다
+    again = _correct(container, episode)
+    assert again.steps == () and again.pending_version_id is None
+    assert len(generator.requests) == generated
+
+
+def test_patch_that_reads_wrong_on_screen_is_reported():
+    """가린 자리에 쓴 글자가 잘려 보이면 그 문구가 어긋난 곳이 된다 (고친 것으로 치지 않는다)."""
+    reader = FakeScreenTextReader(misread={"closeup:patch:mug:text": "FRAM"})
+    container, _, episode, issue_id, overlay_id = _patched(reader)
+
+    report = _check(container, episode)
+
+    assert [i.issue_id for i in report.issues] == [f"overlay:{overlay_id}"]
+    assert (report.issues[0].expected, report.issues[0].observed) == ("FRAME", "FRAM")
+    assert report.patched == (issue_id,)
+
+
+def test_patch_with_another_text_does_not_settle_the_requirement():
+    """가린 문구가 요구한 글자와 다르면 (사람이 문구를 바꿔 둠) 요구조건은 여전히 어긋난 곳이다."""
+    container, _, episode, issue_id, overlay_id = _patched()
+    series = series_of(container)
+    current = series.episodes.get(episode.episode_id)
+    wrong = replace(current.plan.overlay(overlay_id), text="FLAME")
+    series.episodes.save(replace(current, plan=current.plan.with_overlay(wrong), render=None))
+
+    report = _check(container, episode)
+
+    assert [i.issue_id for i in report.issues] == [issue_id] and report.patched == ()
+
+
 def test_patch_is_only_for_scene_text_and_known_issues():
     container = _container(failing=("closeup:latte:color",))
     episode = _ready(container)

@@ -104,6 +104,11 @@ class ScreenIssue:
         )
 
 
+def patch_overlay_id(scene_key: str, entity_key: str | None, predicate: str | None) -> str:
+    """화면 속 글자를 가리고 다시 쓰는 문구 항목의 id. 요구조건 하나에 가린 문구는 하나다 (다시 고치면 갈아 끼운다)."""
+    return f"{scene_key}:patch:{entity_key or 'scene'}:{predicate}"
+
+
 def normalize_screen_text(text: str) -> str:
     """화면 문구를 견줄 수 있게: 전각·반각을 맞추고 공백을 없앤다. 글자·숫자·문장부호는 그대로 둔다."""
     return "".join(unicodedata.normalize("NFKC", text or "").split())

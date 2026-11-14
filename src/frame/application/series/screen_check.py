@@ -10,12 +10,17 @@
 4. 녹음: 대본과 다르게 읽은 줄, 읽지 않은 줄, 장면보다 긴 줄.
 
 읽기에 실패한 문구는 어긋난 곳으로 세지 않고 메모로 남긴다 (판정할 수 없는 것을 틀렸다고 하지 않는다).
+
+가리고 다시 쓴 화면 속 글자 (PATCH)
+- 클립은 그대로이므로 요구 반영 검수는 여전히 FAIL 이다. 요구한 글자로 가린 문구가 계획에 있으면
+  그 요구조건은 어긋난 곳에서 빼고 patched 에 적는다. 빼지 않으면 고친 뒤에도 같은 것을 또 고치라고 한다.
+- 가린 문구가 제대로 보이는지는 3번(화면에서 읽기)이 다른 문구와 같이 확인한다. 다르게 읽히면 그 문구가 어긋난 곳이다.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,9 +29,10 @@ from frame.domain.correction import (
     IssueKind,
     ScreenIssue,
     issues_from_checks,
+    patch_overlay_id,
     screen_text_matches,
 )
-from frame.domain.episode import OverlayKind
+from frame.domain.episode import EpisodePlan, OverlayKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.series import Episode
 from frame.domain.services.narration import LineStatus, PlacementStatus
@@ -50,6 +56,7 @@ class ScreenReport:
     checked_overlays: int  # 화면에서 읽어 본 문구 수
     checked_lines: int  # 녹음을 맞춰 본 대본 줄 수
     notes: tuple[str, ...] = ()
+    patched: tuple[str, ...] = ()  # 가리고 다시 써서 고친 요구조건 (어긋난 곳에서 뺐다)
 
     @property
     def ok(self) -> bool:
@@ -71,6 +78,7 @@ class ScreenReport:
             "checked_overlays": self.checked_overlays,
             "checked_lines": self.checked_lines,
             "notes": list(self.notes),
+            "patched": list(self.patched),
         }
 
 
@@ -96,7 +104,9 @@ class CheckEpisodeScreen:
         with self._uow_factory() as uow:
             results = list(uow.checks.list_by_version(episode.version_id))
         notes: list[str] = []
-        issues = list(issues_from_checks(episode.plan.ir, results))
+        issues, patched = _without_patched(
+            episode.plan, issues_from_checks(episode.plan.ir, results)
+        )
         issues += self._plan_text_issues(episode, notes)
         seen = {i.overlay_id for i in issues if i.overlay_id}
         read, shown = self._rendered_text_issues(episode, seen, notes)
@@ -110,6 +120,7 @@ class CheckEpisodeScreen:
             checked_overlays=read,
             checked_lines=len(episode.narration.alignments) if episode.narration else 0,
             notes=tuple(notes),
+            patched=tuple(patched),
         )
 
     # ---- 2. 문구 (계획) ----
@@ -193,6 +204,27 @@ class CheckEpisodeScreen:
                     )
                 )
         return read, issues
+
+
+def _without_patched(
+    plan: EpisodePlan, found: Sequence[ScreenIssue]
+) -> tuple[list[ScreenIssue], list[str]]:
+    """요구한 글자로 가리고 다시 쓴 화면 속 글자를 뺀다. (남은 어긋남, 뺀 것의 id)"""
+    patches = {item.overlay_id: item for item in plan.overlays if item.kind is OverlayKind.PATCH}
+    issues: list[ScreenIssue] = []
+    patched: list[str] = []
+    for issue in found:
+        item = patches.get(patch_overlay_id(issue.scene_key, issue.entity_key, issue.predicate))
+        settled = (
+            issue.kind is IssueKind.SCENE_TEXT
+            and item is not None
+            and screen_text_matches(issue.expected, item.text)
+        )
+        if settled:
+            patched.append(issue.issue_id)
+        else:
+            issues.append(issue)
+    return issues, patched
 
 
 def expected_overlay_texts(theme: Theme, variables: Mapping[str, str]) -> dict[str, str]:

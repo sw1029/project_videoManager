@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
-from frame.domain.correction import CorrectionMethod, IssueKind, ScreenIssue
+from frame.domain.correction import CorrectionMethod, IssueKind, ScreenIssue, patch_overlay_id
 from frame.domain.enums import ChangeScope, RevisionKind
 from frame.domain.episode import EpisodePlan, OverlayItem, OverlayKind
 from frame.domain.errors import NotFound, ValidationError
@@ -247,7 +247,7 @@ def _patch(
         background_opacity=1.0,
         size=min(0.5, max(0.01, patch.region.h * 0.7)),
     )
-    overlay_id = f"{issue.scene_key}:patch:{issue.entity_key or 'scene'}:{issue.predicate}"
+    overlay_id = patch_overlay_id(issue.scene_key, issue.entity_key, issue.predicate)
     item = OverlayItem(
         overlay_id=overlay_id,
         scene_key=issue.scene_key,

@@ -12,6 +12,7 @@ from frame.domain.correction import (
     is_text_requirement,
     issues_from_checks,
     normalize_screen_text,
+    patch_overlay_id,
     screen_text_matches,
 )
 from frame.domain.enums import CheckType, Verdict
@@ -122,3 +123,9 @@ def test_issue_round_trips():
     )
 
     assert ScreenIssue.from_dict(issue.to_dict()) == issue
+
+
+def test_one_patch_overlay_per_requirement():
+    """가린 문구의 id 는 요구조건(장면·객체·술어)으로 정해진다. 검수가 그 id 로 고친 것을 알아본다."""
+    assert patch_overlay_id("closeup", "mug", "text") == "closeup:patch:mug:text"
+    assert patch_overlay_id("closeup", None, "text") == "closeup:patch:scene:text"
