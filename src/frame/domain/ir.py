@@ -245,7 +245,7 @@ class IntermediateRepresentation:
                 entity_key=e["entity_key"],
                 kind=EntityKind(e.get("kind", EntityKind.OTHER)),
                 description=e.get("description", ""),
-                display_name=(e.get("display_name") or "").strip(),
+                display_name=str(e.get("display_name") or "").strip(),
             )
             for e in data.get("entities", [])
         )
@@ -315,8 +315,7 @@ def _entity_dict(entity: EntitySpec) -> dict[str, Any]:
         "kind": str(entity.kind),
         "description": entity.description,
     }
-    if (
-        entity.display_name
-    ):  # 비어 있으면 넣지 않는다: 표시 이름이 없던 문서·fingerprint 가 그대로다
+    # 비어 있으면 넣지 않는다: 표시 이름이 없던 문서·fingerprint 가 그대로다
+    if entity.display_name:
         document["display_name"] = entity.display_name
     return document

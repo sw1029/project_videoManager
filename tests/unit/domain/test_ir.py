@@ -284,3 +284,10 @@ def test_display_name_is_not_a_generation_condition(ir):
     named = _named(ir, cup="컵 01")
     for scene in ir.scenes:
         assert named.scene_fingerprint(scene.scene_key) == ir.scene_fingerprint(scene.scene_key)
+
+
+def test_display_name_that_is_not_text_is_read_as_text(ir):
+    """구조화 출력(엄격하지 않은 스키마)에 숫자가 와도 오류 대신 글자로 읽는다."""
+    document = ir.to_dict()
+    document["entities"][1]["display_name"] = 1
+    assert IntermediateRepresentation.from_dict(document).entity("cup").display_name == "1"
