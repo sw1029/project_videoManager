@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from frame.domain.enums import ReferenceOrigin
 from frame.domain.errors import NotFound, VersionNotEditable
 from frame.domain.models import VideoVersion
 from frame.domain.state_machine import EDITABLE_STATES
@@ -34,8 +35,12 @@ class EditDraftIr:
                 )
             _ensure_editable(version)
             structured = self._structurer.structure_document(command.ir)  # 고칠 수 없으면 422
+            # 사용자가 올린 참조만 본다. 정체성 기준 이미지(DERIVED)는 객체가 없어지면 쓰이지 않을 뿐이다 (ADR-0015)
             references = uow.reference_images.list_by_version(version.version_id)
-            check_reference_entities((r.entity_key for r in references), structured.ir)
+            check_reference_entities(
+                (r.entity_key for r in references if r.origin is ReferenceOrigin.USER),
+                structured.ir,
+            )
             if not uow.versions.replace_draft_ir(version.version_id, structured.ir):
                 current = uow.versions.get(version.version_id)
                 raise VersionNotEditable(

@@ -19,8 +19,9 @@ from frame.application.ports.structurer import (
     ReferenceImageInput,
     StructuredDocument,
 )
-from frame.domain.enums import VersionState
+from frame.domain.enums import ReferenceOrigin, VersionState
 from frame.domain.errors import NotFound, ValidationError, VersionNotEditable
+from frame.domain.models import ReferenceImage
 from frame.domain.services.propagation import AttributeChange
 from tests.support.factories import (
     CAFE_PROMPT,
@@ -201,3 +202,32 @@ def test_renaming_objects_in_a_revision_draft_does_not_regenerate_scenes():
     assert result.repair_notes == ()
     assert done.ir.entity("cup").display_name == "컵 01"
     assert sorted(r.scene.scene_key for r in generator.requests) == ["closeup", "intro"]
+
+
+def test_identity_references_do_not_block_removing_an_object(container, draft):
+    """정체성 기준 이미지(DERIVED, 시스템이 뽑은 것)는 사용자 참조가 아니므로 객체를 지우는 것을 막지 않는다."""
+    with container.uow_factory() as uow:
+        uow.reference_images.add(
+            ReferenceImage(
+                "img_identity",
+                draft.version_id,
+                "mem://identity/barista.png",
+                "barista",
+                origin=ReferenceOrigin.DERIVED,
+                source_scene_key="intro",
+            )
+        )
+        uow.commit()
+    document = version_of(container, draft.version_id).ir.to_dict()
+    document["entities"] = [e for e in document["entities"] if e["entity_key"] != "barista"]
+    for scene in document["scenes"]:
+        scene["entity_keys"] = [k for k in scene["entity_keys"] if k != "barista"]
+        scene["requirements"] = [
+            r
+            for r in scene["requirements"]
+            if "barista" not in (r["entity_key"], r["related_entity_key"])
+        ]
+
+    container.edit_draft_ir.execute(EditDraftIrCommand(draft.version_id, document))
+
+    assert not version_of(container, draft.version_id).ir.has_entity("barista")
