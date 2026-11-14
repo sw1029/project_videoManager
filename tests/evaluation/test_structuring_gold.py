@@ -1,6 +1,6 @@
 """구조화 골드셋 (US-06 AC-11, T2·T6): 골드 자체의 규칙과, 리플레이로 지표 계산을 검증한다 (모델 호출 없음).
 
-실제 모델로 돌리는 것은 test_structuring_gold_live.py (slow) 다.
+실제 모델로 돌리는 것은 tests/live/test_structuring_gold_live.py (slow, FRAME_EVAL_STRUCTURING_LIVE=1) 다.
 """
 
 import json

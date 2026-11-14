@@ -134,10 +134,12 @@ FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -
 ```
 
 구조화 품질은 골드셋 15건(브리프 → 기대 IR)으로 잰다. 객체 재현율·요구조건 F1·장면 수 일치를 내고,
-결과를 `docs/evaluation/structuring/` 에 프롬프트 버전별로 남겨 직전 기록과 견준다 ([STRUCTURING_DESIGN §10](docs/STRUCTURING_DESIGN.md)).
+`docs/evaluation/structuring/` 의 가장 최근 기록과 견준다 ([STRUCTURING_DESIGN §10](docs/STRUCTURING_DESIGN.md)).
+이 실제 실행 테스트는 서버 설정이 아니라 전용 스위치 `FRAME_EVAL_STRUCTURING_LIVE=1` 로만 켜진다 (1회 약 $0.03).
+기록을 저장소에 남길 때는 `FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring` 을 더한다.
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/evaluation -m slow -s
+FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live/test_structuring_gold_live.py -m slow -s
 ```
 
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,

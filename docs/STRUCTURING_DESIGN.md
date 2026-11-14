@@ -286,7 +286,7 @@ StructuringReport
 | 무엇 | 명령 | 모델 호출 |
 |---|---|---|
 | CI | `pytest -m "not slow and not gpu"` (`tests/unit/test_structuring_metrics.py`, `tests/evaluation/test_structuring_gold.py`) | 없음 (`ReplayLLMClient`) |
-| 실제 모델 | `FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=<키 파일> pytest -m slow tests/evaluation -s` | 15건. 첫 실행은 104초, 호출 22회(재시도 7회), 약 $0.03 |
+| 실제 모델 | `FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> pytest -m slow tests/live/test_structuring_gold_live.py -s` | 15건. 첫 실행은 104초, 호출 22회(재시도 7회), 약 $0.03 |
 | 기록 비교 | `python -m frame.tools.structuring_eval compare <기준.json> <비교.json>` | 없음. 회귀가 있으면 종료 코드 1 |
 | 다시 채점 | `python -m frame.tools.structuring_eval rescore <기록.json> [--write]` | 없음. 기록의 원본 응답을 지금 골드로 채점 |
 
@@ -295,25 +295,30 @@ CI 는 세 가지를 확인한다.
 - 골드 자체를 재생하면 모든 지표가 1 이 되는가
 - 컨셉 카페 브리프에 대한 gpt-4.1-mini 실호출 결과 3건(`tests/evaluation/replay/`)을 채점한 결과가 기대와 같은가
 
-실제 모델 테스트는 `FRAME_STRUCTURER=llm` 일 때만 돈다. 목표치에 못 미치면 기록을 남긴 뒤 실패한다.
+실제 모델 테스트(`tests/live/`)는 전용 스위치 `FRAME_EVAL_STRUCTURING_LIVE=1` 일 때만 돈다.
+- 서버 설정(`FRAME_STRUCTURER`)은 보지 않고 LLM 구조화기로 돈다. 서버를 띄우던 셸에서 실수로 켜지지 않게 하려는 것이다 (감사 B17-01).
+- 스위치를 켰는데 키·패키지가 없으면 건너뛰지 않고 설정 오류로 실패한다.
+- 목표치에 못 미치면 기록을 남긴 뒤 실패한다.
 
 ### 10.4 결과 기록과 비교
 
-- 위치: `docs/evaluation/structuring/{프롬프트 버전}__{모델}__{실행 시각}.json`. slow 테스트가 쓰고, `FRAME_EVAL_RECORD_DIR` 로 바꿀 수 있다.
-  실제 실행의 기록은 저장소에 커밋해 프롬프트 버전별로 쌓는다.
+- 위치: `docs/evaluation/structuring/{프롬프트 버전}__{모델}__{실행 시각}.json`.
+  - 실제 실행 테스트는 기본으로 임시 폴더에 쓴다. 테스트가 소스 트리에 저절로 파일을 남기지 않게 하려는 것이다.
+  - 저장소에 남길 때만 `FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring` 을 주고, 그 기록을 커밋해 프롬프트 버전별로 쌓는다.
 - 내용(`record_version` 1)
   - 구조화기: 이름·제공자·모델·프롬프트 버전·스키마 버전, 응답이 알려 준 모델 이름
   - 골드셋 지문(내용 해시)
   - 대표 지표·목표치·목표 충족 여부·토큰 합계, 언어별 요약
     (토큰은 사례마다 마지막 시도의 값이다. 자기수정 재시도분은 빠지므로 비용은 시도 횟수와 함께 읽는다)
   - 사례별 tp/fp/fn, 놓친 조건·값이 틀린 조건·골드에 없는 조건, 장면 수·경계 오차, 시도 횟수, 보정 메모, **모델의 원본 응답**
-- 비교: slow 테스트가 그 폴더의 가장 최근 기록과 견준 표를 출력한다. 지표별 변화와 회귀 표시, 사례별로 새로 놓친 조건과 새로 맞춘 조건이 나온다.
+- 비교: 실제 실행 테스트는 기록 폴더(주지 않으면 `docs/evaluation/structuring/`)의 가장 최근 기록과 견준 표를 출력한다.
+  지표별 변화와 회귀 표시, 사례별로 새로 놓친 조건과 새로 맞춘 조건이 나온다.
   코드에서는 `compare_records(read_record(a), read_record(b))` 로 견준다.
 - 골드셋을 고치면 지문이 달라지고, 비교 표가 같은 잣대가 아니라고 경고한다. 이때는 옛 기록을 `structuring_eval rescore --write` 로
   지금 골드에 다시 채점한다. 모델을 다시 부르지 않고, 실행 정보(시각·모델·시도·토큰)는 그대로 두며 `rescored`(시각·이전 골드 지문)가 붙는다.
 - 프롬프트를 바꿀 때 순서
   1. `PROMPT_VERSION` 을 올린다.
-  2. slow 테스트를 돌린다.
+  2. `FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring` 을 주고 실제 실행 테스트를 돌린다 (사용자 승인 뒤, 비용 발생).
   3. 비교 표에서 회귀를 확인한다.
   4. 기록을 커밋한다.
 
@@ -410,7 +415,7 @@ tests/unit/structurer/test_repair_rules.py         규칙별 단위 테스트 (�
 tests/unit/structurer/test_schema.py               스키마가 IR.to_dict 와 일치하는지 (왕복)
 tests/contract/test_structurer_contract.py         LLMStructurer(ReplayLLMClient) 를 params 에 추가
 tests/evaluation/test_structuring_gold.py          골드 규칙·리플레이 채점 (CI)
-tests/evaluation/test_structuring_gold_live.py     slow, 실제 모델 (결과를 docs/evaluation/structuring/ 에 기록)
+tests/live/test_structuring_gold_live.py           slow, 실제 모델 (FRAME_EVAL_STRUCTURING_LIVE=1 로만 켜짐)
 ```
 
 | 순서 | 작업 | 공수(h) | 비고 |
