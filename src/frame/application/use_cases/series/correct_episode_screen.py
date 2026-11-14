@@ -25,47 +25,30 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from enum import StrEnum
 
 from frame.application.dto import CreateRevisionCommand
 from frame.application.ports.series.repositories import EpisodeRepository
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
 from frame.application.use_cases.accept_generation import AcceptGeneration
 from frame.application.use_cases.create_revision import CreateRevision
+from frame.application.use_cases.series._pending_revision import require_episode, settle_pending
 from frame.application.use_cases.series.check_episode_screen import CheckEpisodeScreen, ScreenReport
-from frame.application.use_cases.series.pending_revision import require_episode, settle_pending
 from frame.domain.enums import ChangeScope, RevisionKind
-from frame.domain.errors import NotFound, ValidationError
+from frame.domain.errors import ValidationError
 from frame.domain.revision import KeepItem
-from frame.domain.screen import Region, TextRole
-from frame.domain.series.episode import EpisodePlan, OverlayItem, OverlayKind
 from frame.domain.series.record import Episode
 from frame.domain.series.screen_correction import (
-    CorrectionMethod,
+    CorrectionStep,
     IssueKind,
+    PatchRegion,
     ScreenIssue,
-    patch_overlay_id,
+    StepStatus,
+    correction_step,
+    fix_overlay_text,
+    patch_scene_text,
+    repair_axis,
 )
-from frame.domain.series.theme import TextStyle
-from frame.domain.services.identity import appearance_attributes
 from frame.domain.services.propagation import AttributeChange
-
-
-class StepStatus(StrEnum):
-    APPLIED = "APPLIED"  # 고쳤다 (완성본을 다시 만들면 반영된다)
-    GENERATING = "GENERATING"  # 수정 버전을 만들고 생성을 접수했다
-    DRAFTED = "DRAFTED"  # 수정 버전만 만들어 두었다 (생성은 접수하지 않음)
-    NEEDS_RERECORD = "NEEDS_RERECORD"  # 그 줄을 다시 녹음해야 한다
-    SKIPPED = "SKIPPED"  # 이번에는 고치지 않았다 (까닭은 note)
-
-
-@dataclass(frozen=True)
-class PatchRegion:
-    """영상 안의 틀린 글자를 가리고 다시 쓸 자리."""
-
-    issue_id: str
-    region: Region
-    style: TextStyle | None = None  # 없으면 영역을 덮는 불투명한 띠에 흰 글자
 
 
 @dataclass(frozen=True)
@@ -78,18 +61,6 @@ class CorrectScreenCommand:
     generate: bool = False  # 수정 버전의 생성을 바로 접수한다 (과금). 기본은 초안까지
     # 방금 받은 검수 보고서. 주면 검수를 다시 돌리지 않는다 (화면 문구 읽기는 문구마다 유료 호출 한 번이다)
     report: ScreenReport | None = None
-
-
-@dataclass(frozen=True)
-class CorrectionStep:
-    issue_id: str
-    kind: IssueKind
-    method: CorrectionMethod
-    status: StepStatus
-    scene_key: str
-    note: str = ""
-    version_id: str | None = None  # 만든 수정 버전
-    overlay_id: str | None = None  # 고치거나 더한 문구
 
 
 @dataclass(frozen=True)
@@ -160,19 +131,21 @@ class CorrectEpisodeScreen:
         for issue in issues:
             if issue.kind is IssueKind.NARRATION:
                 steps.append(
-                    _step(issue, StepStatus.NEEDS_RERECORD, f"다시 녹음할 줄: {issue.expected}")
+                    correction_step(
+                        issue, StepStatus.NEEDS_RERECORD, f"다시 녹음할 줄: {issue.expected}"
+                    )
                 )
             elif issue.kind is IssueKind.OVERLAY_TEXT:
-                plan, step = _fix_overlay(plan, issue)
+                plan, step = fix_overlay_text(plan, issue)
                 steps.append(step)
             elif issue.issue_id in patches:
-                plan, step = _patch(plan, issue, patches[issue.issue_id])
+                plan, step = patch_scene_text(plan, issue, patches[issue.issue_id])
                 steps.append(step)
             elif issue.issue_id in named:
                 clip_edits.append(issue)
             else:
                 steps.append(
-                    _step(
+                    correction_step(
                         issue,
                         StepStatus.SKIPPED,
                         "클립을 다시 만드는 수정(과금)은 어긋남을 issue_ids 로 짚었을 때만 합니다",
@@ -199,10 +172,10 @@ class CorrectEpisodeScreen:
         axes: dict[str, tuple[str | None, str, str]] = {}
         skipped: list[CorrectionStep] = []
         for issue in issues:
-            axis = _axis(episode.plan, issue)
+            axis = repair_axis(episode.plan, issue)
             if axis is None:
                 skipped.append(
-                    _step(
+                    correction_step(
                         issue,
                         StepStatus.SKIPPED,
                         f"장면 '{issue.scene_key}' 에 '{issue.entity_key}' 의 모습 조건이 없어 "
@@ -219,7 +192,10 @@ class CorrectEpisodeScreen:
                 f"이 편은 수정 버전 {episode.pending_version_id} 을 만들고 있습니다. "
                 "그 버전이 끝난 뒤(또는 초안을 버린 뒤) 다시 고치세요"
             )
-            return episode, [*(_step(i, StepStatus.SKIPPED, waiting) for i in issues), *skipped]
+            return episode, [
+                *(correction_step(i, StepStatus.SKIPPED, waiting) for i in issues),
+                *skipped,
+            ]
         first = issues[0]
         target = axes[first.issue_id]
         group = [i for i in issues if axes[i.issue_id] == target]
@@ -251,7 +227,7 @@ class CorrectEpisodeScreen:
             # 작업을 그 자리에서 끝까지 돌리는 구성(inline)이면 벌써 끝나 있다
             episode = settle_pending(self._episodes, self._uow_factory, episode)
         steps = [
-            _step(
+            correction_step(
                 issue,
                 status,
                 f"장면 '{issue.scene_key}' 만 다시 만드는 수정 버전",
@@ -260,7 +236,7 @@ class CorrectEpisodeScreen:
             for issue in group
         ]
         steps += [
-            _step(
+            correction_step(
                 issue,
                 StepStatus.SKIPPED,
                 "수정 버전 하나는 한 가지 조건만 고칩니다. 이 버전이 끝난 뒤 다시 고치세요",
@@ -270,88 +246,7 @@ class CorrectEpisodeScreen:
         return episode, [*steps, *skipped]
 
 
-def _axis(plan: EpisodePlan, issue: ScreenIssue) -> tuple[str | None, str, str] | None:
-    """그 어긋남을 다시 맞출 축: (객체, 술어, 지켜져야 하는 값). 없으면 None."""
-    if issue.kind is IssueKind.CONSISTENCY:
-        if issue.entity_key is None:
-            return None
-        looks = appearance_attributes(plan.ir.scene(issue.scene_key), issue.entity_key)
-        for predicate, value in looks.items():
-            return issue.entity_key, predicate, value
-        return None
-    if issue.predicate is None:
-        raise ValidationError(f"요구조건을 알 수 없어 고칠 수 없습니다: {issue.issue_id}")
-    return issue.entity_key, issue.predicate, issue.expected
-
-
 def _selected(report: ScreenReport, issue_ids: Sequence[str]) -> list[ScreenIssue]:
     if not issue_ids:
         return list(report.issues)
     return [report.issue(issue_id) for issue_id in dict.fromkeys(issue_ids)]
-
-
-def _step(
-    issue: ScreenIssue,
-    status: StepStatus,
-    note: str = "",
-    *,
-    version_id: str | None = None,
-    overlay_id: str | None = None,
-    method: CorrectionMethod | None = None,
-) -> CorrectionStep:
-    return CorrectionStep(
-        issue_id=issue.issue_id,
-        kind=issue.kind,
-        method=method or issue.method,
-        status=status,
-        scene_key=issue.scene_key,
-        note=note,
-        version_id=version_id,
-        overlay_id=overlay_id or issue.overlay_id,
-    )
-
-
-def _fix_overlay(plan: EpisodePlan, issue: ScreenIssue) -> tuple[EpisodePlan, CorrectionStep]:
-    if issue.detail.get("source") != "plan" or issue.overlay_id is None:
-        note = (
-            f"얹은 문구가 화면에서 '{issue.observed}' 로 읽힙니다. 글꼴에 그 글자가 있는지, "
-            "문구가 영역 안에 들어가는지 확인하세요"
-        )
-        return plan, _step(issue, StepStatus.SKIPPED, note)
-    try:
-        item = plan.overlay(issue.overlay_id)
-    except NotFound:
-        return plan, _step(issue, StepStatus.SKIPPED, "그 문구 항목이 계획에 없습니다")
-    fixed = plan.with_overlay(replace(item, text=issue.expected))
-    return fixed, _step(issue, StepStatus.APPLIED, f"'{item.text}' -> '{issue.expected}'")
-
-
-def _patch(
-    plan: EpisodePlan, issue: ScreenIssue, patch: PatchRegion
-) -> tuple[EpisodePlan, CorrectionStep]:
-    scene = plan.ir.scene(issue.scene_key)
-    start = max(0, issue.start_ms - scene.planned_start_ms)
-    end = min(scene.duration_ms, issue.end_ms - scene.planned_start_ms)
-    style = patch.style or TextStyle(
-        color="white",
-        background="black",
-        background_opacity=1.0,
-        size=min(0.5, max(0.01, patch.region.h * 0.7)),
-    )
-    overlay_id = patch_overlay_id(issue.scene_key, issue.entity_key, issue.predicate)
-    item = OverlayItem(
-        overlay_id=overlay_id,
-        scene_key=issue.scene_key,
-        text=issue.expected,
-        start_ms=start,
-        end_ms=end,
-        region=patch.region,
-        style=style,
-        role=TextRole.LABEL,
-        kind=OverlayKind.PATCH,
-    )
-    note = f"'{issue.observed or '틀린 글자'}' 를 가리고 '{issue.expected}' 를 씀"
-    step = _step(
-        issue, StepStatus.APPLIED, note, overlay_id=overlay_id, method=CorrectionMethod.PATCH
-    )
-    return plan.with_overlay(item), step

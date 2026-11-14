@@ -13,7 +13,7 @@ from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.ports.series.theme_extraction import ThemeExtraction, ThemeExtractionError
 from frame.application.ports.speech import SpeechRecognitionError, SpeechServiceError
 from frame.application.use_cases.series import ExtractThemeCommand, NotShortform
-from frame.config.theme_wiring import ThemeSettings
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.errors import ValidationError
 from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from frame.domain.series.theme import SourceOrigin

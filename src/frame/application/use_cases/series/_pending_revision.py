@@ -6,18 +6,14 @@
 - 초안이거나 만드는 중이면 그대로 둔다.
 
 끝나기 전에 기준 버전을 옮기면, 실패했을 때 편이 완성본도 검수도 수정도 안 되는 버전에 멈춘다.
-버전이 끝났다는 알림을 따로 받지 않는다. 편을 읽는 유스케이스가 들어올 때마다 settle_pending 을 부른다.
-
-SettleEpisode 는 그 일만 하는 유스케이스다 (상태를 갱신해 보여 줄 때, 만들다 만 초안을 버릴 때).
+버전이 끝났다는 알림을 따로 받지 않는다. 편을 읽는 유스케이스가 들어올 때마다 settle_pending 을 부른다
+(완성본 만들기 · 화면 검수 · 화면 수정 · 편 수정 · SettleEpisode). 유스케이스들이 함께 쓰는 안쪽 모듈이다.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-
 from frame.application.ports.series.repositories import EpisodeRepository
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
-from frame.domain.enums import VersionState
 from frame.domain.errors import NotFound
 from frame.domain.series.record import Episode
 
@@ -44,28 +40,3 @@ def require_episode(episodes: EpisodeRepository, episode_id: str) -> Episode:
     if episode is None:
         raise NotFound(f"편 {episode_id} 을 찾을 수 없습니다", episode_id=episode_id)
     return episode
-
-
-@dataclass(frozen=True)
-class SettleEpisodeCommand:
-    episode_id: str
-    # 만들다 만 초안(생성을 접수하지 않은 수정 버전)을 버린다. 버리지 않으면 그 초안이 다음 클립 수정을 막는다
-    discard_draft: bool = False
-
-
-class SettleEpisode:
-    def __init__(self, episodes: EpisodeRepository, uow_factory: UnitOfWorkFactory) -> None:
-        self._episodes = episodes
-        self._uow_factory = uow_factory
-
-    def execute(self, command: SettleEpisodeCommand) -> Episode:
-        with self._episodes.lock(command.episode_id):
-            episode = require_episode(self._episodes, command.episode_id)
-            episode = settle_pending(self._episodes, self._uow_factory, episode)
-            if command.discard_draft and episode.pending_version_id is not None:
-                with self._uow_factory() as uow:
-                    version = uow.versions.get(episode.pending_version_id)
-                if version is None or version.state is VersionState.DRAFT:
-                    episode = replace(episode, pending_version_id=None)
-                    self._episodes.save(episode)
-            return episode

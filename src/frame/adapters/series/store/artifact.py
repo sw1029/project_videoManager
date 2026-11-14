@@ -21,7 +21,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any, TypeVar
 
-from frame.adapters.series.store.key_locks import KeyLocks
+from frame.adapters.series.store._key_locks import KeyLocks
 from frame.application.errors import ConfigurationError, StorageError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.series.repositories import (

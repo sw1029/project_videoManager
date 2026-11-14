@@ -7,7 +7,8 @@ from typing import Any
 from frame.application.ports.series.repositories import ThemeRecord
 from frame.application.use_cases.series import CreateEpisodeCommand
 from frame.config import Container, Settings
-from frame.config.theme_wiring import ThemeServices, ThemeSettings
+from frame.config.theme_settings import ThemeSettings
+from frame.config.theme_wiring import ThemeServices
 from frame.domain.ir import IntermediateRepresentation, SceneSpec
 from frame.domain.series.episode import EpisodeBrief, EpisodeContent
 from frame.domain.series.record import Episode

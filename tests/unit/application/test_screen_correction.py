@@ -19,11 +19,9 @@ from frame.application.errors import GenerationError, LLMTimeout
 from frame.application.use_cases.series import (
     AttachNarrationCommand,
     CorrectScreenCommand,
-    PatchRegion,
     RecordingInput,
-    StepStatus,
 )
-from frame.config.theme_wiring import ThemeSettings
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.checks import WarningInterval
 from frame.domain.enums import KeepAspect, RevisionKind, VersionState
 from frame.domain.errors import NotFound, ValidationError
@@ -31,7 +29,12 @@ from frame.domain.ir import RequirementSpec
 from frame.domain.revision import KeepItem
 from frame.domain.screen import Region
 from frame.domain.series.episode import OverlayKind
-from frame.domain.series.screen_correction import CorrectionMethod, IssueKind
+from frame.domain.series.screen_correction import (
+    CorrectionMethod,
+    IssueKind,
+    PatchRegion,
+    StepStatus,
+)
 from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from tests.support.factories import dispatcher_of, version_of
 from tests.support.series import (

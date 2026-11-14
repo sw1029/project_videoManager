@@ -21,7 +21,7 @@ from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.overlay import OverlayRenderer
 from frame.application.ports.series.repositories import EpisodeRepository
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
-from frame.application.use_cases.series.pending_revision import require_episode, settle_pending
+from frame.application.use_cases.series._pending_revision import require_episode, settle_pending
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import VersionState
 from frame.domain.errors import MediaNotAvailable, NotFound

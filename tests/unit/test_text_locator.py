@@ -7,7 +7,7 @@ import json
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.series.theme_extraction.text_locator import (
+from frame.adapters.series.theme_extraction._text_locator import (
     LOCATE_SCHEMA,
     LOCATE_SCHEMA_NAME,
     locate_text,

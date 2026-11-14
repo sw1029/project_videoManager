@@ -23,7 +23,7 @@ from frame.application.ports.series.repositories import EpisodeRepository, Theme
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
 from frame.application.use_cases.accept_generation import AcceptGeneration
 from frame.application.use_cases.create_revision import CreateRevision
-from frame.application.use_cases.series.pending_revision import require_episode, settle_pending
+from frame.application.use_cases.series._pending_revision import require_episode, settle_pending
 from frame.domain.enums import RevisionKind
 from frame.domain.errors import ValidationError
 from frame.domain.revision import KeepItem

@@ -5,7 +5,7 @@
 3. 모델을 한 번 부른다 (_prompt·_schema). 응답은 _theme_builder 가 테마·원본 IR 로 다듬는다.
 4. 다듬은 결과가 규칙을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts, 프레임이 붙는 요청이라
    글만 보내는 호출과 따로 둔다). 재질의마다 무엇이 걸렸는지 기록에 남긴다.
-5. 얹은 문구의 영역은 문구마다 프레임 한 장으로 다시 묻는다 (text_locator). 한 번에 여러 개를 물은 상자는 어긋난다.
+5. 얹은 문구의 영역은 문구마다 프레임 한 장으로 다시 묻는다 (_text_locator). 한 번에 여러 개를 물은 상자는 어긋난다.
 
 한계: 프레임만 보므로 움직임·음악은 알 수 없다. 무엇이 다시 나올지는 영상 한 편으로는 모델의 짐작이다.
 """
@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from frame.adapters.series.theme_extraction.text_locator import locate_text
+from frame.adapters.series.theme_extraction._text_locator import locate_text
 from frame.adapters.video_tools import extract_frame, require_ffmpeg
 from frame.application.errors import LLMError
 from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient

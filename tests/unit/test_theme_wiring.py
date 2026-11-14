@@ -13,7 +13,7 @@ from frame.adapters.series.theme_extraction import FakeThemeExtractor
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.errors import ConfigurationError
 from frame.config import Settings, build_container
-from frame.config.theme_wiring import ThemeSettings
+from frame.config.theme_settings import ThemeSettings
 from tests.support.factories import make_container
 from tests.support.video import find_ffmpeg
 

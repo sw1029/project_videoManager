@@ -9,7 +9,7 @@ import pytest
 from frame.adapters.fake_media import fake_recording, fake_video
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.use_cases.series import AttachNarrationCommand, RecordingInput
-from frame.config.theme_wiring import ThemeSettings
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.series.narration import LineStatus, PlacementStatus
 from frame.domain.series.source_analysis import SpeechSegment, Transcript

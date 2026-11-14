@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,21 +29,20 @@ from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.series.overlay import ScreenTextReader
 from frame.application.ports.series.repositories import EpisodeRepository, ThemeRepository
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
-from frame.application.use_cases.series.pending_revision import require_episode, settle_pending
+from frame.application.use_cases.series._pending_revision import require_episode, settle_pending
 from frame.domain.enums import VersionState
-from frame.domain.errors import NotFound, ValidationError
-from frame.domain.series.episode import EpisodePlan, OverlayKind
-from frame.domain.series.narration import LineStatus, PlacementStatus
+from frame.domain.errors import NotFound
 from frame.domain.series.record import Episode
 from frame.domain.series.screen_correction import (
-    CorrectionMethod,
-    IssueKind,
     ScreenIssue,
     issues_from_checks,
-    patch_overlay_id,
+    narration_issues,
+    overlay_text_issue,
+    plan_text_issues,
+    scene_starts,
     screen_text_matches,
+    without_patched,
 )
-from frame.domain.series.theme import Theme, render_template
 
 log = logging.getLogger(__name__)
 
@@ -124,14 +122,14 @@ class CheckEpisodeScreen:
             version = uow.versions.get(episode.version_id)
             results = list(uow.checks.list_by_version(episode.version_id))
         notes: list[str] = []
-        issues, patched = _without_patched(
+        issues, patched = without_patched(
             episode.plan, issues_from_checks(episode.plan.ir, results)
         )
         issues += self._plan_text_issues(episode, notes)
         seen = {i.overlay_id for i in issues if i.overlay_id}
         read, shown = self._rendered_text_issues(episode, seen, notes)
         issues += shown
-        issues += _narration_issues(episode)
+        issues += narration_issues(episode)
         return ScreenReport(
             episode_id=episode.episode_id,
             version_id=episode.version_id,
@@ -151,32 +149,7 @@ class CheckEpisodeScreen:
         if record is None:
             notes.append("테마를 찾을 수 없어 화면 문구를 문구 틀과 견주지 않았습니다")
             return []
-        expected = expected_overlay_texts(record.theme, episode.plan.variables)
-        spans = _scene_starts(episode)
-        issues: list[ScreenIssue] = []
-        for item in episode.plan.overlays:
-            want = expected.get(item.overlay_id)
-            if item.kind is not OverlayKind.TEXT or want is None:
-                continue
-            if screen_text_matches(want, item.text):
-                continue
-            start = spans[item.scene_key]
-            issues.append(
-                ScreenIssue(
-                    issue_id=f"overlay:{item.overlay_id}",
-                    kind=IssueKind.OVERLAY_TEXT,
-                    scene_key=item.scene_key,
-                    start_ms=start + item.start_ms,
-                    end_ms=start + item.end_ms,
-                    expected=want,
-                    observed=item.text,
-                    method=CorrectionMethod.OVERLAY_EDIT,
-                    region=item.region,
-                    overlay_id=item.overlay_id,
-                    detail={"source": "plan", "rule_key": item.rule_key},
-                )
-            )
-        return issues
+        return plan_text_issues(record.theme, episode.plan)
 
     # ---- 3. 문구 (화면) ----
     def _rendered_text_issues(
@@ -193,7 +166,7 @@ class CheckEpisodeScreen:
         if render is None or render.version_id != episode.version_id:
             notes.append("완성본이 없어 얹은 문구를 화면에서 확인하지 않았습니다")
             return 0, []
-        spans = _scene_starts(episode)
+        starts = scene_starts(episode.plan)
         issues: list[ScreenIssue] = []
         read = 0
         for scene_key in render.composed_scene_keys:
@@ -209,101 +182,14 @@ class CheckEpisodeScreen:
                 read += 1
                 if item.overlay_id in skip or screen_text_matches(item.text, seen):
                     continue
-                start = spans[scene_key]
+                start = starts[scene_key]
                 issues.append(
-                    ScreenIssue(
-                        issue_id=f"overlay:{item.overlay_id}",
-                        kind=IssueKind.OVERLAY_TEXT,
-                        scene_key=scene_key,
-                        start_ms=start + item.start_ms,
-                        end_ms=start + item.end_ms,
+                    overlay_text_issue(
+                        item,
+                        start,
                         expected=item.text,
                         observed=seen,
-                        method=CorrectionMethod.OVERLAY_EDIT,
-                        region=item.region,
-                        overlay_id=item.overlay_id,
                         detail={"source": "render", "read_at_ms": start + at_ms},
                     )
                 )
         return read, issues
-
-
-def _without_patched(
-    plan: EpisodePlan, found: Sequence[ScreenIssue]
-) -> tuple[list[ScreenIssue], list[str]]:
-    """요구한 글자로 가리고 다시 쓴 화면 속 글자를 뺀다. (남은 어긋남, 뺀 것의 id)"""
-    patches = {item.overlay_id: item for item in plan.overlays if item.kind is OverlayKind.PATCH}
-    issues: list[ScreenIssue] = []
-    patched: list[str] = []
-    for issue in found:
-        item = patches.get(patch_overlay_id(issue.scene_key, issue.entity_key, issue.predicate))
-        settled = (
-            issue.kind is IssueKind.SCENE_TEXT
-            and item is not None
-            and screen_text_matches(issue.expected, item.text)
-        )
-        if settled:
-            patched.append(issue.issue_id)
-        else:
-            issues.append(issue)
-    return issues, patched
-
-
-def expected_overlay_texts(theme: Theme, variables: Mapping[str, str]) -> dict[str, str]:
-    """문구 항목 id -> 테마의 문구 틀에 편의 변수 값을 넣은 문구.
-
-    자리마다 값이 다른 틀(자리별 자막)은 기대값이 없다: 그 자리의 값이 곧 내용이다.
-    """
-    expected: dict[str, str] = {}
-    for rule in theme.text_rules:
-        try:
-            text = render_template(rule.template, variables)
-        except ValidationError:
-            continue  # 편 단위 값으로 채워지지 않는 틀
-        for slot in theme.format.slots:
-            if not rule.slot_keys or slot.slot_key in rule.slot_keys:
-                expected[f"{slot.slot_key}:{rule.rule_key}"] = text
-    return expected
-
-
-def _scene_starts(episode: Episode) -> dict[str, int]:
-    return {scene.scene_key: scene.planned_start_ms for scene in episode.plan.ir.scenes}
-
-
-# ---- 4. 녹음 ----
-def _narration_issues(episode: Episode) -> list[ScreenIssue]:
-    narration = episode.narration
-    if narration is None:
-        return []
-    placements = {p.line_key: p for p in narration.placements}
-    issues: list[ScreenIssue] = []
-    for alignment in narration.alignments:
-        line = episode.plan.line(alignment.line_key)
-        placement = placements.get(alignment.line_key)
-        overflow = placement is not None and placement.status is PlacementStatus.OVERFLOW
-        if alignment.status is LineStatus.MATCHED and not overflow:
-            continue
-        scene = episode.plan.ir.scene(line.scene_key)
-        reason = (
-            "overflow" if alignment.status is LineStatus.MATCHED else str(alignment.status).lower()
-        )
-        issues.append(
-            ScreenIssue(
-                issue_id=f"narration:{line.line_key}",
-                kind=IssueKind.NARRATION,
-                scene_key=line.scene_key,
-                start_ms=scene.planned_start_ms,
-                end_ms=scene.planned_end_ms,
-                expected=line.text,
-                observed=alignment.heard,
-                method=CorrectionMethod.RERECORD,
-                line_key=line.line_key,
-                detail={
-                    "reason": reason,
-                    "similarity": round(alignment.similarity, 4),
-                    "missing_terms": list(alignment.missing_terms),
-                    "overflow_ms": placement.overflow_ms if placement is not None else 0,
-                },
-            )
-        )
-    return issues

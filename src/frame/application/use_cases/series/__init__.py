@@ -21,15 +21,11 @@ from frame.application.use_cases.series.attach_narration import (
 from frame.application.use_cases.series.check_episode_screen import (
     CheckEpisodeScreen,
     ScreenReport,
-    expected_overlay_texts,
 )
 from frame.application.use_cases.series.correct_episode_screen import (
     CorrectEpisodeScreen,
-    CorrectionStep,
     CorrectScreenCommand,
     CorrectScreenResult,
-    PatchRegion,
-    StepStatus,
 )
 from frame.application.use_cases.series.create_episode import CreateEpisode, CreateEpisodeCommand
 from frame.application.use_cases.series.extract_theme import (
@@ -38,9 +34,9 @@ from frame.application.use_cases.series.extract_theme import (
     ExtractThemeResult,
     NotShortform,
 )
-from frame.application.use_cases.series.pending_revision import SettleEpisode, SettleEpisodeCommand
 from frame.application.use_cases.series.render_episode import RenderEpisode, RenderEpisodeResult
 from frame.application.use_cases.series.revise_episode import ReviseEpisode, ReviseEpisodeCommand
+from frame.application.use_cases.series.settle_episode import SettleEpisode, SettleEpisodeCommand
 
 __all__ = [
     "AdoptAnchors",
@@ -52,14 +48,12 @@ __all__ = [
     "CorrectEpisodeScreen",
     "CorrectScreenCommand",
     "CorrectScreenResult",
-    "CorrectionStep",
     "CreateEpisode",
     "CreateEpisodeCommand",
     "ExtractTheme",
     "ExtractThemeCommand",
     "ExtractThemeResult",
     "NotShortform",
-    "PatchRegion",
     "RecordingInput",
     "RenderEpisode",
     "RenderEpisodeResult",
@@ -68,6 +62,4 @@ __all__ = [
     "ScreenReport",
     "SettleEpisode",
     "SettleEpisodeCommand",
-    "StepStatus",
-    "expected_overlay_texts",
 ]

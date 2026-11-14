@@ -8,7 +8,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from frame.config import Settings, build_container
-from frame.config.theme_wiring import ThemeSettings
+from frame.config.theme_settings import ThemeSettings
 
 from .app import create_app
 
