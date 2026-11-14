@@ -5,9 +5,11 @@
    화면은 그 URI 를 POST /api/projects 의 reference_images[].image_uri 에 쓴다.
 2. 주소 정하기 (resolve_reference_uri): 프로젝트를 만들 때 참조 이미지 URI 를 정한다.
    - 임시 자리의 업로드면 refs/{project_id}/{reference_image_id}.{ext} 로 복사하고 그 URI 를 남긴다.
-   - 업로드가 아닌데 이 저장소의 주소(local://·mem:// 등)면 받지 않는다 (422). 저장 루트 안의 다른 파일
-     (다른 버전의 클립·다른 프로젝트의 이미지·캐시)을 참조 이미지로 내려받게 되지 않도록 (감사 A-19).
-   - 외부 주소(http·https 등)는 그대로 둔다.
+   - http·https 주소는 그대로 둔다.
+   - 그 밖의 주소는 받지 않는다 (422). 서버 저장소의 다른 주소(local://·mem://)로 저장 루트 안의 다른 파일
+     (다른 버전의 클립·다른 프로젝트의 이미지·캐시)을 참조 이미지로 내려받게 되지 않도록 (감사 A-19),
+     서버가 읽을 수 없는 주소(file·경로·javascript 등)가 생성 단계에서야 실패하거나
+     응답에 그대로 실리지 않도록 (델타 D05).
 
 저장 키는 서버가 만든 id 와 판별한 형식의 확장자로만 짓는다 (올린 쪽의 파일 이름·형식 표기는 쓰지 않는다).
 임시 자리의 원본은 지우지 않는다 (저장소 포트에 삭제가 없다). 정리는 따로 한다.
@@ -18,6 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from urllib.parse import urlsplit
 
 from frame.domain.errors import PayloadTooLarge, UnsupportedMediaType, ValidationError
 
@@ -30,6 +33,9 @@ UPLOAD_PREFIX = "refs/uploads/"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 EXTENSIONS: dict[str, str] = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 _UPLOAD_NAME = re.compile(r"[A-Za-z0-9_-]{1,100}\.(?:png|jpg|webp)")
+EXTERNAL_SCHEMES = frozenset(
+    {"http", "https"}
+)  # 업로드가 아닌 참조 이미지가 쓸 수 있는 주소 (델타 D05)
 
 
 def payload_too_large(max_bytes: int) -> PayloadTooLarge:
@@ -79,16 +85,16 @@ class UploadReferenceImage:
 def resolve_reference_uri(
     store: ArtifactStore, image_uri: str, *, project_id: str, reference_image_id: str
 ) -> str:
-    """프로젝트의 참조 이미지로 남길 URI. 업로드면 프로젝트 자리로 옮긴 URI, 외부 주소면 받은 그대로.
+    """프로젝트의 참조 이미지로 남길 URI. 올린 이미지면 프로젝트 자리로 옮긴 URI, http·https 주소면 받은 그대로.
 
-    이 저장소의 주소인데 업로드가 아니면 ValidationError (422).
+    그 밖의 주소는 ValidationError (422).
     """
     name = _upload_name(store, image_uri)
     if name is None:
-        if _is_store_address(store, image_uri):
+        if not _is_external_address(image_uri):
             raise ValidationError(
-                "서버 저장소의 주소는 POST /api/reference-images 로 올린 이미지만 쓸 수 있습니다: "
-                f"{image_uri}"
+                "참조 이미지 주소는 올린 이미지의 주소(업로드 응답의 image_uri)이거나 "
+                f"http·https 주소여야 합니다: {image_uri}"
             )
         return image_uri
     try:
@@ -101,15 +107,10 @@ def resolve_reference_uri(
     return store.put(key, data, content_type=store.content_type(image_uri))
 
 
-def _is_store_address(store: ArtifactStore, uri: str) -> bool:
-    """이 저장소가 만드는 URI 와 같은 스킴인가 (local://·mem://).
-
-    URI 를 미리 계산할 수 없는 저장소(uri_for 가 None)는 알 수 없어 False 다.
-    """
-    probe = store.uri_for(f"{UPLOAD_PREFIX}probe.png")
-    if probe is None or "://" not in probe:
-        return False
-    return uri.startswith(probe.split("://", 1)[0] + "://")
+def _is_external_address(uri: str) -> bool:
+    """호스트가 있는 http·https 주소인가 (앞뒤 공백 없이)."""
+    parts = urlsplit(uri)
+    return uri == uri.strip() and parts.scheme.lower() in EXTERNAL_SCHEMES and bool(parts.netloc)
 
 
 def _upload_name(store: ArtifactStore, uri: str) -> str | None:

@@ -106,11 +106,21 @@ def test_external_addresses_are_kept_as_they_are(container):
         "mem://clips/ver_0009/intro.mp4",  # 다른 버전의 클립
         "mem://refs/prj_0009/img_0001.png",  # 다른 프로젝트의 참조 이미지
         "mem://refs/uploads/../clips/x.png",  # 업로드처럼 보이지만 모양이 다르다
+        # 델타 D05: 업로드도 http·https 도 아닌 주소 — 서버가 읽을 수 없어 생성 단계에서야 실패하고,
+        # 응답의 image_uri·구조화 프롬프트에 그대로 실린다
+        "file:///etc/passwd",
+        "C:/Users/secret.png",
+        "../outside.png",
+        "javascript:alert(1)",
+        "LOCAL://clips/x/intro.mp4",
+        " mem://refs/uploads/upl_0001.png",
+        "https://",
+        "data:image/png;base64,iVBORw0KGgo=",
     ],
 )
-def test_store_addresses_other_than_uploads_are_rejected(container, uri):
-    """감사 A-19: 이 저장소의 주소는 POST /api/reference-images 로 올린 결과만 받는다 (저장 루트 안의 아무 파일이나
-    참조 이미지로 내려받게 되지 않도록). 아무것도 저장하지 않는다."""
+def test_addresses_other_than_uploads_and_http_are_rejected(container, uri):
+    """감사 A-19·델타 D05: 참조 이미지 주소는 올린 이미지의 주소이거나 http·https 주소만 받는다
+    (저장 루트 안의 아무 파일이나 참조 이미지로 내려받게 되지 않도록). 아무것도 저장하지 않는다."""
     command = CreateProjectCommand(
         "카페", CAFE_PROMPT, reference_images=(ReferenceImageInput(uri, "cup"),)
     )
