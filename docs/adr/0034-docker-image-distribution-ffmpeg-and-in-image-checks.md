@@ -48,6 +48,7 @@
   `--system-site-packages` 가상 환경에 깐다. 가상 환경과 저장소 사본은 `mktemp -d` 로 만든 폴더에 둔다.
   테스트는 셸의 `FRAME_*` 를 지운 채로 돌므로 (`tests/conftest.py`) 이미지가 정한 서버 설정(`FRAME_PERSISTENCE` 등)은 테스트에 새지 않는다.
 - **머지를 막지 않는다** (`continue-on-error`). 이 기기에서는 이미지를 만들어 보지 못했다 (Docker 데몬이 꺼져 있다). 첫 실행을 본 뒤에 정한다.
+  첫 실행(PR #42)은 통과했다 — 아래 '결과'. 막는 검사로 할지는 아직 정하지 않았다 (사용자).
   잡의 시간 제한은 15분에서 25분으로 늘렸다.
 - 이 단계들이 워크플로에 있는지는 `tests/unit/test_docker_files.py` 가 글로 읽어 확인한다 (docker 를 띄우지 않는다).
 
@@ -62,12 +63,18 @@
   꾸러미 205개, 설치 크기 477 MiB (ffmpeg 와 그것이 요구하는 것 204개가 444 MiB, 글꼴 32.5 MiB), 내려받는 크기 143 MB. 번들이 빠져 약 80MB 가 준다.
   444 MiB 가운데 192 MiB 는 그래픽 드라이버다 (libllvm19 124 · mesa-libgallium 41 · libz3 27). ffmpeg 꾸러미가 SDL 을 요구해서 들어오고
   (libsdl2 → libgbm1 → mesa-libgallium → libllvm19 → libz3), 서버는 쓰지 않는다. 바탕 이미지에 이미 든 것은 어림으로 뺐다.
-  정확한 값은 docker 잡의 `docker history` 에 찍힌다.
+  **잰 값** (PR #42 의 docker 잡, 2026-11-15): apt 층 491MB · pip 층 115MB · 소스 층 2.54MB. 어림(apt 477 MiB = 500MB)과 2% 차이다.
+  이미지 전체는 풀었을 때 1.01GB 이고 내려받는 크기는 261MB 다. 빠진 번들의 크기(어림 약 80MB)는 따로 재지 못했다.
 - CI 가 도는 ffmpeg 가 넷이 된다: Linux 의 번들 7.0.2 (test · compat), Windows 의 번들 7.1 (compat), Ubuntu 의 것 (overlay-font),
   Debian 의 7.1.5 (docker).
 - 이미지 밖은 그대로다. 로컬 · 번들 · 시연 런처는 전처럼 video extra 의 ffmpeg 를 쓰고, Linux 에서 화면 문구를 쓰려면 drawtext 가 든 ffmpeg 를
   PATH 에 두거나 `FRAME_VIDEO_FFMPEG` 로 지정한다 (ADR-0027 의 보완).
-- 확인하지 못한 것: 이미지 빌드와 세 단계는 CI 의 다음 실행이 처음이다. 워크플로의 문법도 눈으로만 봤다.
+- 확인한 것 (CI 의 첫 실행 — PR #42, 2026-11-15. 이 기기에서는 이미지를 만들어 보지 못했다)
+  - 이미지가 빌드되고 `/health` 가 답한다. 더한 세 단계가 모두 돌았다.
+  - 이미지는 Debian 13.7 (trixie), ffmpeg `7:7.1.5-0+deb13u1`, fonts-nanum `20200506-1` 이다. 필터 목록에 drawtext 가 있다.
+  - 화면 문구 합성 · 소리 편집 · 영상 분석을 ffmpeg 로 켠 서버가 이미지 그대로 조립된다.
+  - 이미지 안 전체 테스트: 2641 통과 · 1 건너뜀 · 4 제외 (105초). 같은 커밋의 로컬(Windows)은 2638 통과 · 4 건너뜀이다 —
+    이미지에서는 POSIX 에서만 도는 테스트까지 돈다. 화면 문구 합성(나눔 글꼴)과 프레임 세기 · 정규화 · 조립(A-42)이 배포판의 ffmpeg 로 통과했다.
 - 올릴 때 (다음 Debian · 다음 Python): Dockerfile 의 태그를 바꾸고, docker 잡이 찍는 ffmpeg 의 판과 이미지 안 테스트의 결과를 본다.
 
 ## 대안
