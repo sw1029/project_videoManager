@@ -155,9 +155,12 @@ sh scripts/run.sh --lan          # Windows: scripts\run.cmd --lan
 터미널에 `http://192.168.x.x:8000` 같은 주소가 나오면 같은 Wi-Fi 의 기기 브라우저(Safari 등)에서 연다.
 
 - 처음 실행할 때 방화벽 확인 창이 뜬다. Windows 는 **개인 네트워크** 만 허용, macOS 는 **허용**. Linux 에서 ufw 를 쓰면 `sudo ufw allow 8000/tcp`.
-- 키 입력·삭제는 서버를 실행한 컴퓨터에서만 된다. `FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE` 는 켜지 않는다.
+- 키 입력·삭제는 서버를 실행한 컴퓨터에서만 된다. 셸에 `FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE=true` 가 있어도 `--lan` 은 끄고 띄운다.
 - **인증이 없는 시연용 서버** 다. 같은 네트워크의 누구나 프로젝트를 만들고, 서버에 설정된 키로 LLM 분석을 요청할 수 있다.
-  믿을 수 있는 네트워크에서만 쓰고 시연이 끝나면 끈다. `--lan` 에서는 IP 별 POST 요청을 분당 30회로 제한한다 (`FRAME_RATE_LIMIT_PER_MINUTE` 로 변경).
+  믿을 수 있는 네트워크에서만 쓰고 시연이 끝나면 끈다. `--lan` 에서는 IP 별 POST 요청을 분당 30회로 제한한다
+  (`FRAME_RATE_LIMIT_PER_MINUTE` 로 바꾼다. 0 이나 빈 값이면 30 으로 띄운다 — 제한 없이는 열지 않는다).
+- 시작할 때 터미널에 적용된 요청 제한이 나온다. 셸에 `FRAME_GENERATOR` 가 실제 생성기로 잡혀 있으면 그것도 경고로 나온다
+  (다른 기기의 요청도 이 서버의 키와 자원으로 영상을 만든다).
 
 ## 8. 문제 해결
 

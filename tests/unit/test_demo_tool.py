@@ -210,6 +210,52 @@ def test_lan_mode_adds_rate_limit_unless_user_set_one(tmp_path):
     assert "FRAME_RATE_LIMIT_PER_MINUTE" not in env(False, {})
 
 
+@pytest.mark.parametrize("inherited", ["0", "", "  ", "-3", "off"])
+def test_lan_mode_never_opens_with_the_rate_limit_switched_off(tmp_path, inherited):
+    # 셸에 남아 있던 값(0 은 "꺼짐")이 인증 없는 서버를 제한 없이 네트워크에 열지 못한다
+    env = demo.demo_env(
+        tmp_path,
+        offline=True,
+        lan=True,
+        base_env={"FRAME_RATE_LIMIT_PER_MINUTE": inherited},
+        key_file=None,
+    )
+    assert env["FRAME_RATE_LIMIT_PER_MINUTE"] == demo.LAN_RATE_LIMIT_PER_MINUTE
+    assert Settings.from_env(env).rate_limit_per_minute == int(demo.LAN_RATE_LIMIT_PER_MINUTE)
+
+
+def test_lan_mode_keeps_key_entry_on_this_machine_whatever_the_shell_says(tmp_path):
+    inherited = {"FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE": "true"}
+
+    def settings(lan):
+        env = demo.demo_env(tmp_path, offline=False, lan=lan, base_env=inherited, key_file=None)
+        return Settings.from_env(env)
+
+    assert not settings(True).llm_runtime_key_allow_remote
+    # 이 기기에만 열 때는 다른 기기가 닿지 못하므로 셸의 값을 건드리지 않는다
+    assert settings(False).llm_runtime_key_allow_remote
+
+
+def test_lan_notes_say_what_the_server_is_opened_with(tmp_path):
+    def notes(base):
+        env = demo.demo_env(tmp_path, offline=True, lan=True, base_env=base, key_file=None)
+        return "\n".join(demo.lan_notes(env))
+
+    plain = notes({})
+    assert "분당 30회" in plain and "이 기기에서만" in plain
+    assert "FRAME_GENERATOR" not in plain
+    assert "분당 5회" in notes({"FRAME_RATE_LIMIT_PER_MINUTE": "5"})
+    # 셸에서 물려받은 실제 생성기는 다른 기기의 요청으로도 돈다 - 여는 사람이 보게 한다
+    paid = notes({"FRAME_GENERATOR": "external_api"})
+    assert "external_api" in paid and "FRAME_GENERATOR" in paid
+    assert "FRAME_GENERATOR" not in notes({"FRAME_GENERATOR": "fake"})
+
+
+def test_the_launchers_copy_of_the_default_generator_matches_settings():
+    # 런처는 의존성 설치 전에도 돌아야 해서 frame.config 를 쓰지 못하고 기본값을 따로 적어 둔다
+    assert Settings.from_env({}).generator == demo.DEFAULT_GENERATOR
+
+
 def test_demo_env_is_understood_by_frame_settings(tmp_path):
     env = demo.demo_env(tmp_path, offline=False, lan=True, base_env={}, key_file=None)
     settings = Settings.from_env(env)

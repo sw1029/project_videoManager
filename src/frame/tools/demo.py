@@ -41,6 +41,7 @@ MIN_PYTHON = (3, 11)
 MIN_NODE = 18
 DEFAULT_PORT = 8000
 LAN_RATE_LIMIT_PER_MINUTE = "30"
+DEFAULT_GENERATOR = "fake"  # Settings.generator 의 기본값 (런처는 frame.config 를 쓰지 못한다)
 LOOPBACK = "127.0.0.1"
 DEMO_DIR = ".demo"
 KEY_FILE_NAME = "openai.key"
@@ -144,9 +145,31 @@ def demo_env(
         env["FRAME_LLM_RUNTIME_KEY"] = "true"  # 키가 없으면 화면에서 입력 (서버와 같은 기기에서만)
         if key_file is not None:
             env["FRAME_LLM_KEY_FILE"] = str(key_file)
-    if lan:  # 인증 없는 시연 서버를 네트워크에 열 때는 요청 수라도 제한한다
-        env.setdefault("FRAME_RATE_LIMIT_PER_MINUTE", LAN_RATE_LIMIT_PER_MINUTE)
+    if lan:
+        # 인증 없는 시연 서버를 네트워크에 연다. 셸에서 물려받은 값이 보호를 끄지 못하게 한다
+        if not _is_positive(env.get("FRAME_RATE_LIMIT_PER_MINUTE", "")):  # 0·빈 값은 "꺼짐" 이다
+            env["FRAME_RATE_LIMIT_PER_MINUTE"] = LAN_RATE_LIMIT_PER_MINUTE
+        env["FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE"] = "false"  # 키 입력·삭제는 이 기기에서만
     return env
+
+
+def _is_positive(value: str) -> bool:
+    return value.strip().isdecimal() and int(value) > 0
+
+
+def lan_notes(env: Mapping[str, str]) -> list[str]:
+    """--lan 으로 열 때 서버에 실제로 적용되는 설정. 셸에서 물려받은 값까지 여는 사람이 보게 안내에 찍는다."""
+    limit = env["FRAME_RATE_LIMIT_PER_MINUTE"].strip()
+    notes = [
+        f"요청 제한: 기기(IP)마다 분당 {limit}회 (만들기·수정 요청). 키 입력·삭제는 이 기기에서만 됩니다"
+    ]
+    generator = env.get("FRAME_GENERATOR", "").strip()
+    if generator and generator != DEFAULT_GENERATOR:
+        notes.append(
+            f"주의: 영상 생성기가 {generator} 입니다 (FRAME_GENERATOR). "
+            "다른 기기의 요청도 이 서버의 키와 자원으로 영상을 만듭니다"
+        )
+    return notes
 
 
 def is_bundle(root: Path) -> bool:
@@ -687,7 +710,7 @@ def cmd_run(
     try:
         if not _wait_for_health(base, process):
             return _fail("서버가 시작되지 않았습니다. 위의 서버 로그를 확인하세요")
-        _announce(base, port, offline=offline, lan=lan)
+        _announce(base, port, offline=offline, lan=lan_notes(env) if lan else None)
         if open_browser and can_open_browser():
             webbrowser.open(base)
         while process.poll() is None:  # Windows 에서도 Ctrl+C 로 바로 끝낼 수 있게 짧게 기다린다
@@ -700,7 +723,8 @@ def cmd_run(
         _stop(process)
 
 
-def _announce(base: str, port: int, *, offline: bool, lan: bool) -> None:
+def _announce(base: str, port: int, *, offline: bool, lan: Sequence[str] | None) -> None:
+    """lan: 네트워크에 열었으면 그때 적용된 설정 안내(lan_notes), 이 기기에만 열었으면 None."""
     mode = "오프라인 (DSL 프리셋, 키 불필요)" if offline else "LLM 자연어 구조화"
     _say(f"실행 중: {base}   [{mode}]   끝내려면 Ctrl+C")
     if not offline:
@@ -711,12 +735,14 @@ def _announce(base: str, port: int, *, offline: bool, lan: bool) -> None:
             _say(
                 "OpenAI 키: 없음 → 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣으세요 (이 기기에서만)"
             )
-    if lan:
+    if lan is not None:
         _say(f"같은 네트워크의 다른 기기(iPhone·iPad·다른 PC): http://{_lan_ip()}:{port}")
         _say(
             "주의: 인증이 없는 시연용 서버입니다. 믿을 수 있는 네트워크에서만 쓰세요. "
-            "다른 기기도 이 서버의 키로 분석을 요청할 수 있고, 키 입력·삭제만 이 기기로 제한됩니다"
+            "다른 기기도 이 서버의 키로 분석을 요청할 수 있습니다"
         )
+        for note in lan:
+            _say(note)
 
 
 def cmd_smoke(root: Path, *, port: int) -> int:
