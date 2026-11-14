@@ -9,7 +9,11 @@ import pytest
 from frame.adapters.http_transport import HttpResponse, HttpTransport, TransportError
 from frame.adapters.llm.key_store import LLMKeyStore
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
-from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
+from frame.application.ports.speech import (
+    SpeechAudio,
+    SpeechRecognitionError,
+    SpeechServiceError,
+)
 from tests.support.speech import dump_request_fields
 
 KEY = "sk-test-SECRET-1234567890"
@@ -209,23 +213,37 @@ def test_words_are_dropped_when_they_do_not_line_up_with_the_segments():
     assert all(s.words == () for s in recognizer.transcribe(AUDIO).segments)
 
 
+SOUND = SpeechRecognitionError  # 소리(요청 내용)의 문제: 부른 쪽은 내레이션 없이 계속할 수 있다
+SERVICE = SpeechServiceError  # 설정·환경의 문제: 부른 쪽은 다음 유료 단계로 가지 않는다
+
+
 @pytest.mark.parametrize(
-    ("response", "message"),
+    ("response", "message", "kind"),
     [
-        (_json({"error": {"message": "Incorrect API key provided"}}, 401), "인증 실패"),
-        (_json({"error": {"message": "Rate limit"}}, 429), "한도 초과"),
-        (_json({"error": {"message": "audio file is too large"}}, 413), "too large"),
-        (HttpResponse(502, b"<html>bad gateway</html>"), "502"),
-        (HttpResponse(200, b"not json"), "해석하지 못했습니다"),
-        (_json(["not", "an", "object"]), "JSON 객체가 아닙니다"),
-        (TransportError("URLError: timed out"), "닿지 못했습니다"),
+        (_json({"error": {"message": "Incorrect API key provided"}}, 401), "인증 실패", SERVICE),
+        (_json({"error": {"message": "Forbidden"}}, 403), "인증 실패", SERVICE),
+        (_json({"error": {"message": "Rate limit"}}, 429), "한도 초과", SERVICE),
+        (_json({"error": {"message": "audio file is too large"}}, 413), "too large", SOUND),
+        (_json({"error": {"message": "Invalid file format"}}, 400), "Invalid file", SOUND),
+        (_json({"error": {"message": "Unsupported media type"}}, 415), "Unsupported", SOUND),
+        (_json({"error": {"message": "Unprocessable"}}, 422), "Unprocessable", SOUND),
+        # 잔액 없음 · 주소나 모델 이름이 틀림 · 시간 초과는 소리의 문제가 아니다 (감사 BTS-29 의 남은 것)
+        (_json({"error": {"message": "Insufficient balance"}}, 402), "402", SERVICE),
+        (_json({"error": {"message": "The model does not exist"}}, 404), "404", SERVICE),
+        (_json({"error": {"message": "Request timeout"}}, 408), "408", SERVICE),
+        (HttpResponse(502, b"<html>bad gateway</html>"), "502", SERVICE),
+        (HttpResponse(200, b"not json"), "해석하지 못했습니다", SERVICE),
+        (_json(["not", "an", "object"]), "JSON 객체가 아닙니다", SERVICE),
+        (TransportError("URLError: timed out"), "닿지 못했습니다", SERVICE),
     ],
 )
-def test_failures_are_speech_recognition_errors_without_the_key(response, message):
+def test_failures_are_told_apart_and_never_carry_the_key(response, message, kind):
+    """실패의 종류를 경우마다 본다: 어댑터의 분류가 바뀌면 이 테스트가 잡는다."""
     recognizer, _ = _recognizer(response)
 
     with pytest.raises(SpeechRecognitionError, match=message) as caught:
         recognizer.transcribe(AUDIO)
+    assert type(caught.value) is kind
     assert KEY not in str(caught.value)
 
 
@@ -258,5 +276,28 @@ def test_numbers_that_are_not_finite_do_not_escape_as_other_errors():
     assert [(s.start_ms, s.end_ms) for s in transcript.segments] == [(400, 900)]
 
     recognizer, _ = _recognizer(_json({"text": "안녕하세요", "duration": "abc"}))
+    with pytest.raises(SpeechRecognitionError):
+        recognizer.transcribe(SpeechAudio(AUDIO.data, "audio/wav", None))
+
+
+def test_numbers_too_large_to_be_times_do_not_escape_either():
+    """유한하지만 밀리초로 바꾸면 넘치는 수(1e308), 실수가 되지 못하는 정수(10**400)도 건너뛴다."""
+    document = {
+        "text": "안녕하세요",
+        "words": [
+            {"word": "안녕", "start": 1e308, "end": 2.0},
+            {"word": "하세요", "start": 0.4, "end": 0.9},
+        ],
+        "segments": [
+            {"start": 10**400, "end": 1.0, "text": "안녕하세요"},
+            {"start": 0.4, "end": 0.9, "text": "하세요", "no_speech_prob": 10**400},
+        ],
+    }
+    recognizer, _ = _recognizer(HttpResponse(200, json.dumps(document).encode("utf-8")))
+
+    transcript = recognizer.transcribe(AUDIO)
+
+    assert [(s.start_ms, s.end_ms, s.no_speech) for s in transcript.segments] == [(400, 900, None)]
+    recognizer, _ = _recognizer(_json({"text": "안녕하세요", "duration": 1e308}))
     with pytest.raises(SpeechRecognitionError):
         recognizer.transcribe(SpeechAudio(AUDIO.data, "audio/wav", None))

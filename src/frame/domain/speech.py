@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from typing import Any
 
 from frame.domain.errors import ValidationError
@@ -66,6 +66,37 @@ class SpeechSegment:
 
 def _unit_interval(value: Any) -> float | None:
     return None if value is None else min(1.0, max(0.0, float(value)))
+
+
+def ordered_segments(
+    segments: Iterable[SpeechSegment], duration_ms: int | None = None
+) -> tuple[SpeechSegment, ...]:
+    """음성 인식 포트의 계약에 맞춘 구간: 시간 순서, 서로 겹치지 않음, (길이를 알면) 소리 길이 안.
+
+    인식기는 구간을 순서 없이, 이웃과 겹치게, 끝을 소리 길이보다 조금 넘겨 주는 일이 있다. 앞 구간과 겹치는
+    앞부분과 길이를 넘는 뒷부분을 잘라 내고, 남는 것이 없는 구간은 버린다. 인식 어댑터들이 같이 쓴다.
+    낱말은 잘라 낸 범위에 걸친 것만 남기고 그 안으로 맞춘다. 범위 밖에 놓인 낱말이 하나라도 있으면
+    (구간과 낱말의 시각이 어긋났다) 그 구간의 낱말 시각을 믿지 않는다.
+    """
+    ordered: list[SpeechSegment] = []
+    previous_end = 0
+    for segment in sorted(segments, key=lambda s: (s.start_ms, s.end_ms)):
+        start = max(segment.start_ms, previous_end)
+        end = segment.end_ms if duration_ms is None else min(segment.end_ms, duration_ms)
+        if end <= start:
+            continue
+        inside = [w for w in segment.words if w.start_ms < end and w.end_ms >= start]
+        words = (
+            tuple(
+                replace(w, start_ms=max(w.start_ms, start), end_ms=min(w.end_ms, end))
+                for w in inside
+            )
+            if len(inside) == len(segment.words)
+            else ()
+        )
+        ordered.append(replace(segment, start_ms=start, end_ms=end, words=words))
+        previous_end = end
+    return tuple(ordered)
 
 
 def spoken_characters(text: str) -> int:

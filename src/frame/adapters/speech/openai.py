@@ -32,9 +32,12 @@ from frame.application.ports.speech import (
     SpeechRecognizer,
     SpeechServiceError,
 )
-from frame.domain.speech import SpeechSegment, Transcript, Word
+from frame.domain.speech import SpeechSegment, Transcript, Word, ordered_segments
 
 _LANGUAGE_CODES = {"korean": "ko", "english": "en", "japanese": "ja", "chinese": "zh"}
+# 소리(요청 내용)의 문제로 보는 응답: 잘못된 요청 · 너무 큰 파일 · 받지 않는 형식 · 처리할 수 없는 내용.
+# 그 밖의 4xx 는 설정·환경의 문제다 (402 잔액, 404 주소나 모델 이름, 408 시간 초과) — 감사 BTS-29 의 남은 것
+_SOUND_STATUSES = frozenset({400, 413, 415, 422})
 _SUFFIX = {
     "audio/wav": "wav",
     "audio/x-wav": "wav",
@@ -110,16 +113,20 @@ class OpenAISpeechRecognizer(SpeechRecognizer):
             raise SpeechServiceError("음성 인식 API 요청 한도 초과 (429)")
         if response.status >= 500:
             raise SpeechServiceError(f"음성 인식 API 서버 오류 ({response.status})")
-        if response.status >= 400:
+        if response.status in _SOUND_STATUSES:
             raise SpeechRecognitionError(
                 f"음성 인식 API 오류 {response.status}: {_error_message(response)}"
+            )
+        if response.status >= 400:  # 402 잔액 · 404 주소나 모델 이름 · 408 시간 초과 …
+            raise SpeechServiceError(
+                f"음성 인식 API 를 쓸 수 없습니다 ({response.status}): {_error_message(response)}"
             )
         try:
             document = response.json()
         except (ValueError, UnicodeDecodeError) as exc:
-            raise SpeechRecognitionError("음성 인식 API 응답을 해석하지 못했습니다") from exc
+            raise SpeechServiceError("음성 인식 API 응답을 해석하지 못했습니다") from exc
         if not isinstance(document, dict):
-            raise SpeechRecognitionError("음성 인식 API 응답이 JSON 객체가 아닙니다")
+            raise SpeechServiceError("음성 인식 API 응답이 JSON 객체가 아닙니다")
         return document
 
 
@@ -157,18 +164,25 @@ def _error_message(response: HttpResponse) -> str:
 
 
 def _ms(value: Any) -> int:
-    """초 -> 밀리초. 유한한 수가 아니면 ValueError (inf 는 round 에서 OverflowError 가 난다)."""
-    seconds = float(value)
-    if not math.isfinite(seconds):
-        raise ValueError(f"유한한 수가 아닙니다: {value!r}")
-    return max(0, round(seconds * 1000))
+    """초 -> 밀리초. 밀리초로 쓸 수 있는 유한한 수가 아니면 ValueError.
+
+    inf 는 round 에서, 1e308 은 1000 을 곱한 뒤 round 에서, 10**400 은 float() 에서 OverflowError 가 난다.
+    부르는 쪽이 잡는 종류(ValueError)로 맞춘다 (감사 BTS-15 의 남은 것).
+    """
+    try:
+        millis = float(value) * 1000
+        if not math.isfinite(millis):
+            raise ValueError(f"시각으로 쓸 수 없는 수입니다: {value!r}")
+        return max(0, round(millis))
+    except OverflowError as exc:
+        raise ValueError(f"시각으로 쓸 수 없는 수입니다: {value!r}") from exc
 
 
 def _probability(value: Any) -> float | None:
     """0..1 의 값. 수가 아니거나 유한하지 않으면 None (없는 것으로 본다)."""
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return min(1.0, max(0.0, number)) if math.isfinite(number) else None
 
@@ -198,7 +212,7 @@ def _transcript(
         except (TypeError, ValueError) as exc:
             raise SpeechRecognitionError("음성 인식 API 응답의 길이를 해석하지 못했습니다") from exc
         segments = [SpeechSegment(0, max(end, 1), text)]
-    return Transcript(code, tuple(_ordered(segments, duration_ms)))
+    return Transcript(code, ordered_segments(segments, duration_ms))
 
 
 def _words(raw: Any) -> list[Word]:
@@ -243,19 +257,3 @@ def _segments(raw: Any, words: list[Word]) -> list[SpeechSegment]:
         # 낱말이 구간에 고르게 들지 않으면(경계가 어긋남) 낱말 시각을 믿을 수 없다: 구간만 쓴다
         segments = [replace(s, words=()) for s in segments]
     return segments
-
-
-def _ordered(segments: list[SpeechSegment], duration_ms: int | None) -> list[SpeechSegment]:
-    """시간 순서로 놓고 겹침을 없앤다 (인식기가 구간 끝을 조금 넘겨 주는 일이 있다)."""
-    ordered: list[SpeechSegment] = []
-    previous_end = 0
-    for segment in sorted(segments, key=lambda s: (s.start_ms, s.end_ms)):
-        start = max(segment.start_ms, previous_end)
-        end = segment.end_ms if duration_ms is None else min(segment.end_ms, duration_ms)
-        if end <= start:
-            continue
-        words = tuple(w for w in segment.words if w.start_ms >= start and w.end_ms <= end)
-        kept = words if len(words) == len(segment.words) else ()
-        ordered.append(replace(segment, start_ms=start, end_ms=end, words=kept))
-        previous_end = end
-    return ordered

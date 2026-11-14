@@ -77,6 +77,20 @@ def test_failed_recognition_is_not_kept():
     assert recognizer.transcribe(AUDIO) == HEARD and len(inner.calls) == 2
 
 
+def test_transcript_that_breaks_the_contract_is_not_kept():
+    """계약을 어긴 받아쓰기(구간이 소리 길이를 넘는다)는 남기지 않는다 (감사 BTS-D61).
+
+    남기면 다시 불러도 같은 받아쓰기가 나와 그 파일은 계속 실패한다. 결과는 그대로 돌려준다 (부른 쪽이 검사한다).
+    """
+    beyond = Transcript("ko", (SpeechSegment(300, 4300, "소리 길이를 넘는 구간"),))
+    inner = _CountingRecognizer(beyond, HEARD)
+    recognizer, _, _ = _speech(inner)
+
+    assert recognizer.transcribe(AUDIO) == beyond
+    assert recognizer.transcribe(AUDIO) == HEARD and len(inner.calls) == 2
+    assert recognizer.transcribe(AUDIO) == HEARD and len(inner.calls) == 2  # 맞는 결과는 남긴다
+
+
 def test_broken_or_missing_cache_falls_back_to_the_recognizer():
     recognizer, inner, store = _speech()
     recognizer.transcribe(AUDIO)

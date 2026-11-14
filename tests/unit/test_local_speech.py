@@ -41,7 +41,7 @@ class _Model:
         self.calls: list[dict] = []
 
     def transcribe(self, source, **options):
-        self.calls.append({"bytes": len(source.read()), **options})
+        self.calls.append({"bytes": len(source), **options})
         if self.error is not None:
             raise self.error
         return iter(self.segments), SimpleNamespace(language=self.language)
@@ -56,6 +56,7 @@ def _recognizer(model: _Model, **changes) -> FasterWhisperRecognizer:
         "vad": defaults.speech_local_vad,
         **changes,
     }
+    options.setdefault("decoder", lambda data, rate: data)  # 소리를 풀지 않고 그대로 넘긴다
     return FasterWhisperRecognizer(loader=lambda device: model, **options)
 
 
@@ -120,11 +121,82 @@ def test_no_speech_is_an_empty_transcript_and_empty_audio_is_an_error():
         recognizer.transcribe(SpeechAudio(b"", "audio/wav", 0))
 
 
-def test_sound_the_model_cannot_read_is_a_recognition_error():
-    recognizer = _recognizer(_Model(error=ValueError("Invalid data found when processing input")))
+def test_sound_that_cannot_be_decoded_is_a_recognition_error_not_a_service_error():
+    """읽을 수 없는 소리(형식·깨진 파일)는 내용의 문제다. 모델을 돌리기 전에 소리를 풀다가 드러난다."""
 
-    with pytest.raises(SpeechRecognitionError, match="받아 적지 못했습니다"):
+    def decoder(data: bytes, rate: int):
+        raise ValueError("Invalid data found when processing input")
+
+    model = _Model([_segment(0.0, 1.0, "안녕하세요")])
+    recognizer = _recognizer(model, decoder=decoder)
+
+    with pytest.raises(SpeechRecognitionError, match="읽지 못했습니다") as caught:
         recognizer.transcribe(AUDIO)
+    assert not isinstance(caught.value, SpeechServiceError) and model.calls == []
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        MemoryError("Unable to allocate 2.1 GiB"),
+        ValueError("'xx' is not a valid language code"),
+        RuntimeError("CTranslate2: out of memory"),  # GPU 라이브러리 문제가 아닌 실행 오류
+        OSError("vad model is missing"),
+    ],
+)
+def test_trouble_while_transcribing_is_a_service_error_not_unreadable_sound(error):
+    """받아 적는 중의 오류는 환경·설정의 문제다 ('알아듣지 못함' 이 아니다 — 감사 BTS-D64).
+
+    '알아듣지 못함' 으로 올리면 테마 추출이 내레이션 없이 유료 추출로 넘어간다.
+    """
+    recognizer = _recognizer(_Model(error=error), device="cpu")
+
+    with pytest.raises(SpeechServiceError, match="받아 적지 못했습니다"):
+        recognizer.transcribe(AUDIO)
+
+
+def test_failure_after_falling_back_to_the_cpu_is_a_service_error():
+    """GPU 라이브러리가 없어 CPU 로 바꾼 뒤의 오류도 포트의 오류 종류로 올라온다 (감사 BTS-D32)."""
+    devices: list[str] = []
+
+    def loader(device: str):
+        devices.append(device)
+        return _Model(
+            error=RuntimeError("Library cublas64_12.dll is not found")
+            if device != "cpu"
+            else RuntimeError("out of memory")
+        )
+
+    recognizer = FasterWhisperRecognizer(
+        model="large-v3-turbo",
+        device="auto",
+        compute_type="default",
+        vad=True,
+        loader=loader,
+        decoder=lambda data, rate: data,
+    )
+
+    with pytest.raises(SpeechServiceError, match="받아 적지 못했습니다"):
+        recognizer.transcribe(AUDIO)
+    assert devices == ["auto", "cpu"]
+
+
+def test_segments_are_put_in_order_inside_the_sound():
+    """모델이 준 시각을 그대로 쓰지 않는다: 순서·겹침·소리 길이를 포트의 계약에 맞춘다 (감사 BTS-D61)."""
+    model = _Model(
+        [
+            _segment(1.5, 4.25, "둘째", [_word(1.5, 2.5, "둘"), _word(2.5, 4.25, "째")]),
+            _segment(0.5, 2.0, "첫째"),
+        ]
+    )
+
+    transcript = _recognizer(model).transcribe(SpeechAudio(b"RIFF", "audio/wav", 4000))
+
+    transcript.validate(4000)
+    assert [(s.start_ms, s.end_ms, s.text) for s in transcript.segments] == [
+        (500, 2000, "첫째"),
+        (2000, 4000, "둘째"),
+    ]
 
 
 def test_a_missing_gpu_library_falls_back_to_the_cpu_once():
@@ -138,7 +210,12 @@ def test_a_missing_gpu_library_falls_back_to_the_cpu_once():
         return broken if device != "cpu" else working
 
     recognizer = FasterWhisperRecognizer(
-        model="large-v3-turbo", device="auto", compute_type="default", vad=True, loader=loader
+        model="large-v3-turbo",
+        device="auto",
+        compute_type="default",
+        vad=True,
+        loader=loader,
+        decoder=lambda data, rate: data,
     )
 
     assert recognizer.transcribe(AUDIO).text == "안녕하세요"

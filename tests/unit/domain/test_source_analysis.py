@@ -17,7 +17,13 @@ from frame.domain.series.source_analysis import (
     shots_from_cuts,
     validate_shots,
 )
-from frame.domain.speech import SpeechSegment, Transcript, Word, spoken_characters
+from frame.domain.speech import (
+    SpeechSegment,
+    Transcript,
+    Word,
+    ordered_segments,
+    spoken_characters,
+)
 
 
 # ---- 영역 ----
@@ -107,6 +113,41 @@ def test_transcript_text_and_pace():
     assert spoken_characters("가격은 4,500원입니다.") == 11
     assert transcript.pace_cps == pytest.approx(22 / 4.0)
     assert [s.text for s in transcript.within(4000, 8000)] == ["가격은 4,500원입니다."]
+
+
+def test_segments_are_put_in_order_without_overlap_inside_the_sound():
+    """인식기는 구간을 순서 없이, 겹치게, 소리 길이를 조금 넘겨 주는 일이 있다. 포트의 계약에 맞게 정리한다."""
+    messy = (
+        SpeechSegment(3000, 5000, "b", (Word(3000, 3300, "b1"), Word(3500, 5000, "b2"))),
+        SpeechSegment(0, 3400, "a"),  # 뒤 구간과 겹친다
+        SpeechSegment(
+            7500, 8300, "c", (Word(7500, 7900, "c1"), Word(7900, 8300, "c2"))
+        ),  # 길이를 넘는다
+        SpeechSegment(8100, 8200, "d"),  # 남는 것이 없다
+    )
+
+    ordered = ordered_segments(messy, 8000)
+
+    assert [(s.start_ms, s.end_ms, s.text) for s in ordered] == [
+        (0, 3400, "a"),
+        (3400, 5000, "b"),
+        (7500, 8000, "c"),
+    ]
+    Transcript("ko", ordered).validate(8000)
+    # 앞이 잘린 구간은 낱말 시각을 믿지 않는다 (잘린 범위 밖의 낱말이 있다)
+    assert ordered[1].words == ()
+    # 끝만 조금 넘은 구간의 낱말은 남기고 끝을 맞춘다
+    assert [(w.start_ms, w.end_ms, w.text) for w in ordered[2].words] == [
+        (7500, 7900, "c1"),
+        (7900, 8000, "c2"),
+    ]
+    # 길이를 모르면 순서와 겹침만 본다
+    assert [(s.start_ms, s.end_ms) for s in ordered_segments(messy, None)] == [
+        (0, 3400),
+        (3400, 5000),
+        (7500, 8300),
+    ]
+    assert ordered_segments((), 1000) == ()
 
 
 def test_empty_transcript_has_no_pace():

@@ -19,7 +19,7 @@ from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
 from frame.config.theme_settings import ThemeSettings
-from frame.domain.speech import Transcript
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.speech import SAID
 
 
@@ -49,13 +49,14 @@ def _openai_recognizer(status: int, document: dict) -> OpenAISpeechRecognizer:
 class _CannedModel:
     """faster-whisper 모델 흉내: 정해 둔 구간을 돌려주거나 오류를 낸다. 말이 없는 소리(b"RIFF-silence")에는 빈 결과."""
 
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(self, error: Exception | None = None, segments=SAID.segments) -> None:
         self._error = error
+        self._segments = segments
 
     def transcribe(self, source, **options):
         if self._error is not None:
             raise self._error
-        heard = [] if source.read() == b"RIFF-silence" else SAID.segments
+        heard = [] if source == b"RIFF-silence" else self._segments
         segments = [
             SimpleNamespace(
                 start=s.start_ms / 1000,
@@ -70,14 +71,19 @@ class _CannedModel:
         return iter(segments), SimpleNamespace(language="ko")
 
 
-def _local_recognizer(error: Exception | None = None) -> FasterWhisperRecognizer:
+def _local_recognizer(
+    error: Exception | None = None, segments=SAID.segments
+) -> FasterWhisperRecognizer:
     defaults = ThemeSettings()
     return FasterWhisperRecognizer(
         model=defaults.speech_local_model,
         device=defaults.speech_local_device,
         compute_type=defaults.speech_local_compute,
         vad=defaults.speech_local_vad,
-        loader=lambda device: _CannedModel(error),
+        loader=lambda device: _CannedModel(error, segments),
+        decoder=lambda data, rate: (
+            data
+        ),  # 소리를 풀지 않고 그대로 넘긴다 (가짜 모델이 바이트를 본다)
     )
 
 
@@ -89,7 +95,7 @@ def recognizer_case(request):
             _local_recognizer(),
             SpeechAudio(b"RIFF-speech", "audio/wav", 4000),
             SpeechAudio(b"RIFF-silence", "audio/wav", 2000),
-            _local_recognizer(ValueError("Invalid data found when processing input")),
+            _local_recognizer(RuntimeError("CTranslate2 failed")),
         )
     if request.param == "openai":
         said = {
@@ -123,6 +129,42 @@ def test_transcript_is_ordered_and_inside_the_audio(recognizer_case):
     transcript.validate(audio.duration_ms)
     assert transcript.text == SAID.text and transcript.language == "ko"
     assert not transcript.is_empty and transcript.pace_cps is not None
+
+
+# 엔진이 준 그대로의 구간: 순서가 바뀌고, 겹치고, 소리 길이(4000 ms)를 넘는다
+MESSY = (
+    SpeechSegment(1500, 4250, "둘째 줄입니다."),
+    SpeechSegment(500, 2000, "첫째 줄입니다."),
+)
+
+
+@pytest.mark.parametrize("engine", ["openai", "local"])
+def test_segments_the_engine_gives_out_of_line_still_meet_the_contract(engine):
+    """계약은 어댑터가 지킨다: 시간 순서, 겹치지 않음, 소리 길이 안 (감사 BTS-D61).
+
+    엔진이 끝을 1 ms 라도 넘겨 주면 받아쓰기 검사에서 거절되고, 테마 추출은 그것을 '알아듣지 못함' 으로 보아
+    내레이션 없이 유료 추출로 넘어간다. 받아 적는 데는 성공했는데 대본이 버려진다.
+    """
+    audio = SpeechAudio(b"RIFF-speech", "audio/wav", 4000)
+    if engine == "local":
+        recognizer = _local_recognizer(segments=MESSY)
+    else:
+        document = {
+            "language": "korean",
+            "text": " ".join(s.text for s in MESSY),
+            "segments": [
+                {"start": s.start_ms / 1000, "end": s.end_ms / 1000, "text": s.text} for s in MESSY
+            ],
+        }
+        recognizer = _openai_recognizer(200, document)
+
+    transcript = recognizer.transcribe(audio, language="ko")
+
+    transcript.validate(audio.duration_ms)
+    assert [(s.start_ms, s.end_ms, s.text) for s in transcript.segments] == [
+        (500, 2000, "첫째 줄입니다."),
+        (2000, 4000, "둘째 줄입니다."),
+    ]
 
 
 def test_silence_is_an_empty_transcript_not_an_error(recognizer_case):

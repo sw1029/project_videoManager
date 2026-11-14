@@ -2,8 +2,10 @@
 
 테마 추출(원본의 말소리)과 녹음 붙이기(사용자의 녹음)가 함께 쓴다. 시리즈 기능 밖에서도 쓸 수 있는 개념이라 따로 둔다
 (받아쓰기 타입은 domain/speech.py, 구현은 adapters/speech/).
-구현: Fake(테스트), OpenAI 호환 /audio/transcriptions, 결과를 남기는 래퍼(같은 소리는 한 번만 과금).
-LLM·HTTP 호출의 오류는 SpeechRecognitionError 로 올라온다. 서비스를 쓸 수 없는 경우(키·인증·한도·연결)는
+구현: Fake(테스트), OpenAI 호환 /audio/transcriptions, 로컬 faster-whisper, 결과를 남기는 래퍼(같은 소리는 한 번만
+과금). 어댑터가 낸 구간은 계약에 맞춰져 있다 (domain/speech.ordered_segments).
+오류는 SpeechRecognitionError 로 올라온다. 그 가운데 소리의 문제가 아닌 것 — 서비스를 쓸 수 없는 경우
+(키·인증·한도·연결·잔액·주소나 모델 이름·서버 오류, 로컬 모델을 열지 못하거나 받아 적는 중의 실행 오류) — 는
 SpeechServiceError 로 가른다: 부른 쪽은 그 오류를 넘기고 다음 유료 단계로 가지 않는다.
 """
 
@@ -23,7 +25,8 @@ class SpeechRecognitionError(AdapterError):
 
 
 class SpeechServiceError(SpeechRecognitionError):
-    """인식 서비스를 쓸 수 없다: 키 없음·인증 실패·한도 초과·연결 실패·서버 오류.
+    """인식 서비스를 쓸 수 없다: 키 없음·인증 실패·한도 초과·연결 실패·서버 오류·잔액·주소나 모델 이름,
+    로컬 인식기의 실행 오류(모델·메모리·연산 라이브러리).
 
     소리의 문제가 아니라 설정·환경의 문제다. 부른 쪽은 이 오류를 넘기고 다음 유료 단계로 가지 않는다
     (감사 BTS-29: 설정 오류인데 돈을 쓰고 내레이션 없는 테마가 저장됐다).

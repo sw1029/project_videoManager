@@ -3,6 +3,8 @@
 인식기를 감싸 결과(받아쓰기)를 산출물 저장소에 남긴다. 생성기의 CachingVideoGenerator 와 같은 모양이다.
 - 키: 소리의 sha256 + 인식기의 프로필(모델·주소) + 언어 + 힌트. 답을 바꿀 수 있는 것은 모두 키에 든다.
 - 실패는 남기지 않는다 (다음에 다시 인식한다). 저장된 문서가 깨졌으면 없는 것으로 보고 다시 인식해 덮어쓴다.
+- 포트의 계약(시간 순서·겹치지 않음·소리 길이 안)을 어긴 결과도 남기지 않는다. 남기면 다시 불러도 같은 받아쓰기가
+  나와 그 소리는 계속 실패한다 (감사 BTS-D61). 결과는 그대로 돌려준다 (부른 쪽이 검사한다).
 - 저장소가 키로 주소를 지을 수 없으면(uri_for 가 None) 그대로 인식기를 부른다.
 테마 추출이 뒤에서 실패해 다시 부르거나, 같은 녹음을 다시 붙여도 인식은 다시 과금되지 않는다.
 """
@@ -16,7 +18,7 @@ import logging
 from frame.application.errors import StorageError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
-from frame.domain.errors import DomainError
+from frame.domain.errors import DomainError, ValidationError
 from frame.domain.hashing import canonical_hash
 from frame.domain.speech import Transcript
 
@@ -37,6 +39,11 @@ class CachingSpeechRecognizer(SpeechRecognizer):
         if cached is not None:
             return cached
         transcript = self.inner.transcribe(audio, language=language, hint=hint)
+        try:
+            transcript.validate(audio.duration_ms)
+        except ValidationError as exc:
+            log.warning("계약을 어긴 인식 결과는 남기지 않습니다: %s", exc.message)
+            return transcript
         document = {"profile": self._profile, "transcript": transcript.to_dict()}
         try:
             self._store.put(
