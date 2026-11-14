@@ -434,8 +434,8 @@ _NUMERIC = re.compile(r"[+-]?\d+(?:\.\d+)?")
 _LEADING_DIGITS = re.compile(r"\d+")
 _QUOTES = "'\"‘’“”「」『』`"
 _STOPWORDS = frozenset(
-    "a an the and or of with to at in on into onto for from by while its his her their is are".split()
-)
+    "a an the and or of with to at in on into onto for from by while its his her their is are s".split()
+)  # s: 소유격(bird's)이 쪼개져 남은 것
 _VOWELS = frozenset("aeiouy")
 # (어미, 그 어미를 걷어낼 최소 낱말 길이). 앞에서부터 하나만 걷어낸다
 _SUFFIXES = (("ing", 6), ("ied", 5), ("ies", 5), ("es", 5), ("ed", 5), ("ly", 6), ("s", 4))
@@ -488,16 +488,30 @@ def values_match(predicate: str, expected: str, actual: str) -> bool:
 
 
 def _phrase_match(expected: str, actual: str) -> bool:
-    wanted = {_stem(w) for w in _words(expected) if w not in _STOPWORDS}
+    """골드 값의 내용어가 모델 값에 모두 있는가. 띄어 쓴 말과 붙여 쓴 말(close up / closeup)은 같다고 본다."""
+    wanted = [w for w in _words(expected) if w not in _STOPWORDS]
     words = _words(actual)
-    if wanted and wanted <= {_stem(w) for w in words if w not in _STOPWORDS}:
-        return True
-    compact = "".join(_words(expected))  # 붙여 쓴 말과 띄어 쓴 말 (close up / closeup / close-up)
-    return bool(compact) and any(
-        "".join(words[i:j]) == compact
+    if not wanted:
+        return "".join(_words(expected)) == "".join(words)
+    stems = {_stem(w) for w in words if w not in _STOPWORDS}
+    joined = {
+        "".join(words[i:j])
         for i in range(len(words))
-        for j in range(i + 1, len(words) + 1)
-    )
+        for j in range(i + 1, min(i + 4, len(words) + 1))
+    }  # 모델 값의 이웃한 1~3 낱말을 붙인 것
+    i = 0
+    while i < len(wanted):
+        if _stem(wanted[i]) in stems or wanted[i] in joined:
+            i += 1
+            continue
+        size = next(
+            (n for n in (2, 3) if i + n <= len(wanted) and "".join(wanted[i : i + n]) in joined),
+            0,
+        )
+        if not size:
+            return False
+        i += size
+    return True
 
 
 def _words(text: str) -> list[str]:

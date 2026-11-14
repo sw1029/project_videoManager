@@ -249,6 +249,9 @@ def test_two_people_are_assigned_by_the_better_description():
         ("outfit", "white shirt and brown apron", "white shirt, brown apron", True),
         ("camera", "close up", "closeup", True),
         ("camera", "closeup", "close-up shot", True),
+        ("camera", "close up slow motion", "closeup in slow motion", True),
+        ("camera", "bird's eye view", "birds eye view", True),
+        ("camera", "close up", "up close", True),  # 내용어만 견주므로 순서는 보지 않는다
         ("weather", "rain", "rainy", True),
         ("weather", "sunny", "sun", True),
         ("action", "applies lipstick", "applying lipstick", True),
