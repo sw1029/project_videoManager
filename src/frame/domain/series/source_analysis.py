@@ -1,14 +1,13 @@
-"""영상에서 읽어 낸 것 (모델을 부르기 전·후의 관찰값). 테마 추출의 재료이자 근거다 (ADR-0025).
+"""원본 영상에서 읽어 낸 것 (모델을 부르기 전·후의 관찰값). 테마 추출의 재료이자 근거다 (ADR-0025).
 
 - Shot: 컷과 컷 사이의 구간. 0 ms 에서 시작해 빈틈 없이 영상 끝까지 이어진다.
-- Transcript: 말소리를 받아 적은 것 (구간·낱말 시각 포함). 말이 없으면 구간이 비어 있다.
 - ScreenText: 화면에 보인 문구 하나 (보인 시간·영역·종류).
 - VideoAnalysis: 모델 없이 얻는 관찰값 묶음 (겉모습·컷·말소리). 테마 추출기의 입력이다.
+받아 적은 말소리(Transcript)는 일반 타입이라 domain/speech.py 에 있다.
 """
 
 from __future__ import annotations
 
-import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +15,7 @@ from typing import Any
 from frame.domain.errors import ValidationError
 from frame.domain.media import MediaInfo
 from frame.domain.screen import Region, TextRole, TextSource, region_or_none
+from frame.domain.speech import Transcript
 
 
 @dataclass(frozen=True)
@@ -71,109 +71,6 @@ def validate_shots(shots: Sequence[Shot], duration_ms: int | None = None) -> Non
     if duration_ms is not None and expected != duration_ms:
         raise ValidationError(
             f"샷이 영상 끝({duration_ms} ms)이 아니라 {expected} ms 에서 끝납니다"
-        )
-
-
-@dataclass(frozen=True)
-class Word:
-    start_ms: int
-    end_ms: int
-    text: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"start_ms": self.start_ms, "end_ms": self.end_ms, "text": self.text}
-
-
-@dataclass(frozen=True)
-class SpeechSegment:
-    start_ms: int
-    end_ms: int
-    text: str
-    words: tuple[Word, ...] = ()  # 낱말 시각 (인식기가 줄 때만)
-
-    @property
-    def duration_ms(self) -> int:
-        return self.end_ms - self.start_ms
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "start_ms": self.start_ms,
-            "end_ms": self.end_ms,
-            "text": self.text,
-            "words": [w.to_dict() for w in self.words],
-        }
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> SpeechSegment:
-        return cls(
-            start_ms=int(data["start_ms"]),
-            end_ms=int(data["end_ms"]),
-            text=str(data.get("text", "")),
-            words=tuple(
-                Word(int(w["start_ms"]), int(w["end_ms"]), str(w.get("text", "")))
-                for w in data.get("words", ())
-            ),
-        )
-
-
-def spoken_characters(text: str) -> int:
-    """말한 분량: 글자·숫자의 수 (공백·문장부호 제외). 말 빠르기와 대본 길이 예산의 단위다."""
-    return sum(1 for ch in unicodedata.normalize("NFC", text) if ch.isalnum())
-
-
-@dataclass(frozen=True)
-class Transcript:
-    language: str | None = None
-    segments: tuple[SpeechSegment, ...] = ()
-
-    @property
-    def text(self) -> str:
-        return " ".join(s.text.strip() for s in self.segments if s.text.strip())
-
-    @property
-    def is_empty(self) -> bool:
-        return not self.text
-
-    @property
-    def speech_ms(self) -> int:
-        return sum(max(0, s.duration_ms) for s in self.segments if s.text.strip())
-
-    @property
-    def pace_cps(self) -> float | None:
-        """말 빠르기: 초당 글자 수 (공백·문장부호 제외). 말이 없으면 None."""
-        if self.speech_ms <= 0:
-            return None
-        return spoken_characters(self.text) / (self.speech_ms / 1000)
-
-    def within(self, start_ms: int, end_ms: int) -> tuple[SpeechSegment, ...]:
-        """구간의 가운데가 [start_ms, end_ms) 안에 드는 말소리 구간."""
-        return tuple(s for s in self.segments if start_ms <= (s.start_ms + s.end_ms) / 2 < end_ms)
-
-    def validate(self, duration_ms: int | None = None) -> None:
-        previous_end = 0
-        for segment in self.segments:
-            if segment.start_ms < 0 or segment.end_ms < segment.start_ms:
-                raise ValidationError(
-                    f"말소리 구간이 잘못되었습니다: {segment.start_ms}~{segment.end_ms} ms"
-                )
-            if segment.start_ms < previous_end:
-                raise ValidationError(
-                    f"말소리 구간이 시간 순서가 아니거나 겹칩니다: {segment.start_ms} ms"
-                )
-            previous_end = segment.end_ms
-        if duration_ms is not None and previous_end > duration_ms:
-            raise ValidationError(
-                f"말소리 구간이 소리 길이({duration_ms} ms)를 넘습니다: {previous_end} ms"
-            )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"language": self.language, "segments": [s.to_dict() for s in self.segments]}
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> Transcript:
-        return cls(
-            language=data.get("language"),
-            segments=tuple(SpeechSegment.from_dict(s) for s in data.get("segments", ())),
         )
 
 

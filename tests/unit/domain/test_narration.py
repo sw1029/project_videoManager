@@ -21,7 +21,7 @@ from frame.domain.series.narration import (
     similarity,
     speech_units,
 )
-from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
+from frame.domain.speech import SpeechSegment, Transcript, Word
 
 SCRIPT = (
     ScriptLine("L1", "greeting", "안녕하세요, 오늘의 메뉴예요.", 3600),

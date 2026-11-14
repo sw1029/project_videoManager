@@ -141,8 +141,8 @@
 |---|---|
 | 테마와 그 부품 | `domain/series/theme/` (`theme`·`format`·`cast`·`style`·`text_rules`·`narration_spec`·`source`·`conditions`) |
 | 숏폼 규격 판정 | `domain/series/shortform.py` |
-| 원본 영상에서 읽은 것 (샷·받아쓰기·화면 문구) | `domain/series/source_analysis.py` |
-| 영상의 겉모습 (일반 타입) | `domain/media.py` |
+| 원본 영상에서 읽은 것 (샷·화면 문구·관찰값 묶음) | `domain/series/source_analysis.py` |
+| 영상의 겉모습, 받아 적은 말소리 (일반 타입) | `domain/media.py`, `domain/speech.py` |
 | 포트 | `application/ports/series/source_analysis.py`·`theme_extraction.py`, `application/ports/speech.py` |
 | 유스케이스 | `application/use_cases/series/extract_theme.py` |
 | 어댑터 | `adapters/series/source_analysis/`, `adapters/series/theme_extraction/`, `adapters/speech/` |

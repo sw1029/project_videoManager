@@ -1,6 +1,7 @@
 """음성 인식 포트: 말소리 -> 낱말 시각이 있는 받아쓰기.
 
-테마 추출(원본의 말소리)과 녹음 붙이기(사용자의 녹음)가 함께 쓴다. 시리즈 기능 밖에서도 쓸 수 있는 개념이라 따로 둔다.
+테마 추출(원본의 말소리)과 녹음 붙이기(사용자의 녹음)가 함께 쓴다. 시리즈 기능 밖에서도 쓸 수 있는 개념이라 따로 둔다
+(받아쓰기 타입은 domain/speech.py, 구현은 adapters/speech/).
 구현: Fake(테스트), OpenAI 호환 /audio/transcriptions, 결과를 남기는 래퍼(같은 소리는 한 번만 과금).
 LLM·HTTP 호출의 오류는 SpeechRecognitionError 로 올라온다. 서비스를 쓸 수 없는 경우(키·인증·한도·연결)는
 SpeechServiceError 로 가른다: 부른 쪽은 그 오류를 넘기고 다음 유료 단계로 가지 않는다.
@@ -12,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from frame.application.errors import AdapterError
-from frame.domain.series.source_analysis import Transcript
+from frame.domain.speech import Transcript
 
 
 class SpeechRecognitionError(AdapterError):

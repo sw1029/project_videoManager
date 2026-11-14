@@ -18,7 +18,7 @@ from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
 from frame.domain.errors import DomainError
 from frame.domain.hashing import canonical_hash
-from frame.domain.series.source_analysis import Transcript
+from frame.domain.speech import Transcript
 
 log = logging.getLogger(__name__)
 

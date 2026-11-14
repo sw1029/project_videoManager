@@ -12,7 +12,7 @@ from frame.application.use_cases.series import AttachNarrationCommand, Recording
 from frame.config.theme_settings import ThemeSettings
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.series.narration import LineStatus, PlacementStatus
-from frame.domain.series.source_analysis import SpeechSegment, Transcript
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.series import (
     GOOD_READING,
     new_episode,

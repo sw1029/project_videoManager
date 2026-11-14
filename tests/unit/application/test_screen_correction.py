@@ -35,7 +35,7 @@ from frame.domain.series.screen_correction import (
     PatchRegion,
     StepStatus,
 )
-from frame.domain.series.source_analysis import SpeechSegment, Transcript
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.factories import dispatcher_of, version_of
 from tests.support.series import (
     GOOD_READING,

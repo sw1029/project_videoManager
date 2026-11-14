@@ -35,8 +35,8 @@ from frame.domain.series.episode import (
     build_episode_plan,
 )
 from frame.domain.series.narration import DEFAULT_NARRATION_POLICY
-from frame.domain.series.source_analysis import spoken_characters
 from frame.domain.series.theme import Theme, VariableScope
+from frame.domain.speech import spoken_characters
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
 PROMPT_VERSION = "2026-11-14.5"

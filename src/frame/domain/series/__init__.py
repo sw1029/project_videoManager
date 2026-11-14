@@ -15,7 +15,7 @@
 밖에서 쓰는 이름: 이 입구는 아무것도 내보내지 않는다. 아래 모듈을 직접 import 한다.
 
 모듈 지도 (기능이 흐르는 순서)
-- source_analysis     원본 영상에서 읽은 것: 샷 · 받아 적은 말소리 · 화면 문구 (VideoAnalysis)
+- source_analysis     원본 영상에서 읽은 것: 샷 · 화면 문구 · 관찰값 묶음 (VideoAnalysis)
 - shortform           '기준 내 숏폼' 판정: 플랫폼의 숏폼 규격과 견준다
 - theme/              테마와 그 부품: 형식(자리) · 고정 출연 · 스타일 · 문구 틀 · 내레이션 기록 · 원본 영상 기록
 - episode/            편 계획: 테마 + 이번 편의 내용 -> IR · 녹음 대본 · 화면 문구
@@ -25,6 +25,7 @@
 
 이 패키지 밖의 일반 타입
 - domain/media.py   MediaInfo: 영상의 겉모습
+- domain/speech.py  Transcript · SpeechSegment · Word: 받아 적은 말소리 (음성 인식의 결과)
 - domain/screen.py  Region · TextRole: 화면 좌표와 문구의 구실
 """
 

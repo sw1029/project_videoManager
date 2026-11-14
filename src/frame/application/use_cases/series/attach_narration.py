@@ -42,7 +42,7 @@ from frame.domain.series.narration import (
     place_lines,
 )
 from frame.domain.series.record import Episode, NarrationResult
-from frame.domain.series.source_analysis import Transcript
+from frame.domain.speech import Transcript
 
 _SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
 # 녹음은 그것이 덮는 시간(편 전체, 또는 그 줄의 장면)의 이 배수 + 여유까지만 받는다.

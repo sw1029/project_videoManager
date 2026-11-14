@@ -113,7 +113,7 @@ ffmpeg 구현과 Fake 가 같은 계약 테스트를 지난다.
 |---|---|
 | 편 계획과 계획 만들기 | `domain/series/episode/` (`plan`·`plan_building`) |
 | 편의 기록 | `domain/series/record.py` |
-| 녹음 맞추기·놓기 | `domain/series/narration.py` |
+| 녹음 맞추기·놓기 | `domain/series/narration.py` (받아쓰기 타입은 `domain/speech.py`) |
 | 포트 | `application/ports/series/planning.py`·`audio.py`·`repositories.py`, `application/ports/speech.py` |
 | 유스케이스 | `application/use_cases/series/` 의 `create_episode`·`adopt_anchors`·`attach_narration`·`revise_episode`·`settle_episode` |
 | 어댑터 | `adapters/series/planning/`·`audio/`·`store/`, `adapters/speech/` |

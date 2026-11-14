@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from frame.domain.series.source_analysis import SpeechSegment, Transcript
+from frame.domain.speech import SpeechSegment, Transcript
 
 
 def dump_request_fields(body: bytes) -> dict[str, list[str]]:

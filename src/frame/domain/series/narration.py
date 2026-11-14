@@ -28,7 +28,7 @@ from typing import Any
 
 from frame.domain.errors import ValidationError
 from frame.domain.series.episode import ScriptLine
-from frame.domain.series.source_analysis import Transcript
+from frame.domain.speech import Transcript
 
 _DIGITS = re.compile(r"\d[\d,]*")
 _SINO = ("", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구")

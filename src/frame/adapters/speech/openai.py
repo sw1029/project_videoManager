@@ -31,7 +31,7 @@ from frame.application.ports.speech import (
     SpeechRecognizer,
     SpeechServiceError,
 )
-from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
+from frame.domain.speech import SpeechSegment, Transcript, Word
 
 _LANGUAGE_CODES = {"korean": "ko", "english": "en", "japanese": "ja", "chinese": "zh"}
 _SUFFIX = {

@@ -1,4 +1,7 @@
-"""영상 관찰값 (영역·샷·말소리·화면 문구) 의 규칙과 직렬화."""
+"""영상 관찰값의 규칙과 직렬화.
+
+영역(domain/screen) · 샷·화면 문구·묶음(domain/series/source_analysis) · 말소리(domain/speech).
+"""
 
 from __future__ import annotations
 
@@ -10,14 +13,11 @@ from frame.domain.screen import Region, TextRole, TextSource
 from frame.domain.series.source_analysis import (
     ScreenText,
     Shot,
-    SpeechSegment,
-    Transcript,
     VideoAnalysis,
-    Word,
     shots_from_cuts,
-    spoken_characters,
     validate_shots,
 )
+from frame.domain.speech import SpeechSegment, Transcript, Word, spoken_characters
 
 
 # ---- 영역 ----

@@ -242,7 +242,7 @@ IR 은 영상 한 편의 조건이고, 테마는 편 사이의 규칙이다 (ADR
 | 계층 | 자리 | 안에 있는 것 |
 |---|---|---|
 | 도메인 | `domain/series/` | `theme/` · `episode/` · `record` · `narration` · `screen_correction/` · `shortform` · `source_analysis` |
-| 도메인 (일반 타입) | `domain/media.py`, `domain/screen.py` | 영상의 겉모습, 화면 좌표와 문구의 구실 |
+| 도메인 (일반 타입) | `domain/media.py`, `domain/speech.py`, `domain/screen.py` | 영상의 겉모습, 받아 적은 말소리, 화면 좌표와 문구의 구실 |
 | 포트 | `application/ports/series/`, `application/ports/speech.py` | 원본 분석 · 테마 추출 · 기획 · 소리 편집 · 후반 합성 · 저장, 음성 인식 |
 | 유스케이스 | `application/use_cases/series/` | 유스케이스 하나가 모듈 하나 (아홉 개) |
 | 어댑터 | `adapters/series/`, `adapters/speech/` | 포트마다 하위 패키지 (fake 와 실제 구현) |

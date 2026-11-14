@@ -41,8 +41,9 @@ from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms
-from frame.domain.series.source_analysis import Transcript, VideoAnalysis
+from frame.domain.series.source_analysis import VideoAnalysis
 from frame.domain.series.theme import DEFAULT_MIN_SLOT_MS, SourceOrigin, SourceVideo, Theme
+from frame.domain.speech import Transcript
 
 log = logging.getLogger(__name__)
 

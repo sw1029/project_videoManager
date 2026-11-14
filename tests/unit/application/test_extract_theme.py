@@ -15,8 +15,8 @@ from frame.application.ports.speech import SpeechRecognitionError, SpeechService
 from frame.application.use_cases.series import ExtractThemeCommand, NotShortform
 from frame.config.theme_settings import ThemeSettings
 from frame.domain.errors import ValidationError
-from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from frame.domain.series.theme import SourceOrigin
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.series import series_container, series_of
 
 SAID = Transcript(

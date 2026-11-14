@@ -9,7 +9,7 @@ from typing import Any
 
 from frame.adapters.fake_media import decode_fake_media
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
-from frame.domain.series.source_analysis import Transcript
+from frame.domain.speech import Transcript
 
 
 class FakeSpeechRecognizer(SpeechRecognizer):

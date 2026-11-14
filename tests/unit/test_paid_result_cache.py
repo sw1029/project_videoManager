@@ -13,7 +13,7 @@ from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.ports.series.overlay import ScreenTextReader
 from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError, SpeechRecognizer
 from frame.domain.screen import Region
-from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
+from frame.domain.speech import SpeechSegment, Transcript, Word
 
 AUDIO = SpeechAudio(b"RIFF-one", "audio/wav", 4000)
 HEARD = Transcript(

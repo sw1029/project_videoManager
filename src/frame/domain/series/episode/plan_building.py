@@ -14,8 +14,8 @@ from dataclasses import replace
 
 from frame.domain.errors import ValidationError
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
-from frame.domain.series.source_analysis import spoken_characters
 from frame.domain.series.theme import Theme, VariableScope, render_template
+from frame.domain.speech import spoken_characters
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
 from .plan import (

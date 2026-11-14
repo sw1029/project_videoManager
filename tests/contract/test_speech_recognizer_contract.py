@@ -16,9 +16,7 @@ from frame.adapters.speech import FakeSpeechRecognizer
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
 from frame.config.theme_settings import ThemeSettings
-from frame.domain.series.source_analysis import (
-    Transcript,
-)
+from frame.domain.speech import Transcript
 from tests.support.speech import SAID
 
 

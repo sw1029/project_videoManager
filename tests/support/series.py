@@ -12,8 +12,8 @@ from frame.config.theme_wiring import ThemeServices
 from frame.domain.ir import IntermediateRepresentation, SceneSpec
 from frame.domain.series.episode import EpisodeBrief, EpisodeContent
 from frame.domain.series.record import Episode
-from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from frame.domain.series.theme import Theme
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.clock import START
 from tests.support.factories import dispatcher_of, make_container
 from tests.support.themes import cafe_theme, matcha_brief, matcha_content

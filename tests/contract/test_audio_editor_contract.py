@@ -20,7 +20,7 @@ from frame.adapters.series.source_analysis import FakeMediaProber
 from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
 from frame.application.ports.series.audio import AudioEditor, AudioError, TrackCut
 from frame.application.ports.series.source_analysis import MediaProber
-from frame.domain.series.source_analysis import SpeechSegment, Transcript
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.media import make_cut_clip, make_tone
 from tests.support.video import find_ffmpeg
 

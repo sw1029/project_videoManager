@@ -21,13 +21,9 @@ from frame.config.theme_settings import ThemeSettings
 from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.screen import Region, TextRole, TextSource
-from frame.domain.series.source_analysis import (
-    SpeechSegment,
-    Transcript,
-    VideoAnalysis,
-    shots_from_cuts,
-)
+from frame.domain.series.source_analysis import VideoAnalysis, shots_from_cuts
 from frame.domain.series.theme import SourceOrigin, VariableScope
+from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.media import make_cut_clip
 from tests.support.themes import cafe_observation, cafe_source
 from tests.support.video import find_ffmpeg
