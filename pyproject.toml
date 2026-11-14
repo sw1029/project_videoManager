@@ -16,7 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov", "httpx>=0.27", "ruff", "mypy", "jsonschema>=4"]
+# ruff·mypy 는 버전에 따라 검사 결과가 달라지므로 정확히 고정한다 (CI 게이트의 기준. ADR-0030)
+dev = ["pytest>=8", "pytest-cov", "httpx>=0.27", "ruff==0.17.4", "mypy==2.4.1", "jsonschema>=4"]
 llm = ["openai>=1.50"]
 # FRAME_GENERATOR=external_api 의 클립 정규화용 ffmpeg (PATH 에 ffmpeg 가 있으면 필요 없음)
 video = ["imageio-ffmpeg==0.6.0"]
@@ -52,6 +53,11 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 120  # 코드는 100 칸으로 포맷하되, 한글 docstring/주석은 120 칸까지 허용
+
+[tool.ruff.format]
+# 기준선 (ADR-0030): 다른 브랜치(#10·#11·#12)가 고치고 있는 파일이라 지금 포맷하지 않는다.
+# 그 브랜치가 dev 에 들어온 뒤 포맷하고 이 목록을 지운다. 목록에는 더하지 않는다
+exclude = ["src/frame/presentation/app.py", "src/frame/presentation/schemas.py"]
 
 [tool.mypy]
 python_version = "3.11"

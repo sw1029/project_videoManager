@@ -70,23 +70,33 @@ TARGETS = {
     t.triple: t
     for t in (
         Target(
-            "x86_64-pc-windows-msvc", "windows-x64", "Windows (x64)",
+            "x86_64-pc-windows-msvc",
+            "windows-x64",
+            "Windows (x64)",
             "1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149",
         ),
         Target(
-            "aarch64-apple-darwin", "macos-arm64", "macOS (Apple Silicon)",
+            "aarch64-apple-darwin",
+            "macos-arm64",
+            "macOS (Apple Silicon)",
             "353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e",
         ),
         Target(
-            "x86_64-apple-darwin", "macos-x64", "macOS (Intel)",
+            "x86_64-apple-darwin",
+            "macos-x64",
+            "macOS (Intel)",
             "37c38fda76fec1fbf310adcbafb7f0d96af13b5511bf8ea954c3aa8eec185734",
         ),
         Target(
-            "x86_64-unknown-linux-gnu", "linux-x64", "Linux (x86_64)",
+            "x86_64-unknown-linux-gnu",
+            "linux-x64",
+            "Linux (x86_64)",
             "ce4f6d0a6cfdb3bed6e44c2f9affd85943c76a42e25ad3a259002f31d6fb8a20",
         ),
         Target(
-            "aarch64-unknown-linux-gnu", "linux-arm64", "Linux (ARM64)",
+            "aarch64-unknown-linux-gnu",
+            "linux-arm64",
+            "Linux (ARM64)",
             "bb4b6392670c5d3f93876996fcaa19858a4a413a0c7720144c18b0d6f1f0db2d",
         ),
     )
@@ -99,10 +109,20 @@ _say = launcher._say
 
 
 def detect_target(platform: str = sys.platform, machine: str | None = None) -> Target:
-    arch = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64", "arm64": "aarch64", "aarch64": "aarch64"}
+    arch = {
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "x64": "x86_64",
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+    }
     cpu = arch.get((machine or pyplatform.machine()).lower())
-    system = "win32" if platform == "win32" else "darwin" if platform == "darwin" else (
-        "linux" if platform.startswith("linux") else platform
+    system = (
+        "win32"
+        if platform == "win32"
+        else "darwin"
+        if platform == "darwin"
+        else ("linux" if platform.startswith("linux") else platform)
     )
     triple = {
         ("win32", "x86_64"): "x86_64-pc-windows-msvc",
@@ -112,7 +132,9 @@ def detect_target(platform: str = sys.platform, machine: str | None = None) -> T
         ("linux", "aarch64"): "aarch64-unknown-linux-gnu",
     }.get((system, cpu or ""))
     if triple is None:
-        raise BundleError(f"번들을 지원하지 않는 플랫폼입니다: {platform} / {machine or pyplatform.machine()}")
+        raise BundleError(
+            f"번들을 지원하지 않는 플랫폼입니다: {platform} / {machine or pyplatform.machine()}"
+        )
     return TARGETS[triple]
 
 
@@ -165,7 +187,9 @@ def fetch_python(target: Target, cache_dir: Path, local_archive: Path | None = N
     if actual != target.sha256:
         if not local_archive:
             path.unlink(missing_ok=True)  # 다음 실행에서 다시 받게 한다
-        raise BundleError(f"SHA-256 이 고정값과 다릅니다 ({path.name}: {actual}). 파일이 손상됐거나 바뀌었습니다")
+        raise BundleError(
+            f"SHA-256 이 고정값과 다릅니다 ({path.name}: {actual}). 파일이 손상됐거나 바뀌었습니다"
+        )
     return path
 
 
@@ -186,7 +210,9 @@ def extract_python(archive: Path, dest: Path) -> Path:
 
 def _require_safe_tar() -> None:
     if not hasattr(tarfile, "data_filter"):
-        raise BundleError("번들을 만들거나 확인하려면 Python 3.11.4 이상이 필요합니다 (tarfile 안전 필터)")
+        raise BundleError(
+            "번들을 만들거나 확인하려면 Python 3.11.4 이상이 필요합니다 (tarfile 안전 필터)"
+        )
 
 
 def _check(command: Sequence[str], cwd: Path) -> None:
@@ -198,10 +224,14 @@ def build_frontend(repo: Path, *, skip: bool) -> None:
     frontend = repo / "frontend"
     if skip:
         if not (frontend / "dist" / "index.html").is_file():
-            raise BundleError("frontend/dist 가 없습니다. --skip-frontend-build 없이 다시 실행하세요")
+            raise BundleError(
+                "frontend/dist 가 없습니다. --skip-frontend-build 없이 다시 실행하세요"
+            )
         return
     if (launcher._node_major() or 0) < launcher.MIN_NODE or shutil.which("npm") is None:
-        raise BundleError(f"화면 빌드에 Node.js {launcher.MIN_NODE} 이상이 필요합니다 (번들을 만드는 기기에만)")
+        raise BundleError(
+            f"화면 빌드에 Node.js {launcher.MIN_NODE} 이상이 필요합니다 (번들을 만드는 기기에만)"
+        )
     _check(launcher.npm_install_command(frontend), frontend)
     _check(["npm", "run", "build"], frontend)
 
@@ -209,12 +239,24 @@ def build_frontend(repo: Path, *, skip: bool) -> None:
 def install_app(python: Path, repo: Path) -> None:
     """동봉 Python 에 FRAME 과 의존성([llm] 포함)을 일반 설치한다 (편집 모드가 아니므로 저장소 없이 동작)."""
     try:
-        has_pip = subprocess.run([str(python), "-m", "pip", "--version"], capture_output=True).returncode == 0
+        has_pip = (
+            subprocess.run([str(python), "-m", "pip", "--version"], capture_output=True).returncode
+            == 0
+        )
     except OSError as exc:
-        raise BundleError(f"동봉 Python 을 이 기기에서 실행할 수 없습니다 ({exc}). 대상 OS·CPU 에서 만드세요") from exc
+        raise BundleError(
+            f"동봉 Python 을 이 기기에서 실행할 수 없습니다 ({exc}). 대상 OS·CPU 에서 만드세요"
+        ) from exc
     if not has_pip:
         _check([str(python), "-m", "ensurepip", "--upgrade"], repo)
-    pip = ["-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location", "--no-input"]
+    pip = [
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--no-warn-script-location",
+        "--no-input",
+    ]
     _check([str(python), "-I", *pip, "--no-compile", ".[llm]"], repo)
 
 
@@ -245,7 +287,9 @@ WINDOWS_PATH_BUDGET = 160
 
 def longest_path(stage: Path) -> str:
     top = stage.name
-    return max((f"{top}/{p.relative_to(stage).as_posix()}" for p in stage.rglob("*")), key=len, default=top)
+    return max(
+        (f"{top}/{p.relative_to(stage).as_posix()}" for p in stage.rglob("*")), key=len, default=top
+    )
 
 
 def check_path_budget(stage: Path, target: Target, budget: int = WINDOWS_PATH_BUDGET) -> int:
@@ -296,7 +340,10 @@ _PURPOSE = {
 def write_wrappers(root: Path, target: Target) -> None:
     for command, purpose in _PURPOSE.items():
         if target.windows:  # cmd.exe 는 콘솔 코드 페이지로 읽으므로 ASCII + CRLF
-            lines = [line.replace("@COMMAND@", command).replace("@PURPOSE@", purpose) for line in _CMD_TEMPLATE]
+            lines = [
+                line.replace("@COMMAND@", command).replace("@PURPOSE@", purpose)
+                for line in _CMD_TEMPLATE
+            ]
             (root / f"{command}.cmd").write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
         else:
             text = _SH_TEMPLATE.replace("@COMMAND@", command).replace("@PURPOSE@", purpose)
@@ -344,7 +391,9 @@ def write_readme(root: Path, target: Target) -> None:
         *first_run,
         "- 압축은 바탕화면처럼 쓰기 가능한 폴더에 풉니다. DB·결과는 이 폴더의 .demo 에 저장됩니다.",
         *(
-            ["- '파일 이름이 너무 깁니다' 오류가 나면 C:\\frame 처럼 짧은 경로에 푸세요 (Windows 경로 길이 제한)."]
+            [
+                "- '파일 이름이 너무 깁니다' 오류가 나면 C:\\frame 처럼 짧은 경로에 푸세요 (Windows 경로 길이 제한)."
+            ]
             if target.windows
             else []
         ),
@@ -355,21 +404,32 @@ def write_readme(root: Path, target: Target) -> None:
         "",
     ]
     text = "\n".join(lines)
-    (root / "README.txt").write_text(text.replace("\n", "\r\n") if target.windows else text, encoding="utf-8")
+    (root / "README.txt").write_text(
+        text.replace("\n", "\r\n") if target.windows else text, encoding="utf-8"
+    )
 
 
 def _frame_version(repo: Path) -> str:
-    match = re.search(r'__version__\s*=\s*"([^"]+)"', (repo / "src" / "frame" / "__init__.py").read_text("utf-8"))
+    match = re.search(
+        r'__version__\s*=\s*"([^"]+)"', (repo / "src" / "frame" / "__init__.py").read_text("utf-8")
+    )
     return match.group(1) if match else "unknown"
 
 
 def _git_sha(repo: Path) -> str:
     try:
         sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, capture_output=True, text=True
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
@@ -387,7 +447,9 @@ def write_metadata(root: Path, target: Target, repo: Path) -> None:
         "python_build": f"python-build-standalone {PBS_RELEASE}",
         "built_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    (root / launcher.BUNDLE_MARKER).write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    (root / launcher.BUNDLE_MARKER).write_text(
+        json.dumps(info, ensure_ascii=False, indent=2) + "\n", "utf-8"
+    )
 
 
 def make_archive(stage: Path, out_dir: Path, target: Target) -> Path:
@@ -410,7 +472,9 @@ def make_archive(stage: Path, out_dir: Path, target: Target) -> Path:
 
         with tarfile.open(archive, "w:gz", compresslevel=6) as tar:
             tar.add(stage, arcname=top, filter=normalize)
-    (out_dir / f"{archive.name}.sha256").write_text(f"{sha256_of(archive)}  {archive.name}\n", "utf-8")
+    (out_dir / f"{archive.name}.sha256").write_text(
+        f"{sha256_of(archive)}  {archive.name}\n", "utf-8"
+    )
     return archive
 
 
@@ -448,8 +512,20 @@ def minimal_env() -> dict[str, str]:
     """Python·Node 가 설치되지 않은 기기처럼: PATH 는 시스템 폴더만 두고 PYTHON*·가상환경 설정은 뺀다."""
     if os.name == "nt":
         keep = {
-            "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP",
-            "USERPROFILE", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA", "HOMEDRIVE", "HOMEPATH", "USERNAME",
+            "SYSTEMROOT",
+            "WINDIR",
+            "SYSTEMDRIVE",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+            "PROGRAMDATA",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "USERNAME",
         }
         env = {k: v for k, v in os.environ.items() if k.upper() in keep}
         system_root = os.environ.get("SystemRoot", "C:\\Windows")
@@ -486,7 +562,9 @@ def verify(path: Path, target: Target) -> int:
         if not ok:
             failures.append(label)
 
-    with tempfile.TemporaryDirectory(prefix="frame-bundle-verify-", ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory(
+        prefix="frame-bundle-verify-", ignore_cleanup_errors=True
+    ) as tmp:
         _extract_bundle(archive, Path(tmp))
         root = (Path(tmp) / top_dir(target)).resolve()
         python = bundled_python(root, target)
@@ -496,16 +574,29 @@ def verify(path: Path, target: Target) -> int:
             [str(python), "-I", "-c", code], capture_output=True, text=True, env=env, cwd=root
         )
         lines = probe.stdout.splitlines()
-        inside = probe.returncode == 0 and len(lines) == 2 and Path(lines[1]).resolve().is_relative_to(root)
-        check(inside and lines[0] == PYTHON_VERSION, f"동봉 Python {PYTHON_VERSION} 이 번들 안의 FRAME 을 사용")
+        inside = (
+            probe.returncode == 0
+            and len(lines) == 2
+            and Path(lines[1]).resolve().is_relative_to(root)
+        )
+        check(
+            inside and lines[0] == PYTHON_VERSION,
+            f"동봉 Python {PYTHON_VERSION} 이 번들 안의 FRAME 을 사용",
+        )
         wrapper = (
             [os.environ.get("COMSPEC", "cmd.exe"), "/c", str(root / "run.cmd"), "--help"]
             if target.windows
             else ["sh", str(root / "run.sh"), "--help"]
         )
-        check(subprocess.run(wrapper, capture_output=True, env=env, cwd=root).returncode == 0, "실행 래퍼")
+        check(
+            subprocess.run(wrapper, capture_output=True, env=env, cwd=root).returncode == 0,
+            "실행 래퍼",
+        )
         smoke = [str(python), "-I", "-m", "frame.tools.demo", "--root", str(root), "smoke"]
-        check(subprocess.run(smoke, env=env, cwd=root).returncode == 0, "자동 점검 (화면·API·구조화·키 입력)")
+        check(
+            subprocess.run(smoke, env=env, cwd=root).returncode == 0,
+            "자동 점검 (화면·API·구조화·키 입력)",
+        )
     if failures:
         raise BundleError(f"번들 점검 실패 {len(failures)}건: {', '.join(failures)}")
     _say(f"번들 점검 통과: {archive.name}")
@@ -537,9 +628,15 @@ def main(argv: Sequence[str] | None = None, *, root: Path) -> int:
     build_cmd = sub.add_parser("build", help="지금 OS·CPU 용 번들을 만든다")
     build_cmd.add_argument("--target", choices=sorted(TARGETS), help="기본: 지금 OS·CPU")
     build_cmd.add_argument("--out", type=Path, help="번들을 둘 폴더 (기본: 저장소의 dist/)")
-    build_cmd.add_argument("--python-archive", type=Path, help="미리 받은 휴대용 Python 아카이브 (SHA-256 은 확인)")
-    build_cmd.add_argument("--skip-frontend-build", action="store_true", help="있는 frontend/dist 를 그대로 사용")
-    verify_cmd = sub.add_parser("verify", help="만든 번들을 임시 폴더에 풀어 저장소 없이 실행되는지 확인")
+    build_cmd.add_argument(
+        "--python-archive", type=Path, help="미리 받은 휴대용 Python 아카이브 (SHA-256 은 확인)"
+    )
+    build_cmd.add_argument(
+        "--skip-frontend-build", action="store_true", help="있는 frontend/dist 를 그대로 사용"
+    )
+    verify_cmd = sub.add_parser(
+        "verify", help="만든 번들을 임시 폴더에 풀어 저장소 없이 실행되는지 확인"
+    )
     verify_cmd.add_argument("path", type=Path, help="번들 파일 또는 그 파일이 있는 폴더")
     verify_cmd.add_argument("--target", choices=sorted(TARGETS), help="기본: 지금 OS·CPU")
     sub.add_parser("targets", help="지원 대상 목록")
@@ -547,7 +644,9 @@ def main(argv: Sequence[str] | None = None, *, root: Path) -> int:
     try:
         if args.command == "targets":
             for target in TARGETS.values():
-                print(f"{target.label:12s} {target.title:22s} {target.triple:28s} {archive_name(target)}")
+                print(
+                    f"{target.label:12s} {target.title:22s} {target.triple:28s} {archive_name(target)}"
+                )
             return 0
         target = TARGETS[args.target] if args.target else detect_target()
         if args.command == "build":

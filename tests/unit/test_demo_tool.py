@@ -54,7 +54,9 @@ def test_broken_bundle_asks_to_extract_again(tmp_path):
 
 def test_setup_in_a_bundle_only_stores_the_key(tmp_path, monkeypatch, capsys):
     _make_bundle(tmp_path)
-    monkeypatch.setattr(demo, "_run", lambda *a, **k: pytest.fail("번들에서는 설치 명령을 실행하지 않는다"))
+    monkeypatch.setattr(
+        demo, "_run", lambda *a, **k: pytest.fail("번들에서는 설치 명령을 실행하지 않는다")
+    )
     source = tmp_path / "key.txt"
     source.write_text(KEY, encoding="utf-8")
     assert demo.cmd_setup(tmp_path, key_file=str(source), no_key=False, skip_frontend=False) == 0
@@ -154,7 +156,10 @@ def test_npm_install_prefers_ci_with_lockfile(tmp_path):
 def test_llm_demo_env_enables_local_key_entry_and_keeps_state_in_repo(tmp_path):
     key_file = tmp_path / ".demo" / "openai.key"
     env = demo.demo_env(
-        tmp_path, offline=False, base_env={"PATH": "x", "FRAME_LLM_MODEL": "gpt-x"}, key_file=key_file
+        tmp_path,
+        offline=False,
+        base_env={"PATH": "x", "FRAME_LLM_MODEL": "gpt-x"},
+        key_file=key_file,
     )
     assert env["FRAME_STRUCTURER"] == "llm"
     assert env["FRAME_LLM_RUNTIME_KEY"] == "true"

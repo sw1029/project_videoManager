@@ -47,7 +47,9 @@ def test_detect_target(platform, machine, label):
     assert bundle.detect_target(platform, machine).label == label
 
 
-@pytest.mark.parametrize(("platform", "machine"), [("win32", "ARM64"), ("freebsd14", "amd64"), ("linux", "riscv64")])
+@pytest.mark.parametrize(
+    ("platform", "machine"), [("win32", "ARM64"), ("freebsd14", "amd64"), ("linux", "riscv64")]
+)
 def test_unsupported_platforms_are_rejected(platform, machine):
     with pytest.raises(bundle.BundleError):
         bundle.detect_target(platform, machine)
@@ -79,7 +81,9 @@ def test_a_tampered_runtime_archive_is_rejected_and_kept_if_user_supplied(tmp_pa
 def test_a_matching_runtime_archive_is_accepted(tmp_path):
     fake = tmp_path / "python.tar.gz"
     fake.write_bytes(b"runtime")
-    target = bundle.Target(LINUX.triple, LINUX.label, LINUX.title, hashlib.sha256(b"runtime").hexdigest())
+    target = bundle.Target(
+        LINUX.triple, LINUX.label, LINUX.title, hashlib.sha256(b"runtime").hexdigest()
+    )
     assert bundle.fetch_python(target, tmp_path / "cache", local_archive=fake) == fake
 
 
@@ -92,7 +96,8 @@ def _tar(path: Path, name: str, data: bytes = b"x", mode: int = 0o644) -> Path:
 
 
 needs_safe_tar = pytest.mark.skipif(
-    not hasattr(tarfile, "data_filter"), reason="tarfile 안전 필터는 Python 3.11.4+ (번들 빌드 요구 사항)"
+    not hasattr(tarfile, "data_filter"),
+    reason="tarfile 안전 필터는 Python 3.11.4+ (번들 빌드 요구 사항)",
 )
 
 
@@ -137,7 +142,9 @@ def test_readme_matches_the_os(tmp_path):
     bundle.write_readme(tmp_path, WINDOWS)
     windows = (tmp_path / "README.txt").read_text(encoding="utf-8")
     assert "run.cmd" in windows and "차단 해제" in windows and "xattr" not in windows
-    assert "C:\\frame" in windows and "\f" not in windows  # 경로 길이 안내 (역슬래시가 제어 문자로 바뀌지 않게)
+    assert (
+        "C:\\frame" in windows and "\f" not in windows
+    )  # 경로 길이 안내 (역슬래시가 제어 문자로 바뀌지 않게)
     bundle.write_readme(tmp_path, MAC_ARM)
     mac = (tmp_path / "README.txt").read_text(encoding="utf-8")
     assert "sh run.sh" in mac and "xattr" in mac
