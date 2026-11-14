@@ -54,10 +54,22 @@ def fake_video(
     return encode_fake_media(media)
 
 
-def fake_recording(transcript: Transcript, duration_ms: int | None = None) -> bytes:
-    """가짜 녹음 (사용자가 녹음한 음성 파일의 대역). 길이를 주지 않으면 마지막 말이 끝나고 0.3초 뒤까지다."""
+def fake_recording(
+    transcript: Transcript,
+    duration_ms: int | None = None,
+    silences: Sequence[tuple[int, int]] | None = None,
+) -> bytes:
+    """가짜 녹음 (사용자가 녹음한 음성 파일의 대역). 길이를 주지 않으면 마지막 말이 끝나고 0.3초 뒤까지다.
+
+    silences 를 주면 그 구간만 무음이다 (인식기가 준 시각과 실제 소리가 다른 녹음을 흉내 낼 때).
+    """
     end = max((s.end_ms for s in transcript.segments), default=0)
-    audio = {"duration_ms": duration_ms or end + 300, "transcript": transcript.to_dict()}
+    audio: dict[str, Any] = {
+        "duration_ms": duration_ms or end + 300,
+        "transcript": transcript.to_dict(),
+    }
+    if silences is not None:
+        audio["silences"] = [list(span) for span in silences]
     return encode_fake_media({"audio": audio})
 
 

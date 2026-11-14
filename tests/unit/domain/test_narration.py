@@ -14,6 +14,7 @@ from frame.domain.series.narration import (
     PlacementStatus,
     align_script,
     check_line,
+    fit_alignment,
     missing_key_terms,
     normalize_speech,
     place_lines,
@@ -302,3 +303,25 @@ def test_results_round_trip():
 
     assert LineAlignment.from_dict(alignment.to_dict()) == alignment
     assert Placement.from_dict(placement.to_dict()) == placement
+
+
+def test_an_alignment_is_trimmed_to_where_the_recording_sounds():
+    """인식기는 녹음 앞의 무음을 첫 낱말에 붙인다 (말은 1.16초에 시작하는데 0초라고 한다).
+
+    그대로 자르면 무음까지 장면에 놓여 말이 늦게 시작하고, 줄이 실제보다 길어 보인다 (빠르기를 올리거나 넘친다고 한다).
+    """
+    heard = LineAlignment("L3", LineStatus.MATCHED, 1.0, "이 집은 월세가 50만 원이다", 0, 3260, 2)
+
+    fitted = fit_alignment(heard, ((1156, 3333),))
+
+    assert (fitted.start_ms, fitted.end_ms) == (1156, 3260)
+    assert (fitted.status, fitted.heard, fitted.source_index) == (
+        LineStatus.MATCHED,
+        heard.heard,
+        2,
+    )
+    # 소리가 나는 곳과 겹치지 않으면(잴 수 없으면) 그대로 둔다. 찾지 못한 줄도 그대로다
+    assert fit_alignment(heard, ()) == heard
+    assert fit_alignment(heard, ((5000, 6000),)) == heard
+    missing = LineAlignment("L1", LineStatus.MISSING)
+    assert fit_alignment(missing, ((0, 1000),)) == missing

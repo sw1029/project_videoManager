@@ -11,6 +11,8 @@
    - 숫자는 읽는 소리로 바꿔 견준다: 인식기는 '오천 원' 을 '5,000원' 으로 적곤 한다.
    - 핵심어(메뉴 이름·가격 같은 편의 변수 값)가 대본 줄에 있으면 녹음에도 있어야 한다. 짧은 줄에서 한 글자만
      틀려도 유사도는 높게 나오므로(오천 원 / 육천 원 = 0.83), 사실이 틀린 것은 유사도가 아니라 핵심어로 잡는다.
+   - 줄의 구간은 녹음에서 소리가 나는 곳으로 자른다 (fit_alignment). 인식기는 녹음 앞의 무음을 첫 낱말에 붙여
+     말이 0초에 시작한다고 한다. 그대로 자르면 무음까지 장면에 놓여 말이 늦게 시작하고 줄이 실제보다 길어 보인다.
 2. 놓기 (place_lines): 줄의 음성을 그 줄의 장면 안에 놓는다.
    - 장면 시작에서 lead_in 뒤에 시작한다. 음성이 말할 수 있는 시간보다 길면 빠르기를 올린다 (max_tempo 까지).
    - 그래도 넘치면 OVERFLOW: 자르지 않고 넘친 길이를 알린다 (다시 녹음하거나 대본을 줄일 일이다).
@@ -262,6 +264,21 @@ def check_line(
         return LineAlignment(line.line_key, LineStatus.MISSING, source_index=source_index)
     result = _alignment(line, units, (0, len(units)), policy, key_terms)
     return replace(result, source_index=source_index)
+
+
+def fit_alignment(alignment: LineAlignment, sound: Sequence[tuple[int, int]]) -> LineAlignment:
+    """줄의 구간을 녹음에서 소리가 나는 곳(sound, 시간 순서)으로 자른다.
+
+    소리가 나는 곳과 겹치지 않으면 (재지 못했거나 인식기의 시각이 크게 어긋났으면) 그대로 둔다.
+    """
+    if alignment.start_ms is None or alignment.end_ms is None:
+        return alignment
+    start, end = alignment.start_ms, alignment.end_ms
+    islands = [span for span in sound if span[0] < end and span[1] > start]
+    if not islands:
+        return alignment
+    start = max(start, islands[0][0])
+    return replace(alignment, start_ms=start, end_ms=max(start + 1, min(end, islands[-1][1])))
 
 
 def _ratio(target: str, joined: str) -> float:

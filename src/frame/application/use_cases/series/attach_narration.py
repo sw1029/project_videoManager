@@ -5,7 +5,8 @@
 - 줄마다 따로 녹음한 파일 (line_key 있음): 파일 전체가 그 줄이다. 인식 결과로 대본과 맞는지만 본다.
   이미 녹음을 붙인 편에 일부 줄만 다시 주면 그 줄만 갈아 끼운다 (국소 수정: 나머지 줄은 예전 녹음 그대로).
 
-순서: 인식 -> 줄에 맞추기 -> 장면에 놓기 -> 편 길이의 트랙 만들기 -> 저장.
+순서: 인식 -> 줄에 맞추기 -> 소리가 나는 곳으로 자르기 -> 장면에 놓기 -> 편 길이의 트랙 만들기 -> 저장.
+인식기는 녹음 앞의 무음을 말에 붙여 준다. 녹음의 무음을 재서 줄의 구간을 자른다 (말이 제때 시작한다).
 대본과 다르게 읽었거나(핵심어가 빠짐 포함), 읽지 않았거나, 장면보다 긴 줄은 결과에 남는다. 붙이는 것 자체는 막지 않는다.
 영상에 소리를 합치는 것은 완성본을 만들 때(RenderEpisode) 한다.
 
@@ -31,6 +32,7 @@ from frame.application.ports.series.repositories import EpisodeRepository
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
 from frame.application.use_cases.series._narration_track import narration_track
 from frame.domain.errors import NotFound, ValidationError
+from frame.domain.script import audible_spans
 from frame.domain.series.episode import ScriptLine
 from frame.domain.series.narration import (
     DEFAULT_NARRATION_POLICY,
@@ -39,6 +41,7 @@ from frame.domain.series.narration import (
     NarrationPolicy,
     align_script,
     check_line,
+    fit_alignment,
 )
 from frame.domain.series.record import Episode
 from frame.domain.speech import Transcript
@@ -122,19 +125,26 @@ class AttachNarration:
             transcript.validate()
             transcripts.append(transcript)
         if whole:
-            alignments = align_script(script, transcripts[0], self._policy, key_terms=key_terms)
+            sound = self._sounding(command.recordings[0].data)
+            alignments = tuple(
+                fit_alignment(alignment, sound)
+                for alignment in align_script(
+                    script, transcripts[0], self._policy, key_terms=key_terms
+                )
+            )
         else:
             kept = {a.line_key: a for a in previous.alignments} if previous is not None else {}
             for number, recording in enumerate(command.recordings):
                 if recording.line_key is None:  # _mode 가 이미 걸렀다
                     raise ValidationError("줄마다 녹음한 파일에는 줄(line_key)이 있어야 합니다")
-                kept[recording.line_key] = check_line(
+                checked = check_line(
                     episode.plan.line(recording.line_key),
                     transcripts[number],
                     source_index=offset + number,
                     policy=self._policy,
                     key_terms=key_terms,
                 )
+                kept[recording.line_key] = fit_alignment(checked, self._sounding(recording.data))
             alignments = tuple(
                 kept.get(line.line_key, LineAlignment(line.line_key, LineStatus.MISSING))
                 for line in script
@@ -146,6 +156,16 @@ class AttachNarration:
         updated = replace(episode, narration=narration, render=None)
         self._episodes.save(updated)
         return updated
+
+    def _sounding(self, recording: bytes) -> tuple[tuple[int, int], ...]:
+        """녹음에서 소리가 나는 구간. 재지 못하면 비어 있다 (줄의 구간을 인식기가 준 대로 쓴다)."""
+        try:
+            profile = self._audio.sound_profile(recording)
+        except AdapterError:
+            return ()
+        if profile is None:
+            return ()
+        return audible_spans(profile.duration_ms, profile.silences) or ()
 
     def _prepare(self, episode: Episode, recording: RecordingInput) -> SpeechAudio:
         """녹음 하나를 인식할 수 있는 소리로 바꾼다. 받을 수 없는 녹음이면 ValidationError (인식하기 전이다)."""

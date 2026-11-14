@@ -163,6 +163,24 @@ def test_lines_recorded_one_by_one(container):
     ]
 
 
+def test_silence_the_recognizer_put_inside_a_line_is_not_placed_with_it(container):
+    """인식기는 녹음 앞의 무음을 말에 붙여 준다 (0초부터라고 한다). 잰 무음으로 잘라, 말이 제때 시작하게 놓는다."""
+    heard = Transcript("ko", (SpeechSegment(0, 2500, "말차 라떼입니다"),))  # 말은 1.1초에 시작한다
+    recording = fake_recording(heard, 2900, silences=((0, 1100), (2500, 2900)))
+
+    episode = _attach(
+        container,
+        new_episode(container),
+        RecordingInput(recording, line_key="L2", filename="L2.wav"),
+    )
+
+    alignment = next(a for a in episode.narration.alignments if a.line_key == "L2")
+    placement = next(p for p in episode.narration.placements if p.line_key == "L2")
+    assert (alignment.start_ms, alignment.end_ms) == (1100, 2500)
+    assert (placement.source_start_ms, placement.source_end_ms) == (1020, 2580)  # 앞뒤 80 ms 여유
+    assert placement.status is PlacementStatus.PLACED and placement.duration_ms == 1560
+
+
 def test_line_longer_than_its_scene_is_reported(container):
     long_take = Transcript("ko", (SpeechSegment(0, 6000, "안녕하세요 오늘의 메뉴예요"),))
     episode = _attach(container, new_episode(container), _whole(long_take))
