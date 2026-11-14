@@ -260,8 +260,10 @@ def _summary_text(report: Mapping[str, Any], out: Path) -> str:
         cost = summary["estimated_cost_usd"]
         seconds = summary["estimated_seconds"]
         lines = [
-            f"변경 계획 {summary['planned']}/{summary['cases']}건 (오류 {summary['errors']}): "
-            f"다시 만들 장면 {summary['regenerate_scenes']} (편집 {summary['edit_scenes']})",
+            (
+                f"변경 계획 {summary['planned']}/{summary['cases']}건 (오류 {summary['errors']}): "
+                f"다시 만들 장면 {summary['regenerate_scenes']} (편집 {summary['edit_scenes']})"
+            ),
             "어림 비용 "
             + ("알 수 없음" if cost is None else f"${cost:.3f}")
             + (" · 어림 시간 " + ("알 수 없음" if seconds is None else f"{seconds:.0f}초"))
@@ -271,12 +273,16 @@ def _summary_text(report: Mapping[str, Any], out: Path) -> str:
         targets = report["targets"]
         verdict = "목표 달성" if summary["meets_target"] else "목표 미달"
         lines = [
-            f"지표 1 평가 {summary['cases']}건 (완료 {summary['completed']} · 실행 실패 "
-            f"{summary['failed']} · 오류 {summary['errors']})",
-            f"기준 {summary['basis']}: 성공률 {_percent(summary['success_rate'])} "
-            f"(목표 {targets['success_rate'] * 100:.0f}% 이상) · 평균 비대상 변경률 "
-            f"{_percent(summary['mean_non_target_change_rate'])} "
-            f"(목표 {targets['non_target_change_rate'] * 100:.0f}% 이하) → {verdict}",
+            (
+                f"지표 1 평가 {summary['cases']}건 (완료 {summary['completed']} · 실행 실패 "
+                f"{summary['failed']} · 오류 {summary['errors']})"
+            ),
+            (
+                f"기준 {summary['basis']}: 성공률 {_percent(summary['success_rate'])} "
+                f"(목표 {targets['success_rate'] * 100:.0f}% 이상) · 평균 비대상 변경률 "
+                f"{_percent(summary['mean_non_target_change_rate'])} "
+                f"(목표 {targets['non_target_change_rate'] * 100:.0f}% 이하) → {verdict}"
+            ),
         ]
         for basis, item in summary["by_basis"].items():
             lines.append(
