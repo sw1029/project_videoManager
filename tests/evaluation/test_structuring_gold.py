@@ -281,6 +281,31 @@ def test_rescoring_with_a_revised_gold_keeps_the_run_and_updates_the_scores(case
     assert compare_records(record, rescored).cases[0].newly_missed == ("done:caption:color",)
 
 
+def test_rescoring_again_keeps_the_gold_fingerprint_of_the_run(cases):
+    """여러 번 다시 채점해도 rescored.gold_fingerprint_before 는 실제 실행 때 골드의 지문이다 (처음 값을 지킨다)."""
+    ramen = _case(cases, "ko-05-ramen-recipe")
+    record = build_record(
+        _replay_runs([ramen], _perfect_responses([ramen])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+
+    def add_condition(document):
+        document["scenes"][2]["requirements"].append(
+            {"entity_key": "caption", "predicate": "color", "expected_value": "white"}
+        )
+
+    revised = [_revised(ramen, add_condition)]
+    once = rescore_record(record, revised, _replay_structurer, rescored_at="2026-11-15")
+    twice = rescore_record(once, revised, _replay_structurer, rescored_at="2026-11-16")
+    assert twice["rescored"] == {
+        "at": "2026-11-16",
+        "gold_fingerprint_before": record["gold"]["fingerprint"],
+    }
+    assert twice["gold"] == once["gold"] != record["gold"]
+    assert twice["cases"] == once["cases"]
+
+
 def _failed_record(case, *, error=None):
     """두 번 시도해 실패한 실행의 기록. error 를 주면 실행 때의 오류를 그것으로 바꾼다."""
     client = ReplayLLMClient(["not json", "not json"], model="replay-model")

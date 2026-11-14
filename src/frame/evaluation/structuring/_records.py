@@ -320,6 +320,7 @@ def rescore_record(
     structurer_for(응답) 은 그 응답 하나만 재생하는 구조화기를 만든다
     (예: LLMStructurer(ReplayLLMClient([응답]), max_attempts=1)).
     실행 시각·구조화기·모델·시도 횟수·토큰·시간·보정 메모는 원래 기록의 것을 그대로 둔다.
+    rescored 에는 다시 채점한 시각과 실제 실행 때 골드의 지문(gold_fingerprint_before)을 남긴다.
     기록에 없는 골드 사례(나중에 더한 사례)는 건너뛰고, 응답 없이 실패했던 사례는 원래 오류로 다시 실패 처리한다.
     응답이 남은 실패 사례를 재생해도 구조화가 실패하면 실행 때의 오류를 남긴다.
     재생은 1회 시도라 문구가 달라지기 때문이다 (예: 재시도 끝의 시간 초과가 '1회 시도 후 실패' 로 바뀐다).
@@ -364,9 +365,13 @@ def rescore_record(
         )
     structurer = {k: v for k, v in record["structurer"].items() if k != "reported_models"}
     rescored = build_record(runs, structurer=structurer, run_at=str(record["run_at"]))
+    earlier = record.get("rescored") or {}
     rescored["rescored"] = {
         "at": rescored_at,
-        "gold_fingerprint_before": record.get("gold", {}).get("fingerprint"),
+        # 실제 실행 때 골드의 지문. 이미 다시 채점한 기록이면 그 값을 지킨다 (지금 지문으로 덮지 않는다)
+        "gold_fingerprint_before": earlier.get(
+            "gold_fingerprint_before", record.get("gold", {}).get("fingerprint")
+        ),
     }
     return rescored
 
