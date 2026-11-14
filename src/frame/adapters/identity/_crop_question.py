@@ -140,20 +140,36 @@ def read_verdicts(answer: Mapping[str, Any], expected: Sequence[str]) -> dict[st
 
     물어보지 않은 이름과 형식이 어긋난 항목은 버린다. 모델이 행동 같은 일시적 조건에 no 를 붙여도
     기준을 버리지 않게 한다. 같은 속성에 판정이 여럿이면 no 가 이긴다.
+
+    이름은 물어본 그대로('color: red')가 아니라 술어만('color') 올 때가 있다. 그 술어의 속성을 하나만 물었으면
+    그 속성의 판정으로 읽는다 - 읽지 못하면 no 가 버려져 요구와 다르게 나온 객체가 기준이 된다.
+    값만 온 이름('red')은 어느 속성의 것인지 알 수 없어 버린다.
     """
     items = answer.get("attributes")
     if not isinstance(items, list):
         return {}
     names = {_canonical(name): name for name in expected}
+    by_predicate = _asked_by_predicate(expected)
     found: dict[str, str] = {}
     for item in items:
         if not isinstance(item, Mapping):
             continue
-        name = names.get(_canonical(str(item.get("name") or "")))
+        given = _canonical(str(item.get("name") or ""))
+        name = names.get(given) or by_predicate.get(given)
         verdict = str(item.get("verdict") or "").strip().lower()
         if name is not None and verdict in VERDICTS and found.get(name) != "no":
             found[name] = verdict
     return found
+
+
+def _asked_by_predicate(expected: Sequence[str]) -> dict[str, str]:
+    """술어(견주는 꼴) -> 물어본 이름 ('술어: 값'). 같은 술어를 둘 이상 물었으면 어느 것인지 알 수 없어 뺀다."""
+    asked: dict[str, list[str]] = {}
+    for name in expected:
+        predicate = _canonical(name.partition(":")[0])
+        if predicate:
+            asked.setdefault(predicate, []).append(name)
+    return {predicate: names[0] for predicate, names in asked.items() if len(names) == 1}
 
 
 def valid_box(answer: Mapping[str, Any], min_area: float) -> Box | None:

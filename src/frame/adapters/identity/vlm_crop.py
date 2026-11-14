@@ -161,29 +161,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 answer = answers.get(entity.entity_key)
                 if answer is None:
                     continue
-                verdicts = (
-                    read_verdicts(answer, fixed_attributes(request, entity))
-                    if self.verify_attributes
-                    else None
-                )
-                if verdicts and answer.get("visible") is True:
-                    wrong = tuple(name for name, verdict in verdicts.items() if verdict == "no")
-                    if wrong:
-                        # 이 클립은 요구를 반영하지 못했다. 그 모습을 기준으로 삼으면 다음 장면으로 번진다
-                        rejected[entity.entity_key] = wrong
-                        self._remember_rejection(request.clip.uri, entity.entity_key, wrong, at_ms)
-                        log.warning(
-                            "정체성 기준: 클립 %s 의 %s 은(는) 요구한 고정 속성과 달라 "
-                            "기준으로 쓰지 않습니다: %s",
-                            request.clip.uri,
-                            entity.entity_key,
-                            ", ".join(wrong),
-                        )
-                        continue
-                box = valid_box(answer, self.min_area)
-                if box is None:
-                    continue
-                image = self._crop(request, entity, video, at_ms, box, answer, frame_size, verdicts)
+                image = self._take(request, entity, answer, video, at_ms, frame_size, rejected)
                 if image is not None:
                     found[entity.entity_key] = image
         missing = [e.entity_key for e in pending()]
@@ -194,6 +172,56 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
                 ", ".join(missing),
             )
         return tuple(found[e.entity_key] for e in request.entities if e.entity_key in found)
+
+    def _take(
+        self,
+        request: IdentityExtractionRequest,
+        entity: EntitySpec,
+        answer: Mapping[str, Any],
+        video: ClipFrames,
+        at_ms: int,
+        frame_size: tuple[int, int],
+        rejected: dict[str, tuple[str, ...]],
+    ) -> IdentityImage | None:
+        """프레임 하나에서 객체 하나의 기준을 얻는다. 쓸 수 없으면 None.
+
+        요구한 고정 속성과 분명히 다르면 rejected 에 적고 색인에 남긴다 (그 클립에서는 다시 묻지 않는다).
+        잘라 내지 못한 객체는 찾지 못한 것으로 둔다: 같은 프레임에서 찾은 다른 객체의 기준을 버리지 않는다.
+        """
+        verdicts = (
+            read_verdicts(answer, fixed_attributes(request, entity))
+            if self.verify_attributes
+            else None
+        )
+        if verdicts and answer.get("visible") is True:
+            wrong = tuple(name for name, verdict in verdicts.items() if verdict == "no")
+            if wrong:
+                # 이 클립은 요구를 반영하지 못했다. 그 모습을 기준으로 삼으면 다음 장면으로 번진다
+                rejected[entity.entity_key] = wrong
+                self._remember_rejection(request.clip.uri, entity.entity_key, wrong, at_ms)
+                log.warning(
+                    "정체성 기준: 클립 %s 의 %s 은(는) 요구한 고정 속성과 달라 "
+                    "기준으로 쓰지 않습니다: %s",
+                    request.clip.uri,
+                    entity.entity_key,
+                    ", ".join(wrong),
+                )
+                return None
+        box = valid_box(answer, self.min_area)
+        if box is None:
+            return None
+        try:
+            return self._crop(request, entity, video, at_ms, box, answer, frame_size, verdicts)
+        except AdapterError as exc:
+            # 가는 박스에서는 ffmpeg 가 잘라 내지 못한다. 이 객체만 찾지 못한 것으로 둔다
+            log.warning(
+                "정체성 기준: 클립 %s 의 %s 을(를) 잘라 내지 못했습니다 (%s: %s)",
+                request.clip.uri,
+                entity.entity_key,
+                exc.code,
+                exc,
+            )
+            return None
 
     def _locate(
         self,
