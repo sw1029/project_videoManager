@@ -5,6 +5,8 @@
 - 객체 키는 영문 소문자·숫자·밑줄로 맞추고 겉모습 낱말을 걷어낸다. 영문이 아닌 키도 서로 가른다.
 - 어휘에 없는 술어는 버린다. 객체가 아닌 것을 향한 관계는 행동으로 옮긴다.
 - 응답의 큰 모양(목록·객체)을 입구에서 본다.
+- 글 필드는 찍히지 않는 글자를 빼고 길이를 묶는다 (_words). 외부 영상의 말·글자가 모델을 거쳐 테마의 글이 되고,
+  그 글은 화면에 얹히거나 편 기획·생성 질의로 다시 들어간다 (감사 BTS-D63).
 """
 
 from __future__ import annotations
@@ -67,6 +69,18 @@ def _slot_number(raw: Any) -> int | None:
     if match is None:
         return None
     return int(match.group(1) or match.group(2))
+
+
+# 모델 답의 글 필드 상한 (글자)
+MAX_TITLE_CHARS = 120
+MAX_SCREEN_TEXT_CHARS = 200  # 화면 한 줄에 놓이는 글: 문구 틀 · 그 예 · 변수의 예
+MAX_NOTE_CHARS = 600  # 요약 · 설명 · 구실 · 말투 · 메모 · 화면에서 읽은 글
+
+
+def _words(raw: Any, limit: int = MAX_NOTE_CHARS) -> str:
+    """모델이 쓴 글 한 필드: 찍히지 않는 글자는 빼고, 공백을 한 칸으로 줄이고, limit 글자에서 자른다."""
+    printable = "".join(ch if ch.isprintable() else " " for ch in str(raw or ""))
+    return " ".join(printable.split())[:limit].rstrip()
 
 
 def _squash(raw: Any) -> str:
@@ -137,9 +151,7 @@ def _entities(
             if name:
                 key_of.setdefault(name, plain)
         originals[plain] = item
-        entities.append(
-            EntitySpec(plain, kind, " ".join(str(item.get("description") or "").split()))
-        )
+        entities.append(EntitySpec(plain, kind, _words(item.get("description"))))
     return key_of, entities, originals
 
 

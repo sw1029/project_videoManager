@@ -42,6 +42,8 @@ from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 from ._answer_parts import (
     _CAST_KINDS,
     _SLOT_ONLY,
+    MAX_SCREEN_TEXT_CHARS,
+    MAX_TITLE_CHARS,
     _check_shapes,
     _conditions,
     _entities,
@@ -55,6 +57,7 @@ from ._answer_parts import (
     _slot_index,
     _squash,
     _unique,
+    _words,
 )
 
 
@@ -134,8 +137,8 @@ def build_theme(
             if extra.key not in seen:
                 requirements.append(extra)
                 seen.add(extra.key)
-        description = " ".join(str(answer.get("description") or "").split())
-        purpose = " ".join(str(answer.get("purpose") or "").split())
+        description = _words(answer.get("description"))
+        purpose = _words(answer.get("purpose"))
         scenes.append(
             SceneSpec(
                 slot_key,
@@ -184,7 +187,7 @@ def build_theme(
             said = " ".join(
                 s.text.strip() for s in spoken.within(start, end) if spoken_characters(s.text)
             )
-            purpose = " ".join(str(answers.get(index, {}).get("narration_purpose") or "").split())
+            purpose = _words(answers.get(index, {}).get("narration_purpose"))
             if said or purpose:
                 beats.append(NarrationBeat(slot_key, purpose, said))
     music = _mapping(document.get("music"))
@@ -193,10 +196,10 @@ def build_theme(
     theme = Theme(
         theme_id=request.theme_id,
         title=request.title.strip()
-        or str(document.get("title") or "").strip()
+        or _words(document.get("title"), MAX_TITLE_CHARS)
         or request.source.title
         or "테마",
-        summary=" ".join(str(document.get("summary") or "").split()),
+        summary=_words(document.get("summary")),
         source=request.source,
         format=FormatSpec(
             slots=tuple(slots),
@@ -207,23 +210,19 @@ def build_theme(
         style=StyleSpec(
             conditions=tuple(style_conditions),
             palette=tuple(str(c).strip() for c in style.get("palette") or () if str(c).strip())[:6],
-            notes=" ".join(str(style.get("notes") or "").split()),
+            notes=_words(style.get("notes")),
         ),
         text_rules=tuple(rules),
         narration=NarrationSpec(
             present=spoken is not None,
             language=spoken.language if spoken is not None else None,
-            tone=(
-                " ".join(str(document.get("narration_tone") or "").split())
-                if spoken is not None
-                else ""
-            ),
+            tone=_words(document.get("narration_tone")) if spoken is not None else "",
             pace_cps=spoken.pace_cps if spoken is not None else None,
             beats=tuple(beats),
         ),
         music=MusicSpec(
             present=music.get("present") if isinstance(music.get("present"), bool) else None,
-            mood=" ".join(str(music.get("mood") or "").split()),
+            mood=_words(music.get("mood")),
         ),
         variables=tuple(variables),
     )
@@ -258,7 +257,7 @@ def _cast(
                 entity_key=entity.entity_key,
                 kind=entity.kind,
                 description=entity.description,
-                role=" ".join(str(item.get("role") or "").split()),
+                role=_words(item.get("role")),
                 fixed_attributes=tuple(fixed),
             )
         )
@@ -282,8 +281,8 @@ def _variables(raw: Any, notes: list[str]) -> list[ThemeVariable]:
         variables.append(
             ThemeVariable(
                 key,
-                " ".join(str(item.get("description") or "").split()),
-                " ".join(str(item.get("example") or "").split()),
+                _words(item.get("description")),
+                _words(item.get("example"), MAX_SCREEN_TEXT_CHARS),
                 scope,
             )
         )
@@ -299,8 +298,16 @@ def _text_rules(
     for position, item in enumerate(raw if isinstance(raw, list) else [], start=1):
         if not isinstance(item, dict):
             continue
-        template = " ".join(str(item.get("template") or "").split())
+        template = _words(item.get("template"), MAX_SCREEN_TEXT_CHARS + 1)
         if not template:
+            continue
+        if (
+            len(template) > MAX_SCREEN_TEXT_CHARS
+        ):  # 잘라 쓰면 중괄호가 끊길 수 있다. 화면 한 줄에 놓일 글도 아니다
+            name = _plain(item.get("rule_key")) or f"rule_{position}"
+            notes.append(
+                f"문구 규칙 '{name}' 의 틀이 너무 길어 ({MAX_SCREEN_TEXT_CHARS}자 넘음) 뺐습니다"
+            )
             continue
         # 틀의 변수 이름도 변수 키와 같은 규칙으로 맞춘다
         for name in template_variables(template):
@@ -338,7 +345,7 @@ def _text_rules(
                 slot_keys=tuple(slots),
                 region=_region(item.get("box")),
                 style=style,
-                example=" ".join(str(item.get("example") or "").split()),
+                example=_words(item.get("example"), MAX_SCREEN_TEXT_CHARS),
             )
         )
     return rules, variables
@@ -349,7 +356,7 @@ def _screen_texts(raw: Any, spans: Sequence[tuple[int, int]]) -> tuple[ScreenTex
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        text = " ".join(str(item.get("text") or "").split())
+        text = _words(item.get("text"))
         index = _slot_index(item.get("slot"), len(spans))
         if not text or index is None:
             continue
@@ -370,7 +377,7 @@ def _screen_texts(raw: Any, spans: Sequence[tuple[int, int]]) -> tuple[ScreenTex
                 region=_region(item.get("box")),
                 role=role,
                 source=source,
-                style=" ".join(str(item.get("style") or "").split()),
+                style=_words(item.get("style")),
             )
         )
     return tuple(texts)

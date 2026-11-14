@@ -12,6 +12,8 @@
 - audio/             소리 편집 (fake · ffmpeg)
 - overlay/           화면 문구 얹기 · 화면의 글자 읽기 (fake · ffmpeg · vlm)
 - store/             테마·편 저장 (memory · artifact)
+- _prompt_text       (안쪽) 모델 질의에 외부 영상의 글을 넣는 규칙: 자료라고 밝히기 · JSON 문자열로 감싸기 · 길이 상한.
+                     theme_extraction 과 planning 이 같이 쓴다
 
 이 패키지 밖에서 함께 쓰는 것 (머지 뒤 adapters/shared/ 로 옮길 것)
 - adapters/media_tools.py  ffmpeg 실행 · 영상 정보 읽기 · 영역 SSIM

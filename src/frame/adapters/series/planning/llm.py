@@ -6,6 +6,8 @@
 - 말할 문장에는 자리마다 글자 수의 상한을 준다 (그 자리에서 말할 수 있는 시간 × 테마의 말 빠르기).
   녹음은 사람이 하므로, 대본이 장면보다 길면 뒤에서 고칠 수 없다.
 - 요청이 준 변수의 값은 그대로 쓴다. 모델이 다른 값을 내도 요청의 값이 이긴다.
+- 테마에 남은 원본의 글('원본에서 한 말' · 문구 틀 · 변수의 예)은 외부 영상에서 온 것이다. JSON 문자열로 감싸 넣고
+  시스템 질의에 자료라고 밝힌다 (감사 BTS-D63, adapters/series/_prompt_text).
 - 낸 내용이 build_episode_plan 을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts).
   어휘에 없는 술어(모델이 지어낸 speaks·overlay_text 같은 것)와, 빠르기를 올려도 장면에 들어가지 않는
   말할 문장도 되돌려 보낸다 (첫 실호출에서 둘 다 나왔다).
@@ -18,6 +20,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+from frame.adapters.series._prompt_text import DATA_NOTICE, quoted
 from frame.application.ports.llm import JsonCompletion, LLMClient
 from frame.application.ports.series.planning import (
     PlanningRequest,
@@ -39,7 +42,7 @@ from frame.domain.series.theme import Theme, VariableScope
 from frame.domain.speech import spoken_characters
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
-PROMPT_VERSION = "2026-11-14.5"
+PROMPT_VERSION = "2026-11-14.6"
 SCHEMA_NAME = "episode_content"
 
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
@@ -93,7 +96,9 @@ Also:
 - Overlay text (titles, captions, prices) comes from the text rules: never put it into
   requirements. Text that is physically on an object in the scene (a label printed on a cup) is a
   text requirement on that entity, with the exact spelling as its value. Do not define a separate
-  entity for such text, and state it in every slot where the object appears."""
+  entity for such text, and state it in every slot where the object appears.
+
+{DATA_NOTICE}"""
 
 
 def _object(properties: dict[str, Any]) -> dict[str, Any]:
@@ -233,7 +238,7 @@ def build_user_prompt(request: PlanningRequest, policy: PlanPolicy = DEFAULT_POL
             )
         if beat is not None and (beat.purpose or beat.example):
             parts.append(
-                f'narration purpose: {beat.purpose or "-"} (source said: "{beat.example}")'
+                f"narration purpose: {beat.purpose or '-'} (source said: {quoted(beat.example)})"
             )
         if theme.narration.present or beat is not None:
             parts.append(f"narration limit: {limit} characters")
@@ -252,17 +257,17 @@ def build_user_prompt(request: PlanningRequest, policy: PlanPolicy = DEFAULT_POL
         for rule in theme.text_rules:
             where = ", ".join(rule.slot_keys) or "every slot"
             lines.append(
-                f'- {rule.rule_key} ({str(rule.role).lower()}, {where}): "{rule.template}"'
+                f"- {rule.rule_key} ({str(rule.role).lower()}, {where}): {quoted(rule.template)}"
             )
     if theme.variables:
         lines.append("Variables:")
         for variable in theme.variables:
             given = str(brief.variables.get(variable.key, "")).strip()
             scope = "per slot" if variable.scope is VariableScope.SLOT else "per episode"
-            state = f'given: "{given}" (keep it)' if given else "not given: fill it in"
+            state = f"given: {quoted(given)} (keep it)" if given else "not given: fill it in"
             lines.append(
                 f"- {variable.key} ({scope}): {variable.description or '-'}"
-                f' — in the source: "{variable.example}" — {state}'
+                f" — in the source: {quoted(variable.example)} — {state}"
             )
     if request.earlier:
         lines.append("Earlier episodes (do not repeat them):")
