@@ -102,6 +102,10 @@
   Docker 이미지에서 되게 하는 일(§12.3 결정 12)은 사용자가 "넣기 (점검 포함)" 으로 정해 `4cde5e6` 로 했다 — 이미지에 배포판의 ffmpeg 와 나눔 글꼴을 넣고,
   CI 의 docker 잡이 이미지 안에서 전체 테스트를 돌린다 (ADR-0034, §12.2 '머지 뒤 묶음 4'). 로컬 검사: 테스트 **2633 통과 · 4 건너뜀 · 4 제외**.
   이미지는 이 기기에서 만들어 보지 못했다 (Docker 데몬이 꺼져 있다). 빌드와 이미지 안 점검은 CI 의 다음 실행이 처음이다.
+- 그 위의 구조 묶음은 **P-15 남은 것 · P-20 의 '한 벌로 묶을 것'** 이다 (2026-11-15, §12.2 '머지 뒤 묶음 5') — 같은 것이 두 벌이던 다섯 가지를 하나로 했다:
+  키 · 문서 id 의 규칙과 예상 밖 오류의 코드 (다시 적지 못하게 하는 구조 규칙과 함께), 키별 잠금, 커밋되는 글의 경로 가리기, 영상 · 소리 읽기와 그 오류.
+  잠금을 하나로 한 김에 같은 유료 요청이 겹칠 때 둘 다 과금하던 세 곳(음성 인식 · 화면 글자 읽기 · 테마 추출)을 막았다.
+  로컬 검사: 테스트 **2687 통과 · 4 건너뜀 · 4 제외**.
 
 ## 2. 기준선 (감사 시점의 측정값)
 
@@ -1208,13 +1212,13 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | P-12 | **기준선과 작은 것들은 끝났다 (2026-11-15, `02163e1`): 포맷 예외 두 줄 · mypy 기준선 · `__all__` · 쓰이지 않는 전이의 주석. 오류 클래스 위치(C-09)는 하지 않기로 했다. 남은 것은 `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로 (P-09 와 함께).** `presentation/app.py`·`schemas.py` 포맷 — **해결됨, #10 브랜치 (`8474d19`). 병합 뒤 `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 줄을 지운다.** 남은 것: `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
 | P-13 | Repository·UnitOfWork 계약 테스트 (commit·rollback·예외 종류), `save` 의 계약 | #10·#11·#12 | T-05, A-12 |
 | P-14 | OpenAPI 계약 서명 강화, 오류 응답 명세. **CORS `DELETE` (`cc54b9c`)와 저장소 URI 직접 지정 막기 (`dc2a6dd`)는 #10 브랜치가 해결했다 (델타 감사로 확인 2026-11-14).** 저장소 스킴이 아닌 참조 주소의 허용 목록은 그 세션에 전했다 (`B10-D05`) | #10·#11·#12 | T-09, D-05, A-04, A-19 |
-| P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 로 — **옮겼다 (병합 뒤 `a5d7956`). ffmpeg 실행기와 출력 꼬리는 공용 것으로 바꿨다 (`e7f5bde`).** 남은 것: 영상 정보 읽기(`probe_media` 와 `probe_video`)와 오류 종류(`MediaToolError` 와 `VideoToolError`)를 한 벌로, 영역 유사도(`region_ssim`)를 `similarity` 옆으로. **테마 도메인의 하위 패키지는 그 세션이 했다 (`538673f` · `0901fd3` · `8ff4c4e` · `a05f248`, 2026-11-14)** | theme-series | R-03, L-03, K-03 |
+| P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 로 — **옮겼다 (병합 뒤 `a5d7956`). ffmpeg 실행기와 출력 꼬리는 공용 것으로 바꿨다 (`e7f5bde`).** **남은 것도 끝났다 (2026-11-15, `9118fe0` — 표 아래 '머지 뒤 묶음 5'):** 영상 정보 읽기(`probe_media` 와 `probe_video`)를 `probe` 한 곳에서 같은 식으로, 오류 종류는 `VideoToolError` 하나로, 영역 유사도(`region_ssim`)를 `similarity` 로. **테마 도메인의 하위 패키지는 그 세션이 했다 (`538673f` · `0901fd3` · `8ff4c4e` · `a05f248`, 2026-11-14)** | theme-series | R-03, L-03, K-03 |
 | P-16 | 구조화 프롬프트·보정 규칙을 바꾸는 수정 (프롬프트의 참조 이미지 URI, 빈 문자열 키 보정). 골드셋 리플레이로 점수 변화를 보고 프롬프트 버전을 올린다 | #17 | A-26(b), A-29 |
 
 | P-17 | **끝났다 (2026-11-15, `4b37e3f` · `6382422` · `764d57d`). 내용은 표 아래 '머지 뒤 묶음 2'.** 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). **dev 에서 들어온 코드의 옛 경로 import 11곳은 병합 뒤 고쳤다 (`a8bfa28`).** 남은 것: 기준선의 세 모듈(`config/container.py` · `application/dto.py` · `presentation/routers/versions.py`), 테스트 파일 10개의 옛 경로 import, 호환 모듈 지우기. 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
 | P-18 | 운영: 기동 복구를 요청 처리 뒤로 옮기기·서버 종료 때 디스패처 `shutdown()` (`presentation/app.py`), `pymysql[rsa]` 를 `pyproject.toml` 로 | #10·#11·#12 | O-05, A-07, O-03 |
 | P-19 | **끝났다 (2026-11-15, `bd14caa` · `79d1cee` · `46109dc` · `5dc909d` · `25bc93a`, ADR-0032).** 사용자 기준 '절대 경로·로직 하드 코딩 지양' (2026-11-14): 절대 경로와 이름 없는 값 고치기, CI 게이트 셋, ADR 에 '설정값은 출처 하나'. 내용은 표 아래 | 모든 작업 중 브랜치 (사용자 결정) | 기준 추가 |
-| P-20 | 델타 감사(2026-11-14)에서 나온 머지 뒤 항목: 병합한 트리에서 확인할 것, 한 벌로 묶을 것, 이 브랜치의 파일에서 고칠 것, 문서와 설정. 내용은 표 아래 | 모든 작업 중 브랜치 | 델타 감사 |
+| P-20 | 델타 감사(2026-11-14)에서 나온 머지 뒤 항목: 병합한 트리에서 확인할 것, 한 벌로 묶을 것, 이 브랜치의 파일에서 고칠 것, 문서와 설정. 내용은 표 아래. **'한 벌로 묶을 것' 은 끝났다 (2026-11-15, '머지 뒤 묶음 5').** 남은 것은 병합한 트리에서 확인할 것과 이 브랜치의 파일에서 고칠 것 | 모든 작업 중 브랜치 | 델타 감사 |
 
 옛 경로에서 다시 내보내는 호환 import 는 모든 작업 중 브랜치가 dev 에 들어간 뒤 한 번에 걷어낸다 (그때 `git grep` 으로 쓰는 곳이 없는지 확인. P-17).
 
@@ -1461,6 +1465,42 @@ mypy 한 건뿐이었고 (기능 테스트 2577개 통과), 바로 뒤의 커밋
   - 나눔 글꼴로 그린 결과가 문구 합성 계약 테스트의 기준(영역 · 유사도)을 넘는지는 이미지 안 테스트가 처음 본다.
   - 이 점검을 머지를 막는 검사로 할지는 첫 실행을 본 뒤에 정한다 (사용자).
 
+#### 머지 뒤 묶음 5 — 두 벌이던 것을 한 벌로 (P-15 남은 것 · P-20 '한 벌로 묶을 것', 2026-11-15)
+
+묶음 4(`1189b1c`) 위의 여섯 커밋과 이 문서 커밋이다. 커밋마다 `python scripts/check.py` 가 통과한다. 테스트를 먼저 썼다.
+
+| 커밋 | 한 일 |
+|---|---|
+| `57239c2` | **키 규칙 · 문서 id 규칙 · 예상 밖 오류의 코드를 한 곳에**: 테마의 `KEY_FORMAT`(IR 의 `KEY_PATTERN` 을 베낀 사본)을 없애고 `KEY_PATTERN` 을 쓴다. 테마의 `_THEME_ID` 와 저장소의 `_SAFE_ID`(같은 식을 손으로 맞춘 것)를 `domain/series/ids.py` 의 `DOCUMENT_ID_PATTERN` 하나로. 네 곳에 글자로 적혀 있던 `"UNEXPECTED_ERROR"` 를 `application/errors.py` 의 이름 하나로. 구조 규칙 `tests/architecture/test_single_source_values.py` — 표의 값은 그 값의 집에만 글자로 적는다 |
+| `2cf9f8a` | **키별 잠금의 구현을 하나로**: `adapters/shared/locking.py` 의 `KeyedLocks` 에 `reentrant=True` 를 더해 `adapters/series/store/_key_locks.py` 를 대신한다. 편 저장소의 잠금도 쓰는 쪽이 없어지면 지워진다 |
+| `a55bcc1` | **같은 소리 · 같은 화면의 요청이 겹치면 한 번만 과금** (BTS-12 의 남은 것): `CachingSpeechRecognizer` · `CachingScreenTextReader` 가 캐시 키를 쥔 채로 '남긴 결과 읽기 → 안쪽 호출 → 남기기' 를 한다. 뒤에 온 쪽은 앞선 쪽이 남긴 결과를 쓰고, 앞선 쪽이 실패했으면 스스로 묻는다 |
+| `575e76b` | **같은 영상의 테마 추출이 겹치면 한 번만 뽑는다** (BTS-12 의 남은 것): `ThemeRepository` 포트에 `lock(key)`. `ExtractTheme` 이 원본 영상의 키(`source_lock_key`)를 쥔 채로 '이미 뽑은 테마 찾기 → 추출 → 저장' 을 한다 |
+| `990aa1e` | **커밋되는 글의 경로 가리기를 한 벌로**: 지표 1 평가의 `_mask` 와 구조화 골드셋의 `public_message` 를 `evaluation/_public.py` 하나로. 규칙은 둘의 합이다 (서로 놓치던 것: 빈칸 든 경로 · 따옴표 안의 경로 / 홈 · 임시 폴더가 아닌 절대 경로 · 주소의 질의) |
+| `9118fe0` | **영상 · 소리 읽기를 한 벌로 (P-15)**: `MediaToolError` 를 없애고 `VideoToolError` 하나로, 실행 감싸개는 `run_reading` 하나로 (작업 폴더를 받는다). `probe_media` 를 `probe.py` 로 옮겨 `probe_video` 와 같은 식으로 읽는다. `region_ssim` 을 `similarity.py` 로. `media_tools.py` 의 나머지는 `detection.py` |
+
+- 로컬 검사: 테스트 **2687 통과 · 4 건너뜀 · 4 제외**, 커버리지 94.33 · 96.66 · 97.84 (하한 89 · 95 · 97).
+- P-20 의 목록에 있던 것 가운데 이미 되어 있던 것: 테마 문서의 잠금(`BTS-D03` · `D38`)과 검수 보고 메모의 오류 원문(`BTS-D34`)은 theme-series 의 후속 PR(#37)이 고쳤고,
+  `_checked_base_url` 은 묶음 2 의 `4b5f48b` 가 `adapters/shared/http` 로 옮겼다. 확인만 했다.
+- 목록에 없던 것 하나: 테마 · 편 문서의 id 규칙이 도메인과 저장소에 따로 적혀 있었다 (키 규칙을 볼 때 찾았다). `57239c2` 에 넣었다.
+- 바뀐 동작
+  - 같은 소리 · 같은 화면 · 같은 영상의 **겹친 유료 요청이 차례로 처리된다**: 뒤에 온 쪽이 앞선 호출이 끝나기를 기다렸다가 그 결과를 쓴다 (전에는 둘 다 과금했다).
+    다른 입력은 기다리지 않는다. 한 프로세스 안에서만 지킨다. `force=True` 인 추출도 같은 영상끼리는 차례로 돈다.
+  - 지표 1 의 결과 파일과 구조화 골드셋의 기록에 남는 글: 가리는 범위가 두 규칙의 합으로 넓어졌다 (홈 · 임시 폴더가 아닌 절대 경로, 빈칸 든 경로,
+    주소의 계정 · 질의 · 조각). 뿌리에서 시작하는 API 경로도 경로로 보고 가린다. 이미 커밋된 파일은 바뀌지 않는다.
+  - 읽는 도구의 오류 코드 `MEDIA_TOOL_ERROR` 가 없어졌다 (시리즈 어댑터가 늘 자기 포트의 오류로 바꿔 밖에 나간 적은 없다).
+    영역 유사도가 실패했을 때의 문구가 "두 영상을 비교하지 못했습니다" 로 같아졌다.
+  - `ThemeRepository` 를 직접 구현하는 코드는 `lock` 을 구현해야 한다 (저장소의 두 구현과 테스트의 것은 고쳤다).
+  - 없어진 이름: `frame.domain.series.theme.KEY_FORMAT`, `frame.evaluation.edits.LOCAL_PATH_MASK`, `adapters/checker/_guard.UNEXPECTED`,
+    모듈 `adapters/series/store/_key_locks` · `evaluation/structuring/_public` · `adapters/shared/media/media_tools`. 옮긴 경로 표가 지킨다.
+- 내가 정한 것
+  - `probe_video` 와 `probe_media` 는 하나로 합치지 않고 한 모듈에서 같은 식을 쓰게 했다. 묻는 것이 다르다 (만든 영상의 검사 / 받은 파일의 겉모습).
+    `VideoProbe` 의 모양은 생성 기록의 `detail` 에 남는 키라 그대로 뒀다.
+  - 남긴 오류 이름은 `VideoToolError` 다 (소리에도 쓰여 이름이 좁지만, 그 코드 `VIDEO_TOOL_ERROR` 가 검수 사유와 버전의 오류 코드로 밖에 나가 있다).
+  - 같은 영상의 추출을 막는 잠금은 테마 저장소 포트에 뒀다 (`lock`). 편 저장소의 잠금과 이름공간이 다르다 — 포트의 계약에 구분을 적었다.
+  - 경로 가리기는 덜 가리는 쪽보다 더 가리는 쪽을 골랐다 (뿌리에서 시작하는 글은 API 경로여도 가린다).
+- 남긴 것: 어댑터의 ffmpeg 출력에서 임시 폴더를 `<tmp>` 로 바꾸는 일(`adapters/shared/media/ffmpeg.py`)은 평가의 경로 가리기와 계층이 달라 그대로 뒀다
+  (어댑터는 평가 패키지를 import 하지 못한다. 하는 일도 다르다 — 임시 폴더 이름만 바꾼다).
+
 #### P-20 — 델타 감사에서 나온 머지 뒤 항목 (2026-11-14)
 
 체크리스트(위)가 게이트를 통과시키는 일이라면, 이것은 병합한 뒤에 이 세션이 이어서 볼 것이다.
@@ -1474,7 +1514,7 @@ mypy 한 건뿐이었고 (기능 테스트 2577개 통과), 바로 뒤의 커밋
 - 대소문자만 다른 키(`B10-D02`)와 이 브랜치의 저장 키 검사 — 로컬 저장소에서 두 키가 한 파일이 되는 것을 저장소가 막을지.
 - #10 의 규칙이 생기기 전에 저장된 행(`B10-D06`)을 이 브랜치의 저장 키 검사가 막는지 (옛 행으로 한 번 재현).
 
-한 벌로 묶을 것
+한 벌로 묶을 것 — **끝났다 (2026-11-15, 위 '머지 뒤 묶음 5'). 아래는 머지 전에 적은 것이다**
 
 - 키 규칙: #10 의 `KEY_PATTERN` 과 theme-series 의 `KEY_FORMAT` (`domain/series/theme/theme.py`)이 같은 식의 사본이다.
 - 잠금: `adapters/shared/locking.py` 의 `KeyedLocks` 와 theme-series 의 `adapters/series/store/_key_locks.py`. 그때 같은 영상의 동시 추출,
