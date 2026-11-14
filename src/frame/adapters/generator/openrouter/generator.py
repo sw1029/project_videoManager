@@ -100,8 +100,8 @@ from frame.domain.hashing import canonical_hash
 from frame.domain.ir import SceneSpec
 
 from ..abandonment import stop_if_abandoned
-from ..cache import generation_key
-from ..ledger import (
+from ..normalizer import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer
+from ..records import (
     COMPLETED,
     FAILED,
     RELEASED,
@@ -109,8 +109,8 @@ from ..ledger import (
     JobLedger,
     JobRecord,
     build_job_ledger,
+    generation_key,
 )
-from ..normalizer import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer
 from ._api_key import KEY_TOKEN, fits_in_a_header, mask_key
 from ._model_catalog import VideoModelInfo
 from ._output_size import output_size

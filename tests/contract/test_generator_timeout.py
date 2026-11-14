@@ -15,7 +15,7 @@ from frame.adapters.generator import (
     RetryingVideoGenerator,
     TimeoutVideoGenerator,
 )
-from frame.adapters.generator.decorators import pause_before_retry
+from frame.adapters.generator.resilience import pause_before_retry
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError, GenerationTimeout
 from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
@@ -197,7 +197,7 @@ def test_late_result_is_discarded_and_logged(store, release, ir, caplog):
     with pytest.raises(GenerationTimeout):
         generator.generate_scene(_request(ir))
 
-    with caplog.at_level(logging.WARNING, logger="frame.adapters.generator.decorators"):
+    with caplog.at_level(logging.WARNING, logger="frame.adapters.generator.resilience"):
         release.set()
         assert generator.wait_abandoned(WAIT)
 

@@ -16,7 +16,7 @@ from frame.adapters.generator import (
     FakeVideoGenerator,
     RetryingVideoGenerator,
 )
-from frame.adapters.generator.cache import (
+from frame.adapters.generator.records import (
     ArtifactClipCache,
     InMemoryClipCache,
     build_clip_cache,

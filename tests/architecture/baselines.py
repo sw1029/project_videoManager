@@ -8,12 +8,8 @@
 
 from __future__ import annotations
 
-# 설명(docstring)이 없는 패키지 — K-03. 패키지를 옮기거나 고칠 때 채운다
-PACKAGES_WITHOUT_DOCSTRING = frozenset(
-    {
-        "frame.adapters.structurer",  # #10 이 이 파일을 고친다. 머지 뒤에 채운다
-    }
-)
+# 설명(docstring)이 없는 패키지 — K-03. 모두 채웠다
+PACKAGES_WITHOUT_DOCSTRING: frozenset[str] = frozenset()
 
 # 밖에서 쓰는 이름(__all__)을 적지 않은 패키지 — K-03. 모두 채웠다
 PACKAGES_WITHOUT_ALL: frozenset[str] = frozenset()

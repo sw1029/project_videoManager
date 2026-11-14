@@ -15,7 +15,7 @@ from frame.adapters.generator import (
     RetryingVideoGenerator,
     TimeoutVideoGenerator,
 )
-from frame.adapters.generator.cache import ArtifactClipCache
+from frame.adapters.generator.records import ArtifactClipCache
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError
 from frame.application.ports.generator import (

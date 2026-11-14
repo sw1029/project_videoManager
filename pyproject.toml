@@ -80,9 +80,9 @@ max-complexity = 19  # 켤 때의 최댓값 (identity/vlm_crop.py 의 extract). 
 "src/frame/tools/**" = ["T20"]
 "scripts/**" = ["T20", "INP001"]
 # 기준선 (감사 C-04): 실행 중 불변식을 assert 로 확인하는 기존 파일. 목록에 더하지 않고 줄여 간다
-"src/frame/adapters/generator/cache.py" = ["S101"]
-"src/frame/adapters/generator/decorators.py" = ["S101"]
-"src/frame/adapters/generator/ledger.py" = ["S101"]
+"src/frame/adapters/generator/records/_clip_cache.py" = ["S101"]
+"src/frame/adapters/generator/records/_job_ledger.py" = ["S101"]
+"src/frame/adapters/generator/resilience.py" = ["S101"]
 "src/frame/adapters/generator/openrouter/generator.py" = ["S101"]
 "src/frame/adapters/llm/openai_client.py" = ["S101"]
 "src/frame/domain/comparison.py" = ["S101"]

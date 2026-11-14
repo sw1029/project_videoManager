@@ -42,6 +42,11 @@ MOVED = {
     "frame.evaluation.evaluate_cases": "frame.evaluation.edits.evaluate_cases",
     # 테마·시리즈의 어댑터 고르기는 다른 포트와 같은 등록부로 갔다 (M-02 의 연속)
     "frame.config.theme_adapters": "frame.config.registrations.series 와 frame.config.registrations.speech",
+    # 생성기 패키지의 모듈 이름을 개념 이름으로 (K-04 · K-05)
+    "frame.adapters.generator.decorators": "frame.adapters.generator.resilience",
+    "frame.adapters.generator.cache": "frame.adapters.generator.records",
+    "frame.adapters.generator.ledger": "frame.adapters.generator.records",
+    "frame.adapters.generator.stubs": "frame.adapters.generator.diffusers_stub",
     # 수정 의도와 그 규칙 (M-07)
     "frame.domain.services.propagation": "frame.domain.revision",
     "frame.domain.services.revision_planning": "frame.domain.revision.resolution",

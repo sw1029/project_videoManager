@@ -11,8 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from frame.adapters.generator.cache import ClipCache, build_clip_cache
-from frame.adapters.generator.decorators import (
+from frame.adapters.generator.records import ClipCache, build_clip_cache
+from frame.adapters.generator.resilience import (
     CachingVideoGenerator,
     RetryingVideoGenerator,
     TimeoutVideoGenerator,

@@ -103,7 +103,7 @@
 | 조건 해시 `SceneGenerationRequest.fingerprint` | `application/ports/generator.py` | 장면 조건 + 객체 정의 + 사용자 참조 이미지 + seed. `version_id` 는 뺀다 | 클립의 `fingerprint` 로 남는다 (어느 조건으로 만든 클립인가) |
 | 생성 해시 `generation_fingerprint` | 같은 모듈 | 조건 해시 + 정체성 기준 이미지 + 유지할 요소 + (REPAIR 일 때) 고치려는 요구조건 | 결과 키의 기본값 |
 | 결과 키 `VideoGenerator.result_key(request)` | 같은 모듈, 편집하는 생성기가 재정의 | 생성 해시 + (부모 클립을 편집해 만들 때) 부모 클립 | **생성 캐시 · 작업 원장** 의 요청 쪽 키 |
-| 캐시·원장 키 `generation_key(result_key, profile)` | `adapters/generator/cache.py` | 결과 키 + 프로필 | 생성 캐시와 작업 원장이 실제로 찾는 키 |
+| 캐시·원장 키 `generation_key(result_key, profile)` | `adapters/generator/records/` | 결과 키 + 프로필 | 생성 캐시와 작업 원장이 실제로 찾는 키 |
 
 - 더할 것이 없으면 아래 값은 위 값과 같다 (기준 이미지도 수정 지시도 없는 요청의 생성 해시는 조건 해시다). 그래서 예전 키와 호환된다.
 - 결과를 바꾸는 값을 새로 들일 때는 이 표에서 어느 줄에 들어가야 하는지 먼저 정한다. 빠뜨리면 다른 요청이 같은 키가 되어 앞선 결과를 받는다

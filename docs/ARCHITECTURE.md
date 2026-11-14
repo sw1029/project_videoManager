@@ -320,7 +320,7 @@ FRAME/
 | Template Method | `pipeline/stage.py` | 단계 공통 절차(관찰자 통지·시간 측정)와 본문 분리 |
 | Chain(순차 파이프라인) + Observer | `pipeline/runner.py`, `PipelineObserver` | 단계 순서·중단 규칙 고정, 진행 상황 관찰(로그·진행률) |
 | Composite | `application/checks.py` `CheckSuite` | 검수기 N 개를 하나처럼 실행 |
-| Decorator | `adapters/generator/decorators.py` | 재시도·결과 캐시를 어떤 생성기에도 덧씌움 (리스크 1 대응) |
+| Decorator | `adapters/generator/resilience.py` | 재시도·결과 캐시를 어떤 생성기에도 덧씌움 (리스크 1 대응) |
 | Command + Dispatcher | `ports/jobs.py`, `adapters/jobs/*` | 비동기 작업 추상화: 테스트는 Recording, 데모는 Inline/Thread, 운영은 Celery |
 | State (명시적 전이표) | `domain/state_machine.py`, `VideoVersion.transition_to` | 무결성 규칙 1, 불법 전이 차단 |
 | Prototype (복제 후 변경) | `CreateRevision` + 전파 정책 | 원본 버전 보존 |
@@ -410,7 +410,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T4 요구조건 블록 조회·수정 화면 | (프론트) ← `GET /versions`, `POST /revisions` | API 제공 |
 | T5 반영 결과 저장·조회 형식 | `domain/checks.py`, `domain/metrics.py`, `GET /checks` | 제공 |
 | T6 구조화·조건 반영 AC 테스트 | `tests/acceptance/test_us06_structuring.py` | 제공 (Fake 기준, 실제 모델로 재실행 가능) |
-| T7 선택 재생성 도구 Spike | `adapters/generator/stubs.py` (`compile_prompt`) | 뼈대 |
+| T7 선택 재생성 도구 Spike | `adapters/generator/diffusers_stub.py` (`compile_prompt`) | 뼈대 |
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
 | T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |

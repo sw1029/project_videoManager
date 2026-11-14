@@ -13,12 +13,12 @@ from dataclasses import replace
 import pytest
 
 from frame.adapters.generator import RetryingVideoGenerator
-from frame.adapters.generator.cache import generation_key
-from frame.adapters.generator.ledger import (
+from frame.adapters.generator.records import (
     ArtifactJobLedger,
     InMemoryJobLedger,
     JobRecord,
     build_job_ledger,
+    generation_key,
 )
 from frame.adapters.shared.http import HttpResponse, TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore

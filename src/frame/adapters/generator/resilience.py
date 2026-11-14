@@ -1,5 +1,6 @@
-"""Decorator 패턴: 어떤 VideoGenerator 에도 결과 캐시·재시도·시간 제한을 덧씌운다 (리스크 1: 긴 생성 시간 대응).
+"""생성기의 복원력 (Decorator 패턴): 어떤 VideoGenerator 에도 결과 캐시 · 재시도 · 시간 제한을 덧씌운다.
 
+긴 생성 시간(리스크 1)에 대한 대응이다.
 DelegatingVideoGenerator 가 바탕이다. 새 데코레이터는 이것을 상속하고 바꾸려는 동작만 재정의한다.
 """
 
@@ -22,7 +23,7 @@ from frame.application.ports.generator import (
 )
 
 from .abandonment import enter_worker, pause_unless_abandoned
-from .cache import ClipCache, InMemoryClipCache
+from .records import ClipCache, InMemoryClipCache
 
 log = logging.getLogger(__name__)
 

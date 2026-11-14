@@ -19,7 +19,7 @@
 | 생성 (장면 클립 만들기) | `artifacts.py` `GeneratedClip` | `ports/generator.py` `VideoGenerator` · `pipeline/stages.py` `GenerateStage`, `pipeline/requests.py` | `adapters/generator/` |
 | 최종 영상 조립 | `artifacts.py` `VideoArtifact` | `ports/assembler.py` `VideoAssembler` | `adapters/assembler/` `FfmpegVideoAssembler` |
 | 부모 클립 편집 | — | `ports/generator.py` `ParentClip`·`RevisionDirective` | `adapters/generator/openrouter/` (흐름 `generator.py`, 편집 지시문 `_prompts.py`) |
-| 재사용 판단 (해시·키) | `ir.py` 의 fingerprint, `hashing.py` | `ports/generator.py` `generation_fingerprint`·`result_key` | `adapters/generator/cache.py`, `ledger.py` |
+| 재사용 판단 (해시·키) | `ir.py` 의 fingerprint, `hashing.py` | `ports/generator.py` `generation_fingerprint`·`result_key` | `adapters/generator/records/` (생성 캐시 · 작업 원장) |
 | 정체성 기준 이미지 | `identity.py`, `models.py` `ReferenceImage` | `ports/identity.py` `IdentityReferenceExtractor` · `pipeline/identity_anchoring.py` `IdentityAnchoring` | `adapters/identity/` |
 | 검수 (요구 반영 · 유지 요소 · 일관성 · 보존) | `checks.py` `CheckResult`, `metrics.py`, 버전 비교 `comparison.py` | `ports/checker.py` `Checker`, `checks.py` `CheckSuite` · `pipeline/stages.py` `CheckStage` | `adapters/checker/` |
 | 수정 의도 · 변경 계획 | `revision/` — 수정 의도 `intent.py` `RevisionIntent`, 속성 변경 `changes.py`, 전파 `propagation.py`, 수정 요청 풀기 `resolution.py` | `ports/change_request.py` · `use_cases/create_revision.py`, `plan_revision.py` | `adapters/change_request/` |
@@ -63,7 +63,8 @@
 | `src/frame/adapters/shared/media/` | 영상 처리 도구 (ffmpeg)와 가짜 미디어 형식 | `ffmpeg` (`resolve_ffmpeg`, `require_ffmpeg`, `run_ffmpeg`, `run_reading`, `tail`, `FfmpegNotRun`, `VideoToolError`), `frames` (`FrameSampler`, `midpoints`, `extract_frame`, `Box`, `Image`), `probe` (`video_size`, `probe_video`, `VideoProbe`, 프레임 세기 `read_video_packets`), `similarity` (`ssim`), `media_tools` (`probe_media`, `detect_cuts`, `detect_silences`, `region_ssim`, `MediaToolError` — 시리즈·음성 어댑터가 쓴다. 영상 정보 읽기와 오류 종류를 위의 것과 한 벌로 묶는 일이 남았다), `fake_media` (`fake_video`, `fake_recording`, `decode_fake_media`) |
 | `src/frame/adapters/shared/vlm/` | 이미지를 읽는 모델(VLM)에 묻고 답 읽기 | `ask` (`ask_json`), `answers` (`match_answers`, `requested_key`), `wording` (`predicate_words`, `described`) |
 | `src/frame/adapters/structurer/` | 구조화 | `RuleBasedStructurer`, `LLMStructurer`, `FakeStructurer` |
-| `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `DelegatingVideoGenerator` (데코레이터의 바탕), `normalizer` 의 `FfmpegVideoNormalizer` |
+| `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `DelegatingVideoGenerator` (복원력 데코레이터의 바탕 — 모듈 `resilience`), `normalizer` 의 `FfmpegVideoNormalizer` |
+| `src/frame/adapters/generator/records/` | 한 번만 과금하기 위한 기록 — 생성 캐시와 작업 원장 (ADR-0013) | `generation_key`, `ClipCache`·`ArtifactClipCache`·`InMemoryClipCache`·`build_clip_cache`, `JobLedger`·`JobRecord`·`ArtifactJobLedger`·`InMemoryJobLedger`·`build_job_ledger`, 원장 항목의 상태 |
 | `src/frame/adapters/generator/openrouter/` | 제공자 OpenRouter 의 생성기: 제출 · 대기 · 원장으로 이어 받기 · 부모 클립 편집 · 미리보기 | `OpenRouterVideoGenerator`, `resolve_openrouter_key`, `output_size`, `compile_video_prompt`·`compile_edit_prompt`, `VideoModelInfo` |
 | `src/frame/adapters/assembler/` | 최종 영상 조립 — 장면 클립을 이어 영상 하나로 | `FfmpegVideoAssembler`, `FakeVideoAssembler` |
 | `src/frame/adapters/identity/` | 정체성 기준 이미지 뽑기 | `VlmCropIdentityExtractor`, `FrameIdentityExtractor`, `FakeIdentityExtractor` |
