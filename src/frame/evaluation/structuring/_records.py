@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from frame.application.errors import AdapterError
+from frame.application.errors import UNEXPECTED_ERROR, AdapterError
 from frame.application.ports.llm import JsonCompletion
 from frame.application.ports.structurer import RequirementStructurer
 from frame.domain.errors import DomainError
@@ -96,7 +96,7 @@ def run_gold_set(
             score = failed_case(case.case_id, case.spec, _describe(exc))
         except Exception as exc:  # noqa: BLE001
             log.exception("골드 사례 %s 를 구조화하다 예상 밖 오류가 났다", case.case_id)
-            score = failed_case(case.case_id, case.spec, _unexpected("UNEXPECTED_ERROR", exc))
+            score = failed_case(case.case_id, case.spec, _unexpected(UNEXPECTED_ERROR, exc))
         else:
             notes = tuple(details.last_repair_notes) if details else ()
             try:

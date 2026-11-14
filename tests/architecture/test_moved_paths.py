@@ -54,6 +54,8 @@ MOVED = {
     "frame.domain.services.identity": "frame.domain.identity",
     "frame.domain.services.comparison": "frame.domain.comparison",
     "frame.domain.services": "frame.domain.identity 와 frame.domain.comparison",
+    # 테마의 키 규칙은 IR 의 것을 베낀 사본이었다 (P-20). 규칙은 한 곳에 있다
+    "frame.domain.series.theme.KEY_FORMAT": "frame.domain.ir.KEY_PATTERN",
 }
 
 # src 밖에서 frame 을 import 하는 곳

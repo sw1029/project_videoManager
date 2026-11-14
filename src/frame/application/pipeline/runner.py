@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from frame.domain.errors import DomainError
 
-from ..errors import AdapterError
+from ..errors import UNEXPECTED_ERROR, AdapterError
 from .context import PipelineContext
 from .stage import PipelineObserver, PipelineStage
 
@@ -44,6 +44,6 @@ class PipelineRunner:
                 raise PipelineFailure(stage.name, exc.code, exc.message) from exc
             except Exception as exc:  # noqa: BLE001 - 알 수 없는 오류도 FAILED 로 기록해야 한다
                 raise PipelineFailure(
-                    stage.name, "UNEXPECTED_ERROR", f"{type(exc).__name__}: {exc}"
+                    stage.name, UNEXPECTED_ERROR, f"{type(exc).__name__}: {exc}"
                 ) from exc
         return ctx

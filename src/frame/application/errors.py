@@ -1,5 +1,10 @@
 """어댑터(외부 모델·저장소) 오류. code 는 VIDEO_VERSION.error_code 로 기록된다."""
 
+# 예상하지 못한 예외의 코드: 도메인 오류(DomainError)도 어댑터 오류(AdapterError)도 아닌 예외를 기록할 때 쓴다.
+# 생성 파이프라인의 실패 기록, 평가 도구의 케이스 결과, 검수 단위의 미판정 사유가 이 이름을 쓴다 -
+# 기록을 읽는 쪽이 한 글자로 찾는다 (쓰는 곳마다 다시 적지 않는다)
+UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
+
 
 class AdapterError(Exception):
     code: str = "ADAPTER_ERROR"

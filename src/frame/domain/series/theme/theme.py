@@ -6,14 +6,14 @@ IR 이 영상 한 편의 조건이라면 테마는 편이 바뀌어도 같아야
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.hashing import canonical_hash
-from frame.domain.ir import RequirementSpec
+from frame.domain.ir import KEY_PATTERN, RequirementSpec
+from frame.domain.series.ids import DOCUMENT_ID_PATTERN
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
 from .cast import AnchorOrigin, CastMember
@@ -28,13 +28,11 @@ THEME_SCHEMA_VERSION = 1
 
 
 # 자리 키는 그대로 IR 의 장면 키가 되고 (장면 키는 저장 키에 들어간다) 고정 출연 키는 객체 키가 된다.
-# 그래서 IR 의 키와 같은 형식만 받는다: 영문·숫자로 시작, 영문·숫자·밑줄, 64자까지 (감사 BTS-14)
-KEY_FORMAT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,63}")
-
-
-# 테마 id 는 저장 키에 들어간다. 저장소가 받는 것과 같은 규칙이다: 소문자·숫자로 시작, 소문자·숫자·밑줄·붙임표,
-# 64자까지 (대문자를 받으면 검사를 통과한 테마가 저장에서 거절된다 — 감사 BTS-14 의 남은 것)
-_THEME_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+# 그래서 IR 의 키 규칙을 그대로 쓴다 (frame.domain.ir.KEY_PATTERN): 영문·숫자로 시작, 영문·숫자·밑줄,
+# 64자까지 (감사 BTS-14)
+#
+# 테마 id 는 저장 키에 들어간다. 저장소가 받는 것과 같은 규칙이다 (frame.domain.series.ids.DOCUMENT_ID_PATTERN):
+# 소문자·숫자로 시작, 소문자·숫자·밑줄·붙임표, 64자까지 (대문자를 받으면 검사를 통과한 테마가 저장에서 거절된다)
 
 
 @dataclass(frozen=True)
@@ -125,7 +123,7 @@ class Theme:
     def validate(self) -> None:
         if not self.theme_id.strip() or not self.title.strip():
             raise ValidationError("테마에는 id 와 제목이 있어야 합니다")
-        if not _THEME_ID.fullmatch(self.theme_id):
+        if not DOCUMENT_ID_PATTERN.fullmatch(self.theme_id):
             raise ValidationError(
                 f"테마 id 의 형식이 잘못되었습니다: {self.theme_id!r} (영문·숫자·밑줄·붙임표, 64자까지)"
             )
@@ -285,7 +283,7 @@ class Theme:
 
 
 def _require_keys(owner: str, keys: Sequence[str]) -> None:
-    bad = [key for key in keys if not KEY_FORMAT.fullmatch(key)]
+    bad = [key for key in keys if not KEY_PATTERN.fullmatch(key)]
     if bad:
         raise ValidationError(
             f"{owner}의 키는 영문·숫자로 시작하고 영문·숫자·밑줄만 쓸 수 있습니다 (64자까지): {bad}"

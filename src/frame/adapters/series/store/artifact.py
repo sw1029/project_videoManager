@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -30,12 +29,12 @@ from frame.application.ports.series.repositories import (
     ThemeRepository,
 )
 from frame.domain.errors import DomainError, ValidationError
+from frame.domain.series.ids import DOCUMENT_ID_PATTERN
 from frame.domain.series.record import Episode
 
 log = logging.getLogger(__name__)
 T = TypeVar("T")
 
-_SAFE_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _LOCK = threading.Lock()
 # 저장된 문서를 타입으로 옮기다 나는 오류 (손으로 고쳤거나 잘린 문서)
 _BROKEN = (DomainError, KeyError, TypeError, ValueError, AttributeError)
@@ -43,7 +42,7 @@ _BROKEN = (DomainError, KeyError, TypeError, ValueError, AttributeError)
 
 def check_document_id(doc_id: str) -> str:
     """저장할 수 있는 id 인지 본다 (테마·편). 아니면 ValidationError. 메모리 저장소도 같은 규칙을 쓴다."""
-    if not _SAFE_ID.fullmatch(doc_id):  # match 는 줄 끝의 \n 앞에서도 맞는다
+    if not DOCUMENT_ID_PATTERN.fullmatch(doc_id):  # 도메인의 규칙 그대로 (테마는 스스로도 검사한다)
         raise ValidationError(
             f"저장할 수 없는 id 입니다: {doc_id!r} (소문자·숫자·밑줄·붙임표, 64자까지)"
         )

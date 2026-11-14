@@ -104,6 +104,7 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
 | `test_every_allowed_path_is_still_there` | 허용 목록에 적은 줄이 없어졌다 | `ALLOWED` 에서 그 항목을 지운다 |
 | `test_arguments_that_come_from_settings_have_no_default_of_their_own` | 조립이 설정에서 넘기는 인자에 생성자가 기본값을 또 갖고 있다 | 생성자의 기본값을 지운다. 값은 설정에만 두고 조립이 넘긴다. 그 클래스를 직접 만드는 테스트는 값을 직접 준다 (ADR-0032) |
 | `test_address_and_model_defaults_are_written_only_in_the_config` | 설정의 주소 · 모델 기본값을 `frame/config/` 밖의 코드에 다시 적었다 | 그 값을 인자로 받아 쓴다 |
+| `test_shared_values_are_written_in_one_place` | 여러 모듈이 같은 글자로 맞추는 값(예상 밖 오류의 코드 `UNEXPECTED_ERROR`, 객체 · 장면 키의 규칙, 테마 · 편 문서 id 의 규칙)을 그 값의 집이 아닌 곳에 다시 적었다 | 실패 문구가 알려 주는 이름을 가져다 쓴다 (`frame.application.errors.UNEXPECTED_ERROR` · `frame.domain.ir.KEY_PATTERN` · `frame.domain.series.ids.DOCUMENT_ID_PATTERN`). 그런 값이 새로 생기면 `tests/architecture/test_single_source_values.py` 의 `SINGLE_SOURCE` 에 집과 함께 더한다 |
 
 "이제 … 기준선에서 지운다" 로 실패하면 고친 것이다. `tests/architecture/baselines.py` 에서 그 줄을 지운다.
 
