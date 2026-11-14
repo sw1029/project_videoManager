@@ -24,7 +24,7 @@ def format_summary(record: Mapping[str, Any]) -> str:
     summary = record["summary"]
     targets = summary.get("targets", {})
     lines = [
-        f"구조화 골드셋 — {record_label(record)} ({summary['cases']}건, 실패 {summary['failures']})",
+        f"구조화 골드셋 | {record_label(record)} ({summary['cases']}건, 실패 {summary['failures']})",
     ]
     for name, label in _LABELS.items():
         target = f" (목표 ≥ {targets[name]})" if name in targets else ""

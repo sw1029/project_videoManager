@@ -8,6 +8,9 @@ from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.structurer import LLMStructurer
 from frame.evaluation.structuring import (
     build_record,
+    compare_records,
+    format_comparison,
+    format_summary,
     load_gold_cases,
     read_record,
     run_gold_set,
@@ -94,3 +97,22 @@ def test_rescore_refuses_to_drop_record_cases_missing_from_the_gold(tmp_path, ca
     assert code == 2
     assert path.read_bytes() == before
     assert cases[1].case_id in capsys.readouterr().err
+
+
+def test_reports_can_be_written_in_the_korean_windows_console_encoding(tmp_path):
+    """출력이 파이프·파일로 가면 Windows 는 cp949 로 쓴다. 표에 그 인코딩에 없는 글자가 없어야 한다."""
+    cases, perfect = _cases_and_responses()
+    record = _record(cases, perfect, "v1", "2026-11-14T10:00:00+09:00")
+    format_summary(record).encode("cp949")
+    format_comparison(compare_records(record, record)).encode("cp949")
+
+
+def test_compare_exits_2_on_unreadable_records_so_errors_differ_from_regressions(tmp_path, capsys):
+    cases, perfect = _cases_and_responses()
+    good = write_record(_record(cases, perfect, "v1", "2026-11-14T10:00:00+09:00"), tmp_path)
+    not_a_record = tmp_path / "other.json"
+    not_a_record.write_text('{"hello": 1}', encoding="utf-8")
+
+    assert evaluate_structuring.main(["compare", str(good), str(not_a_record)]) == 2
+    assert "기록" in capsys.readouterr().err
+    assert evaluate_structuring.main(["compare", str(good), str(tmp_path / "missing.json")]) == 2

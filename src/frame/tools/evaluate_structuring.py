@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +38,19 @@ def _replay(text: str) -> LLMStructurer:
     return LLMStructurer(ReplayLLMClient([text], model="replay"), max_attempts=1)
 
 
+def _utf8_output() -> None:
+    """출력이 파이프·파일로 갈 때 Windows(cp949)에서 표의 글자 때문에 실패하지 않게 UTF-8 로 맞춘다.
+
+    tools/demo.py 와 같은 방식이다.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError, OSError):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
+    """종료 코드: 0 문제없음 · 1 회귀(compare) · 2 오류 (기록을 읽지 못함, 골드 폴더 문제 등)."""
+    _utf8_output()
     parser = argparse.ArgumentParser(description="구조화 골드셋 기록을 견주고 다시 채점한다")
     commands = parser.add_subparsers(dest="command", required=True)
     compare = commands.add_parser("compare", help="두 기록을 견준다 (회귀가 있으면 종료 코드 1)")
@@ -50,7 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "compare":
-        comparison = compare_records(read_record(args.baseline), read_record(args.candidate))
+        try:
+            comparison = compare_records(read_record(args.baseline), read_record(args.candidate))
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"[compare] 기록을 읽지 못했다: {exc}", file=sys.stderr)
+            return 2
         print(format_comparison(comparison))
         return 1 if comparison.regressed else 0
 
