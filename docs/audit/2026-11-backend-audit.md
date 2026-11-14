@@ -316,7 +316,11 @@
   그 키가 OpenAI(또는 `FRAME_LLM_BASE_URL`)로 간다. `sk-` 토큰이 없으면 첫 `이름=값` 줄의 값을 키로 쓴다 (`.env` 를 키 파일로 주면
   다른 비밀이 나간다). 반대편 `adapters/generator/openrouter.py:216-241` 은 `sk-or-` 만 받아 이 실수를 막는다.
 - 제안: 이름이 있는 줄은 `OPENAI_API_KEY` 만 읽는다. 이름 없는 키는 한 줄짜리 파일일 때만. 주석 줄은 뺀다. OpenAI 주소로 `sk-or-` 는 거절한다.
-- 담당·시점: **감사 · 지금** · 상태: 열림
+- 담당·시점: **감사 · 지금** · 상태: **해결** (`caf0b77`·`1f622ed` — 키 파일 읽는 규칙을 `adapters/shared/api_keys.py` 한 곳에 뒀다. 찾는 변수의 줄이 있으면 그 값, 없으면 키 모양의
+  토큰을 찾되 주석 줄과 다른 서비스를 가리키는 변수의 줄은 보지 않는다. 키 모양이 아닌 값은 찾는 변수의 줄에서만 받는다. OpenAI 클라이언트는
+  OpenRouter 키를 OpenAI 주소로 보내지 않는다. 시연 런처도 같은 규칙을 쓴다.
+  제안보다 느슨하게 한 곳: 이름 없는 키를 '한 줄짜리 파일' 로 묶지 않았고, `OPENAI_KEY=`·`API_KEY=` 처럼 다른 서비스를 가리키지 않는 이름은 읽는다 —
+  사람이 손으로 쓴 키 파일이 지금까지처럼 읽혀야 한다 (실제 키 파일은 열어 보지 않았다). 키 파일은 있는데 키를 못 찾으면 쓰는 법을 안내한다)
 
 ### A-31 · 중간 · 뼈대 어댑터가 기동이 아니라 실행 중에 실패한다
 - 어디: `src/frame/adapters/tracker/opencv_stub.py:21-25` (`track` 이 늘 `TrackingError`), `adapters/generator/stubs.py:47-52`
@@ -334,7 +338,7 @@
 | A-26 | 구조화 입력의 가장자리. (a) strict 가 아닌 경로에서 형이 어긋난 응답(`"expected_value": 3`)이 `AttributeError` 로 재시도 고리를 빠져나간다. (b) 보정이 빈 문자열 키를 `null` 로 고치지 않아 재시도 3회를 다 쓴다. (c) DSL 이 값의 `#` 을 주석으로 잘라 `cup.color = #ff0000` 이 오류다 (재현. 어휘는 COLOR 를 '색 이름/HEX' 로 적는다). (d) 값의 `@` 는 장면 목록으로 읽힌다 | `structurer/llm_structurer.py:56`, `repair.py:105-126`, `rule_based.py:86` | 예외 목록에 `AttributeError`, 보정 규칙 한 줄, 주석은 줄 머리나 공백 뒤의 `#` 만 | (a) **해결** `718e950` (재시도 고리가 `AttributeError` 도 잡는다) · (c)(d) **해결** `cd5f01d` (주석은 줄 머리나 공백 뒤의 `#`, 낱말 안의 `#` 과 `=` 바로 뒤의 HEX 색은 값. 장면 목록은 값과 띄어 쓴 `@` 뒤) + 변경 요청 DSL 의 같은 `@` `19b250c` · (b) 보정 규칙은 #17 머지 뒤 (P-16) |
 | A-27 | 정체성 추출. 가는 박스 하나가 그 클립의 추출 전체를 실패시킨다 (이미 뽑은 다른 객체의 기준도 돌려주지 않는다). 술어만 온 속성 이름(`color`)을 물은 이름(`color: teal`)과 맞추지 못해 거절이 무시된다. 같은 클립·객체를 두 작업이 동시에 뽑으면 서로 다른 기준이 나온다 (추정) | `identity/vlm_crop.py:217-226,250-255,475-483,187-200` | 객체별로 감싸 '못 찾음' 으로, 이름 맞춤 보강, 키별 잠금 | 지금 (M-04 와 함께) |
 | A-28 | 유지 요소 검수가 프레임 시각을 부모 클립 길이로만 계산한다. 자식이 더 짧으면 프레임을 못 뽑아 미판정 | `checker/vlm_preservation.py:169,226-228` | 두 길이 중 짧은 쪽 | **해결** `fdb9e88` (두 클립 가운데 짧은 쪽의 길이 안에서 시각을 고른다) |
-| A-29 | 밖으로 나가는 글. ffmpeg 오류 꼬리에 서버 임시 경로(`C:\Users\…\Temp\frame-frames-…`)가 들어가 `detail.reason` 으로 API 에 나간다. 구조화 프롬프트에 참조 이미지 URI 원문이 들어간다 (서명 URL 이면 LLM 공급자에게 간다). 키 표시가 9자 키에서 7자를 드러낸다 (`/health` 로 나간다) | `adapters/video_tools.py:111,123`, `structurer/llm_prompt.py:121-124`, `llm/keys.py:31-32` | 사용자용 사유와 로그용 원문 분리, 프롬프트에는 번호와 객체 키만, `sk-` 로 시작할 때만 접두사 표시 | 지금. 프롬프트는 #17 머지 뒤 — 프롬프트가 바뀌면 그 브랜치의 기록과 어긋난다 (P-16) |
+| A-29 | 밖으로 나가는 글. ffmpeg 오류 꼬리에 서버 임시 경로(`C:\Users\…\Temp\frame-frames-…`)가 들어가 `detail.reason` 으로 API 에 나간다. 구조화 프롬프트에 참조 이미지 URI 원문이 들어간다 (서명 URL 이면 LLM 공급자에게 간다). 키 표시가 9자 키에서 7자를 드러낸다 (`/health` 로 나간다) | `adapters/video_tools.py:111,123`, `structurer/llm_prompt.py:121-124`, `llm/keys.py:31-32` | 사용자용 사유와 로그용 원문 분리, 프롬프트에는 번호와 객체 키만, `sk-` 로 시작할 때만 접두사 표시 | ffmpeg 꼬리의 임시 경로 **해결** `a5f87e3`(공용 실행기)·`436f5b8`(임시 폴더는 `<tmp>`, 실행 실패 문구에 경로 없음) · 키 표시 **해결** `caf0b77` (끝 네 글자만, 16자보다 짧으면 `***`, 접두사는 `sk-` 로 시작할 때만) · 구조화 프롬프트의 참조 이미지 URI 는 #17 머지 뒤 (P-16) |
 | A-30 | 변경 요청 해석기 두 구현의 경계가 다르다. 없는 객체: 규칙 기반은 그대로 돌려줘 404, LLM 은 422. LLM 이 바꾸는 것 자체를 유지 요소에 넣으면 계획 전체가 422. LLM 이 키에 줄을 붙여 돌려주면(`cup (prop)`) "객체가 없습니다" | `change_request/llm.py:170-208`, `rule_based.py:53,80-91` | 충돌하는 유지 요소는 버리고 notes 에 적는다. 키 맞춤은 `requested_key` 재사용. 두 구현이 같은 오류 코드 | **해결** `dfda658` (`adapters/change_request/_reading.py` — 없는 객체는 둘 다 422, 쓸 수 없는 유지 요소는 빼고 notes 에, 글이 붙은 키는 `requested_key` 로 맞춘다. 유지 요소를 쓸 수 있는지는 도메인의 `normalize_keep` 으로 본다) |
 
 ### 영상 생성 어댑터 (유료 경로)
@@ -412,7 +416,7 @@
 
 | ID | 무엇 | 어디 | 제안 | 시점 |
 |---|---|---|---|---|
-| A-38 | 밖으로 나가는 값과 전송 계층. (a) 키 값 가운데에 줄바꿈이 끼면 http.client 의 `ValueError("Invalid header value b'Bearer sk-or-…'")` 가 전송 계층을 그대로 지나 `error_message` 에 키 전체가 들어간다 (확인. 키는 양끝 공백만 떼므로 닿기 어렵다). (b) ffmpeg 실패 꼬리의 임시 경로가 `error_message` 로 나간다. (c) `_scrub` 이 `https://user:pass@host` 의 userinfo 와 스킴 없는 서명 조각을 못 지운다. (d) 전송 계층: 응답 크기·총 시간 상한 없음, 오류 본문 읽기의 `IncompleteRead` 누락, 스킴 제한 없음 (지금은 호출 주소가 모두 검증된 `base_url` 에서 나온다). (e) HTTPS URI 를 주는 원격 저장소를 붙이면 부모 클립의 서명 주소가 원장·메타데이터에 남는다 | `adapters/http_transport.py:69-87`, `application/pipeline/runner.py:45-48`, `openrouter.py:117,1645-1651,938-939,1146` | 키 형식 검사(인쇄 가능한 ASCII), `ValueError` → 키 없는 `TransportError`, 임시 폴더는 `<tmp>` 로, http(s) 만 허용, 상한을 둔 읽기, 기록에는 호스트와 경로 해시만 | 지금 |
+| A-38 | 밖으로 나가는 값과 전송 계층. (a) 키 값 가운데에 줄바꿈이 끼면 http.client 의 `ValueError("Invalid header value b'Bearer sk-or-…'")` 가 전송 계층을 그대로 지나 `error_message` 에 키 전체가 들어간다 (확인. 키는 양끝 공백만 떼므로 닿기 어렵다). (b) ffmpeg 실패 꼬리의 임시 경로가 `error_message` 로 나간다. (c) `_scrub` 이 `https://user:pass@host` 의 userinfo 와 스킴 없는 서명 조각을 못 지운다. (d) 전송 계층: 응답 크기·총 시간 상한 없음, 오류 본문 읽기의 `IncompleteRead` 누락, 스킴 제한 없음 (지금은 호출 주소가 모두 검증된 `base_url` 에서 나온다). (e) HTTPS URI 를 주는 원격 저장소를 붙이면 부모 클립의 서명 주소가 원장·메타데이터에 남는다 | `adapters/http_transport.py:69-87`, `application/pipeline/runner.py:45-48`, `openrouter.py:117,1645-1651,938-939,1146` | 키 형식 검사(인쇄 가능한 ASCII), `ValueError` → 키 없는 `TransportError`, 임시 폴더는 `<tmp>` 로, http(s) 만 허용, 상한을 둔 읽기, 기록에는 호스트와 경로 해시만 | (a) **해결** `69bcf95`(전송 계층: 값 없는 `TransportError`)·`40d15ea`(기동 때 키 형식 확인) · (b) **해결** `436f5b8` · (c) **해결** `40d15ea` (계정 정보·스킴 없는 질의 문자열·data URI 본문) · (d) **해결** `69bcf95` (http·https 만, 응답 크기 512MB·총 시간 상한, 끊긴 오류 본문) · (e) 원격 저장소를 붙일 때 (지금의 저장소는 HTTPS 주소를 만들지 않는다) |
 | A-39 | 상태와 설정의 가장자리. 상태 조회의 200 + HTML 한 번은 즉시 실패하고 (연결 오류·503 은 넘긴다), 모르는 상태 문자열(`queued`, `canceled`)은 600초 시간 초과까지 폴링한다. `timeout_seconds=nan` 이 검사를 지나 무한 폴링이 된다. `GenerationTimeout` 의 `retryable` 기본값이 참이라 새 raise 지점이 빠뜨리면 다시 제출한다. 환경 변수의 키는 `sk-or-` 검사를 하지 않는다 (파일만 한다). 작업 id 형식이 바뀌면 편집이 기록 없이 꺼진다. 재시도 데코레이터의 백오프를 넘기는 곳이 없어 0초다 | `openrouter.py:1535-1545,594-595,225-230,129,892-903`, `application/errors.py:20-26`, `config/container.py:173-175` | 형식이 깨진 응답은 몇 번까지 일시 오류로, 모르는 상태는 처음 볼 때 경고, `math.isfinite` 검사, 기본값 False | 지금 |
 | A-40 | 기록과 통계. 원장 기록에 실패한 뒤에도 시간 초과 문구는 "이어 받는다" 고 안내한다. 정규화 실패 때 원본 보관 실패가 로그 없이 사라진다. 재사용 판정이 파일이 있는지만 본다 (0바이트·잘린 클립도 재사용). 이어 받은 작업의 `generation_seconds` 는 남은 대기 시간이라 계획의 어림 시간이 흐려진다. 편집 대체 사유가 실제 원인과 다르게 적힐 수 있다 (조회 실패도 "아직 나오지 않음"). 조립기의 스트림 복사 판정은 코덱·크기·표시 fps 만 본다. 쓰이지 않거나 두 벌인 것: `stubs.compile_prompt` (뼈대 어댑터만 부르고 결과를 버린다), `RetryingVideoGenerator` 의 `backoff_seconds` (값을 넘기는 곳이 없다), `OPENROUTER_API_BASE`·`DEFAULT_VIDEO_MODEL` (설정 기본값과 두 벌) | `openrouter.py:845,1508-1513,1589-1598,651-656,1186-1189,979-998`, `ffmpeg.py:242-248`, `stubs.py` | 기록 실패를 들고 다니다 문구를 바꾼다, 안쪽 `except` 에 로그, 기록에 바이트 수, 사유를 열거값으로 | 지금 (M-01 과 함께) |
 
@@ -746,7 +750,7 @@ src/frame/
 |---|---|---|---|---|---|
 | R-01 | 중간 | 장면 조건 해시의 내용이 두 군데서 조립된다. 장면에 필드를 더하면 둘을 같이 고쳐야 재사용 판단이 맞는다 | `domain/ir.py:284-308` `scene_fingerprint`, `application/ports/generator.py:81-104` `fingerprint` | 도메인 함수 하나(`scene_condition_payload(scene, entities)`)를 둘이 쓴다 | 머지 뒤 (`ir.py` 를 #10 이 고친다. P-08) |
 | R-02 | 중간 | 생성기 데코레이터 셋이 `profile`·`result_key`·`preview` 위임을 각각 적는다 (9개 메서드). 포트에 선택 메서드를 더할 때 하나라도 빠뜨리면 기본 구현이 조용히 답한다 | `adapters/generator/decorators.py:44-52`, `:106-113`, `:175-184` | 위임 기반 클래스 `DelegatingVideoGenerator` (Decorator) | **해결** `3a6096b` (`DelegatingVideoGenerator`. 포트의 공개 메서드가 모두 위임되는지 보는 테스트) |
-| R-03 | 중간 | ffmpeg 실행기(`_run`)와 로그 꼬리(`_tail`)가 글자까지 같은 두 벌이고, 영상 정보 해석도 두 군데다 | `adapters/generator/ffmpeg.py:308-338`, `adapters/video_tools.py:154-172`; `ffmpeg.py:40-50` `VideoProbe` vs `video_tools.py:115-124` `video_size` | `adapters/shared/media/` 한 곳: 실행·꼬리·정보 읽기·임시 파일. 임시 파일 이름에 `.bin` 을 쓰지 않는다 — ffmpeg 가 확장자로 'Binary text' 형식을 골라, `video_size` (`video_tools.py:118` 의 `media.bin`)에 줄바꿈 없는 글 800바이트를 주면 640×80 영상으로 읽힌다 (재현) | 지금 |
+| R-03 | 중간 | ffmpeg 실행기(`_run`)와 로그 꼬리(`_tail`)가 글자까지 같은 두 벌이고, 영상 정보 해석도 두 군데다 | `adapters/generator/ffmpeg.py:308-338`, `adapters/video_tools.py:154-172`; `ffmpeg.py:40-50` `VideoProbe` vs `video_tools.py:115-124` `video_size` | `adapters/shared/media/` 한 곳: 실행·꼬리·정보 읽기·임시 파일. 임시 파일 이름에 `.bin` 을 쓰지 않는다 — ffmpeg 가 확장자로 'Binary text' 형식을 골라, `video_size` (`video_tools.py:118` 의 `media.bin`)에 줄바꿈 없는 글 800바이트를 주면 640×80 영상으로 읽힌다 (재현) | **일부 해결** `a5f87e3` (실행기와 꼬리를 `adapters/shared/media/ffmpeg.py` 로 모았다 — `run_ffmpeg`·`tail`. 영상 정보 읽기 두 벌과 임시 파일 이름은 구조 묶음에서) |
 | R-04 | 낮음 | 클립 메타데이터의 공통 기록(모델·비용·시간·편집 여부)을 읽는 코드가 두 벌 (#21 이 세 벌째), `_number` 는 세 벌 | `presentation/mappers.py:172-195`, `application/use_cases/plan_revision.py:267-268` | 값 객체 `ClipProduction.from_metadata()` | 새 모듈과 `plan_revision.py` 는 지금, 나머지는 머지 뒤 (P-04) |
 | R-05 | 낮음 | '수정할 수 있는 버전인가' 확인이 두 유스케이스에, 요청 → 명령 변환이 라우터 두 곳에 있다 | `create_revision.py:39-45`·`plan_revision.py:147-153`; `routers/versions.py:136-146`·`:179-197` | `VideoVersion.ensure_revisable()`; 변환은 `mappers` 로 | 앞은 지금, 뒤는 머지 뒤 (P-09) |
 | R-06 | 낮음 | 시계 포트가 없을 때의 대체 구현(`datetime.now(UTC)` 람다)이 유스케이스 두 곳에 있다 | `accept_generation.py:26`, `run_generation_pipeline.py:56` | `Clock` 을 필수 인자로 (컨테이너는 이미 넘긴다) | 지금 |
@@ -851,7 +855,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
 - 어디: `tests/live/test_openrouter_live.py:85-86`, `tests/live/test_openai_live.py:65-66` — `assert key not in json.dumps(meta, ...)`.
 - 근거: pytest 는 `in` 비교가 실패하면 양쪽 값을 보고서에 싣는다. 키 유출을 잡는 단언이 실패하는 순간 실제 키가 터미널과 로그에 남는다.
 - 제안: `leaked = key in dumped` 로 먼저 계산하고 `assert not leaked, "키가 결과에 섞였습니다"` 로 쓴다.
-- 담당·시점: **감사 · 지금** · 상태: 열림
+- 담당·시점: **감사 · 지금** · 상태: **해결** (`7e3a513` — 두 파일을 `leaked = key in …; assert not leaked` 로 고치고, `tests/live` 의 단언이 비밀 변수를 직접 견주지 않는지 보는 테스트를 더했다)
 
 ### 그 밖의 테스트 발견 (낮음)
 
@@ -1045,6 +1049,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | 등록 모듈 분해 | 끝 | `3c5bd85` · `5a98ae9` | M-02 |
 | 가 2 유료 경로 | 끝 | `fcd03cd` · `151de2b` · `7265865` · `63428d0` · `7d4a140` · `0eb1214` · `d7a19a1` · `4d56bbc` · `4eb7bf5` · `3a6096b` | A-32, A-33, A-34, A-36, A-37, A-09(b), T-04, T-06, R-02 |
 | 가 4 도메인·구조화 | 끝 (A-26 의 보정 규칙 (b) 는 #17 머지 뒤) | `6d25dca` · `cd5f01d` · `718e950` · `dfda658` · `19b250c` | A-20, A-10, A-26(a·c·d), A-30 |
+| 가 5 키와 밖으로 나가는 글 | 끝 (구조화 프롬프트의 참조 이미지 URI 는 #17 머지 뒤, 원격 저장소의 서명 주소는 저장소를 붙일 때) | `caf0b77` · `1f622ed` · `7e3a513` · `a5f87e3` · `436f5b8` · `69bcf95` · `40d15ea` | A-25, A-29(키 표시·임시 경로), A-38(a~d), T-08, R-03(실행기) |
 | 가 3 검수 | 골격과 무관한 것은 끝. 나머지(A-13 의 단위별 방어, A-22, A-24 의 '남은 단위 건너뛰기')는 검수기 골격(M-04) 뒤 | `a833d6d` · `85a8322` · `f421f28` · `12df838` · `26692fd` · `fdb9e88` | A-23, A-16, A-28, A-13(두 겹), A-24(재시도 상한) |
 
 ### 12.2 머지 뒤로 미루는 것
