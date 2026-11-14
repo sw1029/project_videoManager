@@ -7,25 +7,25 @@ import json
 
 import pytest
 
-from frame.adapters.analysis.vlm_theme import (
+from frame.adapters.llm import ReplayLLMClient
+from frame.adapters.series.theme_extraction.vlm import (
     RESPONSE_SCHEMA,
     VlmThemeExtractor,
     build_system_prompt,
     build_theme,
 )
-from frame.adapters.llm import ReplayLLMClient
 from frame.application.errors import LLMTimeout
 from frame.application.ports.video_analysis import ThemeExtractionError, ThemeExtractionRequest
 from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.screen import Region, TextRole, TextSource
-from frame.domain.theme import SourceOrigin, VariableScope
-from frame.domain.video_analysis import (
+from frame.domain.series.source_analysis import (
     SpeechSegment,
     Transcript,
     VideoAnalysis,
     shots_from_cuts,
 )
+from frame.domain.series.theme import SourceOrigin, VariableScope
 from tests.support.media import make_cut_clip
 from tests.support.themes import cafe_observation, cafe_source
 from tests.support.video import find_ffmpeg

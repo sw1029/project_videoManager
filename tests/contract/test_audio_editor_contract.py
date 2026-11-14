@@ -13,14 +13,14 @@ from dataclasses import dataclass
 import pytest
 
 from frame.adapters.analysis import FakeMediaProber
-from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber
-from frame.adapters.audio import FakeAudioEditor
-from frame.adapters.audio.ffmpeg import FfmpegAudioEditor
 from frame.adapters.fake_media import fake_recording, fake_video
 from frame.adapters.media_tools import detect_silences
-from frame.application.ports.audio import AudioEditor, AudioError, TrackCut
+from frame.adapters.series.audio import FakeAudioEditor
+from frame.adapters.series.audio.ffmpeg import FfmpegAudioEditor
+from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
+from frame.application.ports.series.audio import AudioEditor, AudioError, TrackCut
 from frame.application.ports.video_analysis import MediaProber
-from frame.domain.video_analysis import SpeechSegment, Transcript
+from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from tests.support.media import make_cut_clip, make_tone
 from tests.support.video import find_ffmpeg
 

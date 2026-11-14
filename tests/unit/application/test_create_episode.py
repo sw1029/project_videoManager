@@ -7,13 +7,13 @@ from dataclasses import replace
 import pytest
 
 from frame.adapters.generator import FakeVideoGenerator
-from frame.adapters.series import TemplateSeriesPlanner
+from frame.adapters.series.planning import TemplateSeriesPlanner
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.series import AdoptAnchorsCommand, CreateEpisodeCommand
+from frame.application.use_cases.series import AdoptAnchorsCommand, CreateEpisodeCommand
 from frame.config import Settings
 from frame.domain.enums import ReferenceOrigin, VersionState
 from frame.domain.errors import NotFound, ValidationError
-from frame.domain.theme import AnchorOrigin, SourceOrigin
+from frame.domain.series.theme import AnchorOrigin, SourceOrigin
 from tests.support.factories import version_of
 from tests.support.series import (
     generate_episode,

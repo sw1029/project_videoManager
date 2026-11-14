@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 
 from frame.application.errors import AdapterError
 from frame.domain.ir import IntermediateRepresentation
-from frame.domain.shortform import MediaInfo
-from frame.domain.theme import DEFAULT_MIN_SLOT_MS, SourceVideo, Theme
-from frame.domain.video_analysis import ScreenText, Shot, Transcript, VideoAnalysis
+from frame.domain.series.shortform import MediaInfo
+from frame.domain.series.source_analysis import ScreenText, Shot, Transcript, VideoAnalysis
+from frame.domain.series.theme import DEFAULT_MIN_SLOT_MS, SourceVideo, Theme
 
 
 class VideoAnalysisError(AdapterError):

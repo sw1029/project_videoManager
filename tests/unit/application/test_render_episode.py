@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.compositor import FakeOverlayRenderer
-from frame.adapters.compositor.fake import decode_fake_composite
 from frame.adapters.fake_media import decode_fake_media, fake_recording
-from frame.application.series import AttachNarrationCommand, RecordingInput
+from frame.adapters.series.overlay import FakeOverlayRenderer
+from frame.adapters.series.overlay.fake import decode_fake_composite
+from frame.application.use_cases.series import AttachNarrationCommand, RecordingInput
 from frame.domain.errors import MediaNotAvailable, NotFound
 from tests.support.factories import version_of
 from tests.support.series import (

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from frame.domain.enums import EntityKind
-from frame.domain.episode import EpisodeBrief, EpisodeContent, SlotContent
 from frame.domain.ir import EntitySpec, RequirementSpec
 from frame.domain.screen import Region, TextRole
-from frame.domain.shortform import MediaInfo
-from frame.domain.theme import (
+from frame.domain.series.episode import EpisodeBrief, EpisodeContent, SlotContent
+from frame.domain.series.shortform import MediaInfo
+from frame.domain.series.theme import (
     CastMember,
     Condition,
     FormatSpec,

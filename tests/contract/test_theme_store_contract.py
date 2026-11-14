@@ -7,32 +7,32 @@ from datetime import timedelta
 
 import pytest
 
-from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
-from frame.adapters.theme_store import (
+from frame.adapters.series.store import (
     ArtifactEpisodeRepository,
     ArtifactThemeRepository,
     InMemoryEpisodeRepository,
     InMemoryThemeRepository,
 )
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError, StorageError
 from frame.application.ports.artifact_store import ArtifactStore
-from frame.application.ports.theme_store import ThemeRecord
+from frame.application.ports.series.repositories import ThemeRecord
 from frame.domain.enums import VersionState
-from frame.domain.episode import build_episode_plan
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation, SceneSpec
 from frame.domain.screen import Region, TextRole
-from frame.domain.series import Episode, NarrationResult, RenderResult
-from frame.domain.services.narration import LineAlignment, LineStatus, Placement, PlacementStatus
-from frame.domain.shortform import check_platforms
-from frame.domain.theme import AnchorOrigin
-from frame.domain.video_analysis import (
+from frame.domain.series.episode import build_episode_plan
+from frame.domain.series.narration import LineAlignment, LineStatus, Placement, PlacementStatus
+from frame.domain.series.record import Episode, NarrationResult, RenderResult
+from frame.domain.series.shortform import check_platforms
+from frame.domain.series.source_analysis import (
     ScreenText,
     SpeechSegment,
     Transcript,
     VideoAnalysis,
     shots_from_cuts,
 )
+from frame.domain.series.theme import AnchorOrigin
 from tests.support.clock import START
 from tests.support.themes import cafe_theme, matcha_brief, matcha_content
 

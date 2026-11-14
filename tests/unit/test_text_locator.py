@@ -7,7 +7,11 @@ import json
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.text_locator import LOCATE_SCHEMA, LOCATE_SCHEMA_NAME, locate_text
+from frame.adapters.series.theme_extraction.text_locator import (
+    LOCATE_SCHEMA,
+    LOCATE_SCHEMA_NAME,
+    locate_text,
+)
 from frame.application.errors import LLMBadResponse
 from frame.application.ports.llm import ImageInput
 

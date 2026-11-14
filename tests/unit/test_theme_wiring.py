@@ -10,10 +10,10 @@ from frame.adapters.analysis import (
     FakeSpeechRecognizer,
     FakeThemeExtractor,
 )
-from frame.adapters.audio import FakeAudioEditor
-from frame.adapters.compositor import FakeOverlayRenderer, FakeScreenTextReader
-from frame.adapters.series import TemplateSeriesPlanner
-from frame.adapters.theme_store import ArtifactThemeRepository, InMemoryThemeRepository
+from frame.adapters.series.audio import FakeAudioEditor
+from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
+from frame.adapters.series.planning import TemplateSeriesPlanner
+from frame.adapters.series.store import ArtifactThemeRepository, InMemoryThemeRepository
 from frame.application.errors import ConfigurationError
 from frame.config import Settings, build_container
 from frame.config.theme_wiring import ThemeSettings
@@ -137,9 +137,9 @@ def test_override_wins_over_the_setting():
 
 def test_real_adapters_are_built_without_any_network_call():
     """실제 어댑터를 고르면 그 구현이 조립된다. LLM 은 재생 클라이언트라 호출이 나가지 않는다."""
-    from frame.adapters.analysis.caching import CachingSpeechRecognizer
-    from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
-    from frame.adapters.series.llm import LLMSeriesPlanner
+    from frame.adapters.series.planning.llm import LLMSeriesPlanner
+    from frame.adapters.speech.caching import CachingSpeechRecognizer
+    from frame.adapters.speech.openai import OpenAISpeechRecognizer
 
     settings = Settings(jobs="recording", persistence="memory", llm_provider="fake")
     theme_settings = ThemeSettings(speech="openai", planner="llm", speech_model="whisper-1")
@@ -154,11 +154,11 @@ def test_real_adapters_are_built_without_any_network_call():
 
 @pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
 def test_ffmpeg_and_vlm_adapters_are_built_when_selected():
-    from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber, FfmpegShotDetector
-    from frame.adapters.analysis.vlm_theme import VlmThemeExtractor
-    from frame.adapters.audio.ffmpeg import FfmpegAudioEditor
-    from frame.adapters.compositor.caching import CachingScreenTextReader
-    from frame.adapters.compositor.vlm_reader import VlmScreenTextReader
+    from frame.adapters.series.audio.ffmpeg import FfmpegAudioEditor
+    from frame.adapters.series.overlay.caching_reader import CachingScreenTextReader
+    from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
+    from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber, FfmpegShotDetector
+    from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
 
     settings = Settings(jobs="recording", persistence="memory", llm_provider="fake")
     theme_settings = ThemeSettings(

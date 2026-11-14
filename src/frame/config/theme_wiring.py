@@ -35,13 +35,13 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from frame.application.errors import ConfigurationError
-from frame.application.ports.audio import AudioEditor
 from frame.application.ports.common import Clock, IdGenerator
-from frame.application.ports.compositor import OverlayRenderer, ScreenTextReader
 from frame.application.ports.generator import VideoAssembler
 from frame.application.ports.llm import LLMClient
-from frame.application.ports.series import SeriesPlanner
-from frame.application.ports.theme_store import EpisodeRepository, ThemeRepository
+from frame.application.ports.series.audio import AudioEditor
+from frame.application.ports.series.overlay import OverlayRenderer, ScreenTextReader
+from frame.application.ports.series.planning import SeriesPlanner
+from frame.application.ports.series.repositories import EpisodeRepository, ThemeRepository
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
 from frame.application.ports.video_analysis import (
     MediaProber,
@@ -49,7 +49,8 @@ from frame.application.ports.video_analysis import (
     SpeechRecognizer,
     ThemeExtractor,
 )
-from frame.application.series import (
+from frame.application.use_cases import AcceptGeneration, CreateRevision
+from frame.application.use_cases.series import (
     AdoptAnchors,
     AttachNarration,
     CheckEpisodeScreen,
@@ -60,9 +61,8 @@ from frame.application.series import (
     ReviseEpisode,
     SettleEpisode,
 )
-from frame.application.use_cases import AcceptGeneration, CreateRevision
-from frame.domain.shortform import ShortformPlatform
-from frame.domain.theme import DEFAULT_MIN_SLOT_MS
+from frame.domain.series.shortform import ShortformPlatform
+from frame.domain.series.theme import DEFAULT_MIN_SLOT_MS
 
 from .registry import AdapterRegistry, BuildContext
 from .settings import Settings
@@ -243,22 +243,22 @@ def build_theme_services(
         )
 
     def _artifact_themes() -> ThemeRepository:
-        from frame.adapters.theme_store import ArtifactThemeRepository
+        from frame.adapters.series.store import ArtifactThemeRepository
 
         return ArtifactThemeRepository(store) if documents_ok else _memory_themes()
 
     def _artifact_episodes() -> EpisodeRepository:
-        from frame.adapters.theme_store import ArtifactEpisodeRepository
+        from frame.adapters.series.store import ArtifactEpisodeRepository
 
         return ArtifactEpisodeRepository(store) if documents_ok else _memory_episodes()
 
     def _memory_themes() -> ThemeRepository:
-        from frame.adapters.theme_store import InMemoryThemeRepository
+        from frame.adapters.series.store import InMemoryThemeRepository
 
         return InMemoryThemeRepository()
 
     def _memory_episodes() -> EpisodeRepository:
-        from frame.adapters.theme_store import InMemoryEpisodeRepository
+        from frame.adapters.series.store import InMemoryEpisodeRepository
 
         return InMemoryEpisodeRepository()
 
@@ -282,7 +282,7 @@ def build_theme_services(
         return FakeMediaProber()
 
     def _ffmpeg_prober() -> MediaProber:
-        from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber
+        from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
 
         return FfmpegMediaProber(ffmpeg())
 
@@ -292,7 +292,7 @@ def build_theme_services(
         return FakeShotDetector()
 
     def _ffmpeg_shots() -> ShotDetector:
-        from frame.adapters.analysis.ffmpeg_media import FfmpegShotDetector
+        from frame.adapters.series.source_analysis.ffmpeg import FfmpegShotDetector
 
         return FfmpegShotDetector(ffmpeg(), threshold=ts.shot_threshold)
 
@@ -315,9 +315,9 @@ def build_theme_services(
         return FakeSpeechRecognizer()
 
     def _openai_recognizer() -> SpeechRecognizer:
-        from frame.adapters.analysis.caching import CachingSpeechRecognizer
-        from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
         from frame.adapters.llm.key_store import LLMKeyStore
+        from frame.adapters.speech.caching import CachingSpeechRecognizer
+        from frame.adapters.speech.openai import OpenAISpeechRecognizer
         from frame.application.ports.llm import LLMKeySource
 
         llm_base = _plain_url(settings.llm_base_url or OPENAI_BASE_URL)
@@ -359,7 +359,7 @@ def build_theme_services(
         return FakeThemeExtractor()
 
     def _vlm_extractor() -> ThemeExtractor:
-        from frame.adapters.analysis.vlm_theme import VlmThemeExtractor
+        from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
 
         return VlmThemeExtractor(
             ffmpeg(),
@@ -377,12 +377,12 @@ def build_theme_services(
 
     # ---- 시리즈 기획 ----
     def _template_planner() -> SeriesPlanner:
-        from frame.adapters.series import TemplateSeriesPlanner
+        from frame.adapters.series.planning import TemplateSeriesPlanner
 
         return TemplateSeriesPlanner()
 
     def _llm_planner() -> SeriesPlanner:
-        from frame.adapters.series.llm import LLMSeriesPlanner
+        from frame.adapters.series.planning.llm import LLMSeriesPlanner
 
         return LLMSeriesPlanner(
             llm(), max_attempts=settings.llm_max_attempts, timeout_s=settings.llm_timeout_s
@@ -397,12 +397,12 @@ def build_theme_services(
 
     # ---- 소리·화면 문구 ----
     def _fake_audio() -> AudioEditor:
-        from frame.adapters.audio import FakeAudioEditor
+        from frame.adapters.series.audio import FakeAudioEditor
 
         return FakeAudioEditor()
 
     def _ffmpeg_audio() -> AudioEditor:
-        from frame.adapters.audio.ffmpeg import FfmpegAudioEditor
+        from frame.adapters.series.audio.ffmpeg import FfmpegAudioEditor
 
         return FfmpegAudioEditor(ffmpeg())
 
@@ -414,12 +414,15 @@ def build_theme_services(
     )
 
     def _fake_renderer() -> OverlayRenderer:
-        from frame.adapters.compositor import FakeOverlayRenderer
+        from frame.adapters.series.overlay import FakeOverlayRenderer
 
         return FakeOverlayRenderer()
 
     def _ffmpeg_renderer() -> OverlayRenderer:
-        from frame.adapters.compositor.ffmpeg_overlay import FfmpegOverlayRenderer, resolve_font
+        from frame.adapters.series.overlay.ffmpeg_renderer import (
+            FfmpegOverlayRenderer,
+            resolve_font,
+        )
 
         return FfmpegOverlayRenderer(ffmpeg(), resolve_font(ts.overlay_font))
 
@@ -431,13 +434,13 @@ def build_theme_services(
     )
 
     def _fake_reader() -> ScreenTextReader:
-        from frame.adapters.compositor import FakeScreenTextReader
+        from frame.adapters.series.overlay import FakeScreenTextReader
 
         return FakeScreenTextReader()
 
     def _vlm_reader() -> ScreenTextReader:
-        from frame.adapters.compositor.caching import CachingScreenTextReader
-        from frame.adapters.compositor.vlm_reader import VlmScreenTextReader
+        from frame.adapters.series.overlay.caching_reader import CachingScreenTextReader
+        from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
 
         client = vlm()
         profile = f"vlm:{getattr(client, 'model', settings.vlm_model)}"

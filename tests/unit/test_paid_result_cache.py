@@ -7,17 +7,17 @@ from __future__ import annotations
 
 import pytest
 
-from frame.adapters.analysis.caching import CachingSpeechRecognizer
-from frame.adapters.compositor.caching import CachingScreenTextReader
+from frame.adapters.series.overlay.caching_reader import CachingScreenTextReader
+from frame.adapters.speech.caching import CachingSpeechRecognizer
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.ports.compositor import ScreenTextReader
+from frame.application.ports.series.overlay import ScreenTextReader
 from frame.application.ports.video_analysis import (
     SpeechAudio,
     SpeechRecognitionError,
     SpeechRecognizer,
 )
 from frame.domain.screen import Region
-from frame.domain.video_analysis import SpeechSegment, Transcript, Word
+from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
 
 AUDIO = SpeechAudio(b"RIFF-one", "audio/wav", 4000)
 HEARD = Transcript(

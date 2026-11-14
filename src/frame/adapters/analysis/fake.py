@@ -23,8 +23,9 @@ from frame.application.ports.video_analysis import (
 )
 from frame.domain.enums import EntityKind
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, SceneSpec
-from frame.domain.shortform import MediaInfo
-from frame.domain.theme import (
+from frame.domain.series.shortform import MediaInfo
+from frame.domain.series.source_analysis import Shot, Transcript, shots_from_cuts
+from frame.domain.series.theme import (
     CastMember,
     FormatSpec,
     NarrationBeat,
@@ -33,7 +34,6 @@ from frame.domain.theme import (
     Theme,
     slot_spans_from_shots,
 )
-from frame.domain.video_analysis import Shot, Transcript, shots_from_cuts
 
 
 def _video_part(video: bytes) -> dict[str, Any]:

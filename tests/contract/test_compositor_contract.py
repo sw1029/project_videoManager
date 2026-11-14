@@ -11,21 +11,21 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from frame.adapters.compositor import FakeOverlayRenderer, FakeScreenTextReader
-from frame.adapters.compositor.ffmpeg_overlay import (
+from frame.adapters.llm import ReplayLLMClient
+from frame.adapters.media_tools import probe_media, region_ssim
+from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
+from frame.adapters.series.overlay.ffmpeg_renderer import (
     FfmpegOverlayRenderer,
     estimate_text_width,
     fit_font_px,
     resolve_font,
 )
-from frame.adapters.compositor.vlm_reader import VlmScreenTextReader
-from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.media_tools import probe_media, region_ssim
+from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
 from frame.application.errors import AdapterError, ConfigurationError, LLMTimeout
-from frame.application.ports.compositor import CompositionError, OverlayRenderer
-from frame.domain.episode import OverlayItem, OverlayKind
+from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
 from frame.domain.screen import Region, TextRole
-from frame.domain.theme import TextStyle
+from frame.domain.series.episode import OverlayItem, OverlayKind
+from frame.domain.series.theme import TextStyle
 from tests.support.video import find_ffmpeg, make_clip
 
 FFMPEG = find_ffmpeg()

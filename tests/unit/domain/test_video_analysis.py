@@ -6,8 +6,8 @@ import pytest
 
 from frame.domain.errors import ValidationError
 from frame.domain.screen import Region, TextRole, TextSource
-from frame.domain.shortform import MediaInfo
-from frame.domain.video_analysis import (
+from frame.domain.series.shortform import MediaInfo
+from frame.domain.series.source_analysis import (
     ScreenText,
     Shot,
     SpeechSegment,

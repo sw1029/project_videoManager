@@ -10,7 +10,8 @@ from frame.domain.enums import EntityKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import EntitySpec, RequirementSpec
 from frame.domain.screen import Region, TextRole
-from frame.domain.theme import (
+from frame.domain.series.source_analysis import shots_from_cuts
+from frame.domain.series.theme import (
     AnchorOrigin,
     CastMember,
     Condition,
@@ -26,7 +27,6 @@ from frame.domain.theme import (
     slot_spans_from_shots,
     template_variables,
 )
-from frame.domain.video_analysis import shots_from_cuts
 from tests.support.themes import cafe_theme
 
 
@@ -254,7 +254,7 @@ def test_fingerprint_ignores_the_id_but_not_the_content(theme):
 
 
 def test_colour_notation_is_normalised_to_css_names_or_hex():
-    from frame.domain.theme import color_name
+    from frame.domain.series.theme import color_name
 
     assert color_name("white") == "white" and color_name("#FFE08A") == "#ffe08a"
     assert color_name("Light Yellow") == "lightyellow"

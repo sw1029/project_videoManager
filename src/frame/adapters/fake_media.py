@@ -12,7 +12,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from frame.domain.video_analysis import Transcript
+from frame.domain.series.source_analysis import Transcript
 
 FAKE_MEDIA_KEY = "fake_media"
 FAKE_MEDIA_TYPE = "application/json"

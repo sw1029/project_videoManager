@@ -8,7 +8,7 @@ import json
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.series.llm import (
+from frame.adapters.series.planning.llm import (
     RESPONSE_SCHEMA,
     SYSTEM_PROMPT,
     LLMSeriesPlanner,
@@ -16,10 +16,14 @@ from frame.adapters.series.llm import (
     parse_content,
 )
 from frame.application.errors import LLMTimeout
-from frame.application.ports.series import EarlierEpisode, PlanningRequest, SeriesPlanningError
+from frame.application.ports.series.planning import (
+    EarlierEpisode,
+    PlanningRequest,
+    SeriesPlanningError,
+)
 from frame.domain.enums import EntityKind
-from frame.domain.episode import build_episode_plan
 from frame.domain.errors import ValidationError
+from frame.domain.series.episode import build_episode_plan
 from tests.support.themes import cafe_theme, matcha_brief, matcha_content_document
 
 

@@ -1,5 +1,1 @@
-"""시리즈 기획 어댑터 (ADR-0026). LLM 구현은 레지스트리가 필요할 때 import 한다."""
-
-from .template import TemplateSeriesPlanner
-
-__all__ = ["TemplateSeriesPlanner"]
+"""(패키지 설명은 이어지는 커밋에서 채운다)"""

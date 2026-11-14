@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from frame.application.ports.theme_store import ThemeRecord
-from frame.application.series import CreateEpisodeCommand
+from frame.application.ports.series.repositories import ThemeRecord
+from frame.application.use_cases.series import CreateEpisodeCommand
 from frame.config import Container, Settings
 from frame.config.theme_wiring import ThemeServices, ThemeSettings
-from frame.domain.episode import EpisodeBrief, EpisodeContent
 from frame.domain.ir import IntermediateRepresentation, SceneSpec
-from frame.domain.series import Episode
-from frame.domain.theme import Theme
-from frame.domain.video_analysis import SpeechSegment, Transcript
+from frame.domain.series.episode import EpisodeBrief, EpisodeContent
+from frame.domain.series.record import Episode
+from frame.domain.series.source_analysis import SpeechSegment, Transcript
+from frame.domain.series.theme import Theme
 from tests.support.clock import START
 from tests.support.factories import dispatcher_of, make_container
 from tests.support.themes import cafe_theme, matcha_brief, matcha_content

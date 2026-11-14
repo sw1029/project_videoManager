@@ -11,7 +11,7 @@ import pytest
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError
-from frame.application.series import ReviseEpisodeCommand, SettleEpisodeCommand
+from frame.application.use_cases.series import ReviseEpisodeCommand, SettleEpisodeCommand
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind, VersionState
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.revision import KeepItem

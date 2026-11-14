@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 
 from frame.domain.checks import CheckResult, WarningInterval
-from frame.domain.correction import (
+from frame.domain.enums import CheckType, Verdict
+from frame.domain.ir import RequirementSpec
+from frame.domain.screen import Region
+from frame.domain.series.screen_correction import (
     CorrectionMethod,
     IssueKind,
     ScreenIssue,
@@ -15,9 +18,6 @@ from frame.domain.correction import (
     patch_overlay_id,
     screen_text_matches,
 )
-from frame.domain.enums import CheckType, Verdict
-from frame.domain.ir import RequirementSpec
-from frame.domain.screen import Region
 
 
 def _result(key, verdict=Verdict.FAIL, warnings=(), observed="", check_type=CheckType.REQUIREMENT):

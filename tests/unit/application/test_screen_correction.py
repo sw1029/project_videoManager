@@ -11,12 +11,12 @@ from frame.adapters.checker import (
     FakePreservationChecker,
     FakeRequirementChecker,
 )
-from frame.adapters.compositor import FakeOverlayRenderer, FakeScreenTextReader
 from frame.adapters.fake_media import fake_recording
 from frame.adapters.generator import FakeVideoGenerator
+from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError, LLMTimeout
-from frame.application.series import (
+from frame.application.use_cases.series import (
     AttachNarrationCommand,
     CorrectScreenCommand,
     PatchRegion,
@@ -25,14 +25,14 @@ from frame.application.series import (
 )
 from frame.config.theme_wiring import ThemeSettings
 from frame.domain.checks import WarningInterval
-from frame.domain.correction import CorrectionMethod, IssueKind
 from frame.domain.enums import KeepAspect, RevisionKind, VersionState
-from frame.domain.episode import OverlayKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import RequirementSpec
 from frame.domain.revision import KeepItem
 from frame.domain.screen import Region
-from frame.domain.video_analysis import SpeechSegment, Transcript
+from frame.domain.series.episode import OverlayKind
+from frame.domain.series.screen_correction import CorrectionMethod, IssueKind
+from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from tests.support.factories import dispatcher_of, version_of
 from tests.support.series import (
     GOOD_READING,

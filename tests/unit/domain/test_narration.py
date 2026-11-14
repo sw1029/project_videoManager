@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from frame.domain.episode import ScriptLine
 from frame.domain.errors import ValidationError
-from frame.domain.services.narration import (
+from frame.domain.series.episode import ScriptLine
+from frame.domain.series.narration import (
     LineAlignment,
     LineStatus,
     NarrationPolicy,
@@ -21,7 +21,7 @@ from frame.domain.services.narration import (
     similarity,
     speech_units,
 )
-from frame.domain.video_analysis import SpeechSegment, Transcript, Word
+from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
 
 SCRIPT = (
     ScriptLine("L1", "greeting", "안녕하세요, 오늘의 메뉴예요.", 3600),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from frame.domain.errors import ValidationError
-from frame.domain.shortform import (
+from frame.domain.series.shortform import (
     PLATFORM_SPECS,
     CriterionLevel,
     MediaInfo,

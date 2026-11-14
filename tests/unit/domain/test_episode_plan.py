@@ -7,7 +7,10 @@ from dataclasses import replace
 import pytest
 
 from frame.domain.enums import EntityKind
-from frame.domain.episode import (
+from frame.domain.errors import NotFound, ValidationError
+from frame.domain.ir import EntitySpec, RequirementSpec
+from frame.domain.screen import Region, TextRole
+from frame.domain.series.episode import (
     DEFAULT_REGIONS,
     EpisodeBrief,
     EpisodeContent,
@@ -18,10 +21,7 @@ from frame.domain.episode import (
     SlotContent,
     build_episode_plan,
 )
-from frame.domain.errors import NotFound, ValidationError
-from frame.domain.ir import EntitySpec, RequirementSpec
-from frame.domain.screen import Region, TextRole
-from frame.domain.theme import TextRule, TextStyle
+from frame.domain.series.theme import TextRule, TextStyle
 from tests.support.themes import cafe_theme, matcha_brief, matcha_content
 
 

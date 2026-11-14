@@ -18,12 +18,12 @@ from frame.adapters.analysis import (
     FakeSpeechRecognizer,
     FakeThemeExtractor,
 )
-from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber, FfmpegShotDetector
-from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
-from frame.adapters.analysis.vlm_theme import VlmThemeExtractor
 from frame.adapters.fake_media import fake_recording, fake_video
 from frame.adapters.http_transport import HttpResponse, HttpTransport
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber, FfmpegShotDetector
+from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
+from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.llm import JsonCompletion, LLMClient
 from frame.application.ports.video_analysis import (
     MediaProber,
@@ -34,15 +34,15 @@ from frame.application.ports.video_analysis import (
     ThemeExtractionRequest,
     VideoAnalysisError,
 )
-from frame.domain.shortform import check_platforms
-from frame.domain.theme import SourceOrigin
-from frame.domain.video_analysis import (
+from frame.domain.series.shortform import check_platforms
+from frame.domain.series.source_analysis import (
     SpeechSegment,
     Transcript,
     VideoAnalysis,
     shots_from_cuts,
     validate_shots,
 )
+from frame.domain.series.theme import SourceOrigin
 from tests.support.media import make_cut_clip
 from tests.support.themes import cafe_source
 from tests.support.video import find_ffmpeg, make_clip
@@ -362,7 +362,7 @@ def test_extractor_failure_is_an_adapter_error():
 @pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
 def test_text_is_not_read_as_a_video():
     """줄바꿈 없는 글 800바이트가 640x80 영상으로 읽혔다 (임시 파일의 확장자 때문에 ffmpeg 가 글 형식을 골랐다)."""
-    from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber
+    from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
 
     with pytest.raises(VideoAnalysisError):
         FfmpegMediaProber(FFMPEG).probe(b"frame " * 134)

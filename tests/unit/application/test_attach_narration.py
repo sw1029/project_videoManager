@@ -8,11 +8,11 @@ import pytest
 
 from frame.adapters.analysis import FakeSpeechRecognizer
 from frame.adapters.fake_media import fake_recording, fake_video
-from frame.application.series import AttachNarrationCommand, RecordingInput
+from frame.application.use_cases.series import AttachNarrationCommand, RecordingInput
 from frame.config.theme_wiring import ThemeSettings
 from frame.domain.errors import NotFound, ValidationError
-from frame.domain.services.narration import LineStatus, PlacementStatus
-from frame.domain.video_analysis import SpeechSegment, Transcript
+from frame.domain.series.narration import LineStatus, PlacementStatus
+from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from tests.support.series import (
     GOOD_READING,
     new_episode,
@@ -259,8 +259,8 @@ def test_recording_far_longer_than_what_it_covers_is_refused_before_recognition(
 
 def test_recording_that_cannot_be_read_is_a_validation_error_with_real_and_fake_editors():
     """읽을 수 없는 녹음에 실제 편집기는 AudioError 를 던지고 가짜는 None 을 돌려준다. 둘 다 같은 안내가 된다."""
-    from frame.adapters.audio import FakeAudioEditor
-    from frame.application.ports.audio import AudioError
+    from frame.adapters.series.audio import FakeAudioEditor
+    from frame.application.ports.series.audio import AudioError
 
     class _Strict(FakeAudioEditor):  # 실제 ffmpeg 편집기처럼 군다
         def speech_audio(self, media):
@@ -283,7 +283,7 @@ def test_failed_attach_does_not_change_the_recordings_an_episode_points_to(conta
     번호로 이름을 지으면 실패한 붙이기가 예전 파일을 새 녹음으로 덮어써, 이어서 한 줄만 다시 녹음할 때
     예전 녹음에서 잰 시각이 새 파일에 적용된다 (오류 없이 어긋난다).
     """
-    from frame.application.ports.audio import AudioError
+    from frame.application.ports.series.audio import AudioError
 
     series = series_of(container)
     episode = new_episode(container)

@@ -15,11 +15,11 @@ from frame.application.ports.video_analysis import (
     ThemeExtraction,
     ThemeExtractionError,
 )
-from frame.application.series import ExtractThemeCommand, NotShortform
+from frame.application.use_cases.series import ExtractThemeCommand, NotShortform
 from frame.config.theme_wiring import ThemeSettings
 from frame.domain.errors import ValidationError
-from frame.domain.theme import SourceOrigin
-from frame.domain.video_analysis import SpeechSegment, Transcript
+from frame.domain.series.source_analysis import SpeechSegment, Transcript
+from frame.domain.series.theme import SourceOrigin
 from tests.support.series import series_container, series_of
 
 SAID = Transcript(
@@ -244,7 +244,7 @@ def test_failed_extraction_leaves_no_copy_of_the_source():
 
 def test_oversized_video_is_refused_before_anything_reads_it(monkeypatch):
     """터무니없이 큰 파일은 겉모습을 읽기도 전에 끊는다 (단계마다 임시 파일로 다시 쓰인다)."""
-    from frame.application.series import extract_theme
+    from frame.application.use_cases.series import extract_theme
 
     monkeypatch.setattr(extract_theme, "MAX_SOURCE_BYTES", len(VIDEO) - 1)
     series = series_of(series_container())
