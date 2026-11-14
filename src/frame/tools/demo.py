@@ -42,6 +42,11 @@ MIN_NODE = 18
 DEFAULT_PORT = 8000
 LAN_RATE_LIMIT_PER_MINUTE = "30"
 DEFAULT_GENERATOR = "fake"  # Settings.generator 의 기본값 (런처는 frame.config 를 쓰지 못한다)
+HEALTH_WAIT_S = 90.0  # 서버가 /health 에 답할 때까지 기다리는 시간 (빈 DB 로 뜨는 점검용 서버)
+# run 은 지난 실행이 남긴 분석을 기동 중에 다시 실행할 수 있어 (FRAME_JOBS=inline) 더 기다린다.
+# LLM 호출 하나가 제한 시간 60초 x 2회까지 걸린다. 그보다 짧으면 남은 분석이 실행마다 되풀이된다
+RECOVERY_WAIT_S = 300.0
+SLOW_START_NOTICE_S = 15.0  # 이만큼 지나도 뜨지 않으면 까닭과 건너뛰는 방법을 알린다
 LOOPBACK = "127.0.0.1"
 DEMO_DIR = ".demo"
 KEY_FILE_NAME = "openai.key"
@@ -487,16 +492,45 @@ def _stop(process: subprocess.Popen) -> None:
         process.wait()
 
 
-def _wait_for_health(base: str, process: subprocess.Popen, timeout: float = 90) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            return False
+_LEFTOVER_WAY_OUT = (
+    "--offline 으로 한 번 실행하면 남은 분석이 정리되고, --reset 은 시연 DB 를 지우고 시작합니다"
+)
+
+
+def _startup_problem(
+    base: str,
+    process: subprocess.Popen,
+    *,
+    timeout: float = HEALTH_WAIT_S,
+    slow_after: float | None = None,
+) -> str | None:
+    """서버가 /health 에 답할 때까지 기다린다. 답하면 None, 아니면 사용자에게 보일 까닭.
+
+    slow_after 초가 지나도 뜨지 않으면 한 번 알린다: 지난 실행에서 끝나지 않은 분석을 기동 중에 다시 실행하고
+    있을 수 있다 (재시작 복구, ADR-0013). 그 분석이 끝나야(성공이든 실패든) 다음 실행에서 되풀이되지 않으므로
+    서버가 살아 있는 동안에는 timeout 까지 기다린다.
+    """
+    started = time.monotonic()
+    told = slow_after is None
+    while (waited := time.monotonic() - started) < timeout:
+        code = process.poll()
+        if code is not None:
+            return f"서버가 시작하다가 끝났습니다 (종료 코드 {code}). 위의 서버 로그를 확인하세요"
         with contextlib.suppress(OSError, http.client.HTTPException):
             if _http("GET", f"{base}/health", timeout=2)[0] == 200:
-                return True
+                return None
+        if not told and slow_after is not None and waited >= slow_after:
+            told = True
+            _say(
+                "서버가 아직 준비 중입니다. 지난 실행에서 끝나지 않은 분석이 있으면 시작하면서 다시 실행합니다 "
+                f"(LLM 응답을 기다리느라 몇 분 걸릴 수 있고, 길어도 {timeout:.0f}초까지 기다립니다)"
+            )
+            _say(f"기다리지 않으려면 Ctrl+C 로 멈추세요. {_LEFTOVER_WAY_OUT}")
         time.sleep(0.5)
-    return False
+    return (
+        f"서버가 {timeout:.0f}초 안에 준비되지 않아 멈춥니다. 지난 실행에서 끝나지 않은 분석이 남아 있을 수 "
+        f"있습니다: {_LEFTOVER_WAY_OUT}. 그래도 같으면 위의 서버 로그를 확인하세요"
+    )
 
 
 @contextlib.contextmanager
@@ -504,8 +538,9 @@ def _server(root: Path, env: Mapping[str, str], port: int) -> Iterator[str]:
     process = _start_server(root, env, LOOPBACK, port)
     try:
         base = f"http://{LOOPBACK}:{port}"
-        if not _wait_for_health(base, process):
-            raise RuntimeError("서버가 시작되지 않았습니다. 위의 서버 로그를 확인하세요")
+        problem = _startup_problem(base, process)
+        if problem:
+            raise RuntimeError(problem)
         yield base
     finally:
         _stop(process)
@@ -708,8 +743,11 @@ def cmd_run(
     process = _start_server(root, env, host, port)
     base = f"http://{LOOPBACK}:{port}"
     try:
-        if not _wait_for_health(base, process):
-            return _fail("서버가 시작되지 않았습니다. 위의 서버 로그를 확인하세요")
+        problem = _startup_problem(
+            base, process, timeout=RECOVERY_WAIT_S, slow_after=SLOW_START_NOTICE_S
+        )
+        if problem:
+            return _fail(problem)
         _announce(base, port, offline=offline, lan=lan_notes(env) if lan else None)
         if open_browser and can_open_browser():
             webbrowser.open(base)

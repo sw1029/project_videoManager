@@ -171,6 +171,7 @@ sh scripts/run.sh --lan          # Windows: scripts\run.cmd --lan
 | `.venv 가 다른 운영체제에서 만들어졌습니다` | 이 OS 에서는 저장소를 따로 clone (2절). 필요 없으면 `.venv` 폴더를 지우고 다시 실행 |
 | 화면 빌드 실패 | `node --version` 이 18 이상인지 확인, `frontend/node_modules` 를 지우고 `setup` 다시 실행 |
 | `포트 8000 를 이미 쓰고 있습니다` | `--port 8010` |
+| `서버가 아직 준비 중입니다` 가 나오고 시작이 오래 걸림 | 지난 실행에서 분석 도중에 끝낸 버전을 시작하면서 다시 분석하는 중이다 (LLM 응답을 기다리며, 길어도 5분). 끝나면 다음 실행부터는 바로 뜬다. 기다리지 않으려면 `Ctrl+C` 뒤 `run --offline` 으로 한 번 실행하거나 (남은 분석이 정리된다) `run --reset` |
 | 화면에 "API 미연결" | 서버 터미널의 오류를 확인. 주소가 `http://127.0.0.1:8000` 인지 확인 |
 | 분석이 `LLM_UNAVAILABLE` 로 실패 | 키가 없거나 잘못되었거나 연결이 안 된다. 오류 메시지를 보고 5절 방법으로 키를 넣은 뒤 다시 분석 |
 | `LLM_TIMEOUT` · `LLM_RATE_LIMITED` · `LLM_BAD_RESPONSE` | 잠시 후 다시 분석하거나 `--offline` 으로 시연 |

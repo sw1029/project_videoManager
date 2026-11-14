@@ -348,6 +348,70 @@ def test_server_dies_with_the_launcher_on_windows():
             child.kill()
 
 
+class _StartingServer:
+    """런처가 띄운 서버를 흉내 낸다: 가짜 시계로 ready_at 초부터 /health 에 답하고, exits_at 초에 끝난다."""
+
+    def __init__(self, monkeypatch, *, ready_at=None, exits_at=None, exit_code=1):
+        self.now = 0.0
+        self.ready_at, self.exits_at, self.exit_code = ready_at, exits_at, exit_code
+        monkeypatch.setattr(demo.time, "monotonic", lambda: self.now)
+        monkeypatch.setattr(demo.time, "sleep", self._sleep)
+        monkeypatch.setattr(demo, "_http", self._http)
+
+    def _sleep(self, seconds):
+        self.now += seconds
+
+    def _http(self, method, url, body=None, timeout=30):
+        if self.ready_at is None or self.now < self.ready_at:
+            raise ConnectionRefusedError("아직 뜨지 않았다")
+        return 200, b"{}"
+
+    def poll(self):
+        return self.exit_code if self.exits_at is not None and self.now >= self.exits_at else None
+
+
+def test_startup_wait_returns_as_soon_as_the_server_answers(monkeypatch, capsys):
+    server = _StartingServer(monkeypatch, ready_at=3)
+    assert demo._startup_problem("http://127.0.0.1:8000", server, slow_after=15) is None
+    assert server.now < 4
+    assert capsys.readouterr().out == ""  # 금방 뜨면 아무 안내도 하지 않는다
+
+
+def test_a_slow_startup_says_once_why_and_how_to_skip_it_then_keeps_waiting(monkeypatch, capsys):
+    # 지난 실행이 남긴 분석을 기동 중에 다시 실행하면 (FRAME_JOBS=inline) LLM 응답을 기다리느라 90초를 넘긴다.
+    # 예전에는 90초에 서버를 죽였고, 남은 분석은 다음 실행에서 또 같은 일을 했다
+    server = _StartingServer(monkeypatch, ready_at=130)
+    problem = demo._startup_problem(
+        "http://127.0.0.1:8000", server, timeout=demo.RECOVERY_WAIT_S, slow_after=15
+    )
+    assert problem is None
+    out = capsys.readouterr().out
+    assert out.count("아직 준비 중") == 1
+    assert "--offline" in out and "--reset" in out and "Ctrl+C" in out
+
+
+def test_startup_wait_gives_up_with_a_way_out_when_the_server_never_answers(monkeypatch, capsys):
+    server = _StartingServer(monkeypatch)
+    problem = demo._startup_problem("http://127.0.0.1:8000", server, timeout=300, slow_after=15)
+    assert server.now >= 300
+    assert "300초" in problem and "--offline" in problem and "--reset" in problem
+
+
+def test_a_server_that_exits_during_startup_is_reported_with_its_exit_code(monkeypatch, capsys):
+    server = _StartingServer(monkeypatch, exits_at=2, exit_code=3)
+    problem = demo._startup_problem("http://127.0.0.1:8000", server, timeout=300, slow_after=15)
+    assert server.now < 3  # 끝난 서버를 기다리지 않는다
+    assert "종료 코드 3" in problem and "서버 로그" in problem
+    assert "--reset" not in problem  # 남은 분석 탓이 아니다. DB 를 지우라고 하지 않는다
+
+
+def test_run_waits_long_enough_for_one_leftover_analysis_at_startup():
+    # LLM 호출 하나: 제한 시간 x (SDK 재시도 1회 + 1). 그보다 짧게 기다리면 남은 분석이 실행마다 되풀이된다
+    one_call = Settings.from_env({}).llm_timeout_s * 2
+    assert one_call < demo.RECOVERY_WAIT_S
+    assert demo.SLOW_START_NOTICE_S < demo.HEALTH_WAIT_S < demo.RECOVERY_WAIT_S
+
+
 def test_a_command_is_required(tmp_path):
     with pytest.raises(SystemExit):
         demo.main([], root=tmp_path)
