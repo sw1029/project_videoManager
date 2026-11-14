@@ -61,11 +61,11 @@ def format_comparison(comparison: RecordComparison) -> str:
         )
     if comparison.cases:
         lines.append("  달라진 사례:")
-    for case in comparison.cases:
-        lines.append(
-            f"    {case.case_id} F1 {_fmt(case.baseline_f1)} → {_fmt(case.candidate_f1)}"
-            f" | 새로 놓침: {_join(case.newly_missed)} | 새로 맞춤: {_join(case.newly_found)}"
-        )
+    lines.extend(
+        f"    {case.case_id} F1 {_fmt(case.baseline_f1)} → {_fmt(case.candidate_f1)}"
+        f" | 새로 놓침: {_join(case.newly_missed)} | 새로 맞춤: {_join(case.newly_found)}"
+        for case in comparison.cases
+    )
     return "\n".join(lines)
 
 

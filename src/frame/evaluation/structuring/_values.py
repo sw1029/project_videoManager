@@ -14,9 +14,12 @@ _WORD = re.compile(r"[^\W_]+")
 _NUMERIC = re.compile(r"[+-]?\d+(?:\.\d+)?")
 _LEADING_DIGITS = re.compile(r"\d+")
 _QUOTES = "'\"‘’“”「」『』`"
-_STOPWORDS = frozenset(
-    "a an the and or of with to at in on into onto for from by while its his her their is are s".split()
-)  # s: 소유격(bird's)이 쪼개져 남은 것
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "with",
+    "to", "at", "in", "on", "into", "onto", "for", "from", "by", "while",
+    "its", "his", "her", "their", "is", "are",
+    "s",  # 소유격(bird's)이 쪼개져 남은 것
+})  # fmt: skip
 _VOWELS = frozenset("aeiouy")
 # 동사를 부정하는 말 (not smiling · doesn't wave · 안 웃는다 · 웃지 않는다 · 못 본다)
 _NEGATION_WORDS = frozenset({"not", "never", "neither", "nor", "안", "못"})
