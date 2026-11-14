@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -204,7 +203,7 @@ def _write(path: Path, report: Mapping[str, Any]) -> None:
     temporary.write_text(
         json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8"
     )
-    os.replace(temporary, path)
+    temporary.replace(path)
 
 
 def _iso(value: datetime) -> str:
