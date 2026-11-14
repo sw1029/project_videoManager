@@ -261,6 +261,7 @@ StructuringReport
 | `_matching.py` | 모델 객체·장면을 골드에 짝짓기 |
 | `_scoring.py` | 한 사례 채점 (tp/fp/fn, 장면 오차) |
 | `_summary.py` | 집계·목표 판정·대표 지표 비교 |
+| `_public.py` | 커밋되는 기록에 남길 값 (오류 문구의 경로·사용자 폴더 가리기, URL 의 계정·질의 빼기) |
 | `_records.py` | 실행·기록·다시 채점·기록 비교 |
 | `_report.py` | 사람이 읽는 표 |
 

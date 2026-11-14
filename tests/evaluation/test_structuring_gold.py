@@ -36,6 +36,8 @@ from frame.evaluation.structuring import (
     write_record,
 )
 
+# 사용자 폴더를 바꿔 보는 시험이 고치는 안쪽 모듈 (기록에 남길 값 다듬기)
+_PUBLIC = importlib.import_module("frame.evaluation.structuring._public")
 GOLD_DIR = Path(__file__).parent / "structuring_gold"
 REPLAY_DIR = Path(__file__).parent / "replay"
 _SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -544,8 +546,7 @@ def test_error_messages_keep_urls_without_account_or_query(cases, raw, kept):
 )
 def test_error_messages_hide_the_whole_home_folder_even_with_spaces(cases, monkeypatch, path):
     """사용자 폴더 이름에 빈칸이 있어도 이름의 뒷부분이 새지 않는다 (빈칸에서 경로가 끊기지 않게)."""
-    records_module = importlib.import_module("frame.evaluation.structuring._records")
-    monkeypatch.setattr(records_module, "_home_folders", lambda: (r"C:\Users\Jane Doe",))
+    monkeypatch.setattr(_PUBLIC, "_home_folders", lambda: (r"C:\Users\Jane Doe",))
     case = _case(cases, "ko-05-ramen-recipe")
     error = LLMUnavailable(f"키 파일이 없습니다: {path}. 다시 확인하세요")
     message = run_gold_set(FakeStructurer(error=error), [case])[0].score.error
@@ -554,8 +555,7 @@ def test_error_messages_hide_the_whole_home_folder_even_with_spaces(cases, monke
 
 def test_a_longer_folder_name_that_starts_with_the_home_folder_is_hidden_whole(cases, monkeypatch):
     """사용자 폴더가 C:\\Users\\Al 일 때 C:\\Users\\Alice 의 뒷부분('ice')이 남지 않는다."""
-    records_module = importlib.import_module("frame.evaluation.structuring._records")
-    monkeypatch.setattr(records_module, "_home_folders", lambda: (r"C:\Users\Al",))
+    monkeypatch.setattr(_PUBLIC, "_home_folders", lambda: (r"C:\Users\Al",))
     case = _case(cases, "ko-05-ramen-recipe")
     error = LLMUnavailable(r"키 파일이 없습니다: C:\Users\Alice\key.txt")
     message = run_gold_set(FakeStructurer(error=error), [case])[0].score.error
@@ -564,9 +564,8 @@ def test_a_longer_folder_name_that_starts_with_the_home_folder_is_hidden_whole(c
 
 def test_a_home_folder_that_is_only_a_root_is_not_used_for_masking(monkeypatch):
     """사용자 폴더가 뿌리('/')뿐이면 그것으로 가리지 않는다 (문구의 모든 '/' 가 바뀌지 않게)."""
-    records_module = importlib.import_module("frame.evaluation.structuring._records")
-    monkeypatch.setattr(records_module.Path, "home", classmethod(lambda cls: cls("/")))
-    assert records_module._home_folders() == ()
+    monkeypatch.setattr(_PUBLIC.Path, "home", classmethod(lambda cls: cls("/")))
+    assert _PUBLIC._home_folders() == ()
 
 
 def test_long_error_messages_are_shortened(cases):

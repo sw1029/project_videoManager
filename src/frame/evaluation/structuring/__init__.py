@@ -19,9 +19,10 @@
     _matching.py  짝 맞추기: 모델 객체 ↔ 골드 객체(종류·별칭), 모델 장면 → 골드 장면(시간 겹침)
     _scoring.py   한 사례 채점: 객체·요구조건·등장 장면의 tp/fp/fn, 장면 수·경계 오차
     _summary.py   여러 사례 집계, 목표 판정, 대표 지표 비교
+    _public.py    커밋되는 기록에 남길 값: 오류 문구의 경로·사용자 폴더 가리기, URL 의 계정·질의 빼기
     _records.py   골드셋 실행, 기록 JSON 만들기·읽기·다시 채점, 기록 비교
     _report.py    사람이 읽는 표
-    의존 방향: _values ← _gold ← _matching ← _scoring ← _summary ← _records ← _report.
+    의존 방향: _values ← _gold ← _matching ← _scoring ← _summary ← _records ← _report, _public ← _records.
     이 패키지는 domain·application 만 import 한다 (adapters·config 는 tools·테스트가 조립한다).
 """
 
