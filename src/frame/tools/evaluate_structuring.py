@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -41,11 +42,12 @@ def _replay(text: str) -> LLMStructurer:
 def _utf8_output() -> None:
     """출력이 파이프·파일로 갈 때 Windows(cp949)에서 표의 글자 때문에 실패하지 않게 UTF-8 로 맞춘다.
 
-    tools/demo.py 와 같은 방식이다.
+    tools/demo.py 와 같은 방식이다. 바꿀 수 없는 스트림(테스트의 가로채기 등)은 그대로 둔다.
     """
     for stream in (sys.stdout, sys.stderr):
-        with contextlib.suppress(AttributeError, ValueError, OSError):
-            stream.reconfigure(encoding="utf-8", errors="replace")
+        if isinstance(stream, io.TextIOWrapper):
+            with contextlib.suppress(ValueError, OSError):
+                stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 def main(argv: list[str] | None = None) -> int:
