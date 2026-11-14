@@ -68,6 +68,8 @@ class CorrectScreenCommand:
     patches: tuple[PatchRegion, ...] = ()
     keep: tuple[KeepItem, ...] = ()  # 클립을 다시 만들 때 그대로 둘 요소
     generate: bool = False  # 수정 버전의 생성을 바로 접수한다 (과금). 기본은 초안까지
+    # 방금 받은 검수 보고서. 주면 검수를 다시 돌리지 않는다 (화면 문구 읽기는 문구마다 유료 호출 한 번이다)
+    report: ScreenReport | None = None
 
 
 @dataclass(frozen=True)
@@ -114,9 +116,16 @@ class CorrectEpisodeScreen:
         self._accept_generation = accept_generation
 
     def execute(self, command: CorrectScreenCommand) -> CorrectScreenResult:
-        report = self._check.execute(command.episode_id)
+        report = command.report or self._check.execute(command.episode_id)
         episode = self._episodes.get(command.episode_id)
-        assert episode is not None  # 검수가 이미 찾았다
+        if episode is None:
+            raise NotFound(
+                f"편 {command.episode_id} 을 찾을 수 없습니다", episode_id=command.episode_id
+            )
+        if report.episode_id != episode.episode_id:
+            raise ValidationError("다른 편의 검수 보고서입니다")
+        if report.version_id != episode.version_id:
+            raise ValidationError("검수 보고서가 편의 지금 버전의 것이 아닙니다. 다시 검수하세요")
         issues = _selected(report, command.issue_ids)
         patches = {p.issue_id: p for p in command.patches}
         unknown = sorted(set(patches) - {i.issue_id for i in issues})

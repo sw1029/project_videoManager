@@ -514,6 +514,39 @@ def test_generation_is_only_accepted_when_asked():
     assert dispatcher_of(container).run_all() == 0 and generator.requests == []
 
 
+def test_a_report_already_in_hand_is_not_checked_again():
+    """검수 보고서를 넘기면 화면을 다시 읽지 않는다 (문구마다 유료 읽기 한 번이다)."""
+    reader = FakeScreenTextReader()
+    container = _container(reader=reader)
+    episode = _tamper(container, _ready(container), "closeup:price", "말차 라떼 6,000원")
+    report = _check(container, episode)
+    read = len(reader.calls)
+
+    result = _correct(container, episode, report=report)
+
+    assert [s.status for s in result.steps] == [StepStatus.APPLIED]
+    assert result.report is report and len(reader.calls) == read
+    # 넘기지 않으면 다시 검수한다 (완성본을 다시 만든 뒤라 화면도 다시 읽는다)
+    series_of(container).render_episode.execute(episode.episode_id)
+    assert _correct(container, episode).steps == () and len(reader.calls) > read
+
+
+def test_a_report_of_another_episode_or_version_is_refused():
+    container = _container(failing=("closeup:latte:color",))
+    episode = _ready(container)
+    report = _check(container, episode)
+    other = _ready(container)
+
+    with pytest.raises(ValidationError, match="다른 편"):
+        _correct(container, other, report=report)
+    moved = _correct(
+        container, episode, report=report, issue_ids=("requirement:closeup:latte:color",)
+    )
+    assert moved.episode.version_id != report.version_id
+    with pytest.raises(ValidationError, match="버전"):  # 편이 다른 버전으로 넘어간 뒤의 낡은 보고서
+        _correct(container, episode, report=report)
+
+
 # ---- 국소 수정: 녹음 ----
 def test_bad_narration_line_asks_for_a_new_recording_of_that_line_only():
     container = _container()

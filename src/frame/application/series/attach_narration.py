@@ -8,10 +8,17 @@
 순서: 인식 -> 줄에 맞추기 -> 장면에 놓기 -> 편 길이의 트랙 만들기 -> 저장.
 대본과 다르게 읽었거나(핵심어가 빠짐 포함), 읽지 않았거나, 장면보다 긴 줄은 결과에 남는다. 붙이는 것 자체는 막지 않는다.
 영상에 소리를 합치는 것은 완성본을 만들 때(RenderEpisode) 한다.
+
+과금하기 전에 (감사 BTS-12·23·30)
+- 모든 녹음을 먼저 확인한다 (비었는가, 소리가 있는가, 길이가 맞는가). 하나라도 걸리면 아무것도 인식하지 않는다.
+- 녹음이 덮는 시간(편 전체 또는 그 줄의 장면)보다 터무니없이 길면 거절한다. 인식은 분 단위로 과금한다.
+- 녹음 파일은 내용의 해시로 이름을 짓는다. 편이 가리키는 파일의 내용이 나중에 바뀌지 않는다
+  (번호로 지으면 실패한 붙이기가 예전 파일을 덮어써, 예전에 잰 시각이 새 파일에 적용됐다).
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -32,12 +39,17 @@ from frame.domain.services.narration import (
 )
 from frame.domain.video_analysis import Transcript
 
+from ..errors import AdapterError
 from ..ports.artifact_store import ArtifactStore
 from ..ports.audio import AudioEditor, TrackCut
 from ..ports.theme_store import EpisodeRepository
-from ..ports.video_analysis import SpeechRecognizer
+from ..ports.video_analysis import SpeechAudio, SpeechRecognizer
 
-_SUFFIX = re.compile(r"^\.[a-z0-9]{1,5}$")
+_SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
+# 녹음은 그것이 덮는 시간(편 전체, 또는 그 줄의 장면)의 이 배수 + 여유까지만 받는다.
+# 다시 읽은 부분·쉼을 넉넉히 봐준 값이다. 이보다 길면 장면에 놓을 수 없고, 인식 과금만 는다
+MAX_RECORDING_FACTOR = 3.0
+MAX_RECORDING_SLACK_MS = 10_000
 
 
 @dataclass(frozen=True)
@@ -89,13 +101,23 @@ class AttachNarration:
         uris = list(previous.recording_uris) if previous is not None else []
         sources = [self._store.get(uri) for uri in uris]
         offset = len(sources)
-        transcripts: list[Transcript] = []
         key_terms = tuple(v for v in episode.plan.variables.values() if v.strip())
-        for number, recording in enumerate(command.recordings):
-            transcripts.append(self._recognize(recording, command.language, key_terms))
+        # 1) 과금하기 전에 모든 녹음을 확인한다
+        prepared = [self._prepare(episode, recording) for recording in command.recordings]
+        # 2) 내용으로 이름을 지어 둔다 (편이 가리키는 파일의 내용은 바뀌지 않는다)
+        for recording in command.recordings:
             sources.append(recording.data)
-            key = f"episodes/{episode.episode_id}/recordings/{offset + number}{_suffix(recording)}"
+            digest = hashlib.sha256(recording.data).hexdigest()[:16]
+            key = f"episodes/{episode.episode_id}/recordings/{digest}{_suffix(recording)}"
             uris.append(self._store.put(key, recording.data))
+        # 3) 인식 (과금)
+        transcripts: list[Transcript] = []
+        for speech in prepared:
+            transcript = self._recognizer.transcribe(
+                speech, language=command.language, hint=", ".join(key_terms)
+            )
+            transcript.validate()
+            transcripts.append(transcript)
         durations = [self._duration(data) for data in sources]
 
         if whole:
@@ -103,7 +125,8 @@ class AttachNarration:
         else:
             kept = {a.line_key: a for a in previous.alignments} if previous is not None else {}
             for number, recording in enumerate(command.recordings):
-                assert recording.line_key is not None
+                if recording.line_key is None:  # _mode 가 이미 걸렀다
+                    raise ValidationError("줄마다 녹음한 파일에는 줄(line_key)이 있어야 합니다")
                 kept[recording.line_key] = check_line(
                     episode.plan.line(recording.line_key),
                     transcripts[number],
@@ -137,20 +160,30 @@ class AttachNarration:
         self._episodes.save(updated)
         return updated
 
-    def _recognize(
-        self, recording: RecordingInput, language: str | None, key_terms: Sequence[str]
-    ) -> Transcript:
+    def _prepare(self, episode: Episode, recording: RecordingInput) -> SpeechAudio:
+        """녹음 하나를 인식할 수 있는 소리로 바꾼다. 받을 수 없는 녹음이면 ValidationError (인식하기 전이다)."""
         if not recording.data:
             raise ValidationError("녹음 파일이 비어 있습니다")
-        speech = self._audio.speech_audio(recording.data)
-        if speech is None:
-            raise ValidationError("녹음 파일에 소리가 없습니다 (읽을 수 없는 형식일 수 있습니다)")
-        assert self._recognizer is not None
-        transcript = self._recognizer.transcribe(
-            speech, language=language, hint=", ".join(key_terms)
-        )
-        transcript.validate()
-        return transcript
+        unreadable = "녹음 파일에 소리가 없습니다 (읽을 수 없는 형식일 수 있습니다)"
+        try:
+            speech = self._audio.speech_audio(recording.data)
+            info = self._audio.probe(recording.data)
+        except AdapterError as exc:  # 실제 편집기는 읽을 수 없는 파일에 오류를 던진다 (가짜는 None)
+            raise ValidationError(unreadable) from exc
+        if speech is None or info is None:
+            raise ValidationError(unreadable)
+        covered = episode.plan.ir.total_duration_ms
+        if recording.line_key is not None:
+            covered = episode.plan.ir.scene(
+                episode.plan.line(recording.line_key).scene_key
+            ).duration_ms
+        limit = int(covered * MAX_RECORDING_FACTOR) + MAX_RECORDING_SLACK_MS
+        if info.duration_ms > limit:
+            raise ValidationError(
+                f"녹음이 너무 깁니다: {info.duration_ms / 1000:.0f}초 "
+                f"(이 녹음이 덮는 시간은 {covered / 1000:.0f}초, 받는 상한은 {limit / 1000:.0f}초)"
+            )
+        return speech
 
     def _duration(self, data: bytes) -> int:
         info = self._audio.probe(data)
@@ -183,4 +216,4 @@ def _mode(recordings: Sequence[RecordingInput], script: Sequence[ScriptLine]) ->
 
 def _suffix(recording: RecordingInput) -> str:
     suffix = PurePosixPath(recording.filename.replace("\\", "/")).suffix.lower()
-    return suffix if _SUFFIX.match(suffix) else ".bin"
+    return suffix if _SUFFIX.fullmatch(suffix) else ".bin"  # match 는 줄 끝의 \\n 앞에서도 맞는다

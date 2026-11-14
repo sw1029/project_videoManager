@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from frame.adapters.analysis import FakeSpeechRecognizer
@@ -75,7 +77,10 @@ def test_one_take_is_aligned_to_the_script_and_placed_in_each_scene(container):
         (8280, 9680, "가격은 5,000원"),
         (12280, 13580, "매장에서 만나요"),
     ]
-    assert narration.recording_uris == (f"mem://episodes/{episode.episode_id}/recordings/0.m4a",)
+    digest = hashlib.sha256(_whole().data).hexdigest()[:16]
+    assert narration.recording_uris == (
+        f"mem://episodes/{episode.episode_id}/recordings/{digest}.m4a",
+    )
     assert narration.track_uri == f"mem://episodes/{episode.episode_id}/narration.json"
     assert series_of(container).episodes.get(episode.episode_id) == episode
 
@@ -129,7 +134,7 @@ def test_new_whole_take_replaces_everything(container):
     again = _attach(container, first, _whole(GOOD_READING, "take2.m4a"))
 
     assert again.narration.ok and len(again.narration.recording_uris) == 1
-    assert again.narration.recording_uris[0].endswith("recordings/0.m4a")
+    assert again.narration.recording_uris[0].endswith(".m4a")
 
 
 def test_lines_recorded_one_by_one(container):
@@ -216,3 +221,94 @@ def test_episode_without_a_script_or_recognizer_cannot_take_narration(container)
     save_theme(off)
     with pytest.raises(ValidationError, match="음성 인식"):
         _attach(off, new_episode(off), _whole())
+
+
+# ---- 과금하기 전에 모든 입력을 확인한다 (감사 BTS-12·30) ----
+def test_every_recording_is_checked_before_any_is_recognised():
+    """셋째 파일이 비어 있으면 앞의 둘도 인식하지 않는다 (앞의 둘을 과금한 뒤에 거절하지 않는다)."""
+    recognizer = FakeSpeechRecognizer()
+    container = series_container(speech_recognizer=recognizer)
+    save_theme(container)
+    episode = new_episode(container)
+    recordings = (
+        _line("L1", "안녕하세요 오늘의 메뉴예요"),
+        _line("L2", "말차 라떼입니다"),
+        RecordingInput(b"", line_key="L3", filename="L3.wav"),
+    )
+
+    with pytest.raises(ValidationError, match="비어"):
+        _attach(container, episode, *recordings)
+    assert recognizer.calls == []
+    assert not any("recordings" in uri for uri in container.artifact_store._blobs)
+
+
+def test_recording_far_longer_than_what_it_covers_is_refused_before_recognition():
+    """인식은 분 단위로 과금한다. 장면에 넣을 수 없을 만큼 긴 녹음은 인식하기 전에 거절한다."""
+    recognizer = FakeSpeechRecognizer()
+    container = series_container(speech_recognizer=recognizer)
+    save_theme(container)
+    episode = new_episode(container)
+    hour = fake_recording(Transcript("ko", (SpeechSegment(0, 3_600_000, "아주 긴 녹음"),)))
+
+    with pytest.raises(ValidationError, match="너무 깁니다"):
+        _attach(container, episode, RecordingInput(hour, filename="take.m4a"))
+    with pytest.raises(ValidationError, match="너무 깁니다"):
+        _attach(container, episode, RecordingInput(hour, line_key="L1", filename="L1.wav"))
+    assert recognizer.calls == []
+
+
+def test_recording_that_cannot_be_read_is_a_validation_error_with_real_and_fake_editors():
+    """읽을 수 없는 녹음에 실제 편집기는 AudioError 를 던지고 가짜는 None 을 돌려준다. 둘 다 같은 안내가 된다."""
+    from frame.adapters.audio import FakeAudioEditor
+    from frame.application.ports.audio import AudioError
+
+    class _Strict(FakeAudioEditor):  # 실제 ffmpeg 편집기처럼 군다
+        def speech_audio(self, media):
+            if super().speech_audio(media) is None:
+                raise AudioError("ffmpeg: Invalid data found when processing input")
+            return super().speech_audio(media)
+
+    for editor in (FakeAudioEditor(), _Strict()):
+        container = series_container(audio_editor=editor)
+        save_theme(container)
+        episode = new_episode(container)
+        with pytest.raises(ValidationError, match="소리가 없습니다"):
+            _attach(container, episode, RecordingInput(b"not audio at all", filename="x.wav"))
+
+
+# ---- 녹음 파일은 내용으로 이름을 짓는다 (감사 BTS-23) ----
+def test_failed_attach_does_not_change_the_recordings_an_episode_points_to(container):
+    """트랙을 만들다 실패해도 편이 가리키는 녹음 파일의 내용은 바뀌지 않는다.
+
+    번호로 이름을 지으면 실패한 붙이기가 예전 파일을 새 녹음으로 덮어써, 이어서 한 줄만 다시 녹음할 때
+    예전 녹음에서 잰 시각이 새 파일에 적용된다 (오류 없이 어긋난다).
+    """
+    from frame.application.ports.audio import AudioError
+
+    series = series_of(container)
+    episode = new_episode(container)
+    first = _attach(container, episode, _whole())
+    uri = first.narration.recording_uris[0]
+    before = container.artifact_store.get(uri)
+
+    series.audio._error = AudioError("트랙을 만들지 못함")
+    other = fake_recording(
+        Transcript("ko", (SpeechSegment(100, 900, "전혀 다른 녹음"),)),
+    )
+    with pytest.raises(AudioError):
+        _attach(container, episode, RecordingInput(other, filename="take2.m4a"))
+    series.audio._error = None
+
+    assert container.artifact_store.get(uri) == before  # 편이 가리키는 파일은 그대로다
+    assert series.episodes.get(episode.episode_id).narration == first.narration
+    fixed = _attach(container, episode, _line("L3", "가격은 오천 원"))
+    assert fixed.narration.ok and fixed.narration.recording_uris[0] == uri
+
+
+def test_odd_file_names_never_reach_the_storage_key(container):
+    episode = new_episode(container)
+    odd = RecordingInput(_whole().data, filename="..\\..\\take.m4a\n")
+
+    narration = _attach(container, episode, odd).narration
+
+    assert narration.recording_uris[0].endswith(".bin") and ".." not in narration.recording_uris[0]
