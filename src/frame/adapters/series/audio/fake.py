@@ -30,10 +30,14 @@ class FakeAudioEditor(AudioEditor):
             return None
         return AudioInfo(int(part["duration_ms"]), sample_rate=16000, channels=1, codec="fake")
 
-    def speech_audio(self, media: bytes) -> SpeechAudio | None:
+    def speech_audio(
+        self, media: bytes, *, start_ms: int | None = None, end_ms: int | None = None
+    ) -> SpeechAudio | None:
         part = _audio_part(media)
         if part is None:
             return None
+        if start_ms is not None or end_ms is not None:
+            part = _span(part, start_ms or 0, end_ms)
         return SpeechAudio(
             encode_fake_media({"audio": part}), FAKE_MEDIA_TYPE, int(part["duration_ms"])
         )
@@ -102,6 +106,28 @@ def _audio_part(media: bytes) -> dict[str, Any] | None:
     decoded = decode_fake_media(media)
     part = decoded.get("audio") if decoded else None
     return part if isinstance(part, dict) and "duration_ms" in part else None
+
+
+def _span(part: dict[str, Any], start_ms: int, end_ms: int | None) -> dict[str, Any]:
+    """소리의 한 구간. 그 안의 말소리를 0부터의 시각으로 옮긴다. 전체에서는 빠지던 말(missed)도 여기서는 들린다."""
+    duration = int(part["duration_ms"])
+    start = max(0, min(start_ms, duration))
+    end = duration if end_ms is None else max(start, min(end_ms, duration))
+    heard: list[SpeechSegment] = []
+    for key in ("transcript", "missed"):
+        for segment in Transcript.from_dict(part.get(key) or {}).segments:
+            if start <= (segment.start_ms + segment.end_ms) / 2 < end:
+                heard.append(
+                    SpeechSegment(
+                        max(0, segment.start_ms - start),
+                        min(end, segment.end_ms) - start,
+                        segment.text,
+                        confidence=segment.confidence,
+                        no_speech=segment.no_speech,
+                    )
+                )
+    heard.sort(key=lambda s: s.start_ms)
+    return {"duration_ms": end - start, "transcript": Transcript("ko", tuple(heard)).to_dict()}
 
 
 def _fitted(part: dict[str, Any], duration_ms: int) -> dict[str, Any]:

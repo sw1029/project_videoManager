@@ -1,7 +1,8 @@
 """영상·음성 파일의 소리에서 대본을 뽑는다 (ADR-0028).
 
 1. 소리를 읽는다: 길이와 무음 구간 (SoundReader). 소리가 없으면 빈 대본으로 끝난다 (인식기를 부르지 않는다).
-2. 말소리를 받아 적는다 (SpeechRecognizer, 과금). 같은 소리를 다시 받아 적지 않는 것은 인식기 쪽의 일이다
+2. 말소리를 받아 적는다 (SpeechRecognizer, 과금). 처음부터 끝까지 무음이면 부르지 않고, 줄이 없는 소리는 그 구간만
+   다시 받아 적는다 (listening.listen). 같은 소리를 다시 받아 적지 않는 것은 인식기 쪽의 일이다
    (결과를 남기는 래퍼 CachingSpeechRecognizer).
 3. 받아쓰기를 줄로 다듬는다 (domain/script 의 build_script): 줄 나누기 · 장면 배정 · 신뢰도 · 말이 아닌 소리.
 4. 말할 사람이 화면에 없는 장면의 줄은 내레이션으로 정한다 (classify_kinds).
@@ -13,10 +14,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from frame.application.ports.sound import SoundReader
 from frame.application.ports.speech import SpeechRecognizer
+from frame.application.use_cases.script.listening import (
+    DEFAULT_LISTENING_POLICY,
+    ListeningPolicy,
+    listen,
+)
 from frame.domain.errors import ValidationError
 from frame.domain.script import (
     DEFAULT_SCRIPT_POLICY,
@@ -52,10 +58,12 @@ class ExtractScript:
         sound: SoundReader,
         recognizer: SpeechRecognizer | None,
         policy: ScriptPolicy = DEFAULT_SCRIPT_POLICY,
+        listening: ListeningPolicy = DEFAULT_LISTENING_POLICY,
     ) -> None:
         self._sound = sound
         self._recognizer = recognizer
         self._policy = policy
+        self._listening = listening
 
     def execute(self, command: ExtractScriptCommand) -> ExtractScriptResult:
         if not command.media:
@@ -65,20 +73,26 @@ class ExtractScript:
                 "음성 인식이 꺼져 있어 대본을 뽑을 수 없습니다 (FRAME_SPEECH_RECOGNIZER)"
             )
         profile = self._sound.sound_profile(command.media)
-        speech = self._sound.speech_audio(command.media) if profile is not None else None
-        if profile is None or speech is None:
+        if profile is None:
             return ExtractScriptResult(build_script(None, command.scenes), None, has_sound=False)
-        transcript = self._recognizer.transcribe(
-            speech, language=command.language, hint=command.hint
+        heard = listen(
+            self._sound,
+            self._recognizer,
+            command.media,
+            profile,
+            language=command.language,
+            hint=command.hint,
+            script_policy=self._policy,
+            policy=self._listening,
         )
-        transcript.validate(profile.duration_ms)
         script = build_script(
-            transcript,
+            heard.transcript,
             command.scenes,
             duration_ms=profile.duration_ms,
             silences=profile.silences,
             policy=self._policy,
         )
         script = classify_kinds(script, command.speaker_visible)
+        script = replace(script, notes=(*heard.notes, *script.notes))
         script.validate()
-        return ExtractScriptResult(script, transcript, has_sound=True)
+        return ExtractScriptResult(script, heard.transcript, has_sound=True)

@@ -1,6 +1,6 @@
 """ffmpeg 기반 소리 편집기 (ADR-0026). 사용자가 녹음한 음성을 잘라 장면에 놓고 영상에 붙인다.
 
-- speech_audio: 모노 16 kHz WAV. 음성 인식기에 넘기기 위한 것이다.
+- speech_audio: 모노 16 kHz WAV. 음성 인식기에 넘기기 위한 것이다. 구간을 주면 그 구간만 자른다.
 - render_track: 조각마다 atrim(자르기) -> atempo(빠르기, 음높이 유지) -> adelay(놓을 시각) 를 걸고,
   total_ms 길이의 무음 위에 섞는다. 결과는 모노 WAV (표본화율은 sample_rate).
   normalize=True 면 마지막에 음량을 EBU R128 기준(-16 LUFS)으로 맞춘다. 기본은 녹음을 건드리지 않는다.
@@ -50,17 +50,26 @@ class FfmpegAudioEditor(AudioEditor):
             path.write_bytes(media)
             return self._info(path)
 
-    def speech_audio(self, media: bytes) -> SpeechAudio | None:
+    def speech_audio(
+        self, media: bytes, *, start_ms: int | None = None, end_ms: int | None = None
+    ) -> SpeechAudio | None:
         with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:
             source, target = Path(tmp) / "media", Path(tmp) / "speech.wav"
             source.write_bytes(media)
             info = self._info(source)
             if info is None:
                 return None
+            start = max(0, min(start_ms or 0, info.duration_ms))
+            end = info.duration_ms if end_ms is None else max(start, min(end_ms, info.duration_ms))
             cmd = [self._ffmpeg, "-hide_banner", "-nostdin", "-y", "-i", str(source), "-vn"]
+            if (start, end) != (0, info.duration_ms):  # 구간만 꺼낸다 (시각은 0부터)
+                cmd += [
+                    "-af",
+                    f"atrim=start={start / 1000:.3f}:end={end / 1000:.3f},asetpts=PTS-STARTPTS",
+                ]
             cmd += ["-ac", "1", "-ar", str(SPEECH_SAMPLE_RATE), "-c:a", "pcm_s16le", str(target)]
             self._run(cmd, target, "인식용 소리를 만들지 못했습니다")
-            return SpeechAudio(target.read_bytes(), "audio/wav", info.duration_ms)
+            return SpeechAudio(target.read_bytes(), "audio/wav", end - start)
 
     def sound_profile(self, media: bytes) -> SoundProfile | None:
         with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:

@@ -248,6 +248,35 @@ def test_silent_video_or_recognizer_off_gives_no_transcript():
     assert off.extract_theme.execute(_command()).record.analysis.transcript is None
 
 
+def test_sound_that_is_all_silence_is_not_sent_to_the_recognizer():
+    """소리 트랙은 있는데 처음부터 끝까지 무음인 영상: 인식기는 여기서 문장을 지어낸다. 부르지 않는다."""
+    spy = FakeSpeechRecognizer()
+    series = series_of(series_container(speech_recognizer=spy))
+    video = fake_video(transcript=Transcript("ko"), silences=((0, 16000),))
+
+    record = series.extract_theme.execute(_command(video)).record
+
+    assert spy.calls == [] and record.analysis.transcript is None
+    assert record.script is not None and record.script.is_empty
+    assert any("무음" in note for note in record.notes)
+
+
+def test_speech_the_recognizer_skipped_is_heard_again_and_reaches_the_script():
+    """전체를 받아 적을 때 빠진 마지막 한마디를 그 구간만 다시 받아 적어 대본에 넣는다."""
+    spy = FakeSpeechRecognizer()
+    series = series_of(series_container(speech_recognizer=spy))
+    said = Transcript("ko", SAID.segments[:3])
+    last = Transcript("ko", (SpeechSegment(12500, 14000, "매장에서 만나요!", confidence=0.8),))
+    silences = ((0, 400), (2600, 4500), (6200, 8600), (10400, 12500), (14000, 16000))
+    video = fake_video(transcript=said, silences=silences, missed=last)
+
+    record = series.extract_theme.execute(_command(video)).record
+
+    assert [line.text for line in record.script.lines][-1] == "매장에서 만나요!"
+    assert len(record.analysis.transcript.segments) == 4 and len(spy.calls) == 2
+    assert any("다시 받아 적었습니다" in note for note in record.notes)
+
+
 def test_language_hint_reaches_the_recognizer():
     recognizer = FakeSpeechRecognizer()
     series = series_of(series_container(speech_recognizer=recognizer))

@@ -27,11 +27,14 @@ def fake_video(
     cuts_ms: Sequence[int] = (4000, 8000, 12000),
     transcript: Transcript | None = None,
     silences: Sequence[tuple[int, int]] | None = None,
+    missed: Transcript | None = None,
 ) -> bytes:
     """가짜 영상. transcript 를 주면 소리가 있는 영상이다.
 
     silences 를 주면 그 구간만 무음이다 (나머지는 말이든 음악이든 소리가 난다).
     주지 않으면 말소리가 없는 시간이 모두 무음이다.
+    missed 는 소리에는 있는데 전체를 받아 적을 때는 빠지는 말이다 (인식기가 건너뛴 말).
+    그 구간만 꺼낸 소리(speech_audio 의 구간)에서는 들린다.
     """
     media: dict[str, Any] = {
         "video": {
@@ -46,6 +49,8 @@ def fake_video(
         media["audio"] = {"duration_ms": duration_ms, "transcript": transcript.to_dict()}
         if silences is not None:
             media["audio"]["silences"] = [list(span) for span in silences]
+        if missed is not None:
+            media["audio"]["missed"] = missed.to_dict()
     return encode_fake_media(media)
 
 

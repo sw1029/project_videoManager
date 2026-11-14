@@ -18,6 +18,7 @@ from frame.adapters.series.audio import FakeAudioEditor
 from frame.adapters.series.audio.ffmpeg import FfmpegAudioEditor
 from frame.adapters.series.source_analysis import FakeMediaProber
 from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
+from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.ports.series.audio import AudioEditor, AudioError, TrackCut
 from frame.application.ports.series.source_analysis import MediaProber
 from frame.domain.speech import SpeechSegment, Transcript
@@ -108,6 +109,26 @@ def test_speech_audio_is_ready_for_a_recognizer(kit):
     assert speech.duration_ms is not None and abs(speech.duration_ms - 6000) <= TOLERANCE_MS
     again = kit.editor.probe(speech.data)  # 뽑은 소리도 소리 파일로 읽힌다
     assert again is not None and abs(again.duration_ms - 6000) <= TOLERANCE_MS
+
+
+def test_speech_audio_of_a_span_is_only_that_span(kit):
+    """구간을 주면 그 구간의 소리만 꺼낸다 (줄이 없는 소리만 다시 받아 적을 때 쓴다). 끝을 넘으면 잘라 맞춘다."""
+    part = kit.editor.speech_audio(kit.gapped, start_ms=2300, end_ms=3300)
+
+    assert part is not None and part.data and part.duration_ms is not None
+    assert abs(part.duration_ms - 1000) <= TOLERANCE_MS
+    tail = kit.editor.speech_audio(kit.gapped, start_ms=3000, end_ms=9000)
+    assert tail is not None and abs(tail.duration_ms - 500) <= TOLERANCE_MS
+    assert kit.editor.speech_audio(kit.silent_video, start_ms=0, end_ms=1000) is None
+
+
+def test_fake_span_carries_the_speech_inside_it_from_time_zero():
+    kit = _fake_kit()
+
+    part = kit.editor.speech_audio(kit.gapped, start_ms=2300, end_ms=3500)
+
+    heard = FakeSpeechRecognizer().transcribe(part)
+    assert [(s.start_ms, s.end_ms, s.text) for s in heard.segments] == [(200, 1200, "둘")]
 
 
 def test_track_has_the_requested_length(kit):

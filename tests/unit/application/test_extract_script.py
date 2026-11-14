@@ -101,3 +101,74 @@ def test_recognition_must_be_on_and_failures_are_not_hidden():
     failing, _ = _use_case(FakeSpeechRecognizer(error=SpeechServiceError("키 없음")))
     with pytest.raises(SpeechServiceError):
         failing.execute(ExtractScriptCommand(video))
+
+
+# ---- 받아 적기 전에 소리를 본다 (whisper-1 로 실제 말소리를 받아 적어 드러난 것) ----
+def test_sound_that_is_all_silence_is_not_sent_to_the_recognizer():
+    """무음뿐인 트랙에서 인식기는 문장을 지어낸다 ('고맙습니다.'). 부르지 않으면 지어내지도, 과금되지도 않는다."""
+    use_case, recognizer = _use_case()
+    video = fake_video(duration_ms=12000, transcript=Transcript("ko"), silences=((0, 12000),))
+
+    result = use_case.execute(ExtractScriptCommand(video, SCENES))
+
+    assert recognizer.calls == []
+    assert result.script.is_empty and result.has_sound and result.transcript is None
+    assert result.script.sounds == (SoundSpan(0, 12000, SoundKind.SILENCE),)
+    assert any("무음" in note for note in result.script.notes)
+
+
+LONG_LINE = Transcript(
+    "ko", (SpeechSegment(300, 7600, "손재주가 별로 없는 사람들은 자주 다칩니다."),)
+)
+LAST_WORDS = Transcript(
+    "ko", (SpeechSegment(12900, 14200, "영수증 필요하신가요?", confidence=0.8),)
+)
+GAPS = ((0, 300), (7650, 12900), (14240, 16000))
+
+
+def test_speech_the_recognizer_skipped_is_heard_again_from_that_stretch_alone():
+    """whisper-1 은 5초를 쉰 뒤의 마지막 한마디를 통째로 빠뜨렸다. 줄이 없는 소리만 잘라 다시 받아 적는다."""
+    use_case, recognizer = _use_case()
+    video = fake_video(duration_ms=16000, transcript=LONG_LINE, silences=GAPS, missed=LAST_WORDS)
+
+    result = use_case.execute(ExtractScriptCommand(video, language="ko", hint="영수증"))
+
+    script = result.script
+    assert [(line.start_ms, line.end_ms, line.text) for line in script.lines] == [
+        (300, 7650, "손재주가 별로 없는 사람들은 자주 다칩니다."),
+        (12900, 14240, "영수증 필요하신가요?"),
+    ]
+    assert script.lines[1].confidence == 0.8
+    assert [call["hint"] for call in recognizer.calls] == [
+        "영수증",
+        "영수증",
+    ]  # 전체 한 번 + 그 구간 한 번
+    assert recognizer.calls[1]["bytes"] < recognizer.calls[0]["bytes"]
+    assert any("다시 받아 적었습니다" in note for note in script.notes)
+    assert not any("받아 적은 말이 없습니다" in note for note in script.notes)
+    assert result.transcript is not None and len(result.transcript.segments) == 2
+
+
+def test_what_is_heard_again_must_be_believable():
+    """말이 없는 소리만 잘라 주면 인식기는 또 지어낸다 (신뢰도 0.45). 믿을 만하지 않으면 줄로 삼지 않는다."""
+    use_case, recognizer = _use_case()
+    made_up = Transcript("ko", (SpeechSegment(12900, 14200, "고맙습니다.", confidence=0.45),))
+    video = fake_video(duration_ms=16000, transcript=LONG_LINE, silences=GAPS, missed=made_up)
+
+    script = use_case.execute(ExtractScriptCommand(video)).script
+
+    assert [line.text for line in script.lines] == ["손재주가 별로 없는 사람들은 자주 다칩니다."]
+    assert len(recognizer.calls) == 2
+    assert any(
+        "12.9~14.2초에 소리가 있는데 받아 적은 말이 없습니다" in note for note in script.notes
+    )
+
+
+def test_sound_that_fills_the_whole_file_is_not_heard_twice():
+    """음악이 내내 깔린 영상: 줄이 없는 소리가 파일 전체다. 같은 소리를 다시 받아 적지 않는다."""
+    use_case, recognizer = _use_case()
+    video = fake_video(duration_ms=8000, transcript=Transcript("ko"), silences=())
+
+    script = use_case.execute(ExtractScriptCommand(video)).script
+
+    assert script.is_empty and len(recognizer.calls) == 1

@@ -3,8 +3,9 @@
 순서
 1. 겉모습을 읽고 숏폼 규격을 판정한다. 기준 밖이면 NotShortform 으로 거절한다 (require_shortform 이 참일 때).
 2. 컷을 찾아 샷으로 나눈다.
-3. 소리가 있으면 무음 구간을 재고 말소리를 받아 적는다. 인식하지 못해도 추출은 계속한다 (메모만 남긴다):
-   말소리는 테마의 한 부분이지 전제 조건이 아니다.
+3. 소리가 있으면 무음 구간을 재고 말소리를 받아 적는다 (use_cases/script 의 listen: 처음부터 끝까지 무음이면
+   인식기를 부르지 않고, 줄이 없는 소리는 그 구간만 다시 받아 적는다). 인식하지 못해도 추출은 계속한다
+   (메모만 남긴다): 말소리는 테마의 한 부분이지 전제 조건이 아니다.
 4. 자리의 경계를 정한다: 컷을 묶되 문장 중간을 자르지 않고, 상한이 있으면 긴 자리를 말 멈춤에서 나눈다 (ADR-0028).
 5. 추출기가 테마와 원본 IR 을 만든다. 계약을 다시 확인한 뒤에만 저장한다.
 6. 받아쓰기를 대본으로 다듬어 화면에서 읽은 것과 견준다: 변수·화면 문구의 근거, 어긋남, 내레이션 규칙,
@@ -42,6 +43,7 @@ from frame.application.ports.series.theme_extraction import (
 )
 from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
+from frame.application.use_cases.script import listen
 from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
@@ -150,7 +152,8 @@ class ExtractTheme:
         shots = self._shot_detector.detect(command.video, media)
         notes: list[str] = []
         profile = self._profile(command, media.has_audio, notes)
-        analysis = VideoAnalysis(media, shots, self._transcribe(command, media.has_audio, notes))
+        transcript = self._transcribe(command, media.has_audio, profile, notes)
+        analysis = VideoAnalysis(media, shots, transcript)
         analysis.validate()
 
         theme_id = self._ids.new_id("thm")
@@ -170,7 +173,7 @@ class ExtractTheme:
             analysis=analysis,
             title=command.title.strip(),
             min_slot_ms=self._min_slot_ms,
-            slot_spans=self._slot_spans(analysis),
+            slot_spans=self._slot_spans(analysis, profile),
         )
         extraction = self._extractor.extract(request)
         _check_contract(extraction.theme, extraction.source_ir, request)
@@ -227,9 +230,18 @@ class ExtractTheme:
                 return record
         return None
 
-    def _slot_spans(self, analysis: VideoAnalysis) -> tuple[tuple[int, int], ...]:
-        """자리의 구간: 컷을 묶되 문장 중간을 자르지 않고, 상한이 있으면 긴 자리를 말 멈춤에서 나눈다."""
-        spoken = build_script(analysis.transcript).lines
+    def _slot_spans(
+        self, analysis: VideoAnalysis, profile: SoundProfile | None
+    ) -> tuple[tuple[int, int], ...]:
+        """자리의 구간: 컷을 묶되 문장 중간을 자르지 않고, 상한이 있으면 긴 자리를 말 멈춤에서 나눈다.
+
+        말한 구간은 잰 무음에 맞춘 것을 쓴다 (인식기의 시각은 무음 쪽으로 어긋난다).
+        """
+        spoken = build_script(
+            analysis.transcript,
+            duration_ms=profile.duration_ms if profile is not None else None,
+            silences=profile.silences if profile is not None else None,
+        ).lines
         return slot_spans_from_shots(
             analysis.shots,
             min_slot_ms=self._min_slot_ms,
@@ -251,17 +263,21 @@ class ExtractTheme:
             return None
 
     def _transcribe(
-        self, command: ExtractThemeCommand, has_audio: bool, notes: list[str]
+        self,
+        command: ExtractThemeCommand,
+        has_audio: bool,
+        profile: SoundProfile | None,
+        notes: list[str],
     ) -> Transcript | None:
+        """말소리를 받아 적는다. 무음뿐이면 부르지 않고, 줄이 없는 소리는 다시 받아 적는다 (listen)."""
         if not has_audio or self._recognizer is None:
             return None
         try:
-            speech = self._audio.speech_audio(command.video)
-            if speech is None:
-                return None
-            transcript = self._recognizer.transcribe(speech, language=command.language)
-            transcript.validate()
-            return transcript
+            heard = listen(
+                self._audio, self._recognizer, command.video, profile, language=command.language
+            )
+            notes += heard.notes
+            return heard.transcript
         except SpeechServiceError:
             raise  # 설정·환경의 문제: 내레이션 없는 테마를 돈 들여 만들지 않는다
         except (AdapterError, ValidationError) as exc:

@@ -263,10 +263,10 @@ def test_recording_that_cannot_be_read_is_a_validation_error_with_real_and_fake_
     from frame.application.ports.series.audio import AudioError
 
     class _Strict(FakeAudioEditor):  # 실제 ffmpeg 편집기처럼 군다
-        def speech_audio(self, media):
-            if super().speech_audio(media) is None:
+        def speech_audio(self, media, **span):
+            if super().speech_audio(media, **span) is None:
                 raise AudioError("ffmpeg: Invalid data found when processing input")
-            return super().speech_audio(media)
+            return super().speech_audio(media, **span)
 
     for editor in (FakeAudioEditor(), _Strict()):
         container = series_container(audio_editor=editor)
