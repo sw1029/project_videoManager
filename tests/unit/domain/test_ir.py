@@ -251,3 +251,36 @@ def test_background_cannot_be_relation_subject(ir):
     )
     with pytest.raises(ValidationError, match="배경"):
         bad.validate()
+
+
+# ---- 표시 이름 (#10, ADR-0022) ---------------------------------------------------------
+
+
+def _named(ir, **names):
+    """객체에 표시 이름을 붙인 IR."""
+    return replace(
+        ir,
+        entities=tuple(replace(e, display_name=names.get(e.entity_key, "")) for e in ir.entities),
+    )
+
+
+def test_display_name_defaults_to_empty_and_is_left_out_of_the_document(ir):
+    assert EntitySpec("cup").display_name == ""
+    assert all("display_name" not in e for e in ir.to_dict()["entities"])  # 예전 문서·해시 그대로
+
+
+def test_display_name_round_trips_and_is_trimmed(ir):
+    named = _named(ir, cup="컵 01", barista="바리스타")
+    document = named.to_dict()
+    assert [e.get("display_name") for e in document["entities"]] == ["바리스타", "컵 01", None]
+    assert IntermediateRepresentation.from_dict(document) == named
+
+    document["entities"][1]["display_name"] = "  머그  "
+    assert IntermediateRepresentation.from_dict(document).entity("cup").display_name == "머그"
+
+
+def test_display_name_is_not_a_generation_condition(ir):
+    """표시 이름만 바뀐 장면은 조건이 같다 → 다시 생성하지 않고 부모 클립을 쓴다."""
+    named = _named(ir, cup="컵 01")
+    for scene in ir.scenes:
+        assert named.scene_fingerprint(scene.scene_key) == ir.scene_fingerprint(scene.scene_key)

@@ -71,6 +71,8 @@ class EntityRow(Base):
     entity_key: Mapped[str] = mapped_column(String(64), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # 확장
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")  # 확장
+    # 확장 (#10, ADR-0022): 화면에 보여 줄 이름. 생성 조건이 아니다. 없으면 NULL
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class SceneRow(Base):

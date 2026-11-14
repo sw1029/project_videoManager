@@ -253,7 +253,7 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self._session.execute(delete(RequirementRow).where(RequirementRow.scene_id.in_(scene_ids)))
         self._session.execute(delete(SceneEntityRow).where(SceneEntityRow.scene_id.in_(scene_ids)))
         self._session.execute(delete(SceneRow).where(SceneRow.version_id == vid))
-        # ENTITY 는 프로젝트 범위: 없으면 만들고 있으면 설명만 갱신
+        # ENTITY 는 프로젝트 범위: 없으면 만들고 있으면 종류·설명·표시 이름만 갱신
         for e in ir.entities:
             eid = entity_id(pid, e.entity_key)
             existing = self._session.get(EntityRow, eid)
@@ -265,10 +265,12 @@ class SqlAlchemyVersionRepository(VersionRepository):
                         entity_key=e.entity_key,
                         kind=str(e.kind),
                         description=e.description,
+                        display_name=e.display_name or None,
                     )
                 )
             else:
                 existing.kind, existing.description = str(e.kind), e.description
+                existing.display_name = e.display_name or None
         _flush(self._session)
         # relationship() 없이 FK 만 선언했으므로 부모 행(SCENE)을 먼저 flush 해야 자식 행 INSERT 순서가 보장된다
         for s in ir.scenes:

@@ -36,6 +36,8 @@ class IREntityIn(BaseModel):
         description="PERSON | ANIMAL | PROP | BACKGROUND | TEXT | OTHER (person 같은 별칭은 서버가 고친다)",
     )
     description: str = Field(default="", max_length=500)  # 생성 지시문에 들어가는 외형 설명
+    # 화면에 보여 줄 이름 ("컵 01", ADR-0022). 생성 조건이 아니므로 바꿔도 장면을 다시 만들지 않는다
+    display_name: str | None = Field(default=None, max_length=64)
 
 
 class IRRequirementIn(BaseModel):
@@ -268,6 +270,8 @@ class EntityOut(BaseModel):
     entity_key: str
     kind: str
     description: str
+    # 화면에 보여 줄 이름 (ADR-0022). null 이면 화면이 종류와 순번으로 라벨을 만든다 ("컵 01")
+    display_name: str | None = None
 
 
 class IROut(BaseModel):

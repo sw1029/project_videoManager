@@ -1003,6 +1003,17 @@
             "title": "Description",
             "type": "string"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "entity_id": {
             "title": "Entity Id",
             "type": "string"
@@ -1240,6 +1251,18 @@
             "maxLength": 500,
             "title": "Description",
             "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
           },
           "entity_key": {
             "description": "영문 snake_case 식별자 (요구조건·추적의 키)",

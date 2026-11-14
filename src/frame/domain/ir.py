@@ -63,6 +63,9 @@ class EntitySpec:
     entity_key: str
     kind: EntityKind = EntityKind.OTHER
     description: str = ""
+    # 화면에 보여 줄 이름 ("컵 01", "바리스타", ADR-0022). 생성 조건이 아니다: 장면·생성 fingerprint 에 넣지 않고
+    # 생성 지시문에도 쓰지 않는다. 비어 있으면 화면이 종류와 순번으로 라벨을 만든다
+    display_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -207,10 +210,7 @@ class IntermediateRepresentation:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": IR_SCHEMA_VERSION,
-            "entities": [
-                {"entity_key": e.entity_key, "kind": str(e.kind), "description": e.description}
-                for e in self.entities
-            ],
+            "entities": [_entity_dict(e) for e in self.entities],
             "scenes": [
                 {
                     "scene_key": s.scene_key,
@@ -245,6 +245,7 @@ class IntermediateRepresentation:
                 entity_key=e["entity_key"],
                 kind=EntityKind(e.get("kind", EntityKind.OTHER)),
                 description=e.get("description", ""),
+                display_name=(e.get("display_name") or "").strip(),
             )
             for e in data.get("entities", [])
         )
@@ -306,3 +307,16 @@ class IntermediateRepresentation:
             ],
         }
         return canonical_hash(payload)
+
+
+def _entity_dict(entity: EntitySpec) -> dict[str, Any]:
+    document: dict[str, Any] = {
+        "entity_key": entity.entity_key,
+        "kind": str(entity.kind),
+        "description": entity.description,
+    }
+    if (
+        entity.display_name
+    ):  # 비어 있으면 넣지 않는다: 표시 이름이 없던 문서·fingerprint 가 그대로다
+        document["display_name"] = entity.display_name
+    return document

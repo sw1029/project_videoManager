@@ -8,7 +8,11 @@ import pytest
 from frame.adapters.generator.fake import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.adapters.structurer import FakeStructurer, PassthroughStructurer
-from frame.application.dto import CreateProjectCommand, EditDraftIrCommand
+from frame.application.dto import (
+    CreateProjectCommand,
+    CreateRevisionCommand,
+    EditDraftIrCommand,
+)
 from frame.application.errors import StructuringError
 from frame.application.ports.structurer import (
     IrDocumentStructurer,
@@ -17,6 +21,7 @@ from frame.application.ports.structurer import (
 )
 from frame.domain.enums import VersionState
 from frame.domain.errors import NotFound, ValidationError, VersionNotEditable
+from frame.domain.services.propagation import AttributeChange
 from tests.support.factories import (
     CAFE_PROMPT,
     create_draft,
@@ -171,3 +176,28 @@ def test_generation_accepted_while_editing_wins_and_the_frozen_ir_is_kept():
     version = version_of(container, draft.version_id)
     assert version.state is VersionState.QUEUED
     assert version.ir == before and version.frozen_fingerprint == before.fingerprint()
+
+
+def test_renaming_objects_in_a_revision_draft_does_not_regenerate_scenes():
+    """표시 이름(#10)은 생성 조건이 아니다: 수정 버전 DRAFT 에서 이름만 붙여도 바뀌지 않은 장면은 부모 클립을 쓴다."""
+    store = InMemoryArtifactStore()
+    generator = FakeVideoGenerator(store)
+    container = make_container(artifact_store=store, generator=generator)
+    draft = create_draft(container)
+    generate(container, draft.version_id)
+    revision = container.create_revision.execute(
+        CreateRevisionCommand(
+            draft.version_id, AttributeChange(entity_key="cup", predicate="color", new_value="teal")
+        )
+    )
+    document = version_of(container, revision.version_id).ir.to_dict()
+    for entity in document["entities"]:
+        entity["display_name"] = {"cup": "컵 01", "barista": "바리스타"}.get(entity["entity_key"])
+
+    result = container.edit_draft_ir.execute(EditDraftIrCommand(revision.version_id, document))
+    generator.requests.clear()
+    done = generate(container, revision.version_id)
+
+    assert result.repair_notes == ()
+    assert done.ir.entity("cup").display_name == "컵 01"
+    assert sorted(r.scene.scene_key for r in generator.requests) == ["closeup", "intro"]

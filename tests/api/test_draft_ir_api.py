@@ -149,3 +149,21 @@ def test_unknown_version_returns_404(api):
     response = client.put("/api/versions/ver_missing/ir", json=draft["ir"])
     assert response.status_code == 404
     assert response.json()["error_code"] == "NOT_FOUND"
+
+
+def test_display_names_can_be_given_and_are_returned(api):
+    """#10 display_name: 화면 라벨("컵 01")을 키와 따로 둔다. 구조화 결과에는 없으므로 null 이다."""
+    client, container = api
+    draft = _draft(client, container)
+    assert {e["display_name"] for e in draft["ir"]["entities"]} == {None}
+    ir = copy.deepcopy(draft["ir"])
+    for entity in ir["entities"]:
+        if entity["entity_key"] == "cup":
+            entity["display_name"] = "컵 01"
+
+    response = client.put(f"/api/versions/{draft['version_id']}/ir", json=ir)
+
+    assert response.status_code == 200, response.text
+    names = {e["entity_key"]: e["display_name"] for e in response.json()["ir"]["entities"]}
+    assert names == {"barista": None, "cup": "컵 01", "cafe": None}
+    assert response.json()["repair_notes"] == []
