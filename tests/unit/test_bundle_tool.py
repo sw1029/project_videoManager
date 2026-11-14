@@ -298,6 +298,28 @@ def test_minimal_env_drops_other_python_settings(monkeypatch):
     assert env["PATH"] and "python" not in env["PATH"].lower()
 
 
+def test_the_windows_system_path_comes_from_the_environment():
+    """Windows 가 깔린 자리는 환경 변수가 알려 준다. 코드에 적어 둔 경로로 대신하지 않는다 (감사 P-19)."""
+    path = bundle._windows_system_path({"SYSTEMROOT": "WINROOT"})
+
+    assert path.split(";") == ["WINROOT\\System32", "WINROOT", "WINROOT\\System32\\Wbem"]
+    assert bundle._windows_system_path({"WINDIR": "WINROOT"}) == path
+    with pytest.raises(bundle.BundleError, match="SYSTEMROOT"):
+        bundle._windows_system_path({})
+
+
+def test_the_posix_system_path_is_what_the_system_says(monkeypatch):
+    """표준 도구의 PATH 는 운영체제에 묻는다 (POSIX 의 CS_PATH). 답이 없으면 파이썬이 아는 기본값이다."""
+    monkeypatch.setattr(bundle.os, "confstr", lambda name: "std-a:std-b", raising=False)
+    assert bundle._posix_system_path() == "std-a:std-b"
+
+    def unknown(name):
+        raise ValueError(name)
+
+    monkeypatch.setattr(bundle.os, "confstr", unknown, raising=False)
+    assert bundle._posix_system_path() == bundle.os.defpath
+
+
 def test_verify_rejects_a_checksum_mismatch(tmp_path):
     (tmp_path / "frame-demo-windows-x64.zip").write_bytes(b"zip")
     (tmp_path / "frame-demo-windows-x64.zip.sha256").write_text(

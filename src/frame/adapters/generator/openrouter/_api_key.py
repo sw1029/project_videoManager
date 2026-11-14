@@ -27,7 +27,7 @@ def resolve_openrouter_key(
 ) -> str:
     """명시 인자 -> OPENROUTER_API_KEY -> 키 파일 순서. 못 찾으면 ConfigurationError (메시지에 키 내용 없음).
 
-    키 파일에서는 'sk-or-' 로 시작하는 값만 받는다. 다른 회사 키 파일(F:/key.txt 의 OpenAI 키 등)을 잘못 지정해도
+    키 파일에서는 'sk-or-' 로 시작하는 값만 받는다. 다른 회사의 키 파일(OpenAI 키가 든 파일 등)을 잘못 지정해도
     그 키를 OpenRouter 로 보내지 않는다.
     """
     if explicit and explicit.strip():

@@ -137,11 +137,11 @@ pip install -e ".[dev,llm]"
 ```
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
+FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=path/to/openai.key python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
 ```
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -m slow -s
+FRAME_LIVE_TESTS=1 FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=path/to/openai.key python -m pytest tests/live -m slow -s
 ```
 
 구조화 품질은 골드셋 15건(브리프 → 기대 IR)으로 잰다. 객체 재현율·요구조건 F1·장면 수 일치를 내고,

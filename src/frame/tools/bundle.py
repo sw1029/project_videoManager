@@ -29,7 +29,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 import zipfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -553,12 +553,29 @@ def minimal_env() -> dict[str, str]:
             "USERNAME",
         }
         env = {k: v for k, v in os.environ.items() if k.upper() in keep}
-        system_root = os.environ.get("SYSTEMROOT", "C:\\Windows")
-        env["PATH"] = f"{system_root}\\System32;{system_root};{system_root}\\System32\\Wbem"
+        env["PATH"] = _windows_system_path(os.environ)
         return env
     env = {k: v for k, v in os.environ.items() if k in {"HOME", "USER", "TMPDIR", "LANG", "LC_ALL"}}
-    env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+    env["PATH"] = _posix_system_path()
     return env
+
+
+def _windows_system_path(env: Mapping[str, str]) -> str:
+    """Windows 의 시스템 폴더만 든 PATH. Windows 가 깔린 자리는 환경 변수가 알려 준다 (코드에 적어 두지 않는다)."""
+    root = env.get("SYSTEMROOT") or env.get("WINDIR")
+    if not root:
+        raise BundleError("Windows 가 깔린 폴더를 알 수 없습니다 (SYSTEMROOT 환경 변수가 없습니다)")
+    return ";".join([rf"{root}\System32", root, rf"{root}\System32\Wbem"])
+
+
+def _posix_system_path() -> str:
+    """표준 도구가 있는 PATH. 운영체제에 묻고 (POSIX 의 CS_PATH), 답이 없으면 파이썬이 아는 기본값을 쓴다."""
+    confstr = getattr(os, "confstr", None)  # Windows 의 파이썬에는 없다
+    try:
+        answer = confstr("CS_PATH") if confstr is not None else None
+    except (OSError, ValueError):
+        answer = None
+    return answer or os.defpath
 
 
 def _extract_bundle(archive: Path, dest: Path) -> None:
