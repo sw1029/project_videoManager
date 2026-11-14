@@ -209,7 +209,7 @@
 - 근거: 같은 기기의 역방향 프록시(nginx 등) 뒤에서 `--proxy-headers` 없이 띄우면 모든 요청의 주소가 `127.0.0.1` 이다.
   그러면 원격 사용자도 키를 넣을 수 있다. 요청 제한 모듈은 이 조건을 docstring 에 적었는데 (`rate_limit.py:3-4`) 키 입력 쪽에는 없다.
 - 제안: `routers/settings.py` docstring 과 `docs/DEMO.md` 에 같은 조건을 적는다. 코드 변경은 없다.
-- 담당·시점: **감사 · 지금** (docstring) / 머지 뒤 (문서) · 상태: 열림
+- 담당·시점: **감사 · 지금** (docstring) / 머지 뒤 (문서) · 상태: **해결** (이 커밋) — `routers/settings.py` 의 머리말과 `docs/DEMO.md` 7절에 조건을 적었다: 역방향 프록시 뒤에서는 `--proxy-headers` 가 있어야 '같은 기기' 판정과 요청 제한이 뜻대로 돈다. 코드 변경은 없다
 
 ### A-12 · 낮음 · `VersionRepository.save` 의 동시 갱신 의미가 계약에 없다
 - 어디: `src/frame/application/ports/repositories.py:36-38`, 구현 `adapters/persistence/sqlalchemy/repositories.py:97-111`·`memory.py:73-76`.
@@ -471,7 +471,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
   `evaluation`·`tools` 행은 없다.
 - 제안: 표를 실제 규칙으로 고친다 — adapters: `application.ports`·`application.errors`·`domain`; presentation: `application`·`domain`·`config`;
   evaluation: `domain`·`application`; tools: 전부. `mappers.py` 는 `Settings` 대신 `bool` 하나를 받게 바꿀 수 있다 (머지 뒤 M-03 과 함께).
-- 담당·시점: **감사** · 표는 ADR-0030 에 먼저 적고, `ARCHITECTURE.md` 는 머지 뒤 (#21 브랜치가 고치고 있다. P-11) · 상태: 열림
+- 담당·시점: **감사** · 표는 ADR-0030 에 먼저 적고, `ARCHITECTURE.md` 는 머지 뒤 (#21 브랜치가 고치고 있다. P-11) · 상태: **일부 해결** (`fda450c`) — 실제 허용 범위의 표를 ADR-0030 3절에 적었고 `tests/architecture/test_layer_rules.py` 가 그 표를 지킨다. `ARCHITECTURE.md` §3.1 의 표를 맞추는 것은 머지 뒤 (P-11)
 
 ### L-03 · 낮음 · 어댑터 공용 모듈이 `adapters/` 최상위에 흩어져 있다
 - 어디: `src/frame/adapters/common.py`, `http_transport.py`, `video_tools.py`, `vlm_answers.py`.
