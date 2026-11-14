@@ -1,7 +1,8 @@
-"""실제 OpenRouter 영상 생성 호출 (slow, 비용 발생). FRAME_GENERATOR=external_api 를 명시했을 때만 실행된다.
+"""실제 OpenRouter 영상 생성 호출 (slow, 비용 발생). FRAME_LIVE_TESTS=1 과 FRAME_GENERATOR=external_api 를
+함께 명시했을 때만 실행된다 (공통 스위치는 tests/live/conftest.py, ADR-0030).
 
-    FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<OpenRouter 키 파일> FRAME_VIDEO_RESOLUTION=480p \
-        python -m pytest tests/live/test_openrouter_live.py -m slow -s
+    FRAME_LIVE_TESTS=1 FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<OpenRouter 키 파일> \
+        FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
 
 카페 예시의 intro 장면(9:16, 4초) 하나를 만든다. Wan 3.0 기준 480p 약 $0.20, 720p 약 $0.40.
 결과 mp4 는 FRAME_ARTIFACT_DIR(기본 ./artifacts) 의 clips/live-<시각>/intro.mp4 에 남는다.

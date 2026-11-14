@@ -1,6 +1,7 @@
-"""실제 OpenAI 호출 테스트 (slow). FRAME_STRUCTURER=llm 을 명시했을 때만 실행된다 (비용 발생 방지).
+"""실제 OpenAI 호출 테스트 (slow). FRAME_LIVE_TESTS=1 과 FRAME_STRUCTURER=llm 을 함께 명시했을 때만 실행된다
+(비용 발생 방지. 공통 스위치는 tests/live/conftest.py, ADR-0030).
 
-    FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt pytest tests/live -m slow -s
+    FRAME_LIVE_TESTS=1 FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live -m slow -s
 
 로컬(3090) OpenAI 호환 서버(vLLM 등)는 FRAME_LLM_BASE_URL=http://localhost:8001/v1 과
 FRAME_LLM_MODEL=<서빙 모델명>, FRAME_LLM_STRICT_SCHEMA=false 로 같은 테스트를 돌린다.
