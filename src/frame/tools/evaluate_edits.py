@@ -221,7 +221,9 @@ def _progress(run: CaseRun, plan_only: bool) -> str:
         return f"{head} 오류 {run.error_code}: {run.error_message} ({run.elapsed_s:.1f}s)"
     if plan_only:
         plan = run.plan
-        assert plan is not None
+        # PlanRevision 은 오류가 없으면 늘 계획을 돌려준다. 없으면 계약 위반이라 멈춘다 (계획만 보는 실행이라 과금 없음)
+        if plan is None:
+            raise RuntimeError(f"{run.spec.case_id}: 오류 없이 끝났는데 변경 계획이 없습니다")
         cost = "-" if plan.estimated_cost_usd is None else f"${plan.estimated_cost_usd:.3f}"
         return (
             f"{head} 계획 {plan.kind} · 다시 만들 장면 {len(plan.target_scene_keys)} "

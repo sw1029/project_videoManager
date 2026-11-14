@@ -277,6 +277,24 @@ def test_plan_only_reports_the_plan_without_creating_revisions(tmp_path):
     assert summary["regenerate_scenes"] == 2
 
 
+def test_plan_only_case_that_ends_without_a_plan_fails_loudly(tmp_path):
+    """오류 없이 끝났는데 계획이 없으면(유스케이스 계약 위반) 진행 줄을 지어내지 않고 멈춘다.
+
+    python -O 에서도 사라지지 않는 명시적 확인이다. 계획만 보는 실행이라 과금은 없다.
+    """
+
+    class NoPlan:
+        def execute(self, command):
+            return None
+
+    container = _container()
+    parent = _parent(container)
+    broken = dataclasses.replace(container, plan_revision=NoPlan())
+
+    with pytest.raises(RuntimeError, match="변경 계획이 없습니다"):
+        _run(tmp_path, broken, [_cup(parent)], "--plan-only")
+
+
 class _InterruptingAccept:
     """n 번째 생성 접수에서 Ctrl+C. 그 케이스의 수정 버전은 이미 만들어져 있다."""
 
