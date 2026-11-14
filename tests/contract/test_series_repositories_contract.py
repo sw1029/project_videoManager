@@ -315,7 +315,10 @@ def test_theme_lock_makes_other_threads_wait_for_the_same_key(repositories):
 def test_pending_revision_becomes_the_base_only_when_it_completes():
     episode = replace(_episode(), render=RenderResult("mem://final.mp4", "ver_1", 16000))
     waiting = episode.with_pending("ver_2")
-    changed = replace(episode.plan.ir, scenes=episode.plan.ir.scenes[:1])
+    first, *rest = episode.plan.ir.scenes
+    changed = replace(
+        episode.plan.ir, scenes=(replace(first, description="다시 쓴 장면 설명"), *rest)
+    )
 
     assert (waiting.version_id, waiting.pending_version_id) == ("ver_1", "ver_2")
     assert waiting.render == episode.render  # 아직 기준 버전의 완성본이 맞다
@@ -335,6 +338,54 @@ def test_pending_revision_becomes_the_base_only_when_it_completes():
         assert dropped.history == () and dropped.render == episode.render
     assert episode.settled(VersionState.COMPLETED, changed) is episode  # 기다리는 버전이 없다
     assert Episode.from_dict(waiting.to_dict()) == waiting
+
+
+@pytest.mark.parametrize(
+    ("change", "scene_key"),
+    [
+        (lambda ir: replace(ir, scenes=ir.scenes[:-1]), "outro"),
+        (lambda ir: replace(ir, scenes=(*ir.scenes, SceneSpec("extra", 16000, 20000))), "extra"),
+    ],
+    ids=["scene_removed", "scene_added"],
+)
+def test_a_completed_revision_the_plan_cannot_follow_does_not_become_the_base(change, scene_key):
+    """끝난 수정 버전의 IR 을 편의 계획이 따를 수 없으면 기준 버전으로 삼지 않는다 (감사 P-20).
+
+    편의 수정(ReviseEpisode)은 조건의 값만 바꾸므로 장면의 짜임은 그대로다. 짜임이 달라진 IR 은 편 밖에서 고친 것이다 —
+    수정 버전의 초안은 일반 `PUT /versions/{id}/ir` 로도 고칠 수 있다 (#11). 전에는 그 IR 을 검사 없이 계획에 옮겨,
+    없는 장면을 가리키는 대본 줄과 문구가 든 계획이 저장됐다. 장면이 는 IR 은 계획의 검사만으로는 걸리지 않는다.
+    """
+    episode = replace(_episode(), render=RenderResult("mem://final.mp4", "ver_1", 16000))
+    waiting = episode.with_pending("ver_2")
+
+    kept = waiting.settled(VersionState.COMPLETED, change(episode.plan.ir))
+
+    assert (kept.version_id, kept.history, kept.pending_version_id) == ("ver_1", (), None)
+    assert kept.plan.ir == episode.plan.ir and kept.render == episode.render
+    kept.plan.validate()  # 저장되는 계획은 늘 맞는 계획이다
+    assert len(kept.plan.notes) == len(episode.plan.notes) + 1
+    assert "ver_2" in kept.plan.notes[-1] and scene_key in kept.plan.notes[-1]
+    assert Episode.from_dict(kept.to_dict()) == kept
+
+
+def test_an_episode_follows_its_base_version_when_the_plan_can():
+    """기준 버전의 IR 이 편 밖에서 바뀌었을 때, 장면의 짜임이 같으면 계획이 그 IR 을 따른다 (감사 P-20)."""
+    episode = _episode()
+    first, *rest = episode.plan.ir.scenes
+    changed = replace(
+        episode.plan.ir, scenes=(replace(first, description="다시 쓴 장면 설명"), *rest)
+    )
+
+    followed = episode.following_base(changed)
+
+    assert followed.plan.ir == changed
+    assert followed.plan.notes[:-1] == episode.plan.notes
+    assert "ver_1" in followed.plan.notes[-1] and "편 밖에서" in followed.plan.notes[-1]
+    same_but_plan = replace(followed.plan, ir=episode.plan.ir, notes=episode.plan.notes)
+    assert replace(followed, plan=same_but_plan) == episode  # 계획의 IR 과 메모만 달라졌다
+    assert Episode.from_dict(followed.to_dict()) == followed
+    with pytest.raises(ValidationError, match="없어진 장면"):
+        episode.following_base(replace(episode.plan.ir, scenes=episode.plan.ir.scenes[:-1]))
 
 
 def test_patches_of_remade_scenes_are_dropped_when_the_revision_becomes_the_base():

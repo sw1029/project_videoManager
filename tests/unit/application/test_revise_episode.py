@@ -11,9 +11,10 @@ import pytest
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError
+from frame.application.use_cases.edit_draft_ir import EditDraftIrCommand
 from frame.application.use_cases.series import ReviseEpisodeCommand, SettleEpisodeCommand
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind, VersionState
-from frame.domain.errors import NotFound, ValidationError
+from frame.domain.errors import IntegrityViolation, NotFound, ValidationError
 from frame.domain.revision import AttributeChange, KeepItem
 from tests.support.factories import dispatcher_of, version_of
 from tests.support.series import (
@@ -52,6 +53,113 @@ def _settled(container, episode, **options):
 
 def _values(episode, scene_key):
     return {r.key: r.expected_value for r in episode.plan.ir.scene(scene_key).requirements}
+
+
+# ---- 편의 버전을 편 밖에서 고쳤을 때 (감사 P-20: 일반 PUT /ir 과 편) ----
+# 편의 버전도 프로젝트의 버전이라, 초안인 동안에는 일반 IR 편집(#11)이 닿는다.
+# 편의 계획(화면 문구 · 대본)은 그 편집을 모른다.
+
+
+def _edit_ir_outside(container, version_id, change) -> None:
+    """일반 `PUT /versions/{id}/ir` 이 하는 일: 버전의 IR 문서를 고쳐 저장한다."""
+    document = version_of(container, version_id).ir.to_dict()
+    change(document)
+    container.edit_draft_ir.execute(EditDraftIrCommand(version_id, document))
+
+
+def _drop_last_scene(document) -> None:
+    document["scenes"].pop()
+
+
+def _make_the_latte_pink(document) -> None:
+    """장면의 설명 하나와 이 편만의 조건(라떼의 색)을 고친다. 장면의 짜임은 그대로다."""
+    for scene in document["scenes"]:
+        if scene["scene_key"] == "show":
+            scene["description"] = "바리스타가 딸기 라떼가 담긴 컵을 들어 보인다"
+        for requirement in scene["requirements"]:
+            if (requirement.get("entity_key"), requirement["predicate"]) == ("latte", "color"):
+                requirement["expected_value"] = "pink"
+
+
+def test_a_revision_edited_outside_the_episode_does_not_break_the_episode(kit):
+    """수정 버전의 초안에서 장면을 없앤 뒤 생성해도, 편은 맞는 계획과 함께 기준 버전에 남는다.
+
+    전에는 그 버전이 기준 버전이 되고, 없는 장면의 대본 줄이 든 계획이 저장됐다.
+    """
+    container, _, episode = kit
+    series = series_of(container)
+    pending = _revise(container, episode, PINK_SHOW).pending_version_id
+    _edit_ir_outside(container, pending, _drop_last_scene)
+    container.accept_generation.execute(pending)
+    dispatcher_of(container).run_all()
+    assert version_of(container, pending).state is VersionState.COMPLETED
+
+    report = series.check_screen.execute(
+        episode.episode_id
+    )  # 편의 유스케이스가 끝난 수정 버전을 반영한다
+
+    latest = series.episodes.get(episode.episode_id)
+    assert (latest.version_id, latest.pending_version_id) == (episode.version_id, None)
+    assert latest.plan.ir == episode.plan.ir and latest.render == episode.render
+    latest.plan.validate()
+    assert pending in latest.plan.notes[-1]
+    assert report.version_id == episode.version_id
+
+
+def test_an_episode_follows_conditions_edited_outside_when_the_scene_layout_is_the_same():
+    """기준 버전(초안)에서 장면의 설명과 조건의 값만 고쳤으면 편의 계획이 그 IR 을 따른다 (메모를 남긴다).
+
+    버전의 IR 이 실제로 만드는 영상의 조건이다. 전에는 계획이 옛 조건을 들고 있어, 화면 검수가 만들지 않은 조건으로
+    견줬다. 편을 읽는 유스케이스가 들어올 때 따른다 (settle_pending).
+    """
+    container = series_container()
+    save_theme(container)
+    series = series_of(container)
+    episode = new_episode(container)
+    _edit_ir_outside(container, episode.version_id, _make_the_latte_pink)
+
+    followed = _settled(container, episode)
+
+    assert followed.plan.ir == version_of(container, episode.version_id).ir != episode.plan.ir
+    assert _values(followed, "show")["show:latte:color"] == "pink"
+    assert (followed.plan.script, followed.plan.overlays) == (
+        episode.plan.script,
+        episode.plan.overlays,
+    )
+    assert followed.plan.notes[:-1] == episode.plan.notes
+    assert episode.version_id in followed.plan.notes[-1] and "편 밖에서" in followed.plan.notes[-1]
+    assert series.episodes.get(episode.episode_id) == followed  # 따른 편을 저장했다
+    assert _settled(container, episode) == followed  # 한 번만 따른다 (메모가 늘지 않는다)
+
+    generate_episode(container, followed)
+    rendered = series.render_episode.execute(episode.episode_id).episode
+    assert rendered.render is not None and rendered.plan.ir == followed.plan.ir
+
+
+@pytest.mark.parametrize("generated", [False, True], ids=["draft", "generated"])
+def test_an_episode_whose_base_version_was_edited_outside_says_so(generated):
+    """편의 기준 버전(초안)에서 장면의 짜임을 바꾸면 편의 계획이 따를 수 없다. 편의 유스케이스가 그것을 알린다.
+
+    전에는 알리지 않았다: 완성본 만들기는 "영상이 아직 없습니다" 라고 했고 (없는 장면의 클립을 끝없이 기다린다),
+    화면 검수는 어긋난 계획으로 견주고도 통과로 답했다.
+    """
+    container = series_container()
+    save_theme(container)
+    series = series_of(container)
+    episode = new_episode(container)
+    _edit_ir_outside(container, episode.version_id, _drop_last_scene)
+    if generated:
+        generate_episode(container, episode)
+
+    for use in (
+        lambda: series.render_episode.execute(episode.episode_id),
+        lambda: series.check_screen.execute(episode.episode_id),
+        lambda: _revise(container, episode, PINK_SHOW),
+    ):
+        with pytest.raises(IntegrityViolation, match="편 밖에서") as raised:
+            use()
+        assert episode.version_id in raised.value.message
+    assert series.episodes.get(episode.episode_id) == episode  # 편 문서는 건드리지 않았다
 
 
 def test_changing_a_condition_remakes_only_the_scenes_it_touches(kit):
