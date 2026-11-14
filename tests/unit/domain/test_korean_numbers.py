@@ -1,4 +1,4 @@
-"""한국어의 수 읽기와 수량 (ADR-0028): 말한 수('오천 원')와 적은 수('5,000원')를 값으로 견준다."""
+"""한국어의 수 읽기 (ADR-0028): 적은 수와 읽는 소리를 같은 값으로 읽는다. 수량(값+단위)은 test_quantities.py."""
 
 from __future__ import annotations
 
@@ -6,14 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from frame.domain.script.korean_numbers import (
-    canonical_text,
-    parse_number,
-    quantities,
-    quantity_conflicts,
-    read_number,
-    shared_quantities,
-)
+from frame.domain.script import parse_number, read_number
 
 
 @pytest.mark.parametrize(
@@ -70,111 +63,20 @@ def test_decimals_are_read_digit_by_digit_after_the_point():
     assert parse_number("2.5") == Decimal("2.5")
     assert parse_number("이 점 오") == Decimal("2.5")
     assert parse_number("삼 점 일사") == Decimal("3.14")
+    assert parse_number("일 쩜 오") == Decimal("1.5")  # '쩜' 은 말할 때의 소수점이다
 
 
-@pytest.mark.parametrize("text", ["", "메뉴", "오늘", "천오천", "십백", "5,000원", "두세"])
+def test_numbers_written_word_by_word_are_one_number():
+    """받아 적은 글은 수를 낱말마다 띄어 적기도 한다 (Zeroth-Korean 의 대본이 그렇다)."""
+    assert parse_number("이천 십 이") == Decimal(2012)
+    assert parse_number("일 조 이천 구백 십 구 억") == Decimal(1_291_900_000_000)
+    assert parse_number("마흔 여섯") == Decimal(46)
+    assert parse_number("열 두") == Decimal(12)
+    assert parse_number("오 쩜 구 사") == Decimal("5.94")
+
+
+@pytest.mark.parametrize(
+    "text", ["", "메뉴", "오늘", "천오천", "십백", "5,000원", "두세", "조", "억"]
+)
 def test_what_is_not_one_number_has_no_value(text):
     assert parse_number(text) is None
-
-
-def _pairs(text: str) -> list[tuple[Decimal, str]]:
-    return [(q.value, q.unit) for q in quantities(text)]
-
-
-def test_a_quantity_is_a_number_with_a_unit():
-    assert _pairs("가격은 오천 원입니다") == [(Decimal(5000), "원")]
-    assert _pairs("말차 라떼 5,000원") == [(Decimal(5000), "원")]
-    assert _pairs("두 잔에 만 원") == [(Decimal(2), "잔"), (Decimal(10000), "원")]
-    assert _pairs("1만 5천원짜리 세트") == [(Decimal(15000), "원")]
-    assert _pairs("3분만에 완성, 재료는 세 가지") == [(Decimal(3), "분"), (Decimal(3), "가지")]
-
-
-def test_unit_names_are_unified():
-    assert _pairs("30% 할인") == _pairs("삼십 퍼센트 할인") == _pairs("삼십 프로 할인")
-    assert _pairs("200g") == _pairs("이백 그램") == [(Decimal(200), "g")]
-    assert _pairs("500ml 한 병") == [(Decimal(500), "ml"), (Decimal(1), "병")]
-
-
-def test_quantity_keeps_where_it_was_said():
-    text = "가격은 오천 원입니다"
-    (quantity,) = quantities(text)
-    assert text[quantity.start : quantity.end] == "오천 원" == quantity.raw
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "이 메뉴는 오늘만",  # '이'·'오'·'만' 은 수가 아니다
-        "일을 한다",
-        "오 분야의 전문가",  # '분' 뒤에 낱말이 이어진다
-        "1+1 행사",  # 단위가 없다
-        "넘버 원",
-        "열심히 만든 한국 요리",
-    ],
-)
-def test_numbers_without_a_unit_are_not_quantities(text):
-    assert quantities(text) == ()
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "신입 사원입니다",
-        "구원 투수가 나왔다",
-        "만일 그렇다면",
-        "십분 활용하세요",
-        "한시도 쉬지 않고",
-    ],
-)
-def test_common_words_that_look_like_a_number_with_a_unit_are_not_quantities(text):
-    """한 글자 수사에 단위가 붙은 꼴의 흔한 낱말 (사원·구원·만일·십분·한시). 띄어 쓴 것만 수량으로 읽는다."""
-    assert quantities(text) == ()
-
-
-def test_the_same_words_written_apart_are_quantities():
-    assert _pairs("십 분 동안 끓이세요") == [(Decimal(10), "분")]
-    assert _pairs("한 시에 만나요") == [(Decimal(1), "시")]
-    assert _pairs("단돈 만원입니다") == [
-        (Decimal(10000), "원")
-    ]  # 붙여 써도 낱말이 아닌 것은 수량이다
-
-
-def test_the_colloquial_decimal_point_is_read_too():
-    assert parse_number("일 쩜 오") == Decimal("1.5")
-    assert _pairs("용량은 일 점 오 리터") == [(Decimal("1.5"), "l")]
-
-
-def test_the_longest_number_before_a_unit_wins_and_days_backtrack():
-    assert _pairs("이십 일 동안") == [(Decimal(20), "일")]
-    assert _pairs("이십일 일 동안") == [(Decimal(21), "일")]
-    assert _pairs("삼 일") == [(Decimal(3), "일")]
-
-
-def test_same_value_in_speech_and_on_screen_is_shared_not_a_conflict():
-    said, shown = "가격은 오천 원입니다", "말차 라떼 5,000원"
-
-    assert [(q.value, q.unit) for q in shared_quantities(said, shown)] == [(Decimal(5000), "원")]
-    assert quantity_conflicts(said, shown) == ()
-
-
-def test_different_values_of_the_same_unit_conflict():
-    """글자 유사도는 0.83 이다 ('오천 원' / '육천 원'). 값으로 견줘야 다른 줄 안다."""
-    (conflict,) = quantity_conflicts("가격은 육천 원입니다", "말차 라떼 5,000원")
-
-    assert conflict.unit == "원"
-    assert conflict.left == (Decimal(6000),) and conflict.right == (Decimal(5000),)
-
-
-def test_a_unit_on_one_side_only_is_not_a_conflict():
-    assert quantity_conflicts("두 잔 주문하세요", "5,000원") == ()
-    # 한쪽에 값이 더 있어도 같은 값이 하나라도 있으면 어긋남이 아니다
-    assert quantity_conflicts("오천 원, 두 잔은 만 원", "5,000원") == ()
-
-
-def test_canonical_text_writes_quantities_one_way():
-    assert canonical_text("오천 원") == canonical_text("5,000원") == "5000원"
-    assert (
-        canonical_text("말차 라떼 오천 원!") == canonical_text("말차라떼 5천원") == "말차라떼5000원"
-    )
-    assert canonical_text("삼십 퍼센트") == canonical_text("30%") == "30%"
-    assert canonical_text("Hello, 월드") == "hello월드"
