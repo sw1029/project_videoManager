@@ -12,8 +12,10 @@ import json
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import Update, delete, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -55,6 +57,14 @@ def _flush(session: Session) -> None:
     except IntegrityError as exc:
         session.rollback()
         raise IntegrityViolation(f"DB 무결성 제약 위반: {exc.orig}") from exc
+
+
+def _changed_rows(session: Session, statement: Update) -> int:
+    """조건부 UPDATE 가 바꾼 행의 수.
+
+    갱신문을 실행한 결과는 행 수를 아는 CursorResult 다. Session.execute 의 타입은 그보다 넓은 Result 라 좁혀서 읽는다.
+    """
+    return cast("CursorResult[Any]", session.execute(statement)).rowcount
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -114,28 +124,30 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self, version_id: str, from_state: VersionState, to_state: VersionState
     ) -> bool:
         assert_transition(from_state, to_state)
-        result = self._session.execute(
+        changed = _changed_rows(
+            self._session,
             update(VersionRow)
             .where(VersionRow.version_id == version_id, VersionRow.state == str(from_state))
-            .values(state=str(to_state))
+            .values(state=str(to_state)),
         )
         self._session.expire_all()
-        return result.rowcount == 1
+        return changed == 1
 
     def replace_draft_ir(self, version_id: str, ir: IntermediateRepresentation) -> bool:
         # 조건부 UPDATE 로 행을 잡은 뒤에 정규화 행을 다시 만든다. 동시에 온 생성 접수의 조건부 갱신은
         # 이 트랜잭션이 끝날 때까지 기다리거나(행 잠금) 이미 바뀐 상태를 보고 이쪽이 0 행으로 끝난다
-        result = self._session.execute(
+        changed = _changed_rows(
+            self._session,
             update(VersionRow)
             .where(
                 VersionRow.version_id == version_id,
                 VersionRow.state == str(VersionState.DRAFT),
                 VersionRow.frozen_fingerprint.is_(None),
             )
-            .values(ir_json=ir.to_json())
+            .values(ir_json=ir.to_json()),
         )
         self._session.expire_all()
-        if result.rowcount != 1:
+        if changed != 1:
             return False
         version = self.get(version_id)
         # 방금 바꾼 행을 같은 트랜잭션에서 읽지 못함 = 불변식이 깨짐 (save() 와 같은 예외)

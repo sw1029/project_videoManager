@@ -212,6 +212,8 @@ class VideoGenerator(ABC):
 __all__ = [
     "GeneratedClip",
     "ParentClip",
+    "ProductionMethod",
+    "ProductionPreview",
     "RevisionDirective",
     "SceneGenerationRequest",
     "VideoArtifact",

@@ -12,6 +12,8 @@ from .errors import InvalidStateTransition
 TRANSITIONS: dict[S, frozenset[S]] = {
     S.STRUCTURING: frozenset({S.DRAFT, S.FAILED}),
     S.DRAFT: frozenset({S.QUEUED}),
+    # QUEUED -> FAILED: 지금 이 전이를 쓰는 코드는 없다 (실패는 STRUCTURING · PROCESSING 에서만 난다 - 감사 C-10).
+    # 빼려면 위 그림 · tests/unit/domain/test_state_machine.py · ARCHITECTURE.md §3.3 을 함께 고친다
     S.QUEUED: frozenset({S.PROCESSING, S.FAILED}),
     # PROCESSING -> QUEUED: 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
     S.PROCESSING: frozenset({S.COMPLETED, S.FAILED, S.QUEUED}),

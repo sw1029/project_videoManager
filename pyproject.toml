@@ -91,11 +91,6 @@ max-complexity = 19  # 켤 때의 최댓값 (identity/vlm_crop.py 의 extract). 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 120  # 코드는 100 칸으로 포맷하되, 한글 docstring/주석은 120 칸까지 허용
 
-[tool.ruff.format]
-# 기준선 (ADR-0030): 다른 브랜치(#10·#11·#12)가 고치고 있는 파일이라 지금 포맷하지 않는다.
-# 그 브랜치가 dev 에 들어온 뒤 포맷하고 이 목록을 지운다. 목록에는 더하지 않는다
-exclude = ["src/frame/presentation/app.py", "src/frame/presentation/schemas.py"]
-
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
@@ -128,12 +123,3 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["faster_whisper"]
 ignore_missing_imports = true
-
-# 기준선: 다른 브랜치가 고치고 있는 파일의 오류 3건. 그 브랜치가 dev 에 들어온 뒤 고치고 이 두 항목을 지운다. 더하지 않는다
-[[tool.mypy.overrides]]
-module = ["frame.config.container"]
-disable_error_code = ["arg-type"]
-
-[[tool.mypy.overrides]]
-module = ["frame.adapters.persistence.sqlalchemy.repositories"]
-disable_error_code = ["attr-defined"]
