@@ -213,6 +213,39 @@ def test_failing_case_is_recorded_and_the_run_continues(tmp_path):
     assert (summary["cases"], summary["errors"], summary["success_rate"]) == (2, 1, 0.5)
 
 
+def test_unexpected_error_in_one_case_is_recorded_and_the_rest_still_run(tmp_path, caplog):
+    """DomainError·AdapterError 가 아닌 오류(DB 잠금 등)도 그 케이스에만 남고, 남은 유료 케이스는 계속 돈다."""
+
+    class BrokenPlan:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def execute(self, command):
+            if command.change.new_value == "black":
+                raise RuntimeError("database is locked")
+            return self.inner.execute(command)
+
+    container = _container()
+    parent = _parent(container)
+    broken = dataclasses.replace(container, plan_revision=BrokenPlan(container.plan_revision))
+    code, report = _run(
+        tmp_path, broken, [_cup(parent, case_id="first", new_value="black"), _cup(parent)]
+    )
+
+    assert code == 0 and report["complete"] is True
+    first, cup = report["cases"]
+    assert first["error"] == {
+        "code": "UNEXPECTED_ERROR",
+        "message": "RuntimeError: database is locked",
+    }
+    assert first["plan"] is None and first["revision_version_id"] is None
+    assert first["outcome"]["success"] is False
+    assert cup["state"] == "COMPLETED" and cup["outcome"]["success"] is True
+    assert (report["summary"]["errors"], report["summary"]["success_rate"]) == (1, 0.5)
+    # 원인을 찾을 수 있게 트레이스백은 로그로 남긴다
+    assert any(r.exc_info and "first" in r.getMessage() for r in caplog.records)
+
+
 def test_plan_only_reports_the_plan_without_creating_revisions(tmp_path):
     container = _container()
     parent = _parent(container)
@@ -233,21 +266,21 @@ def test_plan_only_reports_the_plan_without_creating_revisions(tmp_path):
 
 
 def test_report_is_saved_after_each_case(tmp_path):
-    """비용이 드는 실행이 중간에 끊겨도 끝난 케이스의 결과는 남는다."""
+    """비용이 드는 실행이 중간에 끊겨도(Ctrl+C) 끝난 케이스의 결과는 남는다."""
 
-    class Exploding:
+    class Interrupting:
         def __init__(self, inner):
             self.inner = inner
 
         def execute(self, command):
             if command.change.new_value == "black":
-                raise RuntimeError("예상하지 못한 오류")
+                raise KeyboardInterrupt
             return self.inner.execute(command)
 
     container = _container()
     parent = _parent(container)
-    broken = dataclasses.replace(container, create_revision=Exploding(container.create_revision))
-    with pytest.raises(RuntimeError):
+    broken = dataclasses.replace(container, create_revision=Interrupting(container.create_revision))
+    with pytest.raises(KeyboardInterrupt):  # 예상 밖 오류와 달리 케이스에 묻지 않고 올라간다
         _run(tmp_path, broken, [_cup(parent), _cup(parent, case_id="second", new_value="black")])
 
     report = json.loads((tmp_path / "out" / "result.json").read_text("utf-8"))
@@ -336,4 +369,31 @@ def test_wait_gives_up_after_the_timeout_and_records_the_case():
     assert run.error_code == "EVALUATION_WAIT_TIMEOUT"
     assert run.revision_version_id is not None
     assert run.version.state is VersionState.QUEUED
+    assert run.results == ()
+
+
+def test_unexpected_error_after_the_revision_was_made_keeps_its_version_id():
+    """생성까지 끝난(과금된) 뒤 검수 결과를 읽다 예상 밖 오류가 나도 수정 버전을 찾을 수 있다."""
+
+    class BrokenChecks:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def get_version(self, version_id):
+            return self.inner.get_version(version_id)
+
+        def get_checks(self, version_id):
+            raise LookupError("검수 결과를 읽지 못함")
+
+    container = _container()
+    parent = _parent(container)
+    (spec,) = parse_cases([_cup(parent)])
+    broken = dataclasses.replace(container, queries=BrokenChecks(container.queries))
+
+    run = run_case(broken, spec)
+
+    assert run.error_code == "UNEXPECTED_ERROR"
+    assert run.error_message == "LookupError: 검수 결과를 읽지 못함"
+    assert run.revision_version_id is not None
+    assert run.version.state is VersionState.COMPLETED
     assert run.results == ()

@@ -6,11 +6,14 @@
 - 판정할 요구조건은 수정 버전 IR 에서 키로 고른다 (바뀐 장면 × 대상 객체 × 술어). 결과가 없거나 미판정이면 실패다.
 - 비대상 변경률은 측정 기준(detail.method)마다 따로 잰다 (vlm_keep · ssim). 목표 판정에 쓸 기준은 부르는 쪽이 고르고,
   보고서에는 두 기준을 모두 남긴다 (연구 문서 §7 결정 2 가 정해지지 않았다).
-- 케이스 하나의 실패(부모 없음, 검증 오류, 생성 실패, 시간 초과)는 그 케이스에 기록하고 다음 케이스로 간다.
+- 케이스 하나의 실패(부모 없음, 검증 오류, 생성 실패, 시간 초과, 예상 밖 오류)는 그 케이스에 기록하고
+  다음 케이스로 간다. 예상 밖 오류(DB 잠금 등)는 UNEXPECTED_ERROR 로 남기고 트레이스백은 로그로 낸다.
+  Ctrl+C(KeyboardInterrupt)는 막지 않는다.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -36,6 +39,8 @@ from .edit_metrics import (
     evaluate_cases,
     select_preservation,
 )
+
+log = logging.getLogger(__name__)
 
 TOOL_NAME = "frame.tools.evaluate_edits"
 REPORT_VERSION = 1
@@ -158,6 +163,10 @@ def run_case(
         run.error_code, run.error_message = exc.code, str(exc)
     except (DomainError, AdapterError) as exc:
         run.error_code, run.error_message = exc.code, str(exc)
+    except Exception as exc:  # noqa: BLE001 - 한 케이스의 예상 밖 오류가 남은 유료 케이스를 막지 않게 한다
+        log.exception("케이스 %s 실행 중 예상하지 못한 오류", spec.case_id)
+        # 코드 이름은 생성 파이프라인이 같은 경우에 남기는 것과 맞춘다 (application/pipeline/runner.py)
+        run.error_code, run.error_message = "UNEXPECTED_ERROR", f"{type(exc).__name__}: {exc}"
     finally:
         run.elapsed_s = round(monotonic() - started, 3)
     return run
