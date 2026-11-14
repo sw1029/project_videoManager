@@ -9,8 +9,8 @@
 | FRAME_THEME_MEDIA | fake · ffmpeg | 겉모습 읽기와 컷 찾기 |
 | FRAME_SPEECH_RECOGNIZER | fake · off · openai | 말소리 받아 적기 (OpenAI 호환 /audio/transcriptions) |
 | FRAME_SPEECH_MODEL | whisper-1 | 인식 모델 (낱말 시각을 주는 모델이어야 줄 사이를 정확히 나눈다) |
-| FRAME_SPEECH_BASE_URL | https://api.openai.com/v1 | 인식 API 주소 (OpenRouter·로컬 서버도 같은 형식) |
-| FRAME_SPEECH_KEY_FILE | (없으면 FRAME_LLM_KEY_FILE) | 인식 API 키 파일 |
+| FRAME_SPEECH_BASE_URL | (LLM 주소, 없으면 OpenAI) | 인식 API 주소. https 만 받는다 (로컬 서버는 예외) |
+| FRAME_SPEECH_KEY_FILE | (주소가 같으면 LLM 의 키) | 인식 전용 키 파일. 주소가 LLM 과 다르면 꼭 주고, 그 키만 싣는다 |
 | FRAME_THEME_EXTRACTOR | fake · vlm | 테마 추출 (vlm 은 FRAME_VLM_MODEL 로 프레임을 읽는다) |
 | FRAME_THEME_FRAMES | 3 | vlm 추출이 장면 자리마다 보는 프레임 수 |
 | FRAME_SERIES_PLANNER | template · llm | 편의 내용 기획 |
@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
 from frame.application.errors import ConfigurationError
@@ -63,13 +64,17 @@ from frame.domain.theme import DEFAULT_MIN_SLOT_MS
 from .registry import AdapterRegistry, BuildContext
 from .settings import Settings
 
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+
 
 @dataclass(frozen=True)
 class ThemeSettings:
     media: str = "fake"
     speech: str = "fake"
     speech_model: str = "whisper-1"
-    speech_base_url: str = "https://api.openai.com/v1"
+    speech_base_url: str | None = (
+        None  # 없으면 LLM 주소를 따른다 (FRAME_LLM_BASE_URL, 없으면 OpenAI)
+    )
     speech_key_file: str | None = None
     speech_timeout_s: float = 120.0
     extractor: str = "fake"
@@ -100,7 +105,7 @@ class ThemeSettings:
             media=text("THEME_MEDIA", base.media),
             speech=text("SPEECH_RECOGNIZER", base.speech),
             speech_model=text("SPEECH_MODEL", base.speech_model),
-            speech_base_url=text("SPEECH_BASE_URL", base.speech_base_url),
+            speech_base_url=text("SPEECH_BASE_URL", "") or None,
             speech_key_file=text("SPEECH_KEY_FILE", "") or None,
             speech_timeout_s=float(text("SPEECH_TIMEOUT_S", str(base.speech_timeout_s))),
             extractor=text("THEME_EXTRACTOR", base.extractor),
@@ -283,13 +288,29 @@ def build_theme_services(
     def _openai_recognizer() -> SpeechRecognizer:
         from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
         from frame.adapters.llm.key_store import LLMKeyStore
+        from frame.application.ports.llm import LLMKeySource
 
-        key_file = ts.speech_key_file or settings.llm_key_file
-        keys = ctx.llm_keys if ts.speech_key_file is None and ctx.llm_keys else None
+        llm_base = _plain_url(settings.llm_base_url or OPENAI_BASE_URL)
+        base_url = _speech_base_url(ts.speech_base_url or llm_base)
+        key_source: LLMKeySource
+        if base_url == llm_base and ts.speech_key_file is None:
+            # LLM 과 같은 주소: LLM 이 쓰는 키를 함께 쓴다 (화면에서 넣은 키 포함)
+            key_source = ctx.llm_keys or LLMKeyStore(key_file=settings.llm_key_file)
+        else:
+            # 다른 주소이거나 전용 키를 줬다: 그 키 파일의 키만 싣는다. 환경 변수(OPENAI_API_KEY)나 LLM 키로
+            # 대신하지 않는다. LLMKeyStore 는 파일보다 환경 변수를 먼저 보므로 환경 변수 대체를 끈다 (감사 BTS-11)
+            if ts.speech_key_file is None:
+                raise ConfigurationError(
+                    f"FRAME_SPEECH_KEY_FILE 이 필요합니다: 인식 주소({base_url})가 LLM 주소({llm_base})와 "
+                    "다릅니다. LLM 키를 다른 주소로 보내지 않도록 인식 전용 키 파일을 주세요"
+                )
+            if not Path(ts.speech_key_file).is_file():
+                raise ConfigurationError("FRAME_SPEECH_KEY_FILE: 키 파일이 없습니다")
+            key_source = LLMKeyStore(key_file=ts.speech_key_file, env={})
         return OpenAISpeechRecognizer(
-            key_source=keys or LLMKeyStore(key_file=key_file),
+            key_source=key_source,
             model=ts.speech_model,
-            base_url=ts.speech_base_url,
+            base_url=base_url,
             timeout_s=ts.speech_timeout_s,
         )
 
@@ -440,6 +461,26 @@ def build_theme_services(
             themes, episodes, uow_factory, create_revision, accept_generation
         ),
     )
+
+
+def _plain_url(url: str) -> str:
+    return url.strip().rstrip("/")
+
+
+def _speech_base_url(url: str) -> str:
+    """인식 API 주소는 https 만 받는다 (로컬 시험 서버는 예외). 키를 평문으로 보내지 않기 위해서다.
+
+    판정은 OpenRouter 어댑터의 것을 그대로 쓴다. 감사 세션이 그 함수를 adapters/shared 로 옮길 때 이 import 도 옮긴다
+    (복사하지 않는다, 감사 BTS-11).
+    """
+    from frame.adapters.generator.openrouter import _checked_base_url
+
+    try:
+        return _checked_base_url(url)
+    except ConfigurationError:
+        raise ConfigurationError(
+            f"FRAME_SPEECH_BASE_URL 은 https 여야 합니다 (키를 평문으로 보내지 않도록): {url}"
+        ) from None
 
 
 def _require(value: Any, name: str) -> Any:

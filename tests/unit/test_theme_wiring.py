@@ -176,3 +176,111 @@ def test_missing_font_fails_at_startup(tmp_path):
 
     with pytest.raises(ConfigurationError, match="FRAME_OVERLAY_FONT"):
         make_container(theme_settings=settings)
+
+
+# ---- 음성 인식의 주소와 키 (감사 BTS-11) ----
+class _SpyTransport:
+    """실린 주소와 헤더만 적고 빈 받아쓰기를 돌려준다 (네트워크 없음)."""
+
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    def request(self, method, url, *, headers=None, body=None, timeout=60.0):
+        from frame.adapters.http_transport import HttpResponse
+
+        self.requests.append({"url": url, "headers": dict(headers or {})})
+        return HttpResponse(200, b'{"text": "", "segments": [], "words": []}')
+
+
+def _recognizer(theme_settings, settings=None, **overrides):
+    base = settings or Settings(jobs="recording", persistence="memory", llm_provider="fake")
+    recognizer = make_container(base, theme_settings=theme_settings, **overrides).series.recognizer
+    spy = _SpyTransport()
+    recognizer._http = spy
+    return recognizer, spy
+
+
+def _heard(recognizer, spy) -> dict:
+    from frame.application.ports.video_analysis import SpeechAudio
+
+    recognizer.transcribe(SpeechAudio(b"RIFF....WAVEfmt ", "audio/wav", 1000))
+    return spy.requests[-1]
+
+
+def test_speech_address_follows_the_llm_address(tmp_path, monkeypatch):
+    """주소를 따로 주지 않으면 인식은 LLM 과 같은 곳으로 간다 (LLM 키가 다른 주소로 가지 않는다)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key")
+    recognizer, spy = _recognizer(ThemeSettings(speech="openai"))
+    assert recognizer.base_url == "https://api.openai.com/v1"
+    assert _heard(recognizer, spy)["headers"]["Authorization"] == "Bearer sk-env-key"
+
+    local = Settings(
+        jobs="recording",
+        persistence="memory",
+        llm_provider="fake",
+        llm_base_url="http://localhost:8001/v1/",
+    )
+    recognizer, spy = _recognizer(ThemeSettings(speech="openai"), local)
+    assert recognizer.base_url == "http://localhost:8001/v1"
+    assert _heard(recognizer, spy)["url"] == "http://localhost:8001/v1/audio/transcriptions"
+
+
+def test_speech_at_another_address_only_uses_its_own_key_file(tmp_path, monkeypatch):
+    """인식 주소가 LLM 주소와 다르면 전용 키 파일의 키만 싣는다. 환경 변수의 OpenAI 키는 쓰지 않는다."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-openai-key")
+    key_file = tmp_path / "speech.txt"
+    key_file.write_text("sk-or-speech-key", encoding="utf-8")
+    elsewhere = ThemeSettings(
+        speech="openai",
+        speech_base_url="https://openrouter.ai/api/v1",
+        speech_key_file=str(key_file),
+    )
+
+    recognizer, spy = _recognizer(elsewhere)
+    sent = _heard(recognizer, spy)
+
+    assert sent["url"] == "https://openrouter.ai/api/v1/audio/transcriptions"
+    assert sent["headers"]["Authorization"] == "Bearer sk-or-speech-key"
+
+
+def test_speech_at_another_address_without_a_key_file_is_refused_at_startup(tmp_path, monkeypatch):
+    """전용 키 파일 없이 다른 주소를 쓰면 기동을 거절한다 (LLM 키·환경 변수의 키를 그 주소로 보내지 않는다)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-openai-key")
+    elsewhere = ThemeSettings(speech="openai", speech_base_url="https://openrouter.ai/api/v1")
+    with pytest.raises(ConfigurationError, match="FRAME_SPEECH_KEY_FILE"):
+        _recognizer(elsewhere)
+
+    missing = ThemeSettings(
+        speech="openai",
+        speech_base_url="https://openrouter.ai/api/v1",
+        speech_key_file=str(tmp_path / "none.txt"),
+    )
+    with pytest.raises(ConfigurationError, match="FRAME_SPEECH_KEY_FILE"):
+        _recognizer(missing)
+
+    # 반대 방향: LLM 주소를 로컬로 바꿨는데 인식 주소만 OpenAI 로 적은 경우도 같다
+    local = Settings(
+        jobs="recording",
+        persistence="memory",
+        llm_provider="fake",
+        llm_base_url="http://localhost:8001/v1",
+    )
+    openai = ThemeSettings(speech="openai", speech_base_url="https://api.openai.com/v1")
+    with pytest.raises(ConfigurationError, match="FRAME_SPEECH_KEY_FILE"):
+        _recognizer(openai, local)
+
+
+def test_speech_address_must_be_https(tmp_path):
+    key_file = tmp_path / "speech.txt"
+    key_file.write_text("sk-key", encoding="utf-8")
+    plain = ThemeSettings(
+        speech="openai", speech_base_url="http://example.com/v1", speech_key_file=str(key_file)
+    )
+    with pytest.raises(ConfigurationError, match="FRAME_SPEECH_BASE_URL"):
+        _recognizer(plain)
+
+    local = ThemeSettings(
+        speech="openai", speech_base_url="http://127.0.0.1:9000/v1", speech_key_file=str(key_file)
+    )
+    recognizer, _ = _recognizer(local)  # 로컬 시험 서버는 받는다
+    assert recognizer.base_url == "http://127.0.0.1:9000/v1"
