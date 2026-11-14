@@ -6,6 +6,7 @@ import os
 import re
 import stat
 import tarfile
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -87,6 +88,27 @@ def test_a_matching_runtime_archive_is_accepted(tmp_path):
     assert bundle.fetch_python(target, tmp_path / "cache", local_archive=fake) == fake
 
 
+def test_a_download_that_cannot_start_is_a_message_with_a_way_around(tmp_path, monkeypatch):
+    def unreachable(request, timeout):
+        raise urllib.error.URLError("getaddrinfo failed")
+
+    monkeypatch.setattr(bundle.urllib.request, "urlopen", unreachable)
+    with pytest.raises(bundle.BundleError, match="--python-archive") as caught:
+        bundle.fetch_python(LINUX, tmp_path / "cache")
+    assert "getaddrinfo failed" in str(caught.value)
+
+
+def test_a_download_cut_off_midway_is_a_message_and_leaves_nothing_behind(tmp_path, monkeypatch):
+    class CutOff(io.BytesIO):
+        def read(self, size=-1):
+            raise ConnectionResetError("connection reset")
+
+    monkeypatch.setattr(bundle.urllib.request, "urlopen", lambda request, timeout: CutOff())
+    with pytest.raises(bundle.BundleError, match="받지 못했습니다"):
+        bundle.fetch_python(LINUX, tmp_path / "cache")
+    assert list((tmp_path / "cache").iterdir()) == []  # 다음 실행이 반쪽 파일을 만나지 않는다
+
+
 def _tar(path: Path, name: str, data: bytes = b"x", mode: int = 0o644) -> Path:
     with tarfile.open(path, "w:gz") as tar:
         info = tarfile.TarInfo(name)
@@ -114,6 +136,14 @@ def test_extract_python_blocks_path_traversal(tmp_path):
     with pytest.raises(bundle.BundleError):
         bundle.extract_python(archive, tmp_path / "stage")
     assert not (tmp_path / "escaped.txt").exists()
+
+
+@needs_safe_tar
+def test_extract_python_reports_a_broken_archive_instead_of_crashing(tmp_path):
+    broken = tmp_path / "python.tar.gz"
+    broken.write_bytes(b"not a tar archive")
+    with pytest.raises(bundle.BundleError, match="풀 수 없습니다"):
+        bundle.extract_python(broken, tmp_path / "out")
 
 
 def test_windows_wrappers_are_ascii_crlf_and_use_the_bundled_python(tmp_path):
@@ -274,6 +304,35 @@ def test_verify_rejects_a_checksum_mismatch(tmp_path):
     )
     with pytest.raises(bundle.BundleError, match="SHA-256"):
         bundle.verify(tmp_path, WINDOWS)
+
+
+def test_verify_says_so_when_the_checksum_file_is_missing(tmp_path):
+    (tmp_path / "frame-demo-windows-x64.zip").write_bytes(b"zip")
+    with pytest.raises(bundle.BundleError, match="sha256 파일이 없습니다"):
+        bundle.verify(tmp_path, WINDOWS)
+
+
+@pytest.mark.parametrize("content", ["", "\n", "   "], ids=["empty", "newline", "spaces"])
+def test_verify_reports_an_empty_checksum_file_instead_of_crashing(tmp_path, content):
+    (tmp_path / "frame-demo-windows-x64.zip").write_bytes(b"zip")
+    (tmp_path / "frame-demo-windows-x64.zip.sha256").write_text(content, encoding="utf-8")
+    with pytest.raises(bundle.BundleError, match="비어 있습니다"):
+        bundle.verify(tmp_path, WINDOWS)
+
+
+def test_verify_reports_a_broken_bundle_file_instead_of_crashing(tmp_path):
+    archive = tmp_path / "frame-demo-windows-x64.zip"
+    archive.write_bytes(b"not a zip file")
+    (tmp_path / f"{archive.name}.sha256").write_bytes(
+        f"{bundle.sha256_of(archive)}  {archive.name}\n".encode()
+    )
+    with pytest.raises(bundle.BundleError, match="풀 수 없습니다"):
+        bundle.verify(tmp_path, WINDOWS)
+
+
+def test_a_bundle_error_ends_the_command_with_a_message_not_a_traceback(tmp_path, capsys):
+    assert bundle.main(["verify", str(tmp_path / "missing.zip")], root=REPO) == 1
+    assert "번들 파일이 없습니다" in capsys.readouterr().err
 
 
 def test_targets_command_lists_every_bundle(capsys):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import platform as pyplatform
@@ -44,6 +45,10 @@ DOCS_URL = "https://github.com/sw1029/project_videoManager/blob/dev/docs/DEMO.md
 
 class BundleError(Exception):
     """번들을 만들거나 확인할 수 없음 (사용자에게 그대로 보여 줄 메시지)."""
+
+
+# 아카이브가 아니거나 중간에 잘린 파일을 열거나 풀 때 나는 예외
+_BROKEN_ARCHIVE = (zipfile.BadZipFile, tarfile.TarError, EOFError)
 
 
 @dataclass(frozen=True)
@@ -181,8 +186,16 @@ def fetch_python(target: Target, cache_dir: Path, local_archive: Path | None = N
         partial = path.with_name(path.name + ".part")
         # 주소는 코드에 고정한 https 릴리스 주소이고, 받은 파일은 고정한 SHA-256 으로 확인한다
         request = urllib.request.Request(url, headers={"User-Agent": "frame-bundle"})  # noqa: S310
-        with urllib.request.urlopen(request, timeout=300) as response, partial.open("wb") as out:  # noqa: S310
-            shutil.copyfileobj(response, out, 1 << 20)
+        try:
+            response = urllib.request.urlopen(request, timeout=300)  # noqa: S310
+            with response, partial.open("wb") as out:
+                shutil.copyfileobj(response, out, 1 << 20)
+        except (OSError, http.client.HTTPException) as exc:  # 연결 실패·중간에 끊김
+            partial.unlink(missing_ok=True)
+            raise BundleError(
+                f"휴대용 Python 을 받지 못했습니다 ({type(exc).__name__}: {exc}). 인터넷 연결을 확인하거나, "
+                f"미리 받은 파일을 --python-archive 로 주세요: {url}"
+            ) from exc
         partial.replace(path)
     actual = sha256_of(path)
     if actual != target.sha256:
@@ -203,6 +216,10 @@ def extract_python(archive: Path, dest: Path) -> Path:
             tar.extractall(dest, filter="data")
     except tarfile.FilterError as exc:
         raise BundleError(f"아카이브에 안전하지 않은 항목이 있습니다: {exc}") from exc
+    except _BROKEN_ARCHIVE as exc:
+        raise BundleError(
+            f"아카이브를 풀 수 없습니다 (손상됐을 수 있습니다): {archive.name}"
+        ) from exc
     python_dir = dest / "python"
     if not python_dir.is_dir():
         raise BundleError(f"아카이브에 python/ 폴더가 없습니다: {archive.name}")
@@ -539,13 +556,29 @@ def minimal_env() -> dict[str, str]:
 
 
 def _extract_bundle(archive: Path, dest: Path) -> None:
-    if archive.suffix == ".zip":
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(dest)  # noqa: S202 - 방금 만든 번들을 임시 폴더에 푼다
-    else:
-        _require_safe_tar()
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(dest, filter="data")
+    try:
+        if archive.suffix == ".zip":
+            with zipfile.ZipFile(archive) as zf:
+                zf.extractall(dest)  # noqa: S202 - 방금 만든 번들을 임시 폴더에 푼다
+        else:
+            _require_safe_tar()
+            with tarfile.open(archive, "r:gz") as tar:
+                tar.extractall(dest, filter="data")
+    except _BROKEN_ARCHIVE as exc:
+        raise BundleError(
+            f"번들 파일을 풀 수 없습니다 (손상됐을 수 있습니다): {archive.name}"
+        ) from exc
+
+
+def _recorded_checksum(archive: Path) -> str:
+    """번들 파일 옆의 .sha256 에 적힌 해시 ("해시  이름" 한 줄)."""
+    checksum = archive.parent / f"{archive.name}.sha256"
+    if not checksum.is_file():
+        raise BundleError(f"{checksum.name} 파일이 없습니다. 번들 파일과 같은 폴더에 함께 두세요")
+    words = checksum.read_text("utf-8", errors="replace").split()
+    if not words:
+        raise BundleError(f"{checksum.name} 파일이 비어 있습니다. 번들과 함께 다시 받으세요")
+    return words[0]
 
 
 def verify(path: Path, target: Target) -> int:
@@ -553,9 +586,7 @@ def verify(path: Path, target: Target) -> int:
     archive = path / archive_name(target) if path.is_dir() else path
     if not archive.is_file():
         raise BundleError(f"번들 파일이 없습니다: {archive}")
-    checksum = archive.parent / f"{archive.name}.sha256"
-    expected = checksum.read_text("utf-8").split()[0] if checksum.is_file() else None
-    if expected != sha256_of(archive):
+    if _recorded_checksum(archive) != sha256_of(archive):
         raise BundleError(f"SHA-256 이 .sha256 파일과 다릅니다: {archive.name}")
     failures: list[str] = []
 
