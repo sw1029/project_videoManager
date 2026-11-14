@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from frame.domain.enums import EntityKind
+from frame.domain.episode import EpisodeBrief, EpisodeContent, SlotContent
+from frame.domain.ir import EntitySpec, RequirementSpec
 from frame.domain.screen import Region, TextRole
 from frame.domain.shortform import MediaInfo
 from frame.domain.theme import (
@@ -130,3 +132,47 @@ def cafe_theme(
             ThemeVariable("caption", "자리마다 넣는 자막", "어서 오세요!", VariableScope.SLOT),
         ),
     )
+
+
+def matcha_brief(**changes) -> EpisodeBrief:
+    """같은 테마의 다른 편: 말차 라떼."""
+    base = {
+        "title": "말차 라떼 편",
+        "topic": "초록색 말차 라떼를 소개한다",
+        "variables": {"menu": "말차 라떼", "price": "5,000원"},
+        "seed": 7,
+    }
+    return EpisodeBrief(**{**base, **changes})
+
+
+def matcha_content(**changes) -> EpisodeContent:
+    base = {
+        "slots": (
+            SlotContent(
+                "greeting",
+                "바리스타가 카운터 뒤에서 카메라를 보며 인사한다",
+                narration="안녕하세요, 오늘의 메뉴예요.",
+                variables={"caption": "오늘은 초록초록!"},
+            ),
+            SlotContent(
+                "show",
+                "바리스타가 말차 라떼가 담긴 컵을 들어 보인다",
+                entity_keys=("latte",),
+                requirements=(
+                    RequirementSpec("show", "holds", "mug", "barista", "mug"),
+                    RequirementSpec("show", "color", "green", "latte"),
+                ),
+                narration="말차 라떼입니다.",
+            ),
+            SlotContent(
+                "closeup",
+                "카운터 위에 놓인 말차 라떼 클로즈업",
+                entity_keys=("latte",),
+                requirements=(RequirementSpec("closeup", "color", "green", "latte"),),
+                narration="가격은 오천 원.",
+            ),
+            SlotContent("outro", "", narration="매장에서 만나요!"),
+        ),
+        "entities": (EntitySpec("latte", EntityKind.PROP, "말차 라떼"),),
+    }
+    return EpisodeContent(**{**base, **changes})
