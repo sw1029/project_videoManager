@@ -8,17 +8,14 @@ import pytest
 from frame.adapters.generator.fake import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.adapters.structurer import FakeStructurer, PassthroughStructurer
-from frame.application.dto import (
-    CreateProjectCommand,
-    CreateRevisionCommand,
-    EditDraftIrCommand,
-)
+from frame.application.dto import CreateProjectCommand, CreateRevisionCommand
 from frame.application.errors import StructuringError
 from frame.application.ports.structurer import (
     IrDocumentStructurer,
     ReferenceImageInput,
     StructuredDocument,
 )
+from frame.application.use_cases.edit_draft_ir import EditDraftIrCommand
 from frame.domain.enums import ReferenceOrigin, VersionState
 from frame.domain.errors import NotFound, ValidationError, VersionNotEditable
 from frame.domain.models import ReferenceImage

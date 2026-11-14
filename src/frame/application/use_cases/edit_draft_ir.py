@@ -10,15 +10,33 @@
 
 from __future__ import annotations
 
-from frame.domain.enums import ReferenceOrigin
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
+
+from frame.domain.enums import ReferenceOrigin, VersionState
 from frame.domain.errors import NotFound, VersionNotEditable
 from frame.domain.models import VideoVersion
 from frame.domain.state_machine import EDITABLE_STATES
+from frame.domain.structuring_rules import check_reference_entities
 
-from ..dto import EditDraftIrCommand, EditDraftIrResult
 from ..ports.structurer import IrDocumentStructurer
 from ..ports.unit_of_work import UnitOfWorkFactory
-from ..structuring_rules import check_reference_entities
+
+
+@dataclass(frozen=True)
+class EditDraftIrCommand:
+    """DRAFT 버전의 IR 을 화면에서 고친 IR 문서(IR.to_dict 형식)로 바꾼다."""
+
+    version_id: str
+    ir: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class EditDraftIrResult:
+    version_id: str
+    state: VersionState
+    repair_notes: tuple[str, ...]  # 보정이 바꾼 것 (화면에 보여 준다)
 
 
 class EditDraftIr:

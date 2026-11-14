@@ -58,21 +58,6 @@ class CreateRevisionResult:
 
 
 @dataclass(frozen=True)
-class EditDraftIrCommand:
-    """DRAFT 버전의 IR 을 화면에서 고친 IR 문서(IR.to_dict 형식)로 바꾼다 (#11)."""
-
-    version_id: str
-    ir: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class EditDraftIrResult:
-    version_id: str
-    state: VersionState
-    repair_notes: tuple[str, ...]  # 보정이 바꾼 것 (화면에 보여 준다)
-
-
-@dataclass(frozen=True)
 class AcceptGenerationResult:
     version_id: str
     state: VersionState

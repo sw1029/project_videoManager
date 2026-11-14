@@ -6,7 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from frame.application.dto import CreateRevisionCommand, EditDraftIrCommand
+from frame.application.dto import CreateRevisionCommand
+from frame.application.use_cases.edit_draft_ir import EditDraftIrCommand
 from frame.application.use_cases.plan_revision import PlanRevisionCommand
 from frame.config.container import Container
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind

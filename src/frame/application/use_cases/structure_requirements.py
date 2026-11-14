@@ -5,10 +5,10 @@ from __future__ import annotations
 from frame.domain.enums import VersionState
 from frame.domain.errors import NotFound
 from frame.domain.models import VideoVersion
+from frame.domain.structuring_rules import check_reference_entities, check_target_duration
 
 from ..ports.structurer import ReferenceImageInput, RequirementStructurer, StructuringRequest
 from ..ports.unit_of_work import UnitOfWorkFactory
-from ..structuring_rules import check_reference_entities, check_target_duration
 
 
 class StructureRequirements:
