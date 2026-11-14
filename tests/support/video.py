@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 
 from frame.adapters.series.overlay.ffmpeg_renderer import resolve_font
-from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
-from frame.application.errors import ConfigurationError
+from frame.adapters.shared.media.ffmpeg import available_filters, resolve_ffmpeg
+from frame.application.errors import AdapterError, ConfigurationError
 
 
 def find_ffmpeg() -> str | None:
@@ -15,6 +15,31 @@ def find_ffmpeg() -> str | None:
         return resolve_ffmpeg()
     except ConfigurationError:
         return None
+
+
+def can_draw_text(ffmpeg: str | None) -> bool:
+    """이 ffmpeg 에 글자를 그리는 필터(drawtext)가 있는가. 없으면 화면 문구 합성 테스트는 건너뛴다.
+
+    video extra 가 Linux 에 가져오는 ffmpeg 에는 없다 (감사 A-43).
+    """
+    return drawtext_problem(ffmpeg) is None
+
+
+def drawtext_problem(ffmpeg: str | None) -> str | None:
+    """이 ffmpeg 로 글자를 그릴 수 없는 까닭. 그릴 수 있으면 None.
+
+    어느 ffmpeg 인지와, '필터가 없다' 인지 '목록을 읽지 못했다' 인지를 적는다. 둘은 고치는 곳이 다르다
+    (ffmpeg 를 바꾼다 / 목록을 읽는 법을 본다).
+    """
+    if ffmpeg is None:
+        return "ffmpeg 를 찾지 못했습니다"
+    try:
+        filters = available_filters(ffmpeg)
+    except AdapterError as exc:
+        return f"{ffmpeg} 의 필터 목록을 읽지 못했습니다: {exc}"
+    if "drawtext" not in filters:
+        return f"{ffmpeg} 에 drawtext 필터가 없습니다 (목록에서 읽은 필터 {len(filters)}개)"
+    return None
 
 
 def find_korean_font() -> str | None:

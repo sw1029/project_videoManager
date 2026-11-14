@@ -1,6 +1,7 @@
 """후반 합성 포트의 계약 테스트 (ADR-0027): OverlayRenderer·ScreenTextReader.
 
-Fake 와 실제 구현이 같은 규약을 지킨다. ffmpeg 구현은 진짜 ffmpeg 와 한글 글꼴로 합성한다 (없으면 건너뜀).
+Fake 와 실제 구현이 같은 규약을 지킨다. ffmpeg 구현은 진짜 ffmpeg 와 한글 글꼴로 합성한다
+(ffmpeg · 그 안의 drawtext 필터 · 한글 글꼴 가운데 하나라도 없으면 건너뜀).
 VLM 읽기는 재생 응답으로 돌린다 (네트워크·과금 없음).
 """
 
@@ -14,6 +15,7 @@ import pytest
 
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
+from frame.adapters.series.overlay import ffmpeg_renderer as renderer_module
 from frame.adapters.series.overlay.ffmpeg_renderer import (
     FfmpegOverlayRenderer,
     estimate_text_width,
@@ -29,13 +31,14 @@ from frame.application.ports.series.overlay import CompositionError, OverlayRend
 from frame.domain.screen import Region, TextRole
 from frame.domain.series.episode import OverlayItem, OverlayKind
 from frame.domain.series.theme import TextStyle
-from tests.support.video import find_ffmpeg, find_korean_font, make_clip
+from tests.support.video import can_draw_text, find_ffmpeg, find_korean_font, make_clip
 
 FFMPEG = find_ffmpeg()
 FONT = find_korean_font()
-needs_ffmpeg = pytest.mark.skipif(
-    FFMPEG is None or FONT is None, reason="ffmpeg 또는 한글 글꼴 없음"
-)
+# 문구를 그리려면 셋이 다 있어야 한다: ffmpeg, 그 빌드의 drawtext 필터, 한글 글꼴
+CAN_COMPOSE = FONT is not None and can_draw_text(FFMPEG)
+NO_COMPOSING = "ffmpeg(drawtext 필터) 또는 한글 글꼴 없음"
+needs_ffmpeg = pytest.mark.skipif(not CAN_COMPOSE, reason=NO_COMPOSING)
 
 PRICE_REGION = Region(0.1, 0.7, 0.8, 0.1)
 PRICE = OverlayItem(
@@ -69,8 +72,8 @@ class Kit:
 
 @pytest.fixture(scope="module")
 def ffmpeg_kit(tmp_path_factory) -> Kit:
-    if FFMPEG is None or FONT is None:
-        pytest.skip("ffmpeg 또는 한글 글꼴 없음")
+    if not CAN_COMPOSE:
+        pytest.skip(NO_COMPOSING)
     folder = tmp_path_factory.mktemp("overlay")
     clip = make_clip(FFMPEG, folder / "clip.mp4", size="240x426", fps=10)
     return Kit("ffmpeg", FfmpegOverlayRenderer(FFMPEG, FONT), clip)
@@ -153,6 +156,50 @@ def test_ffmpeg_rejects_values_that_would_break_the_filter(ffmpeg_kit):
     # 글자는 파일로 넘기므로 필터 문법의 글자가 들어 있어도 그대로 그려진다
     tricky = replace(PRICE, text="50% 할인: 'A,B' [오늘만]; \\ %{pts}")
     assert kit.renderer.render(kit.clip, (tricky,)) != kit.clip
+
+
+def test_an_ffmpeg_that_cannot_draw_text_is_refused_when_the_renderer_is_built(
+    tmp_path, monkeypatch
+):
+    """drawtext 필터가 없는 ffmpeg 로는 그릴 때마다 실패한다 (유료 생성이 끝난 뒤다). 만들 때 알아챈다 (감사 A-43).
+
+    ffmpeg 6.1 부터 drawtext 는 libharfbuzz 가 있어야 빌드된다. video extra 가 Linux 에 가져오는 ffmpeg 에는 없다.
+    """
+    font, ffmpeg = tmp_path / "font.ttf", tmp_path / "ffmpeg"
+    font.write_bytes(b"font")
+    ffmpeg.write_bytes(b"")
+    monkeypatch.setattr(
+        renderer_module, "available_filters", lambda *_: frozenset({"drawbox", "scale"})
+    )
+
+    with pytest.raises(ConfigurationError, match="drawtext") as raised:
+        FfmpegOverlayRenderer(str(ffmpeg), str(font))
+
+    message = str(raised.value)
+    assert "FRAME_VIDEO_FFMPEG" in message and "PATH" in message  # 무엇을 할지 알린다
+    assert str(tmp_path) not in message  # 서버의 폴더는 싣지 않는다
+
+
+def test_the_renderer_is_built_when_the_ffmpeg_has_the_filters_it_draws_with(tmp_path, monkeypatch):
+    font, ffmpeg = tmp_path / "font.ttf", tmp_path / "ffmpeg"
+    font.write_bytes(b"font")
+    ffmpeg.write_bytes(b"")
+    monkeypatch.setattr(
+        renderer_module, "available_filters", lambda *_: frozenset({"drawbox", "drawtext"})
+    )
+
+    assert FfmpegOverlayRenderer(str(ffmpeg), str(font)).signature.startswith("ffmpeg-drawtext:")
+
+
+def test_an_ffmpeg_that_cannot_be_run_is_refused_when_the_renderer_is_built(tmp_path):
+    font, ffmpeg = tmp_path / "font.ttf", tmp_path / "ffmpeg"
+    font.write_bytes(b"font")
+    ffmpeg.write_bytes(b"")  # 실행할 수 없는 파일
+
+    with pytest.raises(ConfigurationError, match="필터를 확인하지 못했습니다") as raised:
+        FfmpegOverlayRenderer(str(ffmpeg), str(font))
+
+    assert str(tmp_path) not in str(raised.value)
 
 
 def test_text_is_shrunk_to_fit_its_region():

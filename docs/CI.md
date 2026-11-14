@@ -55,6 +55,8 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 - 새 실제 호출 테스트는 `tests/live/` 에 두고 `pytestmark = pytest.mark.slow` 를 단다.
 - ffmpeg 가 없으면 실제 영상 테스트는 건너뛴다 (실행 머리말의 `ffmpeg:` 줄에 보인다). CI 는 `FRAME_REQUIRE_FFMPEG=1` 로 돌아 없으면 실패한다.
 - 한글 글꼴이 없으면 화면 문구 합성 테스트 9개는 건너뛴다 (머리말의 `한글 글꼴:` 줄). `FRAME_REQUIRE_KOREAN_FONT=1` 을 주면 글꼴이 없을 때 실패한다 — 글꼴을 깐 overlay-font 잡이 쓴다.
+  ffmpeg 에 글자를 그리는 drawtext 필터가 없어도 그 테스트들은 건너뛴다 (머리말의 `ffmpeg:` 줄에 적힌다). video extra 가 Linux 에 가져오는 ffmpeg 가 그렇다 (보고서 A-43).
+  `FRAME_REQUIRE_DRAWTEXT=1` 을 주면 그때 실패한다 — 같은 잡이 쓴다. 로컬 Linux 에서 돌리려면 drawtext 가 든 ffmpeg 를 PATH 에 둔다 (`apt install ffmpeg`).
 - **설치된 판이 `pyproject.toml` 의 고정(`==`)과 다르면** `test_the_installed_packages_are_the_pinned_ones` 가 실패한다. `pip install -e ".[dev,llm,video]"` 로 다시 설치한다.
   고정을 올린 변경이 들어오기 전의 브랜치를 새 판이 깔린 환경에서 돌리면 명세 스냅숏 테스트가 실패할 수 있다 — dev 를 합치면 없어진다 (ADR-0033).
 
@@ -142,9 +144,18 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
    실패하면 로그의 `docker build` 단계부터 본다 (비 root 사용자의 쓰기 권한, extra 설치).
 4. **audit 잡**: 결과만 본다 (보고서 §12.3 결정 10). 조용해지면 `continue-on-error` 를 뺀다.
    FastAPI · Starlette 를 올린 뒤(ADR-0033)의 첫 실행에서 Starlette 의 것이 없어졌는지 본다. 러너 환경의 `setuptools` 두 건은 남는다 (프로젝트의 의존성이 아니고, 손대지 않기로 했다).
-5. **overlay-font 잡** (보고서 §12.3 결정 11): 처음 도는 잡이다. `fonts-noto-cjk` 를 깔고 `tests/contract/test_overlay_contract.py` 만 돌린다.
-   글꼴을 찾지 못하면 테스트를 모으기 전에 실패한다 (`FRAME_REQUIRE_KOREAN_FONT=1`). 그 테스트 아홉 개는 Linux 에서 돈 적이 없다 — 글꼴이 달라 글자 크기와 유사도 값이 갈릴 수 있다.
-   통과하는 것을 본 뒤에 test 잡에 글꼴 설치를 옮기고 이 잡을 없앨지 정한다. 실패하면 값이 어떻게 갈렸는지 로그에서 본다.
+5. **overlay-font 잡** (보고서 §12.3 결정 11 · A-43): 첫 실행(PR #40)에서 실패했다. 글꼴은 깔렸는데 문구를 그리는 테스트 넷이
+   "Error initializing a simple filtergraph" 로 실패했다 — video extra 가 Linux 에 가져오는 ffmpeg 에 drawtext 필터가 없어서다 (A-43).
+   지금은 그 잡이 `fonts-noto-cjk` 와 시스템 `ffmpeg` 를 깔고 (PATH 의 ffmpeg 가 먼저 쓰인다), 설치한 ffmpeg 의 판과 drawtext 를 찍은 뒤
+   `tests/contract/test_overlay_contract.py` 만 돌린다. 글꼴이나 drawtext 가 없으면 테스트를 모으기 전에 실패한다
+   (`FRAME_REQUIRE_KOREAN_FONT=1` · `FRAME_REQUIRE_DRAWTEXT=1`).
+   다음 실행에서 볼 것: 그 테스트들이 Ubuntu 의 ffmpeg 와 Noto Sans CJK 로 통과하는지 (Linux 에서 통과한 적이 없다 — 글꼴과 ffmpeg 의 판이 달라
+   글자 크기 · 유사도 값이 갈릴 수 있다). 실패하면 오류 문구에 ffmpeg 가 찍은 까닭이 실린다 (출력의 끝 다섯 줄).
+   test · compat 잡에서는 그 테스트 아홉이 계속 건너뛰어진다 (번들 ffmpeg 에 drawtext 가 없다). 필수로 옮길지는 통과를 본 뒤에 정한다.
+   둘째 실행(PR #41)도 실패했다: 러너의 apt ffmpeg 는 8.0.1 이고 drawtext 가 있는데, 테스트가 시작하기 전에 "drawtext 필터가 없습니다" 로 멈췄다.
+   ffmpeg 8.0 이 `-filters` 의 줄 머리 표시를 셋에서 둘로 줄여, 세 글자만 읽던 우리 코드가 목록을 하나도 읽지 못한 것이다 (보고서 A-43 의 '둘째 실패').
+   지금은 두 모양을 다 읽고, 실패 문구에 **어느 ffmpeg 를 찾았는지와 까닭**(필터가 없다 / 목록을 읽지 못했다)이 찍힌다.
+   이 잡이 통과하면 ffmpeg 8 에서 문구 합성 테스트가 도는 것도 처음이다 — 실패하면 그 테스트의 문구부터 본다.
 6. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
    태그는 패키지 버전으로 시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
 

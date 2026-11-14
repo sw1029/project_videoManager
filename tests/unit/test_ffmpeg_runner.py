@@ -7,13 +7,25 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from frame.adapters.shared.media.ffmpeg import FfmpegNotRun, run_ffmpeg, tail
+from frame.adapters.shared.media import ffmpeg as ffmpeg_module
+from frame.adapters.shared.media.ffmpeg import (
+    FfmpegNotRun,
+    VideoToolError,
+    available_filters,
+    filter_names,
+    run_ffmpeg,
+    tail,
+)
+from tests.support.video import find_ffmpeg
+
+FFMPEG = find_ffmpeg()
 
 
 def _python(code: str) -> list[str]:
@@ -53,13 +65,135 @@ def test_a_missing_executable_is_not_run(tmp_path):
 def test_the_tail_is_the_last_lines_that_say_something():
     log = "ffmpeg version 7\r\n\r\n  Input #0\n\n[mp4] moov atom not found\nError opening input\n"
 
-    assert tail(log) == "Input #0 | [mp4] moov atom not found | Error opening input"
+    assert tail(log, lines=3) == "Input #0 | [mp4] moov atom not found | Error opening input"
     assert tail(log, lines=1) == "Error opening input"
+
+
+def test_the_tail_keeps_the_line_that_says_why():
+    """ffmpeg 7 은 까닭을 먼저 찍고, 그 뒤에 어디서 멈췄는지를 서너 줄로 잇는다. 끝의 세 줄만 실으면 까닭이 빠진다.
+
+    (CI 의 Linux 잡에서 화면 문구 합성이 실패했을 때, 오류 문구에 까닭이 없었다 - 감사 A-43.)
+    """
+    log = (
+        "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'source.mp4':\n"
+        "  Stream #0:0[0x1](und): Video: h264 (High), yuv420p, 240x426, 10 fps\n"
+        "[AVFilterGraph @ 0x55d0c8a3b6c0] No such filter: 'drawtext'\n"
+        "[vost#0:0/libx264 @ 0x55d0c8a3a2c0] Error initializing a simple filtergraph\n"
+        "Error opening output file composed.mp4.\n"
+        "Error opening output files: Filter not found\n"
+    )
+
+    shown = tail(log)
+
+    assert "No such filter: 'drawtext'" in shown
+    assert shown.endswith("Error opening output files: Filter not found")
 
 
 def test_the_tail_of_nothing_says_so_and_a_long_tail_is_cut():
     assert tail("") == "(출력 없음)" and tail(" \n\r\n") == "(출력 없음)"
-    assert len(tail("x" * 5000)) == 400
+    assert len(tail("x" * 5000)) == 600
+
+
+# ---- ffmpeg 가 가진 필터 (감사 A-43) -----------------------------------------------------
+# `ffmpeg -filters` 가 찍는 모양 (7.1 의 출력에서 몇 줄)
+LISTING = """Filters:
+  T.. = Timeline support
+  .S. = Slice threading
+  A = Audio input/output
+  | = Source or sink filter
+ TSC aap               AA->A      Apply Affine Projection algorithm to first audio stream.
+ ... anullsrc          |->A       Null audio source, return empty audio frames.
+ T.C drawbox           V->V       Draw a colored box on the input video.
+ T.C drawtext          V->V       Draw text on top of video frames using libfreetype library.
+ ... subtitles         V->V       Render text subtitles onto input video using the libass library.
+"""
+
+
+def test_filter_names_are_read_from_the_listing():
+    names = filter_names(LISTING)
+
+    assert names == {
+        "aap",
+        "anullsrc",
+        "drawbox",
+        "drawtext",
+        "subtitles",
+    }  # 머리의 범례는 필터가 아니다
+
+
+# ffmpeg 8.0 은 줄 머리의 표시가 둘이다 (명령 지원 'C' 가 빠졌다. 범례는 세 글자 그대로 남아 있다).
+# fftools/opt_common.c 의 형식(" %c%c %-17s %-10s %s")대로 적은 것이다
+LISTING_8 = """Filters:
+  T.. = Timeline support
+  .S. = Slice threading
+  A = Audio input/output
+  V = Video input/output
+  N = Dynamic number and/or type of input/output
+  | = Source or sink filter
+ .. aap               AA->A      Apply Affine Projection algorithm to first audio stream.
+ .. anullsrc          |->A       Null audio source, return empty audio frames.
+ T. drawbox           V->V       Draw a colored box on the input video.
+ T. drawtext          V->V       Draw text on top of video frames using libfreetype library.
+ .. subtitles         V->V       Render text subtitles onto input video using the libass library.
+"""
+
+
+def test_filter_names_are_read_from_the_listing_of_ffmpeg_8():
+    """표시 글자가 둘인 목록도 읽는다.
+
+    세 글자만 읽던 때에는 ffmpeg 8 의 목록에서 필터를 하나도 읽지 못했고, 그것을 'drawtext 가 없다' 로 알렸다:
+    drawtext 가 든 ffmpeg 8 을 깐 CI 잡이 그 까닭으로 멈췄고, 서버도 그 ffmpeg 로는 화면 문구 합성을 켜지 못했다.
+    """
+    assert filter_names(LISTING_8) == {"aap", "anullsrc", "drawbox", "drawtext", "subtitles"}
+    assert filter_names(LISTING_8) == filter_names(LISTING)
+
+
+def _listing_from(stdout: str):
+    """필터 목록으로 stdout 을 찍고 끝나는 ffmpeg 를 흉내 낸다 (실행기의 안쪽 실행을 바꿔 끼운다)."""
+
+    def run(cmd, timeout_s, cwd=None):
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout.encode("utf-8"), stderr=b"")
+
+    return run
+
+
+@pytest.mark.parametrize("listing", [LISTING, LISTING_8], ids=["ffmpeg-7", "ffmpeg-8"])
+def test_the_filters_of_either_listing_are_available(listing, monkeypatch):
+    monkeypatch.setattr(ffmpeg_module, "_run", _listing_from(listing))
+    available_filters.cache_clear()
+    try:
+        assert {"drawbox", "drawtext"} <= available_filters("some-ffmpeg")
+    finally:
+        available_filters.cache_clear()
+
+
+def test_a_listing_that_cannot_be_read_is_an_error_not_an_empty_set(monkeypatch):
+    """목록의 모양을 알아보지 못한 것은 '그 필터가 없다' 와 다른 일이다. 빈 집합으로 돌려주면 둘이 구별되지 않는다."""
+    unknown = "Filters:\n  drawbox: V->V Draw a colored box\n  drawtext: V->V Draw text\n"
+    monkeypatch.setattr(ffmpeg_module, "_run", _listing_from(unknown))
+    available_filters.cache_clear()
+    try:
+        with pytest.raises(VideoToolError, match="하나도 읽지 못했습니다"):
+            available_filters("some-ffmpeg")
+    finally:
+        available_filters.cache_clear()
+
+
+def test_a_build_without_a_filter_does_not_list_it():
+    """ffmpeg 6.1 부터 drawtext 는 libharfbuzz 가 있어야 빌드된다. 없이 빌드한 ffmpeg 의 목록에는 그 줄이 없다."""
+    without = "\n".join(line for line in LISTING.splitlines() if " drawtext " not in line)
+
+    assert "drawtext" not in filter_names(without) and "drawbox" in filter_names(without)
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
+def test_a_real_ffmpeg_lists_its_filters():
+    assert {"drawbox", "scale", "fps"} <= available_filters(FFMPEG)
+
+
+def test_an_ffmpeg_that_cannot_be_run_lists_nothing(tmp_path):
+    with pytest.raises(FfmpegNotRun, match="실행하지 못했습니다"):
+        available_filters(str(tmp_path / "no-such-ffmpeg"))
 
 
 # ---- 밖으로 나가는 글 (감사 A-29, A-38) ---------------------------------------------------
