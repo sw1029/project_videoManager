@@ -2,7 +2,7 @@
 
 import pytest
 
-from frame.adapters.checker import FakeRequirementChecker
+from frame.adapters.checker import FakeConsistencyChecker, FakeRequirementChecker
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.adapters.tracker import FakeObjectTracker
@@ -68,18 +68,33 @@ def test_tracking_error_aborts_following_stages():
     assert "[track]" in version.error_message
 
 
-def test_unexpected_checker_exception_is_recorded_not_raised():
+def test_a_checker_that_crashes_leaves_its_verdict_undetermined_and_the_version_completes():
+    """검수기의 예상 밖 오류는 버전을 실패로 만들지 않는다. 유료 생성은 이미 끝났고, 실패는 되돌릴 수 없는 상태다.
+
+    그 검수기의 판정만 미판정으로 남고 다른 검수기의 결과는 그대로 저장된다 (감사 A-13).
+    """
+
     class ExplodingChecker(Checker):
         check_type = CheckType.REQUIREMENT
 
         def check(self, ctx):
             raise RuntimeError("boom")
 
-    container = make_container(checkers=(ExplodingChecker(),))
+    container = make_container(checkers=(ExplodingChecker(), FakeConsistencyChecker()))
     draft = create_draft(container)
+
     version = generate(container, draft.version_id)
-    assert (version.state, version.error_code) == (VersionState.FAILED, "UNEXPECTED_ERROR")
-    assert "RuntimeError: boom" in version.error_message
+
+    assert (version.state, version.error_code) == (VersionState.COMPLETED, None)
+    results = container.queries.get_checks(draft.version_id).results
+    crashed = [r for r in results if r.check_type is CheckType.REQUIREMENT]
+    assert [r.verdict for r in crashed] == [Verdict.UNDETERMINED]
+    assert crashed[0].detail["error"] == "RuntimeError" and "boom" not in str(crashed[0].detail)
+    assert {r.entity_key for r in results if r.check_type is CheckType.CONSISTENCY} == {
+        "barista",
+        "cup",
+        "cafe",
+    }
 
 
 def test_failed_tracking_of_an_entity_makes_its_requirements_undetermined():
