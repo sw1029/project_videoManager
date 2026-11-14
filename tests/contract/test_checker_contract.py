@@ -297,6 +297,36 @@ def test_vlm_judges_an_entity_whose_user_reference_is_an_external_address(
 
 
 @needs_ffmpeg
+def test_vlm_stops_asking_once_the_model_does_not_answer(store, ir, videos):
+    """객체 셋 가운데 첫 객체에서 모델이 답하지 않았다: 남은 객체는 묻지 않는다 (감사 A-24)."""
+    llm = ReplayLLMClient([LLMTimeout("응답 없음")])
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1)
+
+    outcomes = checker.check(_context(store, ir, videos))
+
+    assert [o.verdict for o in outcomes] == [Verdict.UNDETERMINED] * 3
+    assert outcomes[0].detail["reason"] == "LLM_TIMEOUT: 응답 없음"
+    assert all("묻지 않" in o.detail["reason"] for o in outcomes[1:])
+    assert len(llm.calls) == 1
+
+
+@needs_ffmpeg
+def test_vlm_keeps_the_other_verdicts_when_one_subject_fails_unexpectedly(store, ir, videos):
+    """예전에는 검수기 전체가 예외로 끝나 다른 객체의 판정까지 버려졌다 (감사 A-13)."""
+    llm = ReplayLLMClient(
+        [KeyError("frames")]
+    )  # 첫 객체에서만 터지고, 남은 둘은 재생할 응답이 없다
+    checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=1)
+
+    outcomes = checker.check(_context(store, ir, videos))
+
+    assert [o.verdict for o in outcomes] == [Verdict.UNDETERMINED] * 3
+    assert outcomes[0].detail["reason"] == "UNEXPECTED_ERROR: KeyError"
+    assert all(o.detail["reason"].startswith("LLM_BAD_RESPONSE") for o in outcomes[1:])
+    assert len(llm.calls) == 3  # 남은 객체는 그대로 물었다
+
+
+@needs_ffmpeg
 def test_vlm_failure_is_undetermined_not_an_error(store, ir, videos):
     llm = ReplayLLMClient([LLMTimeout("응답 없음")] * 3)
     checker = VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES)

@@ -15,6 +15,8 @@
     vlm_requirement · vlm_consistency · vlm_preservation    VLM 검수기 (프레임 표본 -> 질의 -> 판정).
         프레임은 shared/media 의 FrameSampler 로 뽑고, 질의는 shared/vlm 의 ask_json 으로 한다.
         검수기마다 다른 것은 질의 글 · 응답 형식 · 판정 규칙이다
+    _guard                                                  VLM 검수기 셋이 함께 쓰는 단위별 방어.
+        한 단위(장면 · 객체)의 실패가 다른 단위의 판정을 버리지 않게 하고, 모델이 답하지 않으면 남은 단위는 묻지 않는다
     ssim_preservation                                       구조 유사도(SSIM)로 견주는 보존 검수기
     fake                                                    가짜 검수기 셋
 """

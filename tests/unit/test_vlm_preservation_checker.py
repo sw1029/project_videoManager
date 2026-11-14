@@ -265,6 +265,37 @@ def test_what_cannot_be_judged_is_undetermined(store, ir, videos):
     assert closeup.verdict is Verdict.UNDETERMINED and "LLM_TIMEOUT" in closeup.detail["reason"]
 
 
+def test_once_the_model_does_not_answer_the_remaining_scenes_are_not_asked(store, ir, videos):
+    """다시 만든 장면 둘 가운데 첫 장면에서 모델이 답하지 않았다: 둘째 장면은 묻지 않는다 (감사 A-24)."""
+    checker, llm = _checker(store, LLMTimeout("VLM 응답 없음"))
+
+    outcomes = checker.check(_revision(store, ir, videos, keep=(ACTION, LIGHTING)))
+
+    remade = [o for o in outcomes if o.scene_key in TARGETS]
+    assert [o.verdict for o in remade] == [Verdict.UNDETERMINED] * 2
+    assert remade[0].detail["reason"] == "LLM_TIMEOUT: VLM 응답 없음"
+    assert (
+        remade[1].detail["reason"].startswith("LLM_TIMEOUT: ")
+        and "묻지 않" in remade[1].detail["reason"]
+    )
+    assert len(llm.calls) == 1
+    # 부모 클립을 그대로 쓴 장면은 모델 없이 판정한다
+    assert [o.verdict for o in outcomes if o.scene_key == "outro"] == [Verdict.PASS]
+
+
+def test_an_unexpected_error_in_one_scene_keeps_the_verdicts_of_the_others(store, ir, videos):
+    checker, llm = _checker(store, KeyError("elements"), _reply("yes"))
+
+    outcomes = checker.check(_revision(store, ir, videos, keep=(ACTION, LIGHTING)))
+
+    intro = [o for o in outcomes if o.scene_key == "intro"]
+    closeup = [o for o in outcomes if o.scene_key == "closeup"]
+    assert [o.verdict for o in intro] == [Verdict.UNDETERMINED]
+    assert intro[0].detail["reason"] == "UNEXPECTED_ERROR: KeyError"
+    assert closeup and {o.verdict for o in closeup} == {Verdict.PASS}
+    assert len(llm.calls) == 2
+
+
 def test_clips_that_cannot_be_compared_are_undetermined_without_asking(store, ir, videos):
     ctx = _revision(store, ir, videos, keep=(LIGHTING,))
     json_clips = _clips(store, ir, "ver_3", b"{}", suffix="json", media="application/json")

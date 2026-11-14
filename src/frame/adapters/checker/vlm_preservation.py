@@ -32,7 +32,6 @@ from frame.adapters.shared.media.frames import FrameSampler, midpoints
 from frame.adapters.shared.vlm.answers import match_answers
 from frame.adapters.shared.vlm.ask import ask_json
 from frame.adapters.shared.vlm.wording import described, predicate_words
-from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
@@ -42,6 +41,8 @@ from frame.domain.enums import CheckType, EntityKind, KeepAspect, Verdict
 from frame.domain.ir import SceneSpec
 from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
+
+from ._guard import UnitGuard
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ class VlmPreservationChecker(Checker):
         if not ctx.is_revision:
             return []
         outcomes: list[CheckOutcome] = []
+        guard = UnitGuard("유지 요소 검수")
         for scene in ctx.ir.scenes:
             if scene.scene_key in ctx.reused_scene_keys:
                 outcomes.append(
@@ -159,11 +161,23 @@ class VlmPreservationChecker(Checker):
                     )
                 )
             else:
-                outcomes.extend(self._check_scene(ctx, scene))
+                outcomes.extend(self._check_scene(ctx, scene, guard))
         return outcomes
 
     # ---- 다시 만든 장면 하나 ----
-    def _check_scene(self, ctx: CheckContext, scene: SceneSpec) -> list[CheckOutcome]:
+    def _check_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
+        """다시 만든 장면 하나. 판정하지 못하면 (프레임·모델·예상 밖 오류) 이 장면만 미판정 한 건으로 남긴다."""
+        return guard.judge(
+            f"장면 {scene.scene_key}",
+            lambda: self._judge_scene(ctx, scene, guard),
+            undetermined=lambda reason: [self._undetermined(scene.scene_key, reason)],
+        )
+
+    def _judge_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
         key = scene.scene_key
         clip, parent = ctx.clips.get(key), ctx.parent_clips.get(key)
         if clip is None or parent is None:
@@ -176,12 +190,9 @@ class VlmPreservationChecker(Checker):
         if not elements:
             return []  # 이 장면에서 유지 여부를 볼 요소가 없다 (바꾸는 객체만 나오는 장면 등)
         ids = {f"E{n}": element for n, element in enumerate(elements, start=1)}
-        try:
-            images = self._frame_pairs(scene, parent, clip)
-            answer = self._ask(scene, ids, changes, images)
-        except AdapterError as exc:
-            log.warning("유지 요소 검수 미판정 (장면 %s): %s: %s", key, exc.code, exc)
-            return [self._undetermined(key, f"{exc.code}: {exc}")]
+        guard.about_to_ask()
+        images = self._frame_pairs(scene, parent, clip)
+        answer = self._ask(scene, ids, changes, images)
         outcomes = []
         for index, (eid, element) in enumerate(ids.items()):
             shared: dict[str, Any] = {"method": "vlm_keep", "model": answer["model"]}

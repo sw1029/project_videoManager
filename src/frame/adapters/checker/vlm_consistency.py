@@ -28,7 +28,6 @@ from frame.adapters.shared.media.ffmpeg import require_ffmpeg
 from frame.adapters.shared.media.frames import FrameSampler, midpoints
 from frame.adapters.shared.vlm.ask import ask_json
 from frame.adapters.shared.vlm.wording import predicate_words
-from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
@@ -36,6 +35,8 @@ from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, ReferenceOrigin, TrackingStatus, Verdict
 from frame.domain.ir import EntitySpec, SceneSpec
 from frame.domain.services.identity import appearance_attributes
+
+from ._guard import UnitGuard
 
 log = logging.getLogger(__name__)
 
@@ -135,18 +136,37 @@ class VlmConsistencyChecker(Checker):
 
     def check(self, ctx: CheckContext) -> Sequence[CheckOutcome]:
         outcomes = []
+        guard = UnitGuard("일관성 검수")
         for entity in ctx.ir.entities:
             scenes = [
                 s for s in ctx.ir.scenes_with_entity(entity.entity_key) if s.scene_key in ctx.clips
             ]
             if not scenes:
                 continue
-            outcomes.append(self._check_entity(ctx, entity, scenes))
+            outcomes.append(self._check_entity(ctx, entity, scenes, guard))
         return outcomes
 
     # ---- 객체 하나 ----
     def _check_entity(
-        self, ctx: CheckContext, entity: EntitySpec, scenes: Sequence[SceneSpec]
+        self,
+        ctx: CheckContext,
+        entity: EntitySpec,
+        scenes: Sequence[SceneSpec],
+        guard: UnitGuard,
+    ) -> CheckOutcome:
+        """객체 하나. 판정하지 못하면 (프레임·모델·집계의 예상 밖 오류) 이 객체만 미판정으로 남긴다."""
+        return guard.judge(
+            f"객체 {entity.entity_key}",
+            lambda: self._judge_entity(ctx, entity, scenes, guard),
+            undetermined=lambda reason: self._undetermined(entity, reason),
+        )
+
+    def _judge_entity(
+        self,
+        ctx: CheckContext,
+        entity: EntitySpec,
+        scenes: Sequence[SceneSpec],
+        guard: UnitGuard,
     ) -> CheckOutcome:
         tracks = [t for t in ctx.tracks if t.entity_key == entity.entity_key]
         if any(t.status is not TrackingStatus.COMPLETED for t in tracks):
@@ -160,13 +180,10 @@ class VlmConsistencyChecker(Checker):
             return self._undetermined(
                 entity, f"장면 클립이 영상이 아니라 프레임을 뽑을 수 없음: {', '.join(not_video)}"
             )
-        try:
-            samples = self._samples(ctx, entity, scenes)
-            reference = self._user_reference(ctx, entity)
-            answer = self._ask(entity, samples, reference)
-        except AdapterError as exc:
-            log.warning("일관성 검수 미판정 (객체 %s): %s: %s", entity.entity_key, exc.code, exc)
-            return self._undetermined(entity, f"{exc.code}: {exc}")
+        guard.about_to_ask()
+        samples = self._samples(ctx, entity, scenes)
+        reference = self._user_reference(ctx, entity)
+        answer = self._ask(entity, samples, reference)
         return self._outcome(entity, samples, answer, user_reference=reference is not None)
 
     def _samples(

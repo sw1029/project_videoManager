@@ -37,7 +37,6 @@ from frame.adapters.shared.media.frames import FrameSampler, midpoints
 from frame.adapters.shared.vlm.answers import match_answers
 from frame.adapters.shared.vlm.ask import ask_json
 from frame.adapters.shared.vlm.wording import described, predicate_words
-from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
@@ -45,6 +44,8 @@ from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.ir import RequirementSpec, SceneSpec
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
+
+from ._guard import UnitGuard
 
 log = logging.getLogger(__name__)
 
@@ -139,11 +140,14 @@ class VlmRequirementChecker(Checker):
 
     def check(self, ctx: CheckContext) -> Sequence[CheckOutcome]:
         outcomes: list[CheckOutcome] = []
+        guard = UnitGuard("요구 반영 검수")
         for scene in ctx.ir.scenes:
             if not scene.requirements or scene.scene_key not in ctx.clips:
                 continue
             inherited = self._inherited(ctx, scene)
-            outcomes.extend(inherited if inherited is not None else self._check_scene(ctx, scene))
+            if inherited is None:
+                inherited = self._check_scene(ctx, scene, guard)
+            outcomes.extend(inherited)
         return outcomes
 
     # ---- 부모 판정 물려받기 ----
@@ -184,17 +188,26 @@ class VlmRequirementChecker(Checker):
         return outcomes
 
     # ---- 장면 하나 ----
-    def _check_scene(self, ctx: CheckContext, scene: SceneSpec) -> list[CheckOutcome]:
+    def _check_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
+        """장면 하나. 판정하지 못하면 (프레임·모델·예상 밖 오류) 이 장면의 요구조건만 미판정으로 남긴다."""
+        return guard.judge(
+            f"장면 {scene.scene_key}",
+            lambda: self._judge_scene(ctx, scene, guard),
+            undetermined=lambda reason: self._undetermined(scene, reason),
+        )
+
+    def _judge_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
         clip = ctx.clips[scene.scene_key]
         if not self._store.content_type(clip.uri).startswith("video/"):
             return self._undetermined(scene, "장면 클립이 영상이 아니라 프레임을 뽑을 수 없음")
         ids = {f"R{n}": r for n, r in enumerate(scene.requirements, start=1)}
-        try:
-            frames = self._frames(scene, self._store.get(clip.uri), clip.duration_ms)
-            answer = self._ask(ctx, scene, ids, frames)
-        except AdapterError as exc:
-            log.warning("요구 반영 검수 미판정 (장면 %s): %s: %s", scene.scene_key, exc.code, exc)
-            return self._undetermined(scene, f"{exc.code}: {exc}")
+        guard.about_to_ask()
+        frames = self._frames(scene, self._store.get(clip.uri), clip.duration_ms)
+        answer = self._ask(ctx, scene, ids, frames)
         outcomes = []
         for index, (rid, requirement) in enumerate(ids.items()):
             reply = answer["requirements"].get(rid)

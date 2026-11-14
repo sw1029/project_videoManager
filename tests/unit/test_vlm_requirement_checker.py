@@ -13,7 +13,7 @@ import pytest
 from frame.adapters.checker import VlmRequirementChecker
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.errors import LLMTimeout
+from frame.application.errors import LLMBadResponse, LLMTimeout
 from frame.application.ports.checker import CheckContext
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import CheckResult
@@ -189,7 +189,7 @@ def test_answers_are_matched_to_requirements_even_when_the_id_carries_extra_text
 
 
 def test_missing_answers_and_failed_calls_are_undetermined_not_errors(store, ir, video):
-    replies = [_reply("yes"), LLMTimeout("VLM 응답 없음"), *_all_yes()[2:]]
+    replies = [_reply("yes"), LLMBadResponse("빈 응답"), *_all_yes()[2:]]
     checker, _ = _checker(store, *replies)
 
     outcomes = checker.check(_context(store, ir, video))
@@ -198,8 +198,43 @@ def test_missing_answers_and_failed_calls_are_undetermined_not_errors(store, ir,
     assert [o.verdict for o in intro] == [Verdict.PASS] + [Verdict.UNDETERMINED] * 3
     closeup = [o for o in outcomes if o.scene_key == "closeup"]
     assert {o.verdict for o in closeup} == {Verdict.UNDETERMINED}
-    assert "LLM_TIMEOUT" in closeup[0].detail["reason"]
+    assert "LLM_BAD_RESPONSE" in closeup[0].detail["reason"]
+    # 답을 읽지 못한 것은 그 장면의 일이다. 다음 장면은 그대로 묻는다
     assert {o.verdict for o in outcomes if o.scene_key == "outro"} == {Verdict.PASS}
+
+
+def test_once_the_model_does_not_answer_the_remaining_scenes_are_not_asked(store, ir, video):
+    """모델이 시간 안에 답하지 않으면 남은 장면마다 시간 제한만큼 다시 기다리지 않는다 (감사 A-24)."""
+    checker, llm = _checker(store, _reply("yes", "yes", "yes", "yes"), LLMTimeout("VLM 응답 없음"))
+
+    outcomes = checker.check(_context(store, ir, video))
+
+    assert {o.verdict for o in outcomes if o.scene_key == "intro"} == {Verdict.PASS}
+    closeup = [o for o in outcomes if o.scene_key == "closeup"]
+    outro = [o for o in outcomes if o.scene_key == "outro"]
+    assert {o.verdict for o in closeup + outro} == {Verdict.UNDETERMINED}
+    assert closeup[0].detail["reason"] == "LLM_TIMEOUT: VLM 응답 없음"
+    assert (
+        outro[0].detail["reason"].startswith("LLM_TIMEOUT: ")
+        and "묻지 않" in outro[0].detail["reason"]
+    )
+    assert len(llm.calls) == 2  # outro 는 부르지 않았다
+    # 묻지 않은 장면의 결과도 요구조건마다 한 건씩, 판정이 난 결과와 같은 이름으로 대상을 적는다
+    assert [o.requirement_key for o in outro] == [r.key for r in ir.scene("outro").requirements]
+
+
+def test_an_unexpected_error_in_one_scene_keeps_the_verdicts_of_the_others(store, ir, video):
+    """예전에는 검수기 전체가 예외로 끝나 앞뒤 장면의 판정까지 버려졌다 (감사 A-13)."""
+    replies = [_reply("yes", "yes", "yes", "yes"), KeyError("frames"), _reply("yes", "yes")]
+    checker, llm = _checker(store, *replies)
+
+    outcomes = checker.check(_context(store, ir, video))
+
+    assert {o.verdict for o in outcomes if o.scene_key in ("intro", "outro")} == {Verdict.PASS}
+    closeup = [o for o in outcomes if o.scene_key == "closeup"]
+    assert {o.verdict for o in closeup} == {Verdict.UNDETERMINED}
+    assert closeup[0].detail["reason"] == "UNEXPECTED_ERROR: KeyError"
+    assert len(llm.calls) == 3
 
 
 def test_every_result_names_its_requirement_the_same_way(store, ir, video):
