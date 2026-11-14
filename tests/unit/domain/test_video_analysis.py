@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from frame.domain.errors import ValidationError
+from frame.domain.media import MediaInfo
 from frame.domain.screen import Region, TextRole, TextSource
-from frame.domain.series.shortform import MediaInfo
 from frame.domain.series.source_analysis import (
     ScreenText,
     Shot,

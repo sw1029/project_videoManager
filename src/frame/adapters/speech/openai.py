@@ -24,7 +24,7 @@ from frame.adapters.http_transport import (
     UrllibTransport,
 )
 from frame.application.ports.llm import LLMKeySource
-from frame.application.ports.video_analysis import (
+from frame.application.ports.speech import (
     SpeechAudio,
     SpeechRecognitionError,
     SpeechRecognizer,

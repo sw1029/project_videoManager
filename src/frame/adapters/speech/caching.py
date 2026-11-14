@@ -15,7 +15,7 @@ import logging
 
 from frame.application.errors import StorageError
 from frame.application.ports.artifact_store import ArtifactStore
-from frame.application.ports.video_analysis import SpeechAudio, SpeechRecognizer
+from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
 from frame.domain.errors import DomainError
 from frame.domain.hashing import canonical_hash
 from frame.domain.series.source_analysis import Transcript

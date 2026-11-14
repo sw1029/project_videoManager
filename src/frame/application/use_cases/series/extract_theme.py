@@ -31,15 +31,13 @@ from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.common import Clock, IdGenerator
 from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.repositories import ThemeRecord, ThemeRepository
-from frame.application.ports.video_analysis import (
-    MediaProber,
-    ShotDetector,
-    SpeechRecognizer,
-    SpeechServiceError,
+from frame.application.ports.series.source_analysis import MediaProber, ShotDetector
+from frame.application.ports.series.theme_extraction import (
     ThemeExtractionError,
     ThemeExtractionRequest,
     ThemeExtractor,
 )
+from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms

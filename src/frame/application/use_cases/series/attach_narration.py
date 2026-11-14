@@ -28,7 +28,7 @@ from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.series.audio import AudioEditor, TrackCut
 from frame.application.ports.series.repositories import EpisodeRepository
-from frame.application.ports.video_analysis import SpeechAudio, SpeechRecognizer
+from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.series.episode import ScriptLine
 from frame.domain.series.narration import (

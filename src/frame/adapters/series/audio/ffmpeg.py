@@ -16,7 +16,7 @@ from pathlib import Path
 from frame.adapters.media_tools import MediaToolError, probe_media, run_ffmpeg, tail
 from frame.adapters.video_tools import require_ffmpeg
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
-from frame.application.ports.video_analysis import SpeechAudio
+from frame.application.ports.speech import SpeechAudio
 
 SPEECH_SAMPLE_RATE = 16000
 

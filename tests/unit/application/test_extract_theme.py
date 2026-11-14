@@ -7,14 +7,11 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.analysis import FakeSpeechRecognizer, FakeThemeExtractor
 from frame.adapters.fake_media import fake_video
-from frame.application.ports.video_analysis import (
-    SpeechRecognitionError,
-    SpeechServiceError,
-    ThemeExtraction,
-    ThemeExtractionError,
-)
+from frame.adapters.series.theme_extraction import FakeThemeExtractor
+from frame.adapters.speech import FakeSpeechRecognizer
+from frame.application.ports.series.theme_extraction import ThemeExtraction, ThemeExtractionError
+from frame.application.ports.speech import SpeechRecognitionError, SpeechServiceError
 from frame.application.use_cases.series import ExtractThemeCommand, NotShortform
 from frame.config.theme_wiring import ThemeSettings
 from frame.domain.errors import ValidationError

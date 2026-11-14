@@ -11,11 +11,7 @@ from frame.adapters.series.overlay.caching_reader import CachingScreenTextReader
 from frame.adapters.speech.caching import CachingSpeechRecognizer
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.ports.series.overlay import ScreenTextReader
-from frame.application.ports.video_analysis import (
-    SpeechAudio,
-    SpeechRecognitionError,
-    SpeechRecognizer,
-)
+from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError, SpeechRecognizer
 from frame.domain.screen import Region
 from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
 

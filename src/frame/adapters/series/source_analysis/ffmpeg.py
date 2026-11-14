@@ -12,8 +12,12 @@ from pathlib import Path
 
 from frame.adapters.media_tools import MediaToolError, detect_cuts, probe_media
 from frame.adapters.video_tools import require_ffmpeg
-from frame.application.ports.video_analysis import MediaProber, ShotDetector, VideoAnalysisError
-from frame.domain.series.shortform import MediaInfo
+from frame.application.ports.series.source_analysis import (
+    MediaProber,
+    ShotDetector,
+    VideoAnalysisError,
+)
+from frame.domain.media import MediaInfo
 from frame.domain.series.source_analysis import Shot, shots_from_cuts
 
 # 받는 영상 코덱. ffmpeg 는 글 파일도 '영상'(bintext·ansi …)으로 읽을 수 있다. 계약은 "영상이 아니면 오류" 다

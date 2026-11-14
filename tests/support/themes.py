@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from frame.domain.enums import EntityKind
 from frame.domain.ir import EntitySpec, RequirementSpec
+from frame.domain.media import MediaInfo
 from frame.domain.screen import Region, TextRole
 from frame.domain.series.episode import EpisodeBrief, EpisodeContent, SlotContent
-from frame.domain.series.shortform import MediaInfo
 from frame.domain.series.theme import (
     CastMember,
     Condition,

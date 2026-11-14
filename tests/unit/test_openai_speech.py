@@ -9,7 +9,7 @@ import pytest
 from frame.adapters.http_transport import HttpResponse, HttpTransport, TransportError
 from frame.adapters.llm.key_store import LLMKeyStore
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
-from frame.application.ports.video_analysis import SpeechAudio, SpeechRecognitionError
+from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
 from tests.support.speech import dump_request_fields
 
 KEY = "sk-test-SECRET-1234567890"

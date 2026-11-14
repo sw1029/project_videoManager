@@ -12,28 +12,26 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from frame.adapters.analysis import (
-    FakeMediaProber,
-    FakeShotDetector,
-    FakeSpeechRecognizer,
-    FakeThemeExtractor,
-)
 from frame.adapters.fake_media import fake_recording, fake_video
 from frame.adapters.http_transport import HttpResponse, HttpTransport
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.series.source_analysis import FakeMediaProber, FakeShotDetector
 from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber, FfmpegShotDetector
+from frame.adapters.series.theme_extraction import FakeThemeExtractor
 from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
+from frame.adapters.speech import FakeSpeechRecognizer
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.llm import JsonCompletion, LLMClient
-from frame.application.ports.video_analysis import (
+from frame.application.ports.series.source_analysis import (
     MediaProber,
     ShotDetector,
-    SpeechAudio,
-    SpeechRecognitionError,
-    ThemeExtractionError,
-    ThemeExtractionRequest,
     VideoAnalysisError,
 )
+from frame.application.ports.series.theme_extraction import (
+    ThemeExtractionError,
+    ThemeExtractionRequest,
+)
+from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
 from frame.domain.series.shortform import check_platforms
 from frame.domain.series.source_analysis import (
     SpeechSegment,

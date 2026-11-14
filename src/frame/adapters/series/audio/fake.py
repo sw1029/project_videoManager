@@ -12,7 +12,7 @@ from typing import Any
 
 from frame.adapters.fake_media import FAKE_MEDIA_TYPE, decode_fake_media, encode_fake_media
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
-from frame.application.ports.video_analysis import SpeechAudio
+from frame.application.ports.speech import SpeechAudio
 from frame.domain.series.source_analysis import SpeechSegment, Transcript, Word
 
 

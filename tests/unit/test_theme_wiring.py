@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from frame.adapters.analysis import (
-    FakeMediaProber,
-    FakeShotDetector,
-    FakeSpeechRecognizer,
-    FakeThemeExtractor,
-)
 from frame.adapters.series.audio import FakeAudioEditor
 from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
 from frame.adapters.series.planning import TemplateSeriesPlanner
+from frame.adapters.series.source_analysis import FakeMediaProber, FakeShotDetector
 from frame.adapters.series.store import ArtifactThemeRepository, InMemoryThemeRepository
+from frame.adapters.series.theme_extraction import FakeThemeExtractor
+from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.errors import ConfigurationError
 from frame.config import Settings, build_container
 from frame.config.theme_wiring import ThemeSettings
@@ -207,7 +204,7 @@ def _recognizer(theme_settings, settings=None, **overrides):
 
 
 def _heard(recognizer, spy) -> dict:
-    from frame.application.ports.video_analysis import SpeechAudio
+    from frame.application.ports.speech import SpeechAudio
 
     recognizer.transcribe(SpeechAudio(b"RIFF....WAVEfmt ", "audio/wav", 1000))
     return spy.requests[-1]

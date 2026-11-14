@@ -12,14 +12,14 @@ from dataclasses import dataclass
 
 import pytest
 
-from frame.adapters.analysis import FakeMediaProber
 from frame.adapters.fake_media import fake_recording, fake_video
 from frame.adapters.media_tools import detect_silences
 from frame.adapters.series.audio import FakeAudioEditor
 from frame.adapters.series.audio.ffmpeg import FfmpegAudioEditor
+from frame.adapters.series.source_analysis import FakeMediaProber
 from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
 from frame.application.ports.series.audio import AudioEditor, AudioError, TrackCut
-from frame.application.ports.video_analysis import MediaProber
+from frame.application.ports.series.source_analysis import MediaProber
 from frame.domain.series.source_analysis import SpeechSegment, Transcript
 from tests.support.media import make_cut_clip, make_tone
 from tests.support.video import find_ffmpeg
@@ -148,7 +148,7 @@ def test_fake_track_carries_the_moved_speech():
     cut = TrackCut(0, 100, 2700, 4200)
     track = kit.editor.render_track([kit.recording], [cut], 8000)
     speech = kit.editor.speech_audio(track)
-    from frame.adapters.analysis import FakeSpeechRecognizer
+    from frame.adapters.speech import FakeSpeechRecognizer
 
     heard = FakeSpeechRecognizer().transcribe(speech)
 

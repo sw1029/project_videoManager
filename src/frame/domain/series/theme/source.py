@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from frame.domain.series.shortform import MediaInfo
+from frame.domain.media import MediaInfo
 
 
 class SourceOrigin(StrEnum):

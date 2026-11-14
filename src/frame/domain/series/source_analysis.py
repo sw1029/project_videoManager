@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.domain.errors import ValidationError
+from frame.domain.media import MediaInfo
 from frame.domain.screen import Region, TextRole, TextSource, region_or_none
-from frame.domain.series.shortform import MediaInfo
 
 
 @dataclass(frozen=True)

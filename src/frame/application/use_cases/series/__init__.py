@@ -8,6 +8,11 @@
 영상 생성·검수는 지금까지의 프로젝트·버전 흐름을 그대로 쓴다.
 """
 
+from frame.application.use_cases.series.adopt_anchors import (
+    AdoptAnchors,
+    AdoptAnchorsCommand,
+    AdoptAnchorsResult,
+)
 from frame.application.use_cases.series.attach_narration import (
     AttachNarration,
     AttachNarrationCommand,
@@ -26,13 +31,7 @@ from frame.application.use_cases.series.correct_episode_screen import (
     PatchRegion,
     StepStatus,
 )
-from frame.application.use_cases.series.create_episode import (
-    AdoptAnchors,
-    AdoptAnchorsCommand,
-    AdoptAnchorsResult,
-    CreateEpisode,
-    CreateEpisodeCommand,
-)
+from frame.application.use_cases.series.create_episode import CreateEpisode, CreateEpisodeCommand
 from frame.application.use_cases.series.extract_theme import (
     ExtractTheme,
     ExtractThemeCommand,

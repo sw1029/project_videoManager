@@ -42,13 +42,10 @@ from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.overlay import OverlayRenderer, ScreenTextReader
 from frame.application.ports.series.planning import SeriesPlanner
 from frame.application.ports.series.repositories import EpisodeRepository, ThemeRepository
+from frame.application.ports.series.source_analysis import MediaProber, ShotDetector
+from frame.application.ports.series.theme_extraction import ThemeExtractor
+from frame.application.ports.speech import SpeechRecognizer
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
-from frame.application.ports.video_analysis import (
-    MediaProber,
-    ShotDetector,
-    SpeechRecognizer,
-    ThemeExtractor,
-)
 from frame.application.use_cases import AcceptGeneration, CreateRevision
 from frame.application.use_cases.series import (
     AdoptAnchors,
@@ -277,7 +274,7 @@ def build_theme_services(
 
     # ---- 영상 분석 ----
     def _fake_prober() -> MediaProber:
-        from frame.adapters.analysis import FakeMediaProber
+        from frame.adapters.series.source_analysis import FakeMediaProber
 
         return FakeMediaProber()
 
@@ -287,7 +284,7 @@ def build_theme_services(
         return FfmpegMediaProber(ffmpeg())
 
     def _fake_shots() -> ShotDetector:
-        from frame.adapters.analysis import FakeShotDetector
+        from frame.adapters.series.source_analysis import FakeShotDetector
 
         return FakeShotDetector()
 
@@ -310,7 +307,7 @@ def build_theme_services(
     )
 
     def _fake_recognizer() -> SpeechRecognizer:
-        from frame.adapters.analysis import FakeSpeechRecognizer
+        from frame.adapters.speech import FakeSpeechRecognizer
 
         return FakeSpeechRecognizer()
 
@@ -354,7 +351,7 @@ def build_theme_services(
     )
 
     def _fake_extractor() -> ThemeExtractor:
-        from frame.adapters.analysis import FakeThemeExtractor
+        from frame.adapters.series.theme_extraction import FakeThemeExtractor
 
         return FakeThemeExtractor()
 

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from frame.application.errors import AdapterError
-from frame.application.ports.video_analysis import SpeechAudio
+from frame.application.ports.speech import SpeechAudio
 from frame.domain.errors import ValidationError
 
 

@@ -8,14 +8,15 @@ import json
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.series.theme_extraction.vlm import (
-    RESPONSE_SCHEMA,
-    VlmThemeExtractor,
-    build_system_prompt,
-    build_theme,
-)
+from frame.adapters.series.theme_extraction._prompt import build_system_prompt
+from frame.adapters.series.theme_extraction._schema import RESPONSE_SCHEMA
+from frame.adapters.series.theme_extraction._theme_builder import build_theme
+from frame.adapters.series.theme_extraction.vlm import VlmThemeExtractor
 from frame.application.errors import LLMTimeout
-from frame.application.ports.video_analysis import ThemeExtractionError, ThemeExtractionRequest
+from frame.application.ports.series.theme_extraction import (
+    ThemeExtractionError,
+    ThemeExtractionRequest,
+)
 from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.screen import Region, TextRole, TextSource
