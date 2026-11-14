@@ -107,10 +107,6 @@ ALLOWED: tuple[Allowed, ...] = (
         EXPLAINED,
         ("`C:\\Users\\…\\Temp\\frame-frames-…`",),
     ),
-    Allowed("src/frame/evaluation/edits/_report.py", EXPLAINED, ("(C:\\Users\\Kim Lee\\…)",)),
-    Allowed(
-        "src/frame/evaluation/structuring/_public.py", EXPLAINED, ("(C:\\Users\\Al 뒤의 ice)",)
-    ),
     Allowed("src/frame/tools/demo.py", EXPLAINED, ("(Windows: ///C:/..., POSIX: ////home/...)",)),
     # ---- 경로를 거절 · 변환 · 가리는지 시험하는 입력 ----
     Allowed("tests/contract/test_artifact_store_contract.py", REJECTED, ('"C:/clips/intro.mp4"',)),
@@ -137,6 +133,25 @@ ALLOWED: tuple[Allowed, ...] = (
             "사용자 폴더가 C:\\\\Users\\\\Al 일 때",
             'lambda: (r"C:\\Users\\Al",)',
             "C:\\Users\\Alice\\key.txt",
+        ),
+    ),
+    Allowed(
+        "tests/evaluation/test_public_text.py",
+        MASKED,
+        (
+            "/home/someone/My Videos/a.mp4",
+            "C:\\Users\\Some One\\AppData\\Local\\ffmpeg.log",
+            "/home/someone/.cache/frame/parent.mp4",
+            "/srv/media/x.mp4",
+            "D:/secrets/key.txt",
+            "/opt/tools/ffmpeg",
+            "file:///C:/Users/someone/key.txt",
+            'r"C:\\Users\\Jane Doe\\keys\\k.txt"',
+            'lambda: (r"C:\\Users\\Jane Doe",)',
+            "사용자 폴더가 C:\\\\Users\\\\Al 일 때",
+            'lambda: (r"C:\\Users\\Al",)',
+            "C:\\Users\\Alice\\key.txt",
+            "/home/someone/a.mp4",
         ),
     ),
     Allowed("tests/unit/application/test_check_suite.py", MASKED, ("boom at /srv/frame/secret",)),

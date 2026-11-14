@@ -20,10 +20,10 @@ from frame.application.errors import UNEXPECTED_ERROR, AdapterError
 from frame.application.ports.llm import JsonCompletion
 from frame.application.ports.structurer import RequirementStructurer
 from frame.domain.errors import DomainError
+from frame.evaluation._public import public_message, public_url
 
 from ._gold import GoldCase, gold_fingerprint
 from ._matching import EXHAUSTIVE
-from ._public import public_message, public_url
 from ._scoring import CaseScore, Tally, failed_case, score_case
 from ._summary import (
     ENTITY_RECALL_TARGET,
@@ -40,6 +40,7 @@ log = logging.getLogger(__name__)
 RECORD_VERSION = 1
 _DIGITS = 4  # 기록에 남기는 비율의 소수 자릿수
 SCORING_ERROR = "SCORING_ERROR"  # 채점기 자신의 결함 (모델·구조화의 실패가 아니다)
+ERROR_MESSAGE_LIMIT = 300  # 기록에 남기는 오류 문구의 길이 상한 (글자)
 
 
 # ---- 실행 ----------------------------------------------------------------------
@@ -126,11 +127,16 @@ def run_gold_set(
 
 def _describe(exc: Exception) -> str:
     code = getattr(exc, "code", None) or type(exc).__name__
-    return f"{code}: {public_message(str(exc))}"
+    return f"{code}: {_public(str(exc))}"
 
 
 def _unexpected(code: str, exc: Exception) -> str:
-    return f"{code}: {type(exc).__name__}: {public_message(str(exc))}"
+    return f"{code}: {type(exc).__name__}: {_public(str(exc))}"
+
+
+def _public(text: str) -> str:
+    """기록에 남길 오류 문구: 경로 · 접속 정보를 가리고 (frame.evaluation._public) 길면 자른다."""
+    return public_message(text, limit=ERROR_MESSAGE_LIMIT)
 
 
 def _structuring_failed(error: str | None) -> bool:
@@ -319,12 +325,12 @@ def rescore_record(
             continue
         response = entry.get("response")
         if response is None:
-            error = public_message(entry.get("error") or "응답 없음")
+            error = _public(entry.get("error") or "응답 없음")
             score = failed_case(case.case_id, case.spec, error)
         else:
             score = run_gold_set(structurer_for(response), [case])[0].score
             if _structuring_failed(score.error) and _structuring_failed(entry.get("error")):
-                score = replace(score, error=public_message(entry["error"]))
+                score = replace(score, error=_public(entry["error"]))
         tokens = entry.get("tokens") or {}
         runs.append(
             CaseRun(

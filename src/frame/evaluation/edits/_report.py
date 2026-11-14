@@ -5,13 +5,13 @@
 - 비대상 변경률은 측정 기준(detail.method)마다 따로 잰다 (vlm_keep · ssim). 목표 판정에 쓸 기준은 부르는 쪽이 고르고,
   결과 파일에는 두 기준을 모두 남긴다 (연구 문서 §7 결정 2 가 정해지지 않았다).
 - 케이스마다 입력·계획·수정 버전·클립 URI·검수 결과(detail 포함)를 판정 근거로 남긴다.
-  결과 파일은 저장소에 기록하므로 자유 문구(오류 문구·검수 사유·경고)의 이 컴퓨터 경로는 <경로> 로 가린다.
+  결과 파일은 저장소에 기록하므로 자유 문구(오류 문구·검수 사유·경고)의 이 컴퓨터 경로는 <경로> 로 가린다
+  (규칙은 구조화 골드셋의 기록과 같은 것이다: frame.evaluation._public).
 - 성공·비대상 변경률·목표 판정의 식은 _metrics 에 있다.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -21,6 +21,7 @@ from frame.application.use_cases import RevisionPlan
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
 from frame.domain.state_machine import TERMINAL_STATES
+from frame.evaluation._public import public_message, public_value
 
 from ._metrics import (
     NON_TARGET_CHANGE_TARGET,
@@ -293,7 +294,7 @@ def _preview(preview: ProductionPreview | None) -> dict[str, Any] | None:
         "model": preview.model,
         "cost_usd": preview.cost_usd,
         "seconds": preview.seconds,
-        "edit_unavailable_reason": _mask(preview.edit_unavailable_reason),
+        "edit_unavailable_reason": _public(preview.edit_unavailable_reason),
     }
 
 
@@ -307,9 +308,9 @@ def _outcome(outcome: EditCaseOutcome) -> dict[str, Any]:
 
 def _error(run: CaseRun) -> dict[str, Any] | None:
     if run.error_code is not None:
-        return {"code": run.error_code, "message": _mask(run.error_message)}
+        return {"code": run.error_code, "message": _public(run.error_message)}
     if run.version is not None and run.version.state is VersionState.FAILED:
-        return {"code": run.version.error_code, "message": _mask(run.version.error_message)}
+        return {"code": run.version.error_code, "message": _public(run.version.error_message)}
     return None
 
 
@@ -354,7 +355,9 @@ def _production(metadata: Mapping[str, Any]) -> dict[str, Any] | None:
         "model": model if isinstance(model, str) else None,
         "cost_usd": _number(metadata.get("cost_usd")),
         "seconds": _number(metadata.get("generation_seconds")),
-        "edit_fallback_reason": _mask(reason) if isinstance(reason, str) and not applied else None,
+        "edit_fallback_reason": _public(reason)
+        if isinstance(reason, str) and not applied
+        else None,
         "provisional": metadata.get("provisional") is True,
     }
 
@@ -385,11 +388,11 @@ def _check(result: CheckResult) -> dict[str, Any]:
                 "scene_key": w.scene_key,
                 "start_ms": w.start_ms,
                 "end_ms": w.end_ms,
-                "message": _mask(w.message),
+                "message": _public(w.message),
             }
             for w in result.warnings
         ],
-        "detail": _masked(dict(result.detail)),
+        "detail": public_value(dict(result.detail)),
     }
 
 
@@ -427,39 +430,6 @@ def _sum(values: Iterable[float | None]) -> float | None:
     return round(sum(known), RATE_DIGITS) if known else None
 
 
-# ---- 이 컴퓨터의 경로 가리기 ----
-# 결과 파일은 저장소에 기록한다 (TDD_WORKFLOW §7). 예외 문구·검수 사유 같은 자유 문구에 섞인 절대 경로
-# (사용자 이름이 든다)를 가린다. 저장소 키(local://…)와 웹 주소(https://…)는 앞 글자 조건에 걸려 그대로 남는다.
-
-LOCAL_PATH_MASK = "<경로>"
-_PATH_START = (
-    r"(?:[A-Za-z]:[\\/]"  # C:\ · C:/ (repr 에 찍힌 C:\\ 도 여기서 시작한다)
-    r"|\\\\[^\s\\/'\"]"  # \\서버\공유
-    r"|/(?:home|Users|tmp|var|private|root|mnt)/)"  # POSIX 의 홈·임시 폴더
-)
-# 따옴표 안의 경로는 닫는 따옴표까지 (repr 로 찍힌 OSError 의 파일 이름, 공백이 든 이름도)
-_QUOTED_PATH = re.compile(r"(?P<quote>['\"])" + _PATH_START + r"[^'\"\r\n]*(?P=quote)")
-# 따옴표 없는 경로는 공백·구두점·콜론('경로: 메시지' 꼴)까지. 공백 뒤에 경로 구분자가 더 있으면
-# 이어진 경로로 본다 (C:\Users\Kim Lee\…)
-_BARE_PATH = re.compile(
-    r"(?<![\w/\\.:])" + _PATH_START + r"(?:[^\s'\",;:)\]}>]| (?=[^\s'\",;:)\]}>]*[\\/]))*"
-)
-
-
-def _mask(text: str | None) -> str | None:
-    """자유 문구의 절대 경로를 <경로> 로 바꾼다."""
-    if text is None:
-        return None
-    text = _QUOTED_PATH.sub(lambda m: f"{m['quote']}{LOCAL_PATH_MASK}{m['quote']}", text)
-    return _BARE_PATH.sub(LOCAL_PATH_MASK, text)
-
-
-def _masked(value: Any) -> Any:
-    """검수 detail 처럼 중첩된 값 안의 문자열에 _mask 를 쓴다 (키와 숫자는 그대로)."""
-    if isinstance(value, str):
-        return _mask(value)
-    if isinstance(value, Mapping):
-        return {key: _masked(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_masked(item) for item in value]
-    return value
+def _public(text: str | None) -> str | None:
+    """결과 파일에 남길 자유 문구 (오류 문구 · 검수 사유 · 경고): 이 컴퓨터의 경로와 주소의 계정 · 질의를 가린다."""
+    return None if text is None else public_message(text)

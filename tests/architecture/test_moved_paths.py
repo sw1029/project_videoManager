@@ -58,6 +58,9 @@ MOVED = {
     "frame.domain.series.theme.KEY_FORMAT": "frame.domain.ir.KEY_PATTERN",
     # 키별 잠금의 구현은 하나다 (P-20). 다시 들어가는 잠금은 KeyedLocks(reentrant=True)
     "frame.adapters.series.store._key_locks": "frame.adapters.shared.locking",
+    # 커밋되는 글의 경로 가리기는 두 평가 도구가 한 벌을 쓴다 (P-20)
+    "frame.evaluation.structuring._public": "frame.evaluation._public",
+    "frame.evaluation.edits.LOCAL_PATH_MASK": "frame.evaluation._public.PATH_MASK",
 }
 
 # src 밖에서 frame 을 import 하는 곳
