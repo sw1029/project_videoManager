@@ -221,6 +221,20 @@ def test_cors_is_off_by_default_and_on_when_configured():
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
+@pytest.mark.parametrize(
+    ("path", "method"), [("/api/settings/llm-key", "DELETE"), ("/api/versions/v/ir", "PUT")]
+)
+def test_cors_allows_every_method_the_api_uses(path, method):
+    """감사 A-04: 다른 포트에서 띄운 화면도 키 지우기(DELETE)·IR 수정(PUT)의 사전 요청을 통과한다."""
+    client, _ = _client(_settings(cors_origins=("http://localhost:5173",)))
+    preflight = {"Origin": "http://localhost:5173", "Access-Control-Request-Method": method}
+
+    response = client.options(path, headers=preflight)
+
+    assert response.status_code == 200, response.text
+    assert method in response.headers["access-control-allow-methods"]
+
+
 def test_built_frontend_can_be_served_from_the_same_origin(tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html><title>FRAME</title>", encoding="utf-8")
     client, _ = _client(_settings(frontend_dist=str(tmp_path)))

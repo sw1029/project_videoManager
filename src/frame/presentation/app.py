@@ -53,7 +53,8 @@ def create_app(container: Container) -> FastAPI:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
-            allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+            # API 가 쓰는 메서드 전부 (DELETE: 화면 키 지우기, PUT: DRAFT IR 수정. 감사 A-04)
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             allow_headers=["*"],
             expose_headers=["Content-Range", "Accept-Ranges", "Retry-After"],
         )
