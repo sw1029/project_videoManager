@@ -1,0 +1,62 @@
+{
+  "case_id": "en-02-skateboard-sunset",
+  "language": "en",
+  "target_duration_ms": 15000,
+  "brief": "A 15-second clip. Shot 1 (6 s): a teenage boy in a red hoodie rides a skateboard along a seaside promenade at sunset. Shot 2 (5 s): he lands a kickflip. Shot 3 (4 s): the skateboard lies on the ground next to a yellow backpack.",
+  "covers": ["relation", "action", "outfit", "time_of_day", "uneven_scenes"],
+  "notes": "Uneven shot lengths (6/5/4 s) test boundaries. Age may stay in the description, so it is optional. Place and time are stated for shot 1 only.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "boy", "kind": "PERSON", "description": "teenage boy in a red hoodie", "aliases": ["boy", "teen", "teenager", "skater", "kid"]},
+      {"entity_key": "skateboard", "kind": "PROP", "description": "skateboard", "aliases": ["skateboard", "board"]},
+      {"entity_key": "backpack", "kind": "PROP", "description": "yellow backpack", "aliases": ["backpack", "bag"]},
+      {"entity_key": "promenade", "kind": "BACKGROUND", "description": "seaside promenade", "aliases": ["promenade", "boardwalk", "seaside"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "ride",
+        "planned_start_ms": 0,
+        "planned_end_ms": 6000,
+        "description": "a teenage boy rides a skateboard along a seaside promenade at sunset",
+        "entity_keys": ["boy", "skateboard", "promenade"],
+        "requirements": [
+          {"entity_key": "boy", "predicate": "outfit", "expected_value": "red hoodie"},
+          {"entity_key": "boy", "predicate": "action", "expected_value": "rides", "accept": ["skates", "cruises", "skateboards"]},
+          {"entity_key": "boy", "predicate": "age", "expected_value": "teen", "optional": true, "accept": ["teenage", "teenager", "young"]},
+          {"entity_key": "boy", "predicate": "on", "related_entity_key": "skateboard", "expected_value": "skateboard", "optional": true},
+          {"predicate": "location", "expected_value": "promenade", "accept": ["boardwalk", "seaside", "waterfront", "beach"]},
+          {"predicate": "time_of_day", "expected_value": "sunset", "accept": ["golden hour", "dusk", "evening"]}
+        ]
+      },
+      {
+        "scene_key": "kickflip",
+        "planned_start_ms": 6000,
+        "planned_end_ms": 11000,
+        "description": "he lands a kickflip",
+        "entity_keys": ["boy", "skateboard", "promenade"],
+        "requirements": [
+          {"entity_key": "boy", "predicate": "action", "expected_value": "kickflip", "accept": ["flip", "trick"]},
+          {"entity_key": "boy", "predicate": "outfit", "expected_value": "red hoodie"},
+          {"entity_key": "boy", "predicate": "on", "related_entity_key": "skateboard", "expected_value": "skateboard", "optional": true},
+          {"predicate": "location", "expected_value": "promenade", "optional": true, "accept": ["boardwalk", "seaside", "waterfront", "beach"]},
+          {"predicate": "time_of_day", "expected_value": "sunset", "optional": true, "accept": ["golden hour", "dusk", "evening"]}
+        ]
+      },
+      {
+        "scene_key": "rest",
+        "planned_start_ms": 11000,
+        "planned_end_ms": 15000,
+        "description": "the skateboard lies on the ground next to a yellow backpack",
+        "entity_keys": ["skateboard", "backpack", "promenade"],
+        "requirements": [
+          {"entity_key": "skateboard", "predicate": "near", "related_entity_key": "backpack", "expected_value": "backpack"},
+          {"entity_key": "backpack", "predicate": "color", "expected_value": "yellow"},
+          {"entity_key": "skateboard", "predicate": "pose", "expected_value": "lying", "optional": true, "accept_predicates": ["position", "action", "state"], "accept": ["on ground"]},
+          {"predicate": "location", "expected_value": "promenade", "optional": true, "accept": ["boardwalk", "seaside", "waterfront", "beach"]},
+          {"predicate": "time_of_day", "expected_value": "sunset", "optional": true, "accept": ["golden hour", "dusk", "evening"]}
+        ]
+      }
+    ]
+  }
+}

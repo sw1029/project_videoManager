@@ -1,0 +1,66 @@
+{
+  "case_id": "ko-03-dog-park",
+  "language": "ko",
+  "target_duration_ms": 15000,
+  "brief": "반려견 브이로그 15초. 장면 1 (5초): 맑은 날 오후, 공원 잔디밭에서 갈색 푸들이 꼬리를 흔든다. 장면 2 (5초): 회색 후드티를 입은 주인이 빨간 공을 멀리 던진다. 장면 3 (5초): 푸들이 빨간 공을 입에 물고 주인에게 달려온다.",
+  "covers": ["animal", "relation", "action", "weather", "time_of_day", "scene_level"],
+  "notes": "던지기·달려오기는 동작(action)이고, 공을 문 상태는 holds 관계다. 장소·날씨·시간대는 장면 1 에서만 말했으므로 2·3 에서는 선택. 장면 3 의 주인은 화면에 없을 수도 있어 그 장면에서만 선택이다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "dog", "kind": "ANIMAL", "description": "갈색 푸들", "aliases": ["푸들", "강아지", "반려견", "dog", "poodle", "puppy"]},
+      {"entity_key": "owner", "kind": "PERSON", "description": "회색 후드티를 입은 주인", "aliases": ["주인", "견주", "보호자", "owner", "person", "man", "woman"]},
+      {"entity_key": "ball", "kind": "PROP", "description": "빨간 공", "aliases": ["공", "ball"]},
+      {"entity_key": "park", "kind": "BACKGROUND", "description": "공원 잔디밭", "aliases": ["공원", "잔디밭", "park", "lawn"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "tail_wag",
+        "planned_start_ms": 0,
+        "planned_end_ms": 5000,
+        "description": "공원 잔디밭에서 갈색 푸들이 꼬리를 흔든다",
+        "entity_keys": ["dog", "park"],
+        "requirements": [
+          {"entity_key": "dog", "predicate": "color", "expected_value": "brown"},
+          {"entity_key": "dog", "predicate": "action", "expected_value": "wags tail", "accept": ["wagging"]},
+          {"predicate": "location", "expected_value": "park", "accept": ["lawn", "grass"]},
+          {"predicate": "weather", "expected_value": "sunny", "accept": ["clear"]},
+          {"predicate": "time_of_day", "expected_value": "afternoon"}
+        ]
+      },
+      {
+        "scene_key": "throw",
+        "planned_start_ms": 5000,
+        "planned_end_ms": 10000,
+        "description": "주인이 빨간 공을 멀리 던진다",
+        "entity_keys": ["owner", "ball", "park"],
+        "requirements": [
+          {"entity_key": "owner", "predicate": "outfit", "expected_value": "gray hoodie"},
+          {"entity_key": "owner", "predicate": "action", "expected_value": "throws", "accept": ["tosses"]},
+          {"entity_key": "ball", "predicate": "color", "expected_value": "red"},
+          {"predicate": "location", "expected_value": "park", "optional": true, "accept": ["lawn", "grass"]},
+          {"predicate": "weather", "expected_value": "sunny", "optional": true, "accept": ["clear"]},
+          {"predicate": "time_of_day", "expected_value": "afternoon", "optional": true}
+        ]
+      },
+      {
+        "scene_key": "fetch",
+        "planned_start_ms": 10000,
+        "planned_end_ms": 15000,
+        "description": "푸들이 공을 물고 주인에게 달려온다",
+        "entity_keys": ["dog", "ball", "owner", "park"],
+        "optional_entities": ["owner"],
+        "requirements": [
+          {"entity_key": "dog", "predicate": "holds", "related_entity_key": "ball", "expected_value": "ball"},
+          {"entity_key": "dog", "predicate": "action", "expected_value": "runs", "accept": ["comes back", "returns", "rushes", "dashes"]},
+          {"entity_key": "dog", "predicate": "color", "expected_value": "brown"},
+          {"entity_key": "ball", "predicate": "color", "expected_value": "red"},
+          {"entity_key": "owner", "predicate": "outfit", "expected_value": "gray hoodie"},
+          {"predicate": "location", "expected_value": "park", "optional": true, "accept": ["lawn", "grass"]},
+          {"predicate": "weather", "expected_value": "sunny", "optional": true, "accept": ["clear"]},
+          {"predicate": "time_of_day", "expected_value": "afternoon", "optional": true}
+        ]
+      }
+    ]
+  }
+}

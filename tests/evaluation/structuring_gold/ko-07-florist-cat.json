@@ -1,0 +1,51 @@
+{
+  "case_id": "ko-07-florist-cat",
+  "language": "ko",
+  "target_duration_ms": 10000,
+  "brief": "꽃집 브이로그 10초. 장면 1 (5초): 앞치마를 두른 플로리스트가 분홍 장미 꽃다발을 포장한다. 장면 2 (5초): 창가의 꽃병 옆에 회색 고양이가 앉아 있다. 창으로 들어오는 자연광과 잔잔한 분위기를 유지한다.",
+  "covers": ["animal", "relation", "action", "mood", "lighting", "scene_level"],
+  "notes": "자연광과 분위기는 '유지' 라 두 장면 모두 필수. 장소는 꽃집(장면 2 는 창가도 받음). 꽃다발을 든 상태는 포장 동작에 딸려 짐작될 뿐이라 선택이다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "florist", "kind": "PERSON", "description": "앞치마를 두른 플로리스트", "aliases": ["플로리스트", "꽃집 주인", "직원", "florist"]},
+      {"entity_key": "bouquet", "kind": "PROP", "description": "분홍 장미 꽃다발", "aliases": ["꽃다발", "장미", "부케", "bouquet", "rose", "flower"]},
+      {"entity_key": "vase", "kind": "PROP", "description": "꽃병", "aliases": ["꽃병", "화병", "vase"]},
+      {"entity_key": "cat", "kind": "ANIMAL", "description": "회색 고양이", "aliases": ["고양이", "cat", "kitten"]},
+      {"entity_key": "shop", "kind": "BACKGROUND", "description": "꽃집", "aliases": ["꽃집", "flower shop", "florist"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "wrapping",
+        "planned_start_ms": 0,
+        "planned_end_ms": 5000,
+        "description": "플로리스트가 분홍 장미 꽃다발을 포장한다",
+        "entity_keys": ["florist", "bouquet", "shop"],
+        "requirements": [
+          {"entity_key": "florist", "predicate": "outfit", "expected_value": "apron"},
+          {"entity_key": "florist", "predicate": "action", "expected_value": "wraps", "accept": ["packs", "packages", "ties"]},
+          {"entity_key": "bouquet", "predicate": "color", "expected_value": "pink"},
+          {"entity_key": "florist", "predicate": "holds", "related_entity_key": "bouquet", "expected_value": "bouquet", "optional": true},
+          {"predicate": "location", "expected_value": "flower shop", "accept": ["florist", "flower store"]},
+          {"predicate": "lighting", "expected_value": "natural", "accept": ["sunlight", "daylight", "window light"]},
+          {"predicate": "mood", "expected_value": "calm", "accept": ["peaceful", "serene", "tranquil", "quiet", "gentle", "relaxed"]}
+        ]
+      },
+      {
+        "scene_key": "cat",
+        "planned_start_ms": 5000,
+        "planned_end_ms": 10000,
+        "description": "창가의 꽃병 옆에 회색 고양이가 앉아 있다",
+        "entity_keys": ["cat", "vase", "shop"],
+        "requirements": [
+          {"entity_key": "cat", "predicate": "color", "expected_value": "gray"},
+          {"entity_key": "cat", "predicate": "near", "related_entity_key": "vase", "expected_value": "vase"},
+          {"entity_key": "cat", "predicate": "pose", "expected_value": "sitting", "accept_predicates": ["action"], "accept": ["seated"]},
+          {"predicate": "location", "expected_value": "flower shop", "accept": ["florist", "flower store", "window", "windowsill"]},
+          {"predicate": "lighting", "expected_value": "natural", "accept": ["sunlight", "daylight", "window light"]},
+          {"predicate": "mood", "expected_value": "calm", "accept": ["peaceful", "serene", "tranquil", "quiet", "gentle", "relaxed"]}
+        ]
+      }
+    ]
+  }
+}
