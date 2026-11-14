@@ -1,16 +1,18 @@
 """규칙 기반 구조화 어댑터 (결정적). LLM 어댑터의 대체재이자 테스트의 기준 구현.
 
-입력 DSL (한 줄에 한 문장, '#' 이후는 주석):
+입력 DSL (한 줄에 한 문장):
 
     scene <scene_key> <start_ms>-<end_ms> [: 설명]
-    entity <entity_key> [PERSON|PROP|BACKGROUND|TEXT|OTHER] [: 설명]
+    entity <entity_key> [<종류: EntityKind 의 값, PERSON·ANIMAL·PROP·BACKGROUND·TEXT·OTHER>] [: 설명]
     in <scene_key>: <entity_key>[, <entity_key> ...]
     <entity_key>.<predicate> = <value> [@ <scene_key>[, <scene_key> ...]]
     <entity_key> <predicate> -> <related_entity_key> [@ <scene_key>[, ...]]
     scene.<predicate> = <value> [@ <scene_key>[, ...]]        # 장면 수준 조건 (분위기·조명·카메라)
 
+- '#' 부터 줄 끝까지는 주석이다. 다만 낱말 안의 '#'(A#1)과, '=' 바로 뒤에 값으로 쓴 HEX 색(#ff0000)은 값이다.
 - '@' 가 없는 조건은 객체가 등장하는 모든 장면(장면 수준 조건은 모든 장면)에 적용된다.
-- '@' 로 장면을 지정하면 해당 장면에 객체가 자동으로 연결된다.
+- '@' 로 장면을 지정하면 해당 장면에 객체가 자동으로 연결된다. 장면 목록의 '@' 는 값과 띄어 쓴다.
+  값에 붙어 있는 '@'(info@frame.io)는 값의 일부다.
 - 술어는 어휘(domain/vocabulary.py)로 정규화된다: cup.색상 = 빨강 -> color, p 들다 -> cup -> holds.
 - scene 문장이 하나도 없으면 target_duration_ms(기본 8000ms) 길이의 단일 장면을 만든다.
 """
@@ -27,9 +29,12 @@ from frame.domain.errors import DomainError
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
 
 _SCENE = re.compile(r"^scene\s+(\S+)\s+(\d+)\s*-\s*(\d+)\s*(?::\s*(.*))?$")
-_ENTITY = re.compile(r"^entity\s+(\S+)(?:\s+(PERSON|PROP|BACKGROUND|TEXT|OTHER))?\s*(?::\s*(.*))?$")
+# 종류 목록은 EntityKind 에서 만든다 (손으로 적으면 종류가 더해질 때 어긋난다)
+_KINDS = "|".join(re.escape(str(kind)) for kind in EntityKind)
+_ENTITY = re.compile(rf"^entity\s+(\S+)(?:\s+({_KINDS}))?\s*(?::\s*(.*))?$")
 _IN = re.compile(r"^in\s+(\S+)\s*:\s*(.+)$")
-_ATTR = re.compile(r"^([^\s.]+)\.(\S+)\s*=\s*(.+?)\s*(?:@\s*(.+))?$")
+# 장면 목록은 값과 띄어 쓴 '@' 뒤에 온다. 값에 붙은 '@' 는 값이다
+_ATTR = re.compile(r"^([^\s.]+)\.(\S+)\s*=\s*(.+?)(?:\s+@\s*(.+))?$")
 _REL = re.compile(r"^(\S+)\s+(\S+)\s*->\s*(\S+)\s*(?:@\s*(.+))?$")
 
 DEFAULT_SCENE_KEY = "scene_01"
@@ -60,6 +65,28 @@ class _Draft:
     requirements: list[_PendingRequirement] = field(default_factory=list)
 
 
+# '=' 바로 뒤에 값으로 쓴 HEX 색 (#rgb · #rgba · #rrggbb · #rrggbbaa)
+_HEX_VALUE = re.compile(r"=\s*#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?=\s|$)")
+
+
+def _without_comment(raw: str) -> str:
+    """주석을 뗀 한 줄. 주석은 줄 머리의 '#', 또는 공백 뒤의 '#' 부터 줄 끝까지다.
+
+    낱말 안의 '#'(A#1)과 '=' 바로 뒤에 값으로 쓴 HEX 색(#ff0000)은 주석이 아니다.
+    """
+    line = raw.strip()
+    values = [(m.start(), m.end()) for m in _HEX_VALUE.finditer(line)]
+    for at, char in enumerate(line):
+        if char != "#":
+            continue
+        if at == 0:
+            return ""
+        if not line[at - 1].isspace() or any(start < at < end for start, end in values):
+            continue
+        return line[:at].strip()
+    return line
+
+
 class RuleBasedStructurer(RequirementStructurer):
     def structure(self, request: StructuringRequest) -> IntermediateRepresentation:
         draft = self._parse(request.prompt)
@@ -84,7 +111,7 @@ class RuleBasedStructurer(RequirementStructurer):
         if not prompt.strip():
             raise StructuringError("요구사항이 비어 있습니다")
         for line_no, raw in enumerate(prompt.splitlines(), start=1):
-            line = raw.split("#", 1)[0].strip()
+            line = _without_comment(raw)
             if not line:
                 continue
             if m := _SCENE.match(line):
