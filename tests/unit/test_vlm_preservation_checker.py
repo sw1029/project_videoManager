@@ -214,6 +214,44 @@ def test_repair_tells_the_judge_what_should_now_hold(store, ir, videos):
     ) in llm.calls[0]["user"].splitlines()
 
 
+@pytest.mark.parametrize(
+    ("parent_seconds", "child_seconds"),
+    [(4.0, 2.0), (2.0, 4.0)],
+    ids=["child-shorter", "parent-shorter"],
+)
+def test_frames_are_taken_where_both_clips_have_them(
+    store, ir, videos, tmp_path, parent_seconds, child_seconds
+):
+    """부모와 자식 클립의 길이가 다르면 (장면 길이를 바꾼 수정) 긴 쪽의 길이로 잡은 시각에는 짧은 쪽의 프레임이 없다.
+
+    두 길이 가운데 짧은 쪽 안에서 뽑는다. 부모 길이로만 잡으면 자식이 짧을 때 프레임을 못 뽑아 미판정이 됐다
+    (감사 A-28).
+    """
+    ctx = _revision(store, ir, videos, keep=(ACTION,))
+
+    def clip(version_id, seconds, color):
+        data = make_clip(
+            FFMPEG, tmp_path / f"{version_id}.mp4", seconds=seconds, source=f"color=c={color}"
+        )
+        uri = store.put(f"clips/{version_id}/intro.mp4", data, "video/mp4")
+        return GeneratedClip("intro", uri, int(seconds * 1000), "fp")
+
+    parent_clips = {**ctx.parent_clips, "intro": clip("ver_1", parent_seconds, "red")}
+    child_clips = {**ctx.clips, "intro": clip("ver_2", child_seconds, "blue")}
+    ctx = replace(ctx, parent_clips=parent_clips, clips=child_clips)
+    checker, llm = _checker(store, _reply("yes"))
+
+    (intro,) = [o for o in checker.check(ctx) if o.scene_key == "intro"]
+
+    assert intro.verdict is Verdict.PASS
+    assert [image.label for image in llm.calls[0]["images"]] == [
+        "B1 — BEFORE at 0.5s",
+        "B2 — BEFORE at 1.5s",
+        "A1 — AFTER at 0.5s",
+        "A2 — AFTER at 1.5s",
+    ]
+
+
 def test_what_cannot_be_judged_is_undetermined(store, ir, videos):
     ctx = _revision(store, ir, videos, keep=(ACTION, LIGHTING))
     checker, _ = _checker(store, _reply("unclear"), LLMTimeout("VLM 응답 없음"))

@@ -34,6 +34,7 @@ from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
+from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, EntityKind, KeepAspect, Verdict
 from frame.domain.ir import SceneSpec
@@ -173,7 +174,7 @@ class VlmPreservationChecker(Checker):
             return []  # 이 장면에서 유지 여부를 볼 요소가 없다 (바꾸는 객체만 나오는 장면 등)
         ids = {f"E{n}": element for n, element in enumerate(elements, start=1)}
         try:
-            images = self._frame_pairs(scene, parent.uri, clip.uri, parent.duration_ms)
+            images = self._frame_pairs(scene, parent, clip)
             answer = self._ask(scene, ids, changes, images)
         except AdapterError as exc:
             log.warning("유지 요소 검수 미판정 (장면 %s): %s: %s", key, exc.code, exc)
@@ -227,14 +228,20 @@ class VlmPreservationChecker(Checker):
         return lines
 
     def _frame_pairs(
-        self, scene: SceneSpec, parent_uri: str, clip_uri: str, duration_ms: int
+        self, scene: SceneSpec, parent: GeneratedClip, clip: GeneratedClip
     ) -> list[ImageInput]:
-        """부모(B1…)·자식(A1…)의 같은 시각 프레임. 부모 것을 먼저, 자식 것을 나중에 보여 준다."""
+        """부모(B1…)·자식(A1…)의 같은 시각 프레임. 부모 것을 먼저, 자식 것을 나중에 보여 준다.
+
+        시각은 두 클립 가운데 짧은 쪽의 길이 안에서 고른다. 길이가 다르면 (장면 길이를 바꾼 수정) 긴 쪽의 길이로
+        잡은 시각에는 짧은 쪽의 프레임이 없다.
+        """
         count = self.frames_per_scene
-        duration = duration_ms or scene.duration_ms
+        duration = min(
+            parent.duration_ms or scene.duration_ms, clip.duration_ms or scene.duration_ms
+        )
         times = [int(duration * (index + 0.5) / count) for index in range(count)]
         images = []
-        for prefix, name, uri in (("B", "BEFORE", parent_uri), ("A", "AFTER", clip_uri)):
+        for prefix, name, uri in (("B", "BEFORE", parent.uri), ("A", "AFTER", clip.uri)):
             video = self._store.get(uri)
             for index, at_ms in enumerate(times, start=1):
                 frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
