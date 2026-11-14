@@ -33,7 +33,6 @@ from frame.domain.hashing import canonical_hash
 from frame.domain.ir import EntitySpec, RequirementSpec, SceneSpec
 from frame.domain.revision import KeepItem
 
-from .assembler import VideoAssembler
 from .structurer import ReferenceImageInput
 
 
@@ -213,9 +212,10 @@ class VideoGenerator(ABC):
 __all__ = [
     "GeneratedClip",
     "ParentClip",
+    "ProductionMethod",
+    "ProductionPreview",
     "RevisionDirective",
     "SceneGenerationRequest",
     "VideoArtifact",
-    "VideoAssembler",
     "VideoGenerator",
 ]

@@ -28,7 +28,7 @@ from tests.architecture.baselines import SETTINGS_ARGUMENTS_WITH_DEFAULTS
 from tests.architecture.imports import ROOT, SOURCE, modules
 
 CONFIG = "frame.config"
-# 조립 코드에서 설정 객체를 가리키는 이름: ctx.settings · w.settings · s (= ctx.settings), w.ts · ts (테마 설정)
+# 조립 코드에서 설정 객체를 가리키는 이름: ctx.settings · settings · s (= ctx.settings), ts (테마 설정)
 SETTINGS_NAMES = {"settings": Settings, "s": Settings, "ts": ThemeSettings}
 ADDRESS_FIELD_ENDINGS = ("_url", "_model")
 
@@ -49,7 +49,7 @@ class Wire(NamedTuple):
 
 
 def _settings_field(node: ast.AST) -> tuple[str, str] | None:
-    """`ctx.settings.x` · `s.x` · `w.ts.x` 꼴이면 (설정 클래스 이름, 항목 이름)."""
+    """`ctx.settings.x` · `s.x` · `ts.x` 꼴이면 (설정 클래스 이름, 항목 이름)."""
     if not isinstance(node, ast.Attribute):
         return None
     base = ast.unparse(node.value).split(".")[-1]

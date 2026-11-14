@@ -33,8 +33,8 @@ from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
 from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, ReferenceOrigin, TrackingStatus, Verdict
+from frame.domain.identity import appearance_attributes
 from frame.domain.ir import EntitySpec, SceneSpec
-from frame.domain.services.identity import appearance_attributes
 
 from ._guard import UnitGuard
 

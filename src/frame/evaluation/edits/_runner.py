@@ -8,7 +8,7 @@
   Ctrl+C 는 막지 않는다. 그때까지의 기록을 담은 CaseInterrupted(KeyboardInterrupt 하위)로 올려 보낸다.
 - 수정 버전을 만든 뒤 오류·Ctrl+C 로 끝나면 그 버전을 한 번 더 읽어 마지막 상태를 남긴다
   (접수된 채 끝나지 않은 버전은 서버를 켜면 다시 실행되므로 찾을 수 있어야 한다).
-- 기록을 판정하고 결과 파일의 내용을 만드는 일은 edit_report 가 한다.
+- 기록을 판정하고 결과 파일의 내용을 만드는 일은 _report 가 한다.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from frame.domain.errors import DomainError
 from frame.domain.models import VideoVersion
 from frame.domain.state_machine import TERMINAL_STATES
 
-from .edit_cases import EditCaseSpec
-from .edit_metrics import SECONDS_DIGITS
+from ._cases import EditCaseSpec
+from ._metrics import SECONDS_DIGITS
 
 log = logging.getLogger(__name__)
 

@@ -15,13 +15,12 @@ from dataclasses import replace
 import pytest
 
 from frame.adapters.generator import CachingVideoGenerator
-from frame.adapters.generator.cache import generation_key
-from frame.adapters.generator.ledger import ArtifactJobLedger
 from frame.adapters.generator.openrouter import (
     EDIT_KEEP_LINE,
     VideoModelInfo,
     compile_edit_prompt,
 )
+from frame.adapters.generator.records import ArtifactJobLedger, generation_key
 from frame.adapters.shared.http import TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError

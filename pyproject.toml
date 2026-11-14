@@ -80,21 +80,16 @@ max-complexity = 19  # 켤 때의 최댓값 (identity/vlm_crop.py 의 extract). 
 "src/frame/tools/**" = ["T20"]
 "scripts/**" = ["T20", "INP001"]
 # 기준선 (감사 C-04): 실행 중 불변식을 assert 로 확인하는 기존 파일. 목록에 더하지 않고 줄여 간다
-"src/frame/adapters/generator/cache.py" = ["S101"]
-"src/frame/adapters/generator/decorators.py" = ["S101"]
-"src/frame/adapters/generator/ledger.py" = ["S101"]
+"src/frame/adapters/generator/records/_clip_cache.py" = ["S101"]
+"src/frame/adapters/generator/records/_job_ledger.py" = ["S101"]
+"src/frame/adapters/generator/resilience.py" = ["S101"]
 "src/frame/adapters/generator/openrouter/generator.py" = ["S101"]
 "src/frame/adapters/llm/openai_client.py" = ["S101"]
-"src/frame/domain/services/comparison.py" = ["S101"]
-"src/frame/domain/services/identity.py" = ["S101"]
+"src/frame/domain/comparison.py" = ["S101"]
+"src/frame/domain/identity.py" = ["S101"]
 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 120  # 코드는 100 칸으로 포맷하되, 한글 docstring/주석은 120 칸까지 허용
-
-[tool.ruff.format]
-# 기준선 (ADR-0030): 다른 브랜치(#10·#11·#12)가 고치고 있는 파일이라 지금 포맷하지 않는다.
-# 그 브랜치가 dev 에 들어온 뒤 포맷하고 이 목록을 지운다. 목록에는 더하지 않는다
-exclude = ["src/frame/presentation/app.py", "src/frame/presentation/schemas.py"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -128,12 +123,3 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["faster_whisper"]
 ignore_missing_imports = true
-
-# 기준선: 다른 브랜치가 고치고 있는 파일의 오류 3건. 그 브랜치가 dev 에 들어온 뒤 고치고 이 두 항목을 지운다. 더하지 않는다
-[[tool.mypy.overrides]]
-module = ["frame.config.container"]
-disable_error_code = ["arg-type"]
-
-[[tool.mypy.overrides]]
-module = ["frame.adapters.persistence.sqlalchemy.repositories"]
-disable_error_code = ["attr-defined"]

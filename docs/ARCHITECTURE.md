@@ -33,7 +33,7 @@ Fake 어댑터만으로 전체 흐름(접수 → 구조화 → 생성 접수 →
 | §3.1 ERD + Enum | PROJECT/VIDEO_VERSION/SCENE/ENTITY/SCENE_ENTITY/REFERENCE_IMAGE/REQUIREMENT/CHECK_RESULT, VersionState·TrackingStatus·CheckType·Verdict | `domain/enums.py`, `domain/models.py`, SQLAlchemy 모델 |
 | §3.1 무결성 규칙 1~5 | DRAFT 에서만 접수, 키 유일성, 같은 프로젝트/버전 참조 | §7 표 참조 |
 | §3.2 Endpoint Catalog | 7개 API, 202/201/409 | `presentation/routers` |
-| §1.3 성공 지표 | 수정 성공률 ≥80% · 비대상 변경률 ≤10% · 반영률 ≥80% · 고정 속성 유지율 ≥90% | `domain/metrics.py`, `evaluation/edit_metrics.py` |
+| §1.3 성공 지표 | 수정 성공률 ≥80% · 비대상 변경률 ≤10% · 반영률 ≥80% · 고정 속성 유지율 ≥90% | `domain/metrics.py`, `evaluation/edits/` |
 | 문제정의서 §4.3 리스크 | GPU 부족·긴 생성 시간 / 구조화·매핑 오류 / 일관성 저하 | 재시도·캐시 Decorator, 장면 단위 재사용, 구조화 결과 사용자 확인(DRAFT 단계), UNDETERMINED 판정 |
 | Won't 목록 | 픽셀 단위 편집·완전 자동 역추출·오디오 편집 제외 | 마스크는 추적 결과(박스)까지만 제공, 편집 단위는 장면 |
 
@@ -263,11 +263,9 @@ FRAME/
 │   │   ├── settings.py             #   FRAME_* 환경 변수 → Settings
 │   │   ├── registry.py             #   AdapterRegistry: (포트, 키) → 팩토리
 │   │   └── container.py            #   build_container(settings, overrides)
-│   ├── evaluation/                 # 지표 1 평가 하네스 (20건 수정 실험, ADR-0022)
-│   │   ├── edit_metrics.py         #   판정·집계 (대상 요구조건 키, 측정 기준별 보존 결과)
-│   │   ├── edit_cases.py           #   케이스 파일(JSON) 읽기
-│   │   ├── edit_runner.py          #   케이스 실행: 계획 → 수정 → 생성 → 검수 (실행 기록 CaseRun)
-│   │   └── edit_report.py          #   실행 기록의 판정과 결과 파일(JSON) 내용
+│   ├── evaluation/                 # 성공 지표 평가 하네스
+│   │   ├── edits/                  #   지표 1 (20건 수정 실험, ADR-0022): 케이스 파일 · 실행 · 판정과 결과 파일 · 지표 식
+│   │   └── structuring/            #   구조화 골드셋 채점 · 기록 · 비교
 │   └── tools/evaluate_edits.py     # 지표 1 평가 CLI (python -m frame.tools.evaluate_edits)
 ├── tests/
 │   ├── support/factories.py        # 공용 컨테이너 팩토리, 예시 프롬프트, cafe_ir()
@@ -322,7 +320,7 @@ FRAME/
 | Template Method | `pipeline/stage.py` | 단계 공통 절차(관찰자 통지·시간 측정)와 본문 분리 |
 | Chain(순차 파이프라인) + Observer | `pipeline/runner.py`, `PipelineObserver` | 단계 순서·중단 규칙 고정, 진행 상황 관찰(로그·진행률) |
 | Composite | `application/checks.py` `CheckSuite` | 검수기 N 개를 하나처럼 실행 |
-| Decorator | `adapters/generator/decorators.py` | 재시도·결과 캐시를 어떤 생성기에도 덧씌움 (리스크 1 대응) |
+| Decorator | `adapters/generator/resilience.py` | 재시도·결과 캐시를 어떤 생성기에도 덧씌움 (리스크 1 대응) |
 | Command + Dispatcher | `ports/jobs.py`, `adapters/jobs/*` | 비동기 작업 추상화: 테스트는 Recording, 데모는 Inline/Thread, 운영은 Celery |
 | State (명시적 전이표) | `domain/state_machine.py`, `VideoVersion.transition_to` | 무결성 규칙 1, 불법 전이 차단 |
 | Prototype (복제 후 변경) | `CreateRevision` + 전파 정책 | 원본 버전 보존 |
@@ -412,7 +410,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T4 요구조건 블록 조회·수정 화면 | (프론트) ← `GET /versions`, `POST /revisions` | API 제공 |
 | T5 반영 결과 저장·조회 형식 | `domain/checks.py`, `domain/metrics.py`, `GET /checks` | 제공 |
 | T6 구조화·조건 반영 AC 테스트 | `tests/acceptance/test_us06_structuring.py` | 제공 (Fake 기준, 실제 모델로 재실행 가능) |
-| T7 선택 재생성 도구 Spike | `adapters/generator/stubs.py` (`compile_prompt`) | 뼈대 |
+| T7 선택 재생성 도구 Spike | `adapters/generator/diffusers_stub.py` (`compile_prompt`) | 뼈대 |
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
 | T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |

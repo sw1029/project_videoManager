@@ -12,8 +12,7 @@ from frame.application.use_cases.plan_revision import PlanRevisionCommand
 from frame.config.container import Container
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
 from frame.domain.errors import MediaNotAvailable
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem
 
 from .. import mappers
 from ..dependencies import get_container

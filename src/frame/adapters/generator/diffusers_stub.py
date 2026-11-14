@@ -1,8 +1,8 @@
-"""실제 생성 모델 어댑터의 뼈대 (추론 코드만 비어 있음).
+"""로컬 추론(diffusers) 생성기의 뼈대 (추론 코드만 비어 있음).
 
 핵심은 IR -> 모델 입력 변환(PromptCompiler)을 어댑터 안에 가두는 것이다.
 모델이 바뀌면 이 파일의 어댑터만 바뀌고, 유스케이스·파이프라인·IR 은 그대로다.
-외부 API(external_api) 생성기는 openrouter.py, ffmpeg 조립기는 ffmpeg.py 에 있다 (ADR-0011).
+외부 API(external_api) 생성기는 openrouter/ 에, 최종 영상 조립기는 adapters/assembler/ 에 있다 (ADR-0011).
 """
 
 from __future__ import annotations

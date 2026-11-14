@@ -1,4 +1,4 @@
-"""팩토리들이 함께 기대는 것: 먼저 만들어진 객체, ffmpeg 경로, 글·이미지를 읽는 LLM 클라이언트.
+"""팩토리들이 함께 기대는 것: 먼저 만들어진 객체, ffmpeg 경로, 글·이미지를 읽는 LLM 클라이언트와 그 주소.
 
 팩토리는 조립 맥락(BuildContext) 하나만 받는다. 거기서 필요한 것을 꺼내는 방법을 포트 모듈마다 다시 쓰지 않게 모았다.
 구현이 아직 없는 뼈대 어댑터를 거절하는 팩토리(skeleton)도 여기에 있다.
@@ -14,6 +14,9 @@ from frame.application.ports import ArtifactStore, JobHandlerRegistry
 from frame.application.ports.llm import LLMClient
 
 from ..registry import AdapterRegistry, BuildContext, Factory
+from ..theme_settings import ThemeSettings
+
+OPENAI_BASE_URL = "https://api.openai.com/v1"  # LLM 주소를 주지 않았을 때 요청이 가는 곳
 
 
 def artifact_store(ctx: BuildContext) -> ArtifactStore:
@@ -28,6 +31,13 @@ def job_handlers(ctx: BuildContext) -> JobHandlerRegistry:
     if ctx.handlers is None:
         raise ConfigurationError("handlers 가 아직 만들어지지 않았습니다")
     return ctx.handlers
+
+
+def theme_settings(ctx: BuildContext) -> ThemeSettings:
+    """조립이 맥락에 넣어 둔 테마·시리즈 기능의 설정."""
+    if ctx.theme_settings is None:
+        raise ConfigurationError("theme_settings 가 아직 만들어지지 않았습니다")
+    return ctx.theme_settings
 
 
 def ffmpeg_path(ctx: BuildContext) -> str:
@@ -55,6 +65,11 @@ def llm_client(registry: AdapterRegistry, ctx: BuildContext) -> LLMClient:
     """글을 읽는 LLM 클라이언트. 공급자는 FRAME_LLM_PROVIDER, 모델은 FRAME_LLM_MODEL."""
     client: LLMClient = registry.build(LLMClient, ctx.settings.llm_provider, ctx)
     return client
+
+
+def llm_address(ctx: BuildContext) -> str:
+    """LLM 요청이 가는 주소: FRAME_LLM_BASE_URL, 없으면 OpenAI. 앞뒤 공백과 끝의 / 를 뗀다."""
+    return (ctx.settings.llm_base_url or OPENAI_BASE_URL).strip().rstrip("/")
 
 
 def vlm_client(registry: AdapterRegistry, ctx: BuildContext) -> LLMClient:

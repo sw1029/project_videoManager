@@ -84,6 +84,9 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 | `test_the_domain_uses_only_the_standard_library` | 도메인이 외부 패키지를 썼다 | 그 일을 포트 뒤로 보낸다 |
 | `test_third_party_packages_stay_in_their_layer` | 외부 패키지를 정해진 자리 밖에서 썼다 | 새 패키지라면 테스트의 `THIRD_PARTY_HOMES` 에 자리를 적는다 (ADR 에 적을 만한 결정이다) |
 | `test_adapter_packages_do_not_import_each_other` | 어댑터 패키지가 다른 어댑터 패키지를 import 했다 | 함께 쓰는 코드를 `adapters/shared/` 로 옮긴다 |
+| `test_there_are_no_modules_at_the_top_of_adapters` | `adapters/` 바로 아래에 모듈을 뒀다 | 그 개념의 패키지나 `adapters/shared/` 로 옮긴다 |
+| `test_removed_paths_do_not_come_back` · `test_nothing_imports_a_removed_path` | 옮긴 모듈의 옛 경로가 다시 생겼거나 그 경로로 import 했다 (옛 브랜치를 가져올 때 생긴다) | 실패 문구가 알려 주는 새 자리로 고친다. 표는 `tests/architecture/test_moved_paths.py` 의 `MOVED` (ADR-0031 3절) |
+| `test_the_table_points_at_places_that_exist` | 모듈을 또 옮겼는데 `MOVED` 의 새 자리가 옛 이름이다 | 표의 새 자리를 지금 이름으로 고친다. 모듈을 옮길 때는 그 표에 옛 경로 → 새 자리를 더한다 |
 | `test_every_package_says_what_it_is_for` · `…lists_its_public_names` | 패키지 `__init__.py` 에 설명이나 `__all__` 이 없다 | 머리에 "맡는 개념 · 밖에서 쓰는 이름 · 안의 모듈 지도" 를 적고 `__all__` 을 둔다 |
 | `test_private_modules_are_not_imported_from_outside_their_package` | `_` 로 시작하는 모듈을 패키지 밖에서 import 했다 | 패키지 `__init__.py` 가 내보내는 이름을 쓴다 |
 | `test_modules_stay_small_enough_to_read` | 새 모듈이 500줄을 넘는다 | 개념 단위로 나눈다 (줄 수는 신호이고, 나누는 기준은 개념이다) |

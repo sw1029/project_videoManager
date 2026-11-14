@@ -28,6 +28,8 @@
 - 모듈 (개념 하나에 모듈 하나): 케이스 파일 읽기 `evaluation/edit_cases.py` → 케이스 실행 `edit_runner.py`(실행 기록 `CaseRun`)
   → 판정·결과 파일 내용 `edit_report.py` → 지표 식·목표값 `edit_metrics.py`. 명령과 컨테이너 조립은 `tools/evaluate_edits.py` 가
   한다. `evaluation` 은 `domain`·`application` 만 import 하고, 실행기는 유스케이스 네 개를 `EditApp` 프로토콜로 받는다.
+  보완 (2026-11-15, 감사 P-06): 네 모듈을 하위 패키지 `evaluation/edits/` 로 옮겼다 (`_cases` · `_runner` · `_report` · `_metrics`).
+  밖에서는 패키지 입구 `frame.evaluation.edits` 에서 이름을 가져온다. 아래 글의 `edit_metrics` 등은 그 모듈들이다.
 - 근거
   - 화면·API 가 부르는 것과 같은 유스케이스다. presentation 은 스키마 변환만 하므로 재는 동작이 같다.
   - 검수 결과를 도메인 객체(`CheckResult`)로 받아 `evaluate_cases` 에 바로 넣는다. HTTP 응답을 되돌리는 변환이 없다.

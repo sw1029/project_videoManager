@@ -23,6 +23,7 @@
     다운로드 중이었다면 끝까지 받아 저장소에 넣는다.
   - 결과는 버린다 (버전은 이미 FAILED). 과금됐을 수 있는 산출물의 URI 를 경고 로그(`frame.adapters.generator.decorators`)로
     남겨 손으로 회수할 수 있게 한다. 실패로 끝나면 그 오류를 경고로 남긴다.
+    보완 (2026-11-15, 감사 K-05): 모듈 이름을 `resilience` 로 바꿔 로그 이름이 `frame.adapters.generator.resilience` 가 됐다.
   - 안쪽 Retry 가 다음 시도를 하지 않는다. 컨테이너는 `RetryingVideoGenerator` 의 대기 함수로 `pause_before_retry` 를 꽂는다.
     버려진 작업 스레드에서는 이 함수가 `GenerationTimeout(retryable=False)` 을 던져 재제출을 막는다 (재시도 대기 중이었다면 바로 깨어난다).
     `RetryingVideoGenerator` 코드는 바꾸지 않았다.

@@ -31,6 +31,11 @@
   | 구조 규칙 | `tests/architecture/baselines.py` |
   | 커버리지 | `scripts/check.py` `COVERAGE_FLOORS` (하한. 올리기만 한다) |
 
+  보완 (2026-11-15, 감사 P-12): 포맷 기준선(두 파일)과 타입 기준선(두 모듈의 네 건)은 없어졌다. 두 파일은 #10 브랜치가
+  포맷했고, 타입 오류는 고쳤다 — 작업 핸들러의 돌려주는 값은 쓰지 않는다고 타입에 적고(`Callable[[Job], object]`),
+  조건부 UPDATE 의 결과를 `CursorResult` 로 좁혀 읽는다. `[tool.ruff.format] exclude` 와 그 두 `overrides` 는 지웠다.
+  남은 `[[tool.mypy.overrides]]` 는 기준선이 아니다 (도메인의 strict 검사, 형 정보가 없는 외부 패키지 둘).
+
 ### 2. 게이트
 
 | 게이트 | 무엇을 지키는가 | 켤 때의 상태 |

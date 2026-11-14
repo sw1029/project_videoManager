@@ -15,8 +15,8 @@ from typing import Any
 from frame.adapters.shared.media.frames import Box
 from frame.adapters.shared.vlm.wording import predicate_words
 from frame.application.ports.identity import IdentityExtractionRequest
+from frame.domain.identity import appearance_attributes
 from frame.domain.ir import EntitySpec
-from frame.domain.services.identity import appearance_attributes
 
 SYSTEM_PROMPT = (
     "You locate subjects in one frame of an AI-generated video so that each subject can be cropped "

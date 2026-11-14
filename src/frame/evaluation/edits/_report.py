@@ -1,12 +1,12 @@
 """지표 1 평가의 판정과 결과 파일 (T12, ADR-0022).
 
-실행 기록(edit_runner.CaseRun)을 판정하고, 결과 파일(JSON)의 내용을 만든다.
+실행 기록(_runner.CaseRun)을 판정하고, 결과 파일(JSON)의 내용을 만든다.
 - 판정할 요구조건은 수정 버전 IR 에서 키로 고른다 (바뀐 장면 × 대상 객체 × 술어). 결과가 없거나 미판정이면 실패다.
 - 비대상 변경률은 측정 기준(detail.method)마다 따로 잰다 (vlm_keep · ssim). 목표 판정에 쓸 기준은 부르는 쪽이 고르고,
   결과 파일에는 두 기준을 모두 남긴다 (연구 문서 §7 결정 2 가 정해지지 않았다).
 - 케이스마다 입력·계획·수정 버전·클립 URI·검수 결과(detail 포함)를 판정 근거로 남긴다.
   결과 파일은 저장소에 기록하므로 자유 문구(오류 문구·검수 사유·경고)의 이 컴퓨터 경로는 <경로> 로 가린다.
-- 성공·비대상 변경률·목표 판정의 식은 edit_metrics 에 있다.
+- 성공·비대상 변경률·목표 판정의 식은 _metrics 에 있다.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
 from frame.domain.state_machine import TERMINAL_STATES
 
-from .edit_metrics import (
+from ._metrics import (
     NON_TARGET_CHANGE_TARGET,
     PRESERVATION_BASES,
     RATE_DIGITS,
@@ -35,7 +35,7 @@ from .edit_metrics import (
     evaluate_cases,
     select_preservation,
 )
-from .edit_runner import CaseRun
+from ._runner import CaseRun
 
 TOOL_NAME = "frame.tools.evaluate_edits"
 REPORT_VERSION = 1

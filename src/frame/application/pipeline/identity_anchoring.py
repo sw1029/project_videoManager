@@ -2,7 +2,7 @@
 
 사용자 참조가 없는 객체는 그 객체가 나온 클립에서 기준 이미지를 뽑아 이 실행의 참조 목록에 더하고(derive),
 그 객체가 나오는 다른 장면을 만들 때 넘길 기준을 고른다(references_for). 규칙 자체(누구에게 필요한가, 아직 유효한가)는
-도메인(domain/services/identity.py)에 있고, 여기서는 그 규칙으로 추출기(IdentityReferenceExtractor 포트)를 부린다.
+도메인(domain/identity.py)에 있고, 여기서는 그 규칙으로 추출기(IdentityReferenceExtractor 포트)를 부린다.
 
 - 기준 이미지는 보조 수단이다: 못 뽑아도 (과금된) 생성을 멈추지 않는다. 기록만 남긴다.
 - 추출기를 주지 않으면 (FRAME_IDENTITY=off) 아무 일도 하지 않는다.
@@ -15,15 +15,15 @@ from collections.abc import Mapping
 
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import ReferenceOrigin
-from frame.domain.ir import IntermediateRepresentation, SceneSpec
-from frame.domain.models import ReferenceImage
-from frame.domain.services.identity import (
+from frame.domain.identity import (
     IdentityPolicy,
     entities_needing_identity,
     entity_appearance_fingerprint,
     identity_references_for,
     same_appearance,
 )
+from frame.domain.ir import IntermediateRepresentation, SceneSpec
+from frame.domain.models import ReferenceImage
 
 from ..ports.common import IdGenerator
 from ..ports.identity import IdentityExtractionRequest, IdentityReferenceExtractor

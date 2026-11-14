@@ -1,7 +1,8 @@
 """로컬 음성 인식 어댑터 (FRAME_SPEECH_RECOGNIZER=faster_whisper, ADR-0028).
 
 faster-whisper (Whisper 를 CTranslate2 로 돌린다) 로 이 컴퓨터에서 받아 적는다. 과금이 없고 소리가 밖으로 나가지 않는다.
-- 선택 설치다: pip install -e ".[speech-local]". 꾸러미가 없으면 조립할 때 설정 오류로 알린다 (config/theme_adapters).
+- 선택 설치다: pip install -e ".[speech-local]". 꾸러미가 없으면 조립할 때 설정 오류로 알린다
+  (config/registrations/speech.py).
 - 모델·장치·연산 방식·말 구간 검출은 설정이 정한다 (FRAME_SPEECH_LOCAL_*, config/theme_settings.py). 여기에는 기본값을
   두지 않는다.
 - 모델은 받아 둔 폴더에서만 연다 (local_files_only). 실행 중에 허브에 묻거나 내려받지 않는다: 이름으로 받으면

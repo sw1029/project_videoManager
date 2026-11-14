@@ -11,6 +11,8 @@
   그것만으로는 끊기지 않는다.
 - 오류 문구에 헤더 값을 싣지 않는다: 프로토콜이 거절한 헤더 값(키에 줄바꿈이 낀 경우 등)은 표준 라이브러리의
   오류 문구에 통째로 들어 있다.
+
+키를 실어 보낼 주소의 판정(secure_base_url)도 여기 있다: https 만, 로컬 시험 서버는 http 도 받는다.
 """
 
 from __future__ import annotations
@@ -27,17 +29,35 @@ from typing import Any
 from urllib.parse import urlsplit
 
 __all__ = [
+    "LOCAL_HOSTS",
     "MAX_RESPONSE_BYTES",
     "SECRET_HEADERS",
     "HttpResponse",
     "HttpTransport",
     "TransportError",
     "UrllibTransport",
+    "secure_base_url",
 ]
 
 SECRET_HEADERS = frozenset({"authorization", "x-api-key"})
 MAX_RESPONSE_BYTES = 512 * 1024 * 1024  # 장면 클립 하나는 수십 MB 다
 _CHUNK_BYTES = 64 * 1024
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})  # 로컬 시험 서버 (이 컴퓨터)
+
+
+def secure_base_url(base_url: str) -> str | None:
+    """키를 실어 보내도 되는 API 주소면 다듬은 주소(앞뒤 공백과 끝의 / 를 뗀 것), 아니면 None.
+
+    https 만 받는다 - 키를 평문으로 보내지 않기 위해서다. 로컬 시험 서버(LOCAL_HOSTS)는 http 도 받는다.
+    거절하는 문구는 부르는 쪽이 정한다 (어느 설정을 고쳐야 하는지는 부르는 쪽이 안다).
+    """
+    url = base_url.strip().rstrip("/")
+    parts = urlsplit(url)
+    if parts.scheme == "https" and parts.netloc:
+        return url
+    if parts.scheme == "http" and parts.hostname in LOCAL_HOSTS:
+        return url
+    return None
 
 
 class TransportError(Exception):

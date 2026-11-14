@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from frame.adapters.http_transport import HttpResponse, HttpTransport, TransportError
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.shared.http import HttpResponse, HttpTransport, TransportError
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.speech import (
     SpeechAudio,

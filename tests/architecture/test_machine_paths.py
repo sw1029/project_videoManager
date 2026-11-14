@@ -102,7 +102,7 @@ ALLOWED: tuple[Allowed, ...] = (
         EXPLAINED,
         ("`C:\\Users\\…\\Temp\\frame-frames-…`",),
     ),
-    Allowed("src/frame/evaluation/edit_report.py", EXPLAINED, ("(C:\\Users\\Kim Lee\\…)",)),
+    Allowed("src/frame/evaluation/edits/_report.py", EXPLAINED, ("(C:\\Users\\Kim Lee\\…)",)),
     Allowed(
         "src/frame/evaluation/structuring/_public.py", EXPLAINED, ("(C:\\Users\\Al 뒤의 ice)",)
     ),

@@ -37,10 +37,10 @@ from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import PRESERVATION_BY_KEEP, PRESERVATION_REUSED, WarningInterval
+from frame.domain.comparison import RequirementChangeKind, compare_requirements
 from frame.domain.enums import CheckType, EntityKind, KeepAspect, Verdict
 from frame.domain.ir import SceneSpec
 from frame.domain.revision import KeepItem
-from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
 from ._guard import UnitGuard
 

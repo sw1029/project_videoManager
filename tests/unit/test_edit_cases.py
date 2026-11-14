@@ -6,7 +6,7 @@ import pytest
 
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
 from frame.domain.revision import KeepItem
-from frame.evaluation.edit_cases import CaseFileError, EditCaseSpec, load_cases, parse_cases
+from frame.evaluation.edits import CaseFileError, EditCaseSpec, load_cases, parse_cases
 
 
 def _case(**fields):

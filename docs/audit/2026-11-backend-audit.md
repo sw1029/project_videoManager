@@ -90,6 +90,9 @@
 - 머지 뒤 (2026-11-15, 브랜치 `feature-maint-audit-postmerge`): 이 브랜치가 dev 에 들어간 뒤(#36) 미뤄 둔 항목을 이어서 한다.
   첫 묶음은 **P-19 (절대 경로 · 로직 하드 코딩)** 다 — 게이트 셋과 ADR-0032, 절대 경로 13줄 · 이름 없는 수 38곳 · 생성자 기본값 25개 ·
   손으로 맞춘 값의 사본을 고쳤다 (§12.2 P-19). 로컬 검사: 테스트 **2608 통과 · 4 건너뜀 · 4 제외**.
+  둘째 묶음은 **P-17 남은 것 · P-12 · P-06 · '같이 볼 것'** 이다 — 호환 모듈을 걷어내고 (구조 테스트가 걷어낸 경로를 지킨다), `domain/services/` 를 없애고,
+  지표 1 평가를 `evaluation/edits/` 로, 테마·시리즈의 어댑터 고르기를 등록부로, 생성기 패키지의 모듈을 개념 이름으로 옮겼다. 포맷 · 타입 기준선이 없어졌다
+  (§12.2 '머지 뒤 묶음 2'). 로컬 검사: 테스트 **2611 통과 · 4 건너뜀 · 4 제외**.
 
 ## 2. 기준선 (감사 시점의 측정값)
 
@@ -517,7 +520,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 - 근거: 문서의 규칙은 "다른 어댑터를 import 하지 않는다 (공용 common 제외)" 다. 실제로는 `checker → video_tools`(4)·`vlm_answers`(2),
   `identity → video_tools`(2)·`vlm_answers`(1), `generator → http_transport`(1) 이다. 어느 것이 공용인지는 파일 이름으로만 알 수 있다.
 - 제안: `adapters/shared/` 패키지로 모으고 옛 경로는 다시 내보낸다. 규칙은 "어댑터 패키지끼리는 `adapters.shared` 만 import" 가 된다.
-- 담당·시점: **감사 · 지금** (R-03 과 함께) · 상태: **해결** (`36209a9`) — 넷을 `adapters/shared/` 로 옮겼다: `runtime`(ID·시계), `http`(전송 계층), `vlm/answers`, `media/`(`frames`·`probe`·`similarity`·`ffmpeg`). 옛 경로는 이름만 다시 내보내는 호환 모듈이다 (작업 중인 브랜치가 쓴다. ADR-0031 3절). 검사: 어댑터 최상위에는 호환 모듈만 있다 · 호환 모듈은 구현을 담지 않는다 · 옛 경로를 쓰는 모듈은 기준선의 것(`config/container.py`)뿐이다
+- 담당·시점: **감사 · 지금** (R-03 과 함께) · 상태: **해결** (`36209a9`) — 넷을 `adapters/shared/` 로 옮겼다: `runtime`(ID·시계), `http`(전송 계층), `vlm/answers`, `media/`(`frames`·`probe`·`similarity`·`ffmpeg`). 옛 경로는 이름만 다시 내보내는 호환 모듈이다 (작업 중인 브랜치가 쓴다. ADR-0031 3절). 검사: 어댑터 최상위에는 호환 모듈만 있다 · 호환 모듈은 구현을 담지 않는다 · 옛 경로를 쓰는 모듈은 기준선의 것(`config/container.py`)뿐이다. **머지 뒤 (2026-11-15, `4b37e3f`): 호환 모듈을 걷어냈다.** 검사는 '어댑터 최상위에는 패키지만 있다' 와 '걷어낸 옛 경로가 다시 생기지 않고 쓰이지 않는다' (`test_moved_paths.py`) 로 바뀌었다
 
 ### L-04 · 낮음 · `evaluation` 이 `application` 을 쓰기 시작했다
 - 근거: #21 `evaluation/edit_runner.py:19-22`, #17 `evaluation/structuring_gold.py:20-21`. 둘 다 유스케이스·포트만 쓰고 어댑터·컨테이너는
@@ -618,7 +621,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
      `docs/ARCHITECTURE.md` §4 는 다른 브랜치가 고치고 있어, 머지 뒤 그 절이 새 문서를 가리키게 한다 (P-11).
   3. **지키는 검사**: 아키텍처 테스트가 '패키지에 설명과 `__all__` 이 있는가', '밖에서 `_` 모듈을 import 하지 않는가', '모듈 지도의 패키지 목록이
      실제와 같은가' 를 본다 (지금 없는 곳은 기준선 목록. §9 G2·G8).
-- 담당·시점: **감사 · 2단계** (테스트) / 3단계 (설명 채우기 — 옮기는 패키지부터) · 상태: **해결** (`681501d` · `23a008f` · `b91f4fe`, 한 곳만 남김) — 검사 셋과 모듈 지도(`681501d`), 패키지 설명 9개와 `__all__` 8개, 설명 없던 모듈 셋(`23a008f`), 배치 규칙은 ADR-0031(`b91f4fe`). 기준선: 설명 없는 패키지 10 → 1 (`adapters/structurer` 는 #10 이 그 파일을 고쳐 머지 뒤에), `__all__` 없는 패키지 8 → 0. `docs/ARCHITECTURE.md` §4 가 모듈 지도를 가리키게 하는 일은 머지 뒤 (P-11)
+- 담당·시점: **감사 · 2단계** (테스트) / 3단계 (설명 채우기 — 옮기는 패키지부터) · 상태: **해결** (`681501d` · `23a008f` · `b91f4fe`, 한 곳만 남김) — 검사 셋과 모듈 지도(`681501d`), 패키지 설명 9개와 `__all__` 8개, 설명 없던 모듈 셋(`23a008f`), 배치 규칙은 ADR-0031(`b91f4fe`). 기준선: 설명 없는 패키지 10 → 1 (`adapters/structurer` 는 #10 이 그 파일을 고쳐 머지 뒤에), `__all__` 없는 패키지 8 → 0. `docs/ARCHITECTURE.md` §4 가 모듈 지도를 가리키게 하는 일은 머지 뒤 (P-11). **머지 뒤 (2026-11-15, `764d57d`): `adapters/structurer` 의 설명을 채워 설명 없는 패키지의 기준선이 0 이 됐다**
 
 #### K-04 · 중간 · [섞임] `adapters/generator/` 한 패키지에 네 개념이 섞여 있다
 - 어디: `src/frame/adapters/generator/` (7모듈 2,786줄) — 제공자 구현(`openrouter.py`·`fake.py`·`stubs.py`), 복원력 데코레이터(`decorators.py`:
@@ -630,7 +633,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 - 제안: `generator/openrouter/`(제공자) · `generator/resilience.py`(재시도·시간 제한·결과 캐시) · `generator/records/`(생성 캐시·작업 원장·키 잠금) ·
   `generator/normalizer.py`(클립 정규화) · `assembler/`(조립기 구현) 로 나눈다. ffmpeg 실행·영상 정보는 `shared/media/` 로 (R-03).
   조립기 포트는 `ports/assembler.py` 로 떼고 `ports/generator.py` 가 다시 내보낸다.
-- 담당·시점: **감사 · 지금** (M-01 과 같은 묶음) · 상태: **일부 해결** (`bde28ff`) — 조립기를 `adapters/assembler/` 로, 조립기 포트를 `ports/assembler.py` 로 뗐다 (`ports/generator.py` 가 다시 내보낸다). 클립 정규화는 `generator/normalizer.py`, 클립 검사는 `shared/media/probe.py`. 남은 것: `generator/openrouter/` 하위 패키지(M-01), `decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` — 뒤의 둘은 `config/container.py`(다른 브랜치가 고친다)가 `generator.cache`·`generator.decorators` 를 import 하고 있어 옮기면 호환 모듈이 둘 더 생긴다. 머지 뒤에 한다
+- 담당·시점: **감사 · 지금** (M-01 과 같은 묶음) · 상태: **일부 해결** (`bde28ff`) — 조립기를 `adapters/assembler/` 로, 조립기 포트를 `ports/assembler.py` 로 뗐다 (`ports/generator.py` 가 다시 내보낸다). 클립 정규화는 `generator/normalizer.py`, 클립 검사는 `shared/media/probe.py`. 남은 것: `generator/openrouter/` 하위 패키지(M-01), `decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` — 뒤의 둘은 `config/container.py`(다른 브랜치가 고친다)가 `generator.cache`·`generator.decorators` 를 import 하고 있어 옮기면 호환 모듈이 둘 더 생긴다. 머지 뒤에 한다. **머지 뒤 (2026-11-15, `764d57d` · `4b37e3f`): `decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (하위 패키지), `stubs.py` → `diffusers_stub.py` 로 옮겼고, 조립기 포트를 `ports/generator.py` 가 다시 내보내던 것을 없앴다.** 남은 것은 M-01 (생성기 클래스 분해 — 실호출 확인이 필요해 미룬다)
 
 #### K-05 · 낮음 · [섞임·이름] 기술 종류나 방법으로 묶은 모듈
 - 어디
@@ -644,7 +647,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
   열거형은 그 개념의 모듈 옆으로 (수정의 셋은 `domain/revision/` 을 만들 때 함께. `enums.py` 는 다시 내보낸다).
   `domain/services/` 의 나머지 둘(`identity.py`·`comparison.py`)은 `domain/` 바로 아래로 올리고 `services/` 는 호환 경로로만 남긴다.
   `dto.py`·`queries.py` 는 자원별로 나눈다 (머지 뒤 — `dto.py` 는 #10 이 고치고 있고, `queries.py` 는 M-03 의 자원 구분과 함께 한다).
-- 담당·시점: **감사** — 어댑터 쪽과 `domain/revision/` 은 지금, `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12) · 상태: **일부 해결** (`36209a9`) — 어댑터 쪽의 방법으로 지은 이름을 개념 이름으로 옮겼다 (`common.py` → `shared/runtime.py`, `video_tools.py` → `shared/media/{frames,probe,similarity}.py`, `vlm_answers.py` → `shared/vlm/answers.py`). 남은 것: `generator/decorators.py`·`stubs.py` (K-04 와 함께 머지 뒤), 수정의 열거형과 `domain/services/` (M-07), `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12)
+- 담당·시점: **감사** — 어댑터 쪽과 `domain/revision/` 은 지금, `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12) · 상태: **일부 해결** (`36209a9`) — 어댑터 쪽의 방법으로 지은 이름을 개념 이름으로 옮겼다 (`common.py` → `shared/runtime.py`, `video_tools.py` → `shared/media/{frames,probe,similarity}.py`, `vlm_answers.py` → `shared/vlm/answers.py`). 남은 것: `generator/decorators.py`·`stubs.py` (K-04 와 함께 머지 뒤), 수정의 열거형과 `domain/services/` (M-07), `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12). **머지 뒤 (2026-11-15): `domain/services/` 를 없앴다 — `identity.py`·`comparison.py` 를 `domain/` 바로 아래로 (`6382422`). `generator/decorators.py`·`stubs.py` 는 K-04 와 함께 (`764d57d`).** 남은 것: `dto.py`·`queries.py`·나머지 열거형 (P-09 와 함께)
 
 #### 목표 배치
 
@@ -731,7 +734,7 @@ src/frame/
   `def register(reg: AdapterRegistry) -> None` 을 하나씩 두고 `default_registry()` 는 그것들을 차례로 부른다.
   어댑터를 더하는 사람은 자기 포트의 파일만 고친다 (지금은 모든 브랜치가 같은 함수를 고친다).
   `AdapterRegistry.build` 는 `Any` 를 돌려준다 — `build[T](port: type[T], ...) -> T` 로 타입을 준다.
-- 담당·시점: **감사 · 지금** (§12.3 결정 3 — 사용자: 지금 분해) · 상태: **해결** (`5a98ae9` — 포트마다 등록 모듈 하나 `config/registrations/{llm,structurer,change_request,generator,assembler,identity,tracker,checker,storage,persistence,jobs}.py`, 팩토리들이 함께 기대는 것은 `_dependencies.py` (`artifact_store`·`job_handlers`·`ffmpeg_path`·`llm_client`·`vlm_client`). `default_registry()` 는 `register_defaults()` 를 부른다.
+- 담당·시점: **감사 · 지금** (§12.3 결정 3 — 사용자: 지금 분해) · 상태: **해결** (`5a98ae9` — 포트마다 등록 모듈 하나 `config/registrations/{llm,structurer,change_request,generator,assembler,identity,tracker,checker,storage,persistence,jobs}.py`, 팩토리들이 함께 기대는 것은 `_dependencies.py` (`artifact_store`·`job_handlers`·`ffmpeg_path`·`llm_client`·`vlm_client`). `default_registry()` 는 `register_defaults()` 를 부른다. **머지 뒤 (2026-11-15, `b149bb1`): 테마·시리즈 기능의 포트 아홉과 음성 인식도 같은 등록부에 올렸다 (`registrations/series.py` · `speech.py`). 따로 있던 고르는 방식(`config/theme_adapters.py`)은 없어졌다.**
   분해 전후로 등록된 (포트, 키) 32개가 같은 것을 견줘 확인했고, 키 목록·키마다 만들어지는 것·팩토리가 같은 레지스트리에서 LLM 을 찾는 것을
   `tests/unit/test_adapter_registry.py` 로 고정했다. `frame.config.registry` 의 `AdapterRegistry`·`BuildContext`·`default_registry` 는 그대로다.)
   - 조립기 등록을 `assembler.py` 로 따로 뒀다 (제안의 10개에서 11개로) — 목표 배치의 `adapters/assembler/` 와 같은 경계다.
@@ -801,6 +804,7 @@ src/frame/
   `resolution.py`(수정 요청 풀기·수정 버전 초안). `domain/revision/__init__.py` 가 지금 `domain/revision.py` 의 이름을 그대로 내보내고,
   `domain/services/propagation.py`·`revision_planning.py` 는 다시 내보내는 얇은 모듈로 남는다 (다른 브랜치의
   `from frame.domain.services.propagation import AttributeChange` 가 그대로 돈다). `Any` 두 곳에 타입이 돌아온다.
+  머지 뒤 (2026-11-15, `4b37e3f` · `6382422`): 그 얇은 모듈 둘을 걷어냈고, 남은 `domain/services/` 도 없앴다.
 - 담당·시점: **감사 · 지금** · 상태: **해결** (`8f30d55`) — `domain/revision/` 패키지: `intent.py`(수정 의도 · 유지할 요소), `changes.py`(속성 변경과 대상 장면 · REPAIR 대상 · 다시 만드는 장면의 seed), `propagation.py`(전파 정책), `resolution.py`(수정 요청 풀기 · 수정 버전 초안 — 옛 이름 `revision_planning`). `frame.domain.revision` 이 패키지의 입구가 되어 예전 이름을 그대로 내보낸다. 순환 import 를 피하려던 `Any` 둘과 함수 안 import 가 없어졌다 (`change: AttributeChange`). `resolution` 은 버전(`domain/models.py`)을 쓰고 models 가 이 패키지를 쓰므로 입구에서 내보내지 않는다. `domain/services/propagation.py`·`revision_planning.py` 는 이름만 다시 내보내는 호환 모듈이다. 다른 브랜치가 고치는 세 모듈(`application/dto.py`·`config/container.py`·`presentation/routers/versions.py`)은 옛 경로 그대로다 (기준선)
 
 ## 6. 재사용과 디자인 패턴
@@ -824,15 +828,15 @@ src/frame/
 
 | ID | 심각도 | 무엇 | 어디 | 제안 | 시점 |
 |---|---|---|---|---|---|
-| C-01 | 낮음 | `ruff format --check` 미적용 8파일. 원인은 줄 끝 주석이다: 코드는 100칸으로 포맷하는데 한글 주석은 120칸까지 허용해서, 포맷터가 `bool  # 긴 주석` 을 괄호로 접는다 (`schemas.py` 의 세 곳이 그 예다). ruff 버전도 고정돼 있지 않다 (`pyproject.toml:19`) | `presentation/app.py`(4줄)·`schemas.py`(12), `tools/bundle.py`(171)·`demo.py`(84), 테스트 4개(33) | 긴 줄 끝 주석을 윗줄로 올린 뒤 포맷. ruff 버전 고정 | **일부 해결** (`f159528`) — 6파일을 포맷하고 ruff 버전을 고정했다. `presentation/app.py`·`schemas.py` 는 #10 이 고친 파일이라 포맷 기준선에 남는다 (전달 노트 12번, P-12) |
+| C-01 | 낮음 | `ruff format --check` 미적용 8파일. 원인은 줄 끝 주석이다: 코드는 100칸으로 포맷하는데 한글 주석은 120칸까지 허용해서, 포맷터가 `bool  # 긴 주석` 을 괄호로 접는다 (`schemas.py` 의 세 곳이 그 예다). ruff 버전도 고정돼 있지 않다 (`pyproject.toml:19`) | `presentation/app.py`(4줄)·`schemas.py`(12), `tools/bundle.py`(171)·`demo.py`(84), 테스트 4개(33) | 긴 줄 끝 주석을 윗줄로 올린 뒤 포맷. ruff 버전 고정 | **일부 해결** (`f159528`) — 6파일을 포맷하고 ruff 버전을 고정했다. `presentation/app.py`·`schemas.py` 는 #10 이 고친 파일이라 포맷 기준선에 남는다 (전달 노트 12번, P-12). **머지 뒤 (2026-11-15, `02163e1`): #10 브랜치가 두 파일을 포맷해, 포맷 기준선을 지웠다** |
 | C-02 | 낮음 | 켜지 않은 규칙을 가리키는 `# noqa` 13곳 (`BLE001` 8, `B027` 5 등). 이유 주석은 맞는데 규칙이 꺼져 있어 아무것도 막지 않는다 | `application/pipeline/stage.py:21-32,85`, `runner.py:45`, `recover_pending_versions.py:109,178` 외 | 규칙(`BLE`)을 켠다. 주석이 실제 예외 목록이 된다 | **해결** (`6bdd91c`) — `BLE` 를 켰다. 이유를 적은 noqa 가 실제 예외 목록이 됐다 |
 | C-03 | 낮음 | `VideoVersion` 의 키워드 전용 필드 셋이 필수 필드 사이에 끼어 있다 (병렬 작업 때 충돌을 피하려던 흔적) | `domain/models.py:47-53` | 클래스 끝으로 옮긴다 (키워드 전용이라 동작은 같다) | **해결** (`71b67c0`) — 키워드 전용 필드 셋을 클래스 끝으로 옮겼다 |
 | C-04 | 낮음 | 실행 중 불변식을 `assert` 로 확인한다 11곳 (`python -O` 에서 사라진다) | `run_generation_pipeline.py:70,109,125`, `accept_generation.py:42` 외 | 유스케이스의 것은 명시적 오류로. 나머지는 그대로 | **일부 해결** (`71b67c0`) — 유스케이스 둘의 assert 넷을 명시적 오류로 바꿨다 (`NotFound` · `IntegrityViolation`). ruff 의 assert 기준선 9 → 7. 나머지(어댑터·도메인 서비스의 일곱 곳)는 그대로 둔다 (제안대로) |
 | C-05 | 낮음 | 복잡도 10 초과 함수 12개 | `identity/vlm_crop.py:182` `extract`(19), `openrouter.py:439` `compile_edit_prompt`(17), `structurer/repair.py:63`(17), `change_request/llm.py:162`(14), `domain/ir.py:162`(14), `tools/demo.py:536`(14) 외 | 상한을 지금 최댓값(19)으로 걸고 내려간다 (§9 G4). 분해는 M-01·M-04·M-05 에서 | **일부 해결** (`6bdd91c`) — 복잡도 상한을 19 로 걸었다 (넘으면 CI 가 막는다). 분해는 구조 묶음에서 했다: `vlm_crop.extract` 는 `_take` 를 뽑았고(`86884f2`), `GenerateStage` 는 협력 객체로 나눴다(`335f5cc`). `compile_edit_prompt`(17)·`repair.py`(17) 등은 그대로다 |
 | C-06 | 낮음 | 인자가 많은 생성자 | `openrouter.py:564`(24), `identity/vlm_crop.py:143`(13), `llm/openai_client.py:68`(13) | 설정 묶음 객체 (`OpenRouterConfig` 등). 레지스트리가 `Settings` 에서 한 번에 만든다 | M-01·M-04 와 함께 |
-| C-07 | 낮음 | `__all__` 이 일부만 담는다 | `application/ports/__init__.py`(LLM·변경 요청 포트 없음), `ports/generator.py:205-213`(`ProductionMethod`·`ProductionPreview` 없음) | 맞춘다 | 머지 뒤 (`ports/__init__.py` 를 #10 이 고친다) |
+| C-07 | 낮음 | `__all__` 이 일부만 담는다 | `application/ports/__init__.py`(LLM·변경 요청 포트 없음), `ports/generator.py:205-213`(`ProductionMethod`·`ProductionPreview` 없음) | 맞춘다 | **해결** (머지 뒤 `02163e1`) — 포트 패키지 입구에 변경 요청 해석 · LLM 포트와 그 타입, 수정 지시 · 미리보기를 더하고 설명(맡는 개념 · 밖에서 쓰는 이름 · 모듈 지도)을 적었다. `ports/generator.py` 의 `__all__` 도 맞췄다. 음성 인식 · 소리 읽기 · 시리즈의 포트는 모듈에서 가져온다고 입구에 적었다 |
 | C-08 | 낮음 | 공유 `.venv` 의 Python 이 `3.11.0rc2` (출시 후보판) | 로컬 환경 | 3.11 정식판으로 다시 만든다 (§12.3 결정 6) | 결정 |
-| C-09 | 낮음 | 예외 클래스가 세 군데에 흩어져 있다 | `domain/errors.py`, `domain/services/comparison.py:31` `VersionNotComparable`, `application/ports/change_request.py:20` | 도메인 오류는 `domain/errors.py` 로 | 머지 뒤 (#10 이 `errors.py` 를 고친다) |
+| C-09 | 낮음 | 예외 클래스가 세 군데에 흩어져 있다 | `domain/errors.py`, `domain/services/comparison.py:31` `VersionNotComparable`, `application/ports/change_request.py:20` | 도메인 오류는 `domain/errors.py` 로 | **하지 않는다 (2026-11-15)** — 병합한 코드에서는 오류가 그 개념 옆에 있다 (포트의 오류는 포트 모듈에, 비교의 오류는 `comparison.py` 에). 한 파일에 모으는 것은 기술 종류로 묶는 일이라 ADR-0031 의 규칙 1 과 어긋난다 (§12.2 '머지 뒤 묶음 2') |
 
 ## 8. 테스트
 
@@ -1038,6 +1042,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 (`domain/state_machine.py:15` — 쓰는 경로가 없다), `adapters/llm/openai_client.py` 의 `resolve_api_key`·`key_hint` (테스트만 쓴다),
 `adapters/structurer/llm_prompt.py:15` `PROMPT_VERSION` (src 에서 쓰는 곳이 없다. #17 의 골드셋 기록이 쓰기 시작했다).
 쓸 계획이 있는 것은 그대로 두고 주석에 그 계획을 적는다. 담당·시점: 감사 · 3단계 (`state_machine.py` 는 #10 이 고친 파일이라 머지 뒤 P-12).
+머지 뒤 (2026-11-15, `02163e1`): 전이 `QUEUED → FAILED` 를 쓰는 코드가 없음을 전이표에 주석으로 적었다 (빼려면 함께 고칠 곳도).
 
 ## 11. 작업 중인 브랜치 (감사 시점)
 
@@ -1143,19 +1148,19 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | P-03 | 환경 변수 읽기 통일·범위 검사 | #10·#11·#12 (`settings.py`), theme-series | A-03 |
 | P-04 | `mappers.py`·`edit_runner.py` 를 `ClipProduction` 으로 | #10·#11·#12, #21 | R-04 |
 | P-05 | 구조화 유스케이스의 저장 단위·실패 정규화 | #10·#11·#12 | A-05, R-09 |
-| P-06 | `evaluation/` 을 `edits/`·`structuring/` 하위 패키지로. **일부 해결 (2026-11-14): `structuring/` 은 #17 브랜치가 했다 (`a5dc562` · `49f2f5f`).** 남은 것은 #21 의 `edit_cases` · `edit_runner` · `edit_report` · `edit_metrics` 를 `edits/` 로 | #21, #17 | — |
+| P-06 | **끝났다 (2026-11-15, `38e7c3e`).** `evaluation/` 을 `edits/`·`structuring/` 하위 패키지로. **일부 해결 (2026-11-14): `structuring/` 은 #17 브랜치가 했다 (`a5dc562` · `49f2f5f`).** 남은 것은 #21 의 `edit_cases` · `edit_runner` · `edit_report` · `edit_metrics` 를 `edits/` 로 | #21, #17 | — |
 | P-07 | 사각형 타입을 `Region` 하나로 | theme-series | R-07 |
 | P-08 | 장면 조건 해시 내용·타임라인 검사를 도메인 함수로, 해시·키 이름 맞추기 | #10·#11·#12 (`ir.py`), theme-series | R-01, R-08, K-01 |
 | P-09 | presentation 의 스키마·매퍼·라우터 분해, 요청 → 명령 변환 | #10·#11·#12 | M-03, R-05 |
 | P-10 | 요청 제한기 기록 정리 | #10·#11·#12 | A-08 |
 | P-11 | 문서: `ARCHITECTURE.md` §3.1 표·§4 트리·§8 API 표·§12 ADR 목록, README, `.env` 안내와 `.env.example`. `ARCHITECTURE.md` §5 절차 3·§6 패턴 표와 `TDD_WORKFLOW.md` §4·§5 의 등록 자리를 `config/registrations/<포트>.py` 로 | #21·#10·#17 (문서를 고친 브랜치 모두) | L-02, D-01, D-02, D-03, D-04, D-08, M-02 |
-| P-12 | `presentation/app.py`·`schemas.py` 포맷 — **해결됨, #10 브랜치 (`8474d19`). 병합 뒤 `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 줄을 지운다.** 남은 것: `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
+| P-12 | **기준선과 작은 것들은 끝났다 (2026-11-15, `02163e1`): 포맷 예외 두 줄 · mypy 기준선 · `__all__` · 쓰이지 않는 전이의 주석. 오류 클래스 위치(C-09)는 하지 않기로 했다. 남은 것은 `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로 (P-09 와 함께).** `presentation/app.py`·`schemas.py` 포맷 — **해결됨, #10 브랜치 (`8474d19`). 병합 뒤 `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 줄을 지운다.** 남은 것: `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
 | P-13 | Repository·UnitOfWork 계약 테스트 (commit·rollback·예외 종류), `save` 의 계약 | #10·#11·#12 | T-05, A-12 |
 | P-14 | OpenAPI 계약 서명 강화, 오류 응답 명세. **CORS `DELETE` (`cc54b9c`)와 저장소 URI 직접 지정 막기 (`dc2a6dd`)는 #10 브랜치가 해결했다 (델타 감사로 확인 2026-11-14).** 저장소 스킴이 아닌 참조 주소의 허용 목록은 그 세션에 전했다 (`B10-D05`) | #10·#11·#12 | T-09, D-05, A-04, A-19 |
 | P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 로 — **옮겼다 (병합 뒤 `a5d7956`). ffmpeg 실행기와 출력 꼬리는 공용 것으로 바꿨다 (`e7f5bde`).** 남은 것: 영상 정보 읽기(`probe_media` 와 `probe_video`)와 오류 종류(`MediaToolError` 와 `VideoToolError`)를 한 벌로, 영역 유사도(`region_ssim`)를 `similarity` 옆으로. **테마 도메인의 하위 패키지는 그 세션이 했다 (`538673f` · `0901fd3` · `8ff4c4e` · `a05f248`, 2026-11-14)** | theme-series | R-03, L-03, K-03 |
 | P-16 | 구조화 프롬프트·보정 규칙을 바꾸는 수정 (프롬프트의 참조 이미지 URI, 빈 문자열 키 보정). 골드셋 리플레이로 점수 변화를 보고 프롬프트 버전을 올린다 | #17 | A-26(b), A-29 |
 
-| P-17 | 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). **dev 에서 들어온 코드의 옛 경로 import 11곳은 병합 뒤 고쳤다 (`a8bfa28`).** 남은 것: 기준선의 세 모듈(`config/container.py` · `application/dto.py` · `presentation/routers/versions.py`), 테스트 파일 10개의 옛 경로 import, 호환 모듈 지우기. 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
+| P-17 | **끝났다 (2026-11-15, `4b37e3f` · `6382422` · `764d57d`). 내용은 표 아래 '머지 뒤 묶음 2'.** 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). **dev 에서 들어온 코드의 옛 경로 import 11곳은 병합 뒤 고쳤다 (`a8bfa28`).** 남은 것: 기준선의 세 모듈(`config/container.py` · `application/dto.py` · `presentation/routers/versions.py`), 테스트 파일 10개의 옛 경로 import, 호환 모듈 지우기. 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
 | P-18 | 운영: 기동 복구를 요청 처리 뒤로 옮기기·서버 종료 때 디스패처 `shutdown()` (`presentation/app.py`), `pymysql[rsa]` 를 `pyproject.toml` 로 | #10·#11·#12 | O-05, A-07, O-03 |
 | P-19 | **끝났다 (2026-11-15, `bd14caa` · `79d1cee` · `46109dc` · `5dc909d` · `25bc93a`, ADR-0032).** 사용자 기준 '절대 경로·로직 하드 코딩 지양' (2026-11-14): 절대 경로와 이름 없는 값 고치기, CI 게이트 셋, ADR 에 '설정값은 출처 하나'. 내용은 표 아래 | 모든 작업 중 브랜치 (사용자 결정) | 기준 추가 |
 | P-20 | 델타 감사(2026-11-14)에서 나온 머지 뒤 항목: 병합한 트리에서 확인할 것, 한 벌로 묶을 것, 이 브랜치의 파일에서 고칠 것, 문서와 설정. 내용은 표 아래 | 모든 작업 중 브랜치 | 델타 감사 |
@@ -1294,13 +1299,50 @@ mypy 한 건뿐이었고 (기능 테스트 2577개 통과), 바로 뒤의 커밋
 | theme-series | `adapters/media_tools.py` · `adapters/fake_media.py` 를 `adapters/shared/media/` 위로 옮긴다 (P-15). ffmpeg 실행 · 영상 정보 읽기는 `shared/media/ffmpeg.py` · `probe.py` 의 것을 쓴다 | `test_adapter_boundaries.py::test_modules_at_the_top_of_adapters_are_only_the_compat_ones` |
 | theme-series | `tests/architecture/test_layer_rules.py` 의 `THIRD_PARTY_HOMES` 에 `faster_whisper` → `frame.adapters.speech`. `pyproject.toml` 의 mypy 설정에 `faster_whisper` 의 `ignore_missing_imports` (선택 설치라 CI 에는 없다) | `test_layer_rules.py::test_third_party_packages_stay_in_their_layer`, mypy |
 
-같이 볼 것 (테스트는 통과하지만 병합한 뒤 이 세션이 이어서 하는 일)
+같이 볼 것 (테스트는 통과하지만 병합한 뒤 이 세션이 이어서 하는 일) — **넷 모두 했다 (2026-11-15)**: 조립은 `b149bb1`, 주소 판정은 `4b5f48b`, `evaluation/` 은 `38e7c3e`, README 의 키 파일 예시는 묶음 1 (`bd14caa`).
 
 - theme-series 의 조립(`config/theme_wiring.py` · `theme_adapters.py`)을 `config/registrations/series.py` 로 (M-02 의 연속. 그 이름을 비워 뒀다).
 - `config/theme_wiring.py` 가 `frame.adapters.generator.openrouter` 의 `_checked_base_url` 을 빌려 쓴다. 병합한 뒤 그 함수를 `adapters/shared/http` 로 옮기고 두 곳이 같이 쓴다.
 - #21 과 #17 은 `evaluation/__init__.py` 를 둘 다 고친다 (서로의 병합에서 겹친다 — 오케스트레이터가 두 목록을 합친다). 그 뒤 `evaluation/` 을
   `edits/` · `structuring/` 로 맞춘다 (P-06: `structuring/` 은 #17 이 했다).
 - `README.md` 는 #21 · #10 · #17 이 모두 고친다. 키 파일 예시 두 줄은 #10 만 고치기로 했다 (P-19).
+
+#### 머지 뒤 묶음 2 — P-17 남은 것 · P-12 · P-06 · '같이 볼 것' (2026-11-15)
+
+브랜치 `feature-maint-audit-postmerge`, 묶음 1(`1ca5950`) 위의 일곱 커밋과 이 문서 커밋. 커밋마다 `python scripts/check.py` 가 통과한다.
+옮기기 전에 원격과 로컬의 브랜치를 봤다: dev 에 들어가지 않은 것은 프런트엔드 브랜치 하나뿐이고 백엔드를 건드리지 않는다.
+그래서 이번에 옮긴 모듈은 옛 경로를 남기지 않았다 (ADR-0031 3절의 보완).
+
+| 커밋 | 한 일 |
+|---|---|
+| `4b37e3f` | **호환 모듈 걷어내기 (P-17)**: 남은 옛 경로 import (src 4곳 · 테스트 파일 10개 · 생성기 포트가 다시 내보내던 `VideoAssembler` 5곳)를 고치고 호환 모듈 일곱과 기준선 `COMPAT_*` · `tests/unit/test_compat_paths.py` 를 지웠다. 구조 테스트 `test_moved_paths.py` 가 걷어낸 경로를 지킨다 — 다시 생기지 않고, src · tests · scripts 의 어떤 import 도 그 경로를 쓰지 않고, 표의 새 자리가 실제로 있다 |
+| `6382422` | **`domain/services/` 없애기 (K-05)**: `identity.py` · `comparison.py` 를 `domain/` 바로 아래로 (§5.1 의 목표 배치). 쓰는 곳 14개 파일 |
+| `4b5f48b` | **키를 실어 보낼 주소의 판정 ('같이 볼 것')**: `adapters/shared/http` 의 `secure_base_url` · `LOCAL_HOSTS`. OpenRouter 생성기와 음성 인식 조립이 같은 것을 쓴다 (빌려 쓰던 안쪽 이름 `_checked_base_url` 의 다시 내보내기를 없앴다). 테스트 11개를 먼저 썼다 |
+| `38e7c3e` | **`evaluation/edits/` (P-06)**: 지표 1 의 네 모듈을 하위 패키지로 (`_cases` · `_runner` · `_report` · `_metrics`). 이름은 패키지 입구에서 가져오고, `frame.evaluation` 은 이름을 내보내지 않는다 |
+| `b149bb1` | **테마·시리즈의 어댑터 고르기를 등록부로 ('같이 볼 것', M-02 의 연속)**: `config/registrations/series.py` (시리즈 포트 아홉) · `speech.py` (음성 인식). 따로 있던 고르는 방식 `config/theme_adapters.py` (413줄)를 지웠다. 등록부의 `build(..., setting=)` 와 조립 맥락의 테마 설정. 테스트를 먼저 고쳤다 (등록된 키 · 키마다 만들어지는지 · 설정 이름이 든 오류 · 빠진 전제의 이름) |
+| `02163e1` | **기준선 걷어내기 (P-12)**: 포맷 예외 두 줄을 지웠다. mypy 가 꺼 두었던 네 건(작업 핸들러가 돌려주는 값의 타입 · 조건부 UPDATE 의 행 수)을 고치고 두 overrides 를 지웠다. 포트 패키지 입구의 빠진 이름과 설명 (C-07), 라우터 입구의 `reference_images`, 쓰이지 않는 전이의 주석 (C-10) |
+| `764d57d` | **생성기 패키지의 모듈 이름 (P-17 뒷부분, K-04 · K-05)**: `decorators.py` → `resilience.py`, `cache.py` · `ledger.py` → `records/` (하위 패키지), `stubs.py` → `diffusers_stub.py`. `adapters/structurer` 의 설명 (K-03) |
+
+- 기준선의 변화: 호환 모듈 7 → 0, 옛 경로를 쓰는 모듈 3 → 0, 설명 없는 패키지 1 → 0, 포맷 예외 2파일 → 0, mypy 가 끈 오류 4건 → 0.
+  남은 기준선은 500줄을 넘는 모듈 넷(`LARGE_MODULES`)과 ruff 의 파일별 예외(src 의 assert 7파일)다.
+- 로컬 검사: 테스트 **2611 통과 · 4 건너뜀 · 4 제외**, 커버리지 94.27 · 96.60 · 97.84 (하한 89 · 95 · 97).
+  테스트 수는 묶음 1 의 2608 에서: 옛 경로 호환 테스트 47개가 없어지고 (−47), 구조 테스트 4개 · 주소 판정 11개 · 등록부 35개가 늘었다 (+50).
+- 바뀐 동작
+  - 서버의 동작과 오류 문구는 같다. 옮긴 모듈의 **로그 이름**이 새 경로를 따른다: `frame.adapters.generator.decorators` → `frame.adapters.generator.resilience`
+    (ADR-0012 가 적은 로그), `…generator.cache` · `ledger` → `…generator.records._clip_cache` · `_job_ledger`,
+    `frame.evaluation.edit_runner` → `frame.evaluation.edits._runner`. 로그를 이름으로 거르는 설정이 있으면 고친다.
+  - 산출물 저장소가 키로 주소를 알려 주지 않아 테마·편을 메모리에 둘 때의 경고가 한 줄에서 두 줄이 된다 (테마 저장소와 편 저장소가 따로 알린다).
+  - 코드에서 쓰는 쪽: 옮긴 모듈은 새 경로로 import 한다 (옛 경로 → 새 자리의 표는 ADR-0031 3절과 `tests/architecture/test_moved_paths.py`).
+    `build_theme_services` 는 `settings` 인자를 받지 않는다. `JobHandler` 는 `Callable[[Job], object]` 다.
+- 하지 않기로 한 것 — **C-09 (예외 클래스를 `domain/errors.py` 로 모으기)**: 병합한 코드에서는 오류가 그 개념 옆에 있다. 포트의 오류는 포트 모듈에
+  (`AudioError` · `SpeechRecognitionError` · `ChangeRequestNotUnderstood` …), 비교의 오류는 `comparison.py` 에, 유스케이스의 오류는 그 유스케이스에 있다 (`NotShortform`).
+  한 파일에 모으는 것은 기술 종류로 묶는 일이라 ADR-0031 의 규칙 1 과 어긋난다. `domain/errors.py` 에는 여러 개념이 함께 쓰는 바탕 오류가 남는다.
+- 남긴 것 (다음 묶음)
+  - P-12 의 나머지: `application/dto.py` · `use_cases/queries.py` 를 자원별로, 남은 열거형을 개념 모듈 옆으로. presentation 분해(P-09)와 자원 구분을 같이 정해야 해서 함께 한다.
+  - `docs/ARCHITECTURE.md` §4 의 트리는 이번에 바뀐 줄만 맞췄다 (`services/propagation.py` 줄처럼 그 전부터 낡은 줄이 남아 있다). 전체는 P-11.
+  - `config/theme_settings.py` · `theme_wiring.py` 의 이름(다른 계층은 `series`)과 환경 변수 읽기는 P-03 (설정 통일)에서 함께 본다.
+  - 확인하지 못한 것: Linux · macOS 에서의 실행 (CI 가 본다). 유료 API 와 실제 모델은 부르지 않았다 — 모듈 옮기기와 조립 방식의 변경이라
+    가짜 어댑터와 재생 클라이언트로 확인했다 (고르는 어댑터와 오류 문구가 같음은 고치지 않은 기존 조립 테스트 46개가 본다).
 
 #### P-20 — 델타 감사에서 나온 머지 뒤 항목 (2026-11-14)
 

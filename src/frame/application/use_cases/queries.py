@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from frame.domain import comparison
 from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.errors import MediaNotAvailable, NotFound, ValidationError
 from frame.domain.identifiers import entity_id as make_entity_id
 from frame.domain.metrics import summarize
 from frame.domain.models import VideoVersion
-from frame.domain.services import comparison
 
 from ..dto import (
     ChecksView,

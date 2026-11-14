@@ -19,7 +19,7 @@ from frame.application.use_cases.edit_draft_ir import EditDraftIrCommand
 from frame.domain.enums import ReferenceOrigin, VersionState
 from frame.domain.errors import NotFound, ValidationError, VersionNotEditable
 from frame.domain.models import ReferenceImage
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import (
     CAFE_PROMPT,
     create_draft,

@@ -190,7 +190,7 @@ class _SpyTransport:
         self.requests: list[dict] = []
 
     def request(self, method, url, *, headers=None, body=None, timeout=60.0):
-        from frame.adapters.http_transport import HttpResponse
+        from frame.adapters.shared.http import HttpResponse
 
         self.requests.append({"url": url, "headers": dict(headers or {})})
         return HttpResponse(200, b'{"text": "", "segments": [], "words": []}')

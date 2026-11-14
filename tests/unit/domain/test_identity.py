@@ -8,10 +8,7 @@ from dataclasses import replace
 import pytest
 
 from frame.domain.enums import ChangeScope, EntityKind, ReferenceOrigin
-from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
-from frame.domain.models import ReferenceImage
-from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
-from frame.domain.services.identity import (
+from frame.domain.identity import (
     IdentityPolicy,
     appearance_attributes,
     entities_needing_identity,
@@ -20,6 +17,9 @@ from frame.domain.services.identity import (
     is_valid_identity,
     same_appearance,
 )
+from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
+from frame.domain.models import ReferenceImage
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 
 policy = IdentityPolicy()
 propagation = DefaultPropagationPolicy()

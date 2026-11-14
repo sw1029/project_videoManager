@@ -731,7 +731,7 @@ def test_text_region_is_kept_when_its_frame_cannot_be_extracted(video, monkeypat
     본 호출의 답은 이미 받았다 (과금). 예외가 밖으로 나가면 그 결과를 버리고, 다시 부르면 본 호출부터 다시 과금된다.
     """
     from frame.adapters.series.theme_extraction import vlm as module
-    from frame.adapters.video_tools import VideoToolError
+    from frame.adapters.shared.media.ffmpeg import VideoToolError
 
     real = module.extract_frame
 

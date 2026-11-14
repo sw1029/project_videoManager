@@ -12,9 +12,14 @@ from frame.adapters.checker import FakeConsistencyChecker, FakeRequirementChecke
 from frame.application.dto import CreateProjectCommand
 from frame.config import Settings
 from frame.domain.enums import RevisionKind, VersionState
-from frame.evaluation.edit_cases import load_cases, parse_cases
-from frame.evaluation.edit_metrics import NON_TARGET_CHANGE_TARGET, SUCCESS_RATE_TARGET
-from frame.evaluation.edit_runner import CaseInterrupted, run_case
+from frame.evaluation.edits import (
+    NON_TARGET_CHANGE_TARGET,
+    SUCCESS_RATE_TARGET,
+    CaseInterrupted,
+    load_cases,
+    parse_cases,
+    run_case,
+)
 from frame.tools import evaluate_edits
 from tests.support.checkers import MethodPreservationChecker
 from tests.support.factories import (
@@ -711,7 +716,7 @@ def test_checker_hint_is_not_shown_when_check_results_could_not_be_read(tmp_path
 
 
 def test_help_states_the_targets_from_the_metric_constants(capsys):
-    """도움말의 목표값은 edit_metrics 의 상수에서 온다 (따로 적은 글자가 아니다)."""
+    """도움말의 목표값은 evaluation/edits 의 상수에서 온다 (따로 적은 글자가 아니다)."""
     with pytest.raises(SystemExit):
         evaluate_edits.main(["--help"])
 

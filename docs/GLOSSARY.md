@@ -42,7 +42,7 @@
 | 변경 계획 | `PlanRevision`, `RevisionPlan` | 수정을 실행하기 전에 보여 주는 미리보기 — 어느 장면을 다시 만들고, 어떻게 · 얼마에 (ADR-0019, 0020) |
 | 변경 요청 해석 | `ChangeRequestInterpreter` | 글로 쓴 변경 요청을 수정 의도로 읽는 일 (ADR-0019) |
 | 부모 클립 편집 | `ProductionMethod.EDIT`, `ParentClip` | 다시 만드는 장면을 새로 생성하지 않고 부모 버전의 클립을 고쳐 만드는 방식 (ADR-0016) |
-| 수정 실험 평가 | `evaluation/edit_metrics.py` | 수정 실험의 성공 지표 (지표 1). 여기의 `edit` 은 '수정' 이다 |
+| 수정 실험 평가 | `evaluation/edits/` | 수정 실험의 성공 지표 (지표 1). 여기의 `edit` 은 '수정' 이다 |
 
 `edit` 이라는 영어 낱말은 부모 클립 편집에만 새로 쓴다. 수정 버전은 `revision`, 값 바꾸기는 `change` 다.
 
@@ -99,11 +99,11 @@
 |---|---|---|---|
 | IR 해시 `IR.fingerprint()` → `frozen_fingerprint` | `domain/ir.py` | IR 전체 | 생성 접수 때 '조건 고정' 값으로 저장한다 |
 | 장면 해시 `IR.scene_fingerprint(scene_key)` | `domain/ir.py` | 장면 조건(구간 · 설명 · 객체 · 요구조건) + 그 장면 객체의 정의 | **버전 사이 재사용** — 부모와 같으면 다시 만들지 않는다 |
-| 객체 모습 해시 `entity_appearance_fingerprint()` | `domain/services/identity.py` | 객체 정의 + 그 장면의 고정 속성 | **정체성 기준 이미지의 유효성** — 모습이 달라진 객체의 기준은 쓰지 않는다 |
+| 객체 모습 해시 `entity_appearance_fingerprint()` | `domain/identity.py` | 객체 정의 + 그 장면의 고정 속성 | **정체성 기준 이미지의 유효성** — 모습이 달라진 객체의 기준은 쓰지 않는다 |
 | 조건 해시 `SceneGenerationRequest.fingerprint` | `application/ports/generator.py` | 장면 조건 + 객체 정의 + 사용자 참조 이미지 + seed. `version_id` 는 뺀다 | 클립의 `fingerprint` 로 남는다 (어느 조건으로 만든 클립인가) |
 | 생성 해시 `generation_fingerprint` | 같은 모듈 | 조건 해시 + 정체성 기준 이미지 + 유지할 요소 + (REPAIR 일 때) 고치려는 요구조건 | 결과 키의 기본값 |
 | 결과 키 `VideoGenerator.result_key(request)` | 같은 모듈, 편집하는 생성기가 재정의 | 생성 해시 + (부모 클립을 편집해 만들 때) 부모 클립 | **생성 캐시 · 작업 원장** 의 요청 쪽 키 |
-| 캐시·원장 키 `generation_key(result_key, profile)` | `adapters/generator/cache.py` | 결과 키 + 프로필 | 생성 캐시와 작업 원장이 실제로 찾는 키 |
+| 캐시·원장 키 `generation_key(result_key, profile)` | `adapters/generator/records/` | 결과 키 + 프로필 | 생성 캐시와 작업 원장이 실제로 찾는 키 |
 
 - 더할 것이 없으면 아래 값은 위 값과 같다 (기준 이미지도 수정 지시도 없는 요청의 생성 해시는 조건 해시다). 그래서 예전 키와 호환된다.
 - 결과를 바꾸는 값을 새로 들일 때는 이 표에서 어느 줄에 들어가야 하는지 먼저 정한다. 빠뜨리면 다른 요청이 같은 키가 되어 앞선 결과를 받는다
@@ -117,4 +117,4 @@
 | 버전 상태 | `VersionState` — `STRUCTURING` → `DRAFT` → `QUEUED` → `PROCESSING` → `COMPLETED` / `FAILED` | 구조화 중 → 초안 → 대기 → 처리 중 → 끝남 / 실행 오류. 검수 판정이 `FAIL` 이어도 버전은 `COMPLETED` 다 |
 | 조건 고정 | `frozen_fingerprint` | 생성을 접수하면 IR 을 더 고칠 수 없다 |
 | 뼈대 어댑터 | `skeleton(...)` (`config/registrations/_dependencies.py`) | 자리만 있고 구현이 없는 어댑터. 고르면 기동에서 거절한다 |
-| 호환 모듈 | 옛 경로의 모듈 | 옮긴 모듈의 이름만 다시 내보낸다 (ADR-0031 3절) |
+| 호환 모듈 | 옛 경로의 모듈 | 옮긴 모듈의 이름만 다시 내보낸다 (ADR-0031 3절). 그 경로를 쓰는 작업 중 브랜치가 있을 때만 둔다 — 2026-11-15 에 모두 걷어내 지금은 없다 |
