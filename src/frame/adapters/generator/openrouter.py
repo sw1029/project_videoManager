@@ -124,6 +124,10 @@ LEDGER_TTL_SECONDS = 24 * 3600.0
 
 _KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
 _URL = re.compile(r"(https?)://([^/\s\"'<>?]+)[^\s\"'<>]*")
+# 스킴 없이 온 주소 조각의 질의 문자열 (서명·만료 같은 값이 들어 있다)
+_QUERY = re.compile(r"\?[\w.%~-]+=[^\s\"'<>]*")
+# data URI 의 본문 (올려 보낸 참조 이미지 전체가 base64 로 들어 있다)
+_DATA_URI = re.compile(r"(data:[\w.+/-]+;base64,)[A-Za-z0-9+/=]+")
 _RETRY_SUBMIT = frozenset({429, 502})  # 접수 전 거절: 과금 없음
 _TRANSIENT_GET = frozenset({408, 409, 425, 429})  # 조회·내려받기(GET)에서 곧 나아질 수 있는 4xx
 _FAILED_STATES = frozenset({"failed", "cancelled", "expired"})
@@ -601,6 +605,12 @@ class OpenRouterVideoGenerator(VideoGenerator):
     ) -> None:
         if not api_key or not api_key.strip():
             raise ConfigurationError("OpenRouter API 키가 비어 있습니다")
+        if not _fits_in_a_header(api_key.strip()):
+            # 이런 키로 요청하면 프로토콜 오류가 나고, 그 오류의 문구에는 키가 통째로 들어 있다
+            raise ConfigurationError(
+                "OpenRouter API 키에 쓸 수 없는 글자가 있습니다 (공백·줄바꿈·영문 밖의 글자). "
+                "키 파일이나 환경 변수에 키만 들어 있는지 확인하세요"
+            )
         if fps <= 0 or timeout_seconds <= 0 or poll_interval_seconds <= 0:
             raise ConfigurationError("fps·시간 제한·폴링 간격은 0 보다 커야 합니다")
         if edit_mode not in EDIT_MODES:
@@ -1716,9 +1726,17 @@ class OpenRouterVideoGenerator(VideoGenerator):
         """서버 메시지에 키가 섞여 와도 그대로 옮기지 않는다."""
         cleaned = text.replace(self._api_key, "***")
         cleaned = _KEY_TOKEN.sub("sk-or-***", cleaned)
-        # 제공자 메시지에 섞여 오는 주소(올려 보낸 참조 이미지의 서명 URL 등)는 호스트만 남긴다
-        cleaned = _URL.sub(lambda m: f"{m.group(1)}://{m.group(2)}/...", cleaned)
+        # 제공자 메시지에 섞여 오는 주소(올려 보낸 참조 이미지의 서명 URL 등)는 호스트만 남긴다.
+        # 호스트 앞의 계정 정보(user:password@)도 뗀다
+        cleaned = _URL.sub(lambda m: f"{m.group(1)}://{m.group(2).rsplit('@', 1)[-1]}/...", cleaned)
+        cleaned = _QUERY.sub("?...", cleaned)
+        cleaned = _DATA_URI.sub(lambda m: f"{m.group(1)}...", cleaned)
         return " ".join(cleaned.split())[:400]
+
+
+def _fits_in_a_header(key: str) -> bool:
+    """HTTP 헤더에 실을 수 있는 키인가: 공백·제어 문자가 없는 ASCII."""
+    return key.isascii() and key.isprintable() and not any(char.isspace() for char in key)
 
 
 def _may_pass(status: int) -> bool:
