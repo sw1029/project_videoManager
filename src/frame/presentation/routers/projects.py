@@ -1,14 +1,15 @@
-"""POST /api/projects (US-06), GET /api/projects/{project_id} · /dashboard (US-04)"""
+"""POST /api/projects (US-06, 글 또는 블록 IR #10), GET /api/projects/{project_id} · /dashboard (US-04)"""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 
 from frame.application.dto import CreateProjectCommand
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.config.container import Container
+from frame.domain.enums import VersionState
 
 from .. import mappers
 from ..dependencies import get_container
@@ -29,25 +30,41 @@ ContainerDep = Annotated[Container, Depends(get_container)]
     "",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=CreateProjectOut,
-    responses={422: {"model": ErrorOut}, 429: {"model": ErrorOut}},
+    responses={
+        201: {
+            "model": CreateProjectOut,
+            "description": "IR 직접 입력: 구조화 없이 바로 DRAFT 를 만들었다 (repair_notes 에 보정 내용)",
+        },
+        422: {"model": ErrorOut},
+        429: {"model": ErrorOut},
+    },
     dependencies=[Depends(enforce_rate_limit)],
-    summary="요구사항·참조 이미지를 접수하고 초기 버전의 구조화를 시작한다",
+    summary="요구사항(글 또는 블록 IR)·참조 이미지를 접수한다: 글은 구조화를 시작하고(202), "
+    "IR 은 보정·검증만 거쳐 바로 DRAFT 를 만든다(201)",
 )
-def create_project(body: CreateProjectIn, container: ContainerDep) -> CreateProjectOut:
+def create_project(
+    body: CreateProjectIn, container: ContainerDep, response: Response
+) -> CreateProjectOut:
     result = container.create_project.execute(
         CreateProjectCommand(
             title=body.title,
-            prompt=body.prompt,
+            prompt=body.prompt or "",
             reference_images=tuple(
                 ReferenceImageInput(image_uri=r.image_uri, entity_key=r.entity_key)
                 for r in body.reference_images
             ),
             target_duration_ms=body.target_duration_ms,
             seed=body.seed,
+            ir=body.ir.model_dump() if body.ir is not None else None,
         )
     )
+    if result.state is VersionState.DRAFT:  # IR 직접 입력은 요청 안에서 다 만들어졌다
+        response.status_code = status.HTTP_201_CREATED
     return CreateProjectOut(
-        project_id=result.project_id, version_id=result.version_id, state=str(result.state)
+        project_id=result.project_id,
+        version_id=result.version_id,
+        state=str(result.state),
+        repair_notes=list(result.repair_notes),
     )
 
 

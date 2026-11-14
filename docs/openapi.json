@@ -426,12 +426,30 @@
         "type": "object"
       },
       "CreateProjectIn": {
+        "description": "요구사항은 글(prompt) 또는 블록으로 조립한 IR 문서(ir) 로 준다. 둘 중 하나는 있어야 한다.\n\n- prompt 만: 구조화를 시작한다 (202, state=STRUCTURING). 끝나면 DRAFT 또는 FAILED.\n- ir 이 있으면: LLM 없이 보정·검증만 거쳐 바로 DRAFT 를 만든다 (201, repair_notes 에 보정 내용).\n  prompt 를 함께 주면 원문(source_prompt)으로만 보관한다.",
         "properties": {
+          "ir": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IRIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "prompt": {
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Prompt",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
           },
           "reference_images": {
             "items": {
@@ -473,8 +491,7 @@
           }
         },
         "required": [
-          "title",
-          "prompt"
+          "title"
         ],
         "title": "CreateProjectIn",
         "type": "object"
@@ -484,6 +501,13 @@
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "repair_notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Repair Notes",
+            "type": "array"
           },
           "state": {
             "title": "State",
@@ -3200,6 +3224,16 @@
           "required": true
         },
         "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProjectOut"
+                }
+              }
+            },
+            "description": "IR 직접 입력: 구조화 없이 바로 DRAFT 를 만들었다 (repair_notes 에 보정 내용)"
+          },
           "202": {
             "content": {
               "application/json": {
@@ -3231,7 +3265,7 @@
             "description": "Too Many Requests"
           }
         },
-        "summary": "요구사항·참조 이미지를 접수하고 초기 버전의 구조화를 시작한다",
+        "summary": "요구사항(글 또는 블록 IR)·참조 이미지를 접수한다: 글은 구조화를 시작하고(202), IR 은 보정·검증만 거쳐 바로 DRAFT 를 만든다(201)",
         "tags": [
           "projects"
         ]

@@ -84,13 +84,27 @@ class IRIn(BaseModel):
 
 
 class CreateProjectIn(BaseModel):
+    """요구사항은 글(prompt) 또는 블록으로 조립한 IR 문서(ir) 로 준다. 둘 중 하나는 있어야 한다.
+
+    - prompt 만: 구조화를 시작한다 (202, state=STRUCTURING). 끝나면 DRAFT 또는 FAILED.
+    - ir 이 있으면: LLM 없이 보정·검증만 거쳐 바로 DRAFT 를 만든다 (201, repair_notes 에 보정 내용).
+      prompt 를 함께 주면 원문(source_prompt)으로만 보관한다.
+    """
+
     title: str = Field(min_length=1, max_length=255)
-    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    prompt: str | None = Field(default=None, min_length=1, max_length=MAX_PROMPT_CHARS)
+    ir: IRIn | None = None  # 블록 입력 화면이 조립한 IR 문서 (#10)
     reference_images: list[ReferenceImageIn] = Field(
         default_factory=list, max_length=MAX_REFERENCE_IMAGES
     )
     target_duration_ms: int | None = Field(default=None, gt=0, le=MAX_TARGET_DURATION_MS)
     seed: int | None = None
+
+    @model_validator(mode="after")
+    def _prompt_or_ir(self) -> CreateProjectIn:
+        if self.prompt is None and self.ir is None:
+            raise ValueError("요구사항 글(prompt)과 IR 문서(ir) 가운데 하나는 있어야 합니다")
+        return self
 
 
 KeepAspectName = Literal["APPEARANCE", "ACTION", "SHAPE", "BACKGROUND", "LIGHTING", "COMPOSITION"]
@@ -210,7 +224,9 @@ class VocabularyOut(BaseModel):
 class CreateProjectOut(BaseModel):
     project_id: str
     version_id: str
-    state: str
+    state: str  # 글: STRUCTURING (202) / IR 직접 입력: DRAFT (201)
+    # IR 직접 입력에서 서버 보정이 고친 것 (장면 구간 이동·객체 연결 등). 글로 접수하면 빈 목록
+    repair_notes: list[str] = Field(default_factory=list)
 
 
 class VersionSummaryOut(BaseModel):
