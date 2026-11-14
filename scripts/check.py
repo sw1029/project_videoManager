@@ -8,6 +8,7 @@
   가리켜도 지금 폴더의 코드를 검사한다.
 - 유료 API 를 부르지 않는다. pytest 는 기본으로 slow·gpu 테스트를 뺀다 (pyproject.toml 의 addopts).
 - 커버리지 하한은 아래 COVERAGE_FLOORS 한 곳에 있다. 내려가면 실패하고, 올라가면 하한을 올린다.
+- 출력을 파일이나 파이프로 돌려도 된다. 그 인코딩(한국어 Windows 는 cp949)이 못 담는 글자는 ? 로 찍는다.
 """
 
 from __future__ import annotations
@@ -35,6 +36,14 @@ def _environment() -> dict[str, str]:
     inherited = env.get("PYTHONPATH")
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), inherited]))
     return env
+
+
+def _tolerant_output() -> None:
+    """출력 인코딩이 못 담는 글자를 만나도 검사가 죽지 않게 한다 (그 글자만 ? 로 바뀐다)."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
 
 
 def _python(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -76,7 +85,7 @@ def check_tests(*, xml: bool = False) -> bool:
             passed = False
             continue
         verdict = "통과" if measured >= floor else "하한 미달"
-        print(f"  커버리지 {name}: {measured:.2f}% (하한 {floor:g}%) — {verdict}")
+        print(f"  커버리지 {name}: {measured:.2f}% (하한 {floor:g}%) - {verdict}")
         passed = passed and measured >= floor
     return passed
 
@@ -97,6 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--xml", action="store_true", help="tests 뒤에 coverage.xml 을 쓴다 (CI 산출물)"
     )
     args = parser.parse_args(argv)
+    _tolerant_output()
     if args.list:
         for name, (title, _) in STEPS.items():
             print(f"{name:8} {title}")
