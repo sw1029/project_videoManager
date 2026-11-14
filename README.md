@@ -168,3 +168,73 @@ FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOL
 다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건·같은 설정의 장면은 생성 캐시(`FRAME_GENERATOR_CACHE`, 기본 켜짐)와
 작업 원장으로 재시작 뒤에도 다시 제출하지 않는다 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)).
 이 테스트를 같은 조건으로 24시간 안에 다시 돌리면 원장이 이전 결과를 다시 쓰고 실패하므로, 실제 호출을 다시 보려면 `./artifacts/ledger/openrouter` 를 지운다.
+
+## 지표 1 평가 (단일 속성 수정 20건, T12)
+
+수정 성공률(목표 80% 이상)과 비대상 변경률(목표 10% 이하)을 잰다. 케이스 하나가 단일 속성 수정 하나이고, 케이스마다
+변경 계획 → 수정 버전 생성 → 생성 접수 → 완료 대기 → 검수 결과 수집을 차례로 한다. 서버를 띄우지 않고 같은 설정(`FRAME_*`)으로
+유스케이스를 직접 부른다 ([ADR-0022](docs/adr/0022-edit-evaluation-cli.md)).
+
+1. 원본(부모 버전)을 화면이나 API 로 만들어 끝까지(`COMPLETED`) 생성한다.
+2. 케이스 파일에 원본의 버전 ID 와 수정할 객체·술어·새 값을 적는다. 예시: [docs/evaluation/edit_cases.example.json](docs/evaluation/edit_cases.example.json)
+   (필드 이름은 `POST /revisions` 와 같다. `kind`·`keep`·`scope`·`scene_keys`·`current_value`·`note` 는 선택이고, `kind` 를 비우면 계획이 정한다).
+3. 원본을 만든 서버를 끄고, 서버와 같은 DB·산출물 폴더를 가리켜 실행한다 (시연 런처로 만든 원본은 `.demo/frame.db`·`.demo/artifacts`).
+
+```bash
+FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_ARTIFACT_STORE=local_fs FRAME_ARTIFACT_DIR=./artifacts python -m frame.tools.evaluate_edits --cases docs/evaluation/edit_cases.example.json --out eval/result.json
+```
+
+- 케이스마다 진행이 표준 오류로, 끝나면 요약이 표준 출력으로 나온다. 결과 파일은 케이스가 끝날 때마다 다시 쓰므로 중간에 끊겨도
+  끝난 케이스가 남는다 (`complete: false`). 파일을 쓰지 못해도(다른 프로그램이 잡은 경우 등) 실행은 계속하고 다음 케이스 뒤에 다시 쓴다.
+  마지막까지 못 쓰면 같은 폴더의 `<이름>.fallback.json`, 그다음 임시 폴더에 쓰고 종료 코드 3 으로 알린다.
+- 결과 파일이 이미 있으면 앞 결과(과금된 실행)를 지키려고 아무것도 돌리지 않는다 (종료 코드 2). 덮어쓰려면 `--overwrite`.
+- Ctrl+C 로 멈추면 하던 케이스와 그 케이스의 수정 버전 ID·상태가 `interrupted` 에 남고, 하던 케이스와 시작하지 않은 케이스만 담은
+  `<이름>.remaining.json` 이 생긴다. 이어 돌릴 때는 그 파일을 `--cases` 로, 다른 파일을 `--out` 으로 준다 (끝난 케이스의 검수를
+  다시 과금하지 않는다). `FRAME_GENERATOR_TIMEOUT_S` 를 켜 두면 Windows 에서는 Ctrl+C 가 그 장면의 생성이 끝날(또는 제한에 닿을) 때까지
+  늦게 먹을 수 있다.
+- 케이스 하나의 오류(부모 없음, 생성 실패, 계획을 받지 못함, DB 잠금 같은 예상 밖 오류 등)는 그 케이스의 `error` 에 남기고 다음 케이스로 간다.
+- 오류나 Ctrl+C 로 끝난 케이스의 수정 버전이 접수된 채(`QUEUED`·`PROCESSING`) 남으면 진행 줄과 요약(`summary.unfinished_versions`)에
+  알린다. 같은 DB 로 서버를 켜면 재시작 복구가 그 버전을 이어서 실행해 남은 생성·검수가 과금될 수 있다.
+- 결과 JSON: `summary`(성공률·평균 비대상 변경률·`meets_target`, 기준별 `by_basis`, 끝나지 않은 수정 버전, 기록된 영상 비용, 검수 VLM 토큰)와
+  `cases[]`(입력, 계획, 수정 버전 ID·상태·오류, 대상 요구조건 키, 판정 `outcome`·`by_basis`, 장면별 클립 URI 와 부모 클립 URI,
+  검수 결과 전부와 그 `detail`). 건수는 겹칠 수 있다: 생성은 끝났는데 검수 결과를 읽지 못한 케이스는 `completed` 와 `errors` 에 함께 든다.
+- 저장소에 기록할 수 있게 DB 주소·키 파일·이 컴퓨터의 폴더 경로는 남기지 않는다. 설정에는 산출물 폴더의 종류만, 케이스 파일은 이름만 남기고,
+  오류 문구·검수 사유·경고에 섞인 절대 경로는 `<경로>` 로 가린다.
+- 수정 성공 = 다시 만든 장면의 (대상 객체, 술어) 요구조건이 모두 PASS 이고 비대상 변경률이 10% 이하. 미판정·실패한 케이스는 성공으로 세지 않는다.
+- `--preservation vlm_keep|ssim`: 목표 판정에 쓸 비대상 변경률의 기준. 두 기준 모두 결과에 남는다. `vlm_keep` 은 `vlm_preservation` 의
+  유지 요소 판정(기본), `ssim` 은 `ssim_preservation` 의 부모 클립 대비 SSIM 이다. 어느 쪽으로 잴지는 아직 정하지 않았다
+  ([연구 문서 §7 결정 2](docs/research/concept-ux-review.md)).
+- `--plan-only`: 변경 계획만 보고 수정 버전을 만들지 않는다. 다시 만들 장면 수·편집 여부·어림 비용으로 실험 전에 비용을 적는다.
+- 종료 코드: 0 = 끝까지 돌고 결과를 남김, 2 = 케이스 파일·설정 오류 또는 결과 파일이 이미 있음 (`FRAME_PERSISTENCE=memory` 포함,
+  아무것도 실행하지 않음), 3 = 결과를 `--out` 에 쓰지 못함 (쓴 곳을 알린다), 130 = Ctrl+C 로 멈춤 (그때까지의 결과를 남김).
+- git worktree 처럼 가상환경을 다른 체크아웃과 함께 쓰면 명령 앞에 `PYTHONPATH=src` 를 둔다. 편집 설치(`pip install -e`)가
+  가리키는 다른 체크아웃의 코드가 돌 수 있다 (pytest 는 `pythonpath = ["src"]` 라 괜찮다).
+
+### 실제 모델로 돌리기 (비용 발생, 승인 뒤에)
+
+```bash
+pip install -e ".[dev,llm,video]"
+```
+
+```bash
+FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_ARTIFACT_STORE=local_fs FRAME_ARTIFACT_DIR=./artifacts \
+FRAME_GENERATOR=external_api FRAME_ASSEMBLER=ffmpeg FRAME_VIDEO_KEY_FILE=<OpenRouter 키 파일> FRAME_VIDEO_RESOLUTION=480p \
+FRAME_VIDEO_EDIT_MODE=video_reference FRAME_VIDEO_EDIT_MODEL=black-forest-labs/flux-video-edit \
+FRAME_CHECKERS=vlm_requirement,vlm_preservation,ssim_preservation FRAME_LLM_KEY_FILE=<OpenAI 키 파일> FRAME_VLM_MODEL=gpt-4.1 \
+python -m frame.tools.evaluate_edits --cases eval/cases.json --out eval/plan.json --plan-only
+```
+
+1. 먼저 `--plan-only` 로 계획을 본다 (영상 생성 없음): 요약의 `regenerate_scenes`·`edit_scenes`·`estimated_cost_usd`. 편집되지 않을 장면은
+   `cases[].plan.scenes[].production.edit_unavailable_reason` 에 사유가 있다. 원본을 만든 직후에는 부모 저장본 주소가 늦게 나와
+   새로 생성될 수 있으니 원본은 미리 만들어 둔다 ([연구 문서 §6.3](docs/research/concept-ux-review.md)).
+2. 비용을 적어 승인을 받은 뒤 `--plan-only` 를 빼고 `--out eval/result.json` 으로 같은 명령을 돌린다.
+
+| 항목 | 단가 (480p·4초 장면, 연구 문서 §6.1 실측) |
+|---|---|
+| 다시 만드는 장면 — 부모 클립 편집 (FLUX Video Edit) | $0.12 |
+| 다시 만드는 장면 — 새로 생성 (Wan 3.0) | $0.2125 |
+| 재검수 (gpt-4.1) | 수정 한 번에 약 $0.04~0.05 |
+
+20건이면 장면 2개씩 기준으로 편집 약 $5.8 ~ 새로 생성 약 $9.5 (장면 1~3개가 섞이면 약 $3.4~$13.8), 시간은 약 40~110분이다.
+원본이 없으면 4장면 원본 하나에 약 $0.90 이 더 든다. 20건은 예를 들어 원본 4개 × 속성 5종(색·의상·재질·조명·장소 등)으로 짠다.
+`tests/live/test_evaluate_edits_live.py` 는 같은 설정에 `FRAME_EVAL_CASES=<케이스 파일>` 을 줄 때만 돈다 (`-m slow`).
