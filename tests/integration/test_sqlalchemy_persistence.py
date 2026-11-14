@@ -188,3 +188,22 @@ def test_entity_display_name_is_stored_and_old_databases_gain_the_column(tmp_pat
         assert session.get(EntityRow, "prj_1:barista").display_name is None
     with uow_factory() as uow:
         assert uow.versions.get("ver_1").ir == named
+
+
+def test_replace_draft_ir_reports_a_version_it_cannot_read_back(engine, ir, monkeypatch):
+    """조건부 갱신이 한 행을 바꿨는데 다시 읽지 못하면 (불변식이 깨짐) 정규화 행을 만들지 않고 LookupError 로 알린다.
+
+    assert 로 두면 `python -O` 에서 검사가 사라지고 AttributeError 로 바뀐다 (감사 브랜치 ruff S101).
+    """
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.commit()
+
+    with uow_factory() as uow:
+        monkeypatch.setattr(uow.versions, "get", lambda version_id: None)
+        with pytest.raises(LookupError) as excinfo:
+            uow.versions.replace_draft_ir("ver_1", ir)
+
+    assert "ver_1" in str(excinfo.value)

@@ -138,7 +138,9 @@ class SqlAlchemyVersionRepository(VersionRepository):
         if result.rowcount != 1:
             return False
         version = self.get(version_id)
-        assert version is not None
+        # 방금 바꾼 행을 같은 트랜잭션에서 읽지 못함 = 불변식이 깨짐 (save() 와 같은 예외)
+        if version is None:
+            raise LookupError(f"조건부 갱신 직후 version_id {version_id} 을 다시 읽지 못했습니다")
         self._sync_ir_rows(version)
         return True
 
