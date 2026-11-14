@@ -41,5 +41,6 @@
 | [0030](0030-ci-quality-gates-and-baselines.md) | CI 품질 게이트와 기준선 방식 | 채택 (2026-11-14) |
 | [0031](0031-concept-placement-glossary-compat-paths.md) | 개념 단위 배치 규칙 · 용어집 · 옛 경로의 호환 모듈 | 채택 (2026-11-14) |
 | [0032](0032-no-machine-paths-single-source-settings.md) | 컴퓨터에 묶인 경로와 값의 사본을 두지 않는다: 절대 경로 금지 · 설정값은 출처 하나 · 이름 없는 수 금지 | 채택 (2026-11-15) |
+| [0033](0033-fastapi-starlette-upgrade-for-known-vulnerabilities.md) | FastAPI · Starlette 의 판을 올린다: 알려진 취약점, 그리고 Starlette 를 직접 고정한다 | 채택 (2026-11-15) |
 
-나눠 가진 번호는 지금 없다 (0022~0029 를 나눠 가졌던 브랜치들이 모두 dev 에 들어왔다). 다음 ADR 은 0033 이다.
+나눠 가진 번호는 지금 없다 (0022~0029 를 나눠 가졌던 브랜치들이 모두 dev 에 들어왔다). 다음 ADR 은 0034 다.

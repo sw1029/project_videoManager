@@ -22,8 +22,8 @@
       "Body_upload_reference_image_api_reference_images_post": {
         "properties": {
           "file": {
+            "contentMediaType": "application/octet-stream",
             "description": "PNG·JPEG·WebP 이미지. 형식은 파일 내용으로 판별한다",
-            "format": "binary",
             "title": "File",
             "type": "string"
           }
@@ -2804,6 +2804,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
