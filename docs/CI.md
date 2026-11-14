@@ -16,6 +16,10 @@ python scripts/check.py --list
 - **worktree 에서 작업할 때**: `scripts/check.py` 는 지금 폴더의 `src` 를 쓰도록 `PYTHONPATH` 를 맞춘다.
   손으로 `python -m frame.…` 을 칠 때는 `PYTHONPATH=src` 를 직접 준다. 가상환경의 편집 설치(`pip install -e`)가 다른 폴더를 가리키고 있으면
   그냥 친 명령은 그 폴더의 코드를 돌린다 (`python -c "import frame; print(frame.__file__)"` 로 확인). pytest 는 설정(`pythonpath = ["src"]`) 덕에 괜찮다.
+- **출력을 파일·파이프로 받을 때** (`python scripts/check.py > check.log 2>&1`): 로그는 UTF-8 이다. 셸의 코드 페이지를 따르지 않는다
+  (한국어 Windows 의 기본은 cp949 다). 도구들(ruff · mypy · pytest · coverage)도 UTF-8 모드(`PYTHONUTF8=1`)로 돌아 로컬과 CI 가 같은 조건이다.
+  콘솔에 바로 찍을 때는 그대로다. PowerShell 에서 파이프로 받은 한글이 깨져 보이면 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` 을 먼저 친다.
+  다른 인코딩이 필요하면 `PYTHONIOENCODING` 이나 `PYTHONUTF8` 을 직접 정한다 — 스크립트가 그것을 따르고, 그 인코딩이 못 담는 글자는 `\uXXXX` 로 찍는다.
 - 유료 API 는 부르지 않는다. 네트워크도 쓰지 않는다 (3절).
 
 ## 2. 검사하는 것

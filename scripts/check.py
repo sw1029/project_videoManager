@@ -8,7 +8,9 @@
   가리켜도 지금 폴더의 코드를 검사한다.
 - 유료 API 를 부르지 않는다. pytest 는 기본으로 slow·gpu 테스트를 뺀다 (pyproject.toml 의 addopts).
 - 커버리지 하한은 아래 COVERAGE_FLOORS 한 곳에 있다. 내려가면 실패하고, 올라가면 하한을 올린다.
-- 출력을 파일이나 파이프로 돌려도 된다. 그 인코딩(한국어 Windows 는 cp949)이 못 담는 글자는 ? 로 찍는다.
+- 출력을 파일이나 파이프로 돌려도 된다. 그때는 UTF-8 로 쓴다 (한국어 Windows 의 기본은 cp949 라서, 그대로 두면 로그를
+  읽는 쪽이 인코딩을 짐작해야 하고 '—' 같은 글자를 담지 못한다). 도구들도 UTF-8 모드(PYTHONUTF8=1)로 돌려 로컬과 CI 가
+  같은 조건이 되게 한다. 부르는 쪽이 PYTHONUTF8 이나 PYTHONIOENCODING 을 정했으면 그것을 따른다.
 """
 
 from __future__ import annotations
@@ -31,19 +33,35 @@ COVERAGE_FLOORS: tuple[tuple[str, tuple[str, ...], float], ...] = (
 )
 
 
+def _caller_chose_an_encoding() -> bool:
+    """부르는 쪽이 파이썬의 입출력 인코딩을 정했는가 (정했으면 건드리지 않는다)."""
+    return bool(os.environ.get("PYTHONUTF8") or os.environ.get("PYTHONIOENCODING"))
+
+
 def _environment() -> dict[str, str]:
     env = dict(os.environ)
     inherited = env.get("PYTHONPATH")
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT / "src"), inherited]))
+    if not _caller_chose_an_encoding():
+        # 도구들을 UTF-8 모드로 돌린다. CI(ubuntu)와 같은 조건이 되고, 파일·파이프로 받은 출력이 한 인코딩이 된다
+        env["PYTHONUTF8"] = "1"
     return env
 
 
-def _tolerant_output() -> None:
-    """출력 인코딩이 못 담는 글자를 만나도 검사가 죽지 않게 한다 (그 글자만 ? 로 바뀐다)."""
+def _readable_output() -> None:
+    """이 스크립트의 출력을 맞춘다: 콘솔이 아니면(파일·파이프) UTF-8 로 쓰고, 못 담는 글자를 만나도 죽지 않는다.
+
+    콘솔은 그대로 둔다 (Windows 콘솔은 어떤 글자든 찍는다). 부르는 쪽이 인코딩을 정했으면 그 인코딩을 따르고,
+    그 인코딩이 못 담는 글자만 \\uXXXX 로 찍는다.
+    """
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(errors="replace")
+        if reconfigure is None:
+            continue
+        if _caller_chose_an_encoding() or stream.isatty():
+            reconfigure(errors="backslashreplace")
+        else:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def _python(*args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -106,7 +124,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--xml", action="store_true", help="tests 뒤에 coverage.xml 을 쓴다 (CI 산출물)"
     )
     args = parser.parse_args(argv)
-    _tolerant_output()
+    _readable_output()
     if args.list:
         for name, (title, _) in STEPS.items():
             print(f"{name:8} {title}")

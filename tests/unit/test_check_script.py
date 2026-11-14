@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -99,8 +100,36 @@ def test_the_coverage_lines_can_be_written_to_a_cp949_output(check, monkeypatch)
     assert raw.getvalue().decode("cp949").count("통과") == len(check.COVERAGE_FLOORS)
 
 
-def test_a_character_the_output_cannot_show_does_not_stop_the_checks(check, monkeypatch):
-    """검사 도구가 낸 글에 출력 인코딩이 못 담는 글자가 있어도 판정까지 간다."""
+def _no_encoding_chosen(monkeypatch) -> None:
+    """부르는 쪽이 인코딩을 정하지 않았다 (한국어 Windows 의 보통 상태)."""
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+
+
+def test_output_sent_to_a_file_or_pipe_is_written_in_utf8(check, monkeypatch):
+    """콘솔이 아닌 출력은 UTF-8 로 쓴다: 로그를 읽는 쪽이 인코딩을 짐작하지 않아도 되고, 어떤 글자도 잃지 않는다.
+
+    한국어 Windows 에서 출력을 파일·파이프로 돌리면 표준 출력이 cp949 다. 예전에는 cp949 가 못 담는 글자('—')에서
+    검사가 죽었고, 그다음에는 그 글자를 ? 로 바꿔 찍었다.
+    """
+    _no_encoding_chosen(monkeypatch)
+    raw = _cp949_stdout(monkeypatch)
+    _tools(check, monkeypatch, totals=("측정값 없음 — ✗", "96.00", "98.00"))
+
+    assert check.main(["tests"]) == 1
+
+    sys.stdout.flush()
+    printed = raw.getvalue().decode("utf-8")
+    assert "측정값 없음 — ✗" in printed and "실패: tests" in printed
+
+
+@pytest.mark.parametrize("variable", ["PYTHONIOENCODING", "PYTHONUTF8"])
+def test_an_encoding_the_caller_chose_is_kept_and_cannot_stop_the_checks(
+    check, monkeypatch, variable
+):
+    """부르는 쪽이 인코딩을 정했으면 바꾸지 않는다. 그 인코딩이 못 담는 글자는 \\uXXXX 로 찍고 판정까지 간다."""
+    _no_encoding_chosen(monkeypatch)
+    monkeypatch.setenv(variable, "cp949" if variable == "PYTHONIOENCODING" else "0")
     raw = _cp949_stdout(monkeypatch)
     _tools(check, monkeypatch, totals=("측정값 없음 — ✗", "96.00", "98.00"))
 
@@ -108,4 +137,29 @@ def test_a_character_the_output_cannot_show_does_not_stop_the_checks(check, monk
 
     sys.stdout.flush()
     printed = raw.getvalue().decode("cp949")
-    assert "측정값 없음" in printed and "실패: tests" in printed
+    assert "측정값 없음 \\u2014 \\u2717" in printed and "실패: tests" in printed
+
+
+def test_the_tools_run_in_utf8_mode_unless_the_caller_chose_an_encoding(check, monkeypatch):
+    """도구(ruff · mypy · pytest · coverage)는 UTF-8 모드로 돈다: 로컬과 CI 가 같은 조건이고, 로그가 한 인코딩이다."""
+    _no_encoding_chosen(monkeypatch)
+    assert check._environment()["PYTHONUTF8"] == "1"
+
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    assert check._environment()["PYTHONUTF8"] == "0"
+
+    monkeypatch.delenv("PYTHONUTF8")
+    monkeypatch.setenv("PYTHONIOENCODING", "cp949")
+    assert "PYTHONUTF8" not in check._environment()
+
+
+def test_the_script_writes_utf8_when_its_output_is_piped():
+    """실제로 돌려 본다. 한국어 Windows 에서는 고치기 전에 이 출력이 cp949 였다 (UTF-8 로 읽으면 깨진다)."""
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+
+    done = subprocess.run(
+        [sys.executable, str(SCRIPT), "--list"], capture_output=True, env=env, check=False
+    )
+
+    assert done.returncode == 0, done.stderr
+    assert "포맷" in done.stdout.decode("utf-8")
