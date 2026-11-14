@@ -1016,6 +1016,23 @@ def test_a_provisional_regeneration_is_reused_while_the_address_is_still_missing
     assert _ledger_status(store, generator, generator.result_key(request)) == "released"
 
 
+def test_a_provisional_regeneration_is_still_reused_days_later(ir, store):
+    """조건 키에만 남은 완료 결과는 생성 캐시에 없다. 클립이 남아 있으면 기한이 지나도 다시 내지 않는다 (감사 A-32)."""
+    api = _api(parent_status=NO_URLS)
+    request = _request(ir, store)
+    first = make_openrouter_generator(
+        store, api, edit_parent_wait_seconds=0, **EDITING
+    ).generate_scene(request)
+
+    later = FakeTime(wall=FakeTime().wall + 25 * 3600)
+    again = make_openrouter_generator(
+        store, api, clock=later, edit_parent_wait_seconds=0, **EDITING
+    ).generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1
+    assert again.uri == first.uri and again.metadata["ledger"] == "reused"
+
+
 def test_a_provisional_regeneration_serves_requests_that_do_not_edit(ir, store):
     """편집을 끈 설정이 같은 조건을 요청하면 그 결과를 쓴다. 남의 편집 시도 기록과 임시 표시는 따라오지 않는다."""
     api = _api(parent_status=NO_URLS)

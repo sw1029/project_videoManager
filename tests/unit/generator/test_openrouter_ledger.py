@@ -226,6 +226,38 @@ def test_ttl_is_configurable(store, ir):
     assert len(api.submits) == 2
 
 
+def test_a_completed_job_whose_clip_is_still_there_is_reused_after_the_ttl(store, ir):
+    """기한은 제공자에게 다시 물어야 하는 기록에만 있다. 클립이 남아 있으면 며칠 뒤에도 다시 내지 않는다 (감사 A-32)."""
+    api = FakeOpenRouterApi()
+    first = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_1"))
+    calls = len(api.calls)
+
+    next_week = FakeTime(wall=FakeTime().wall + 7 * DAY)
+    again = make_openrouter_generator(store, api, clock=next_week).generate_scene(
+        _request(ir, version_id="ver_2")
+    )
+
+    assert len(api.calls) == calls  # 제출도 조회도 없다
+    assert again.uri == first.uri and again.metadata["ledger"] == "reused"
+
+
+def test_a_completed_job_whose_clip_is_gone_is_submitted_again_after_the_ttl(tmp_path, ir, caplog):
+    """클립이 없으면 제공자에게서 다시 받아야 한다. 기한이 지난 작업은 그쪽에 남아 있다고 볼 수 없다."""
+    api = FakeOpenRouterApi()
+    store = LocalFileArtifactStore(tmp_path)
+    first = make_openrouter_generator(store, api).generate_scene(_request(ir, version_id="ver_1"))
+    store.local_path(first.uri).unlink()
+
+    next_week = FakeTime(wall=FakeTime().wall + 7 * DAY)
+    with caplog.at_level(logging.WARNING):
+        again = make_openrouter_generator(store, api, clock=next_week).generate_scene(
+            _request(ir, version_id="ver_2")
+        )
+
+    assert len(api.submits) == 2 and again.metadata["ledger"] == "new"
+    assert any("만료" in r.getMessage() for r in caplog.records)
+
+
 def test_other_generator_settings_never_resume_each_others_jobs(store, ir):
     api = FakeOpenRouterApi()
     _crash_after_submit(store, api, ir, resolution="480p")

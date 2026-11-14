@@ -45,7 +45,10 @@
 - 같은 키로 다시 요청되면(재시작 뒤 복구, 시간 초과 뒤 재생성 등) 새로 제출하지 않는다. 진행 중이거나 결과를 아직
   못 받은 작업은 이어서 폴링·다운로드하고, 클립까지 저장한 작업은 그 클립을 그대로 돌려준다.
 - 제공자 쪽에서 실패·취소·만료됐거나 작업이 없거나(404·410) 결과가 영상이 아니면 그 항목은 이어 받지 않는다
-  (다음 요청이 새로 제출한다). 제출 뒤 24시간(ledger_ttl_seconds)이 지난 항목도 이어 받지 않는다.
+  (다음 요청이 새로 제출한다).
+- 기한(ledger_ttl_seconds, 기본 24시간)은 제공자에게 다시 물어야 하는 항목에만 있다: 결과를 아직 못 받았거나,
+  받았지만 클립이 저장소에 없는 항목. 제출 뒤 기한이 지나면 이어 받지 않는다. 클립이 남아 있는 완료 항목은
+  기한 없이 그 클립을 돌려준다 (생성 캐시에 없는 결과도 여기에만 남아 있을 수 있다, ADR-0016·0021).
 """
 
 from __future__ import annotations
@@ -111,7 +114,8 @@ log = logging.getLogger(__name__)
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_VIDEO_MODEL = "alibaba/wan-3.0"
 KEY_ENV = "OPENROUTER_API_KEY"
-LEDGER_TTL_SECONDS = 24 * 3600.0  # 제출 뒤 이 시간이 지난 원장 항목은 이어 받지 않는다
+# 제출 뒤 이 시간이 지나면 제공자에게 다시 물어야 하는 원장 항목(결과 미회수·클립 없음)은 이어 받지 않는다
+LEDGER_TTL_SECONDS = 24 * 3600.0
 
 _KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
 _URL = re.compile(r"(https?)://([^/\s\"'<>?]+)[^\s\"'<>]*")
@@ -648,11 +652,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             record = self._resumable(key)
             if record is None:
                 return self._generate_new(request, key)
-            if (
-                record.status == COMPLETED
-                and record.clip_uri is not None
-                and self._store.exists(record.clip_uri)
-            ):
+            if self._has_clip(record):
                 return self._reuse(request, record)
             return self._collect(request, record, resumed=True)
 
@@ -747,7 +747,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         record = self._resumable(plain_key)
         if record is None or record.status != COMPLETED:
             return None
-        if record.clip_uri is None or not self._store.exists(record.clip_uri):
+        if not self._has_clip(record):
             if rejected.get("transient") is not True:
                 return None
             return self._redownload_provisional(request, plain_key, rejected)
@@ -1286,7 +1286,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         if existing is not None:
             if existing.status != COMPLETED:
                 return False  # 그 키로 진행 중인 작업이 있다. 덮어쓰지 않는다 (이어 받을 수 있어야 한다)
-            if existing.clip_uri is not None and self._store.exists(existing.clip_uri):
+            if self._has_clip(existing):
                 return True  # 이미 쓸 수 있는 결과가 있다. 그대로 둔다
         private = ("edit", "provisional")  # 이 요청의 것: 조건 키의 결과에는 싣지 않는다
         return self._remember(
@@ -1319,7 +1319,11 @@ class OpenRouterVideoGenerator(VideoGenerator):
 
     # ---- 작업 원장 ----
     def _resumable(self, key: str) -> JobRecord | None:
-        """이어 받을 수 있는 원장 항목. 없음·실패·비움(released)·만료·읽기 실패면 None (새로 시도)."""
+        """이어 받을 수 있는 원장 항목. 없음·실패·비움(released)·만료·읽기 실패면 None (새로 시도).
+
+        기한은 제공자에게 다시 물어야 하는 항목에만 적용한다. 클립이 저장소에 남아 있는 완료 항목은 조회도 제출도
+        필요 없으므로 오래돼도 그대로 쓴다 (감사 A-32).
+        """
         try:
             record = self._ledger.get(key)
         except Exception as exc:  # noqa: BLE001 - 깨진 항목 때문에 생성이 막히지 않게 한다
@@ -1329,6 +1333,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
             return None
         if record is None or record.status in (FAILED, RELEASED):
             return None
+        if self._has_clip(record):
+            return record
         age = self._wall_clock() - record.submitted_at
         if age > self.ledger_ttl_seconds:
             log.warning(
@@ -1340,6 +1346,14 @@ class OpenRouterVideoGenerator(VideoGenerator):
             )
             return None
         return record
+
+    def _has_clip(self, record: JobRecord) -> bool:
+        """클립까지 저장했고 그 클립이 저장소에 남아 있는 항목인가 (제공자에게 다시 물을 것이 없다)."""
+        return (
+            record.status == COMPLETED
+            and record.clip_uri is not None
+            and self._store.exists(record.clip_uri)
+        )
 
     def _remember(self, record: JobRecord) -> bool:
         """원장에 남긴다. 남기지 못하면 False (기록 실패가 과금된 작업을 버리게 하지 않는다)."""

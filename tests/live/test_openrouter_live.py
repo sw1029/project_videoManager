@@ -6,8 +6,8 @@
 
 카페 예시의 intro 장면(9:16, 4초) 하나를 만든다. Wan 3.0 기준 480p 약 $0.20, 720p 약 $0.40.
 결과 mp4 는 FRAME_ARTIFACT_DIR(기본 ./artifacts) 의 clips/live-<시각>/intro.mp4 에 남는다.
-같은 조건으로 24시간 안에 다시 돌리면 작업 원장(ledger/openrouter, ADR-0013)이 이전 결과를 다시 쓰고 실패한다
-(과금 없음). 실제 호출을 다시 확인하려면 그 폴더를 지운다.
+같은 조건으로 다시 돌리면 작업 원장(ledger/openrouter, ADR-0013)이 이전 결과를 다시 쓰고 실패한다 (과금 없음.
+이전 클립이 남아 있는 동안은 기한이 없다). 실제 호출을 다시 확인하려면 그 폴더를 지운다.
 """
 
 from __future__ import annotations
