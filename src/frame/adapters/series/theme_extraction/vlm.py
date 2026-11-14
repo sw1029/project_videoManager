@@ -55,10 +55,10 @@ class VlmThemeExtractor(ThemeExtractor):
         ffmpeg: str | None,
         llm: LLMClient,
         *,
-        frames_per_slot: int = 3,
+        frames_per_slot: int,  # 설정이 정한다 (FRAME_THEME_FRAMES)
+        max_attempts: int,  # 설정이 정한다 (FRAME_THEME_ATTEMPTS)
         max_frames: int = 24,
         max_side: int = 768,
-        max_attempts: int = 2,
         language: str = "Korean",
         timeout_s: float | None = 240.0,
         refine_text_regions: bool = True,

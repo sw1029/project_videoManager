@@ -17,6 +17,7 @@ from frame.application.ports.series.source_analysis import (
     ShotDetector,
     VideoAnalysisError,
 )
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.series.shortform import check_platforms
 from frame.domain.series.source_analysis import (
     validate_shots,
@@ -55,7 +56,7 @@ def _ffmpeg_kit(folder) -> Kit:
     return Kit(
         "ffmpeg",
         FfmpegMediaProber(FFMPEG),
-        FfmpegShotDetector(FFMPEG),
+        FfmpegShotDetector(FFMPEG, threshold=ThemeSettings().shot_threshold),
         make_cut_clip(FFMPEG, folder / "cuts.mp4"),
         make_cut_clip(FFMPEG, folder / "sounding.mp4", tone_hz=440),
         make_clip(FFMPEG, folder / "uncut.mp4", source="color=c=red"),

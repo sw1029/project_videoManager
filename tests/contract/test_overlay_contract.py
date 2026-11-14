@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 import pytest
 
@@ -17,8 +18,10 @@ from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextRea
 from frame.adapters.series.overlay.ffmpeg_renderer import (
     FfmpegOverlayRenderer,
     estimate_text_width,
+    find_font,
     fit_font_px,
     resolve_font,
+    system_font_dirs,
 )
 from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
 from frame.application.errors import AdapterError, ConfigurationError, LLMTimeout
@@ -175,11 +178,45 @@ def test_font_must_exist(tmp_path):
     with pytest.raises(ConfigurationError, match="FRAME_OVERLAY_FONT"):
         resolve_font(str(tmp_path / "missing.ttf"))
     with pytest.raises(ConfigurationError):
-        resolve_font(candidates=(str(tmp_path / "none.ttf"),))
+        resolve_font(names=("none.ttf",), dirs=(tmp_path,))
     font = tmp_path / "font.ttf"
     font.write_bytes(b"not really a font")
     assert resolve_font(str(font)) == str(font)
-    assert resolve_font(candidates=(str(tmp_path / "none.ttf"), str(font))) == str(font)
+    assert resolve_font(names=("none.ttf", "font.ttf"), dirs=(tmp_path,)) == str(font)
+
+
+def test_font_is_found_by_file_name_in_the_font_folders(tmp_path):
+    """설치 위치를 코드에 적지 않는다. 글꼴 폴더(하위 폴더까지)에서 파일 이름으로 찾고, 이름의 순서가 우선이다."""
+    system, user = tmp_path / "system", tmp_path / "user"
+    (system / "truetype" / "nanum").mkdir(parents=True)
+    user.mkdir()
+    regular = system / "truetype" / "nanum" / "NanumGothic.ttf"
+    bold = user / "NANUMGOTHICBOLD.TTF"  # 대소문자는 가리지 않는다
+    for file in (regular, bold):
+        file.write_bytes(b"font")
+    names = ("NanumGothicBold.ttf", "NanumGothic.ttf")
+
+    assert find_font(names, (system, user)) == str(bold)  # 뒤 폴더에 있어도 앞선 이름이 먼저다
+    assert find_font(names, (system,)) == str(regular)
+    assert find_font(names, (tmp_path / "missing",)) is None
+
+
+def test_font_folders_come_from_the_environment_not_from_fixed_paths(tmp_path):
+    env = {"WINDIR": str(tmp_path / "windows"), "LOCALAPPDATA": str(tmp_path / "local")}
+    assert system_font_dirs(env, tmp_path, "win32") == (
+        tmp_path / "windows" / "Fonts",
+        tmp_path / "local" / "Microsoft" / "Windows" / "Fonts",
+    )
+    assert system_font_dirs({}, tmp_path, "win32") == ()  # 환경 변수가 없으면 짐작하지 않는다
+
+    linux = system_font_dirs({"XDG_DATA_DIRS": "share-a:share-b"}, tmp_path, "linux")
+    assert linux == (
+        tmp_path / ".local" / "share" / "fonts",
+        tmp_path / ".fonts",
+        Path("share-a") / "fonts",
+        Path("share-b") / "fonts",
+    )
+    assert system_font_dirs({}, tmp_path, "darwin")[0] == tmp_path / "Library" / "Fonts"
 
 
 # ---- ScreenTextReader ----

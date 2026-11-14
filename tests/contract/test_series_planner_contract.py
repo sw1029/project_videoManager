@@ -25,7 +25,7 @@ def make_planner(request):
     """기획기를 만드는 함수. 요청마다 새로 만든다."""
     if request.param == "llm":
         answer = json.dumps(matcha_content_document(), ensure_ascii=False)
-        return lambda: LLMSeriesPlanner(ReplayLLMClient([answer]))
+        return lambda: LLMSeriesPlanner(ReplayLLMClient([answer]), max_attempts=1)
     return lambda: TemplateSeriesPlanner()
 
 

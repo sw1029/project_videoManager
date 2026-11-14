@@ -12,9 +12,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 import tempfile
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from frame.adapters.media_tools import MediaProbe, MediaToolError, probe_media, run_ffmpeg, tail
@@ -27,30 +29,92 @@ from frame.domain.series.theme import color_name
 _MIN_FONT_PX = 10
 _FILL = 0.94  # 글자가 영역의 폭을 이만큼까지 쓴다
 
-# 글꼴을 지정하지 않았을 때 찾아보는 곳 (한글이 든 글꼴). 굵은 것 먼저
-DEFAULT_FONT_CANDIDATES: tuple[str, ...] = (
-    "C:/Windows/Fonts/malgunbd.ttf",
-    "C:/Windows/Fonts/malgun.ttf",
-    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-    "/Library/Fonts/NanumGothicBold.ttf",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-    "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+# 글꼴을 지정하지 않았을 때 찾는 한글 글꼴의 파일 이름 (앞의 것이 먼저, 굵은 것 먼저).
+# 폴더는 적지 않는다: 설치 위치는 컴퓨터마다 다르므로 운영체제의 글꼴 폴더에서 찾는다 (system_font_dirs)
+KOREAN_FONT_FILES: tuple[str, ...] = (
+    "malgunbd.ttf",  # Windows: 맑은 고딕
+    "malgun.ttf",
+    "AppleSDGothicNeo.ttc",  # macOS
+    "NanumGothicBold.ttf",
+    "NotoSansCJK-Bold.ttc",  # Linux: noto-cjk
+    "NanumGothic.ttf",
+    "NotoSansCJK-Regular.ttc",
 )
+# XDG Base Directory 규격이 정한 XDG_DATA_DIRS 의 기본값 (환경 변수가 없을 때)
+_XDG_DATA_DIRS = "/usr/local/share:/usr/share"
+
+
+def system_font_dirs(
+    env: Mapping[str, str] | None = None,
+    home: Path | None = None,
+    platform: str | None = None,
+) -> tuple[Path, ...]:
+    """운영체제가 글꼴을 두는 폴더. 환경 변수와 운영체제의 규약에서 얻는다 (특정 컴퓨터의 경로를 적지 않는다).
+
+    - Windows: %WINDIR%/Fonts, %LOCALAPPDATA%/Microsoft/Windows/Fonts (사용자 글꼴)
+    - macOS: ~/Library/Fonts, /Library/Fonts, /System/Library/Fonts
+    - 그 밖 (XDG 규격): $XDG_DATA_HOME/fonts, ~/.fonts, $XDG_DATA_DIRS 의 폴더마다 fonts
+    """
+    env = os.environ if env is None else env
+    home = Path.home() if home is None else home
+    platform = sys.platform if platform is None else platform
+    if platform == "win32":
+        roots = (
+            (env.get("WINDIR") or env.get("SystemRoot"), ("Fonts",)),
+            (env.get("LOCALAPPDATA"), ("Microsoft", "Windows", "Fonts")),
+        )
+        return tuple(Path(root).joinpath(*parts) for root, parts in roots if root)
+    if platform == "darwin":
+        return (home / "Library" / "Fonts", Path("/Library/Fonts"), Path("/System/Library/Fonts"))
+    data_home = env.get("XDG_DATA_HOME") or str(home / ".local" / "share")
+    data_dirs = (env.get("XDG_DATA_DIRS") or _XDG_DATA_DIRS).split(":")
+    return (
+        Path(data_home) / "fonts",
+        home / ".fonts",
+        *(Path(folder) / "fonts" for folder in data_dirs if folder),
+    )
+
+
+def find_font(
+    names: Sequence[str] = KOREAN_FONT_FILES, dirs: Sequence[Path] | None = None
+) -> str | None:
+    """글꼴 폴더들(하위 폴더까지)에서 이름이 맞는 파일을 찾는다.
+
+    이름의 순서가 우선이고, 같은 이름이면 앞 폴더가 먼저다.
+    """
+    wanted = {name.lower(): rank for rank, name in enumerate(names)}
+    best: tuple[int, str] | None = None
+    for folder in system_font_dirs() if dirs is None else dirs:
+        if not Path(folder).is_dir():
+            continue
+        try:
+            found = sorted(p for p in Path(folder).rglob("*") if p.name.lower() in wanted)
+        except OSError:
+            continue  # 읽을 수 없는 폴더는 건너뛴다
+        for path in found:
+            rank = wanted[path.name.lower()]
+            if path.is_file() and (best is None or rank < best[0]):
+                best = (rank, str(path))
+    return best[1] if best else None
 
 
 def resolve_font(
-    explicit: str | None = None, candidates: Sequence[str] = DEFAULT_FONT_CANDIDATES
+    explicit: str | None = None,
+    *,
+    names: Sequence[str] = KOREAN_FONT_FILES,
+    dirs: Sequence[Path] | None = None,
 ) -> str:
-    """화면 문구에 쓸 글꼴 파일. 못 찾으면 ConfigurationError (기동 시점에 실패하도록 조립 단계가 부른다)."""
+    """화면 문구에 쓸 글꼴 파일. 못 찾으면 ConfigurationError (기동 시점에 실패하도록 조립 단계가 부른다).
+
+    지정한 파일(FRAME_OVERLAY_FONT)이 먼저다. 없으면 운영체제의 글꼴 폴더에서 한글 글꼴을 찾는다.
+    """
     if explicit:
         if Path(explicit).is_file():
             return explicit
         raise ConfigurationError(f"FRAME_OVERLAY_FONT 에 지정한 글꼴 파일이 없습니다: {explicit}")
-    for path in candidates:
-        if Path(path).is_file():
-            return path
+    found = find_font(names, dirs)
+    if found is not None:
+        return found
     raise ConfigurationError(
         "화면 문구에 쓸 글꼴을 찾지 못했습니다. FRAME_OVERLAY_FONT 로 한글이 든 글꼴 파일(.ttf·.ttc)을 지정하세요"
     )

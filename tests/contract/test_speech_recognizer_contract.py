@@ -15,6 +15,7 @@ from frame.adapters.llm.key_store import LLMKeyStore
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.series.source_analysis import (
     Transcript,
 )
@@ -34,7 +35,14 @@ class _CannedTransport(HttpTransport):
 
 def _openai_recognizer(status: int, document: dict) -> OpenAISpeechRecognizer:
     keys = LLMKeyStore(explicit="sk-test", env={})
-    return OpenAISpeechRecognizer(key_source=keys, transport=_CannedTransport(status, document))
+    defaults = ThemeSettings()
+    return OpenAISpeechRecognizer(
+        key_source=keys,
+        model=defaults.speech_model,
+        base_url="https://speech.test/v1",
+        timeout_s=defaults.speech_timeout_s,
+        transport=_CannedTransport(status, document),
+    )
 
 
 @pytest.fixture(params=["fake", "openai"])

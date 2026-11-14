@@ -44,7 +44,7 @@ def _planner(*responses, **options) -> tuple[LLMSeriesPlanner, ReplayLLMClient]:
             for r in responses
         ]
     )
-    return LLMSeriesPlanner(llm, **options), llm
+    return LLMSeriesPlanner(llm, **{"max_attempts": 3, **options}), llm
 
 
 def test_answer_becomes_episode_content():

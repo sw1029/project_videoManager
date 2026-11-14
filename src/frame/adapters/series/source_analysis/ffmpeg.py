@@ -60,7 +60,7 @@ class FfmpegShotDetector(ShotDetector):
         self,
         ffmpeg: str | None,
         *,
-        threshold: float = 0.3,
+        threshold: float,  # 설정이 정한다 (FRAME_SHOT_THRESHOLD)
         min_shot_ms: int = 500,
         timeout_s: float = 300.0,
     ) -> None:

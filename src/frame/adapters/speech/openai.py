@@ -1,7 +1,8 @@
 """OpenAI 호환 음성 인식 API 어댑터 (FRAME_SPEECH_RECOGNIZER=openai, ADR-0025·0026).
 
 POST {base_url}/audio/transcriptions (multipart). OpenAI, OpenRouter, 로컬 Whisper 서버가 같은 형식을 쓴다.
-- 기본 모델은 whisper-1 이다. 2026-11 기준 OpenAI 에서 낱말 시각을 주는 모델이 이것뿐이다
+- 모델·주소·시간 제한은 설정이 정한다 (FRAME_SPEECH_MODEL 등, config/theme_settings.py). 여기에는 기본값을 두지 않는다.
+  설정의 기본 모델은 whisper-1 이다: 2026-11 기준 OpenAI 에서 낱말 시각을 주는 모델이 이것뿐이다
   (response_format=verbose_json + timestamp_granularities[]=word,segment). 낱말 시각이 있어야 쉬지 않고 이어 읽은
   녹음을 대본 줄 사이에서 나눌 수 있다.
 - 구간·낱말 시각을 주지 않는 모델(글만 돌려주는 모델)도 받는다: 음성 전체를 한 구간으로 본다.
@@ -50,9 +51,9 @@ class OpenAISpeechRecognizer(SpeechRecognizer):
         self,
         *,
         key_source: LLMKeySource,
-        model: str = "whisper-1",
-        base_url: str = "https://api.openai.com/v1",
-        timeout_s: float = 120.0,
+        model: str,
+        base_url: str,
+        timeout_s: float,
         word_timestamps: bool = True,
         transport: HttpTransport | None = None,
     ) -> None:

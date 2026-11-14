@@ -20,6 +20,7 @@ from frame.application.ports.series.theme_extraction import (
     ThemeExtractionError,
     ThemeExtractionRequest,
 )
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.series.source_analysis import (
     SpeechSegment,
     Transcript,
@@ -109,7 +110,16 @@ def extractor_case(request, real_video):
     if request.param == "vlm":
         if FFMPEG is None:
             pytest.skip("ffmpeg 없음 (video extra 미설치)")
-        return (lambda: VlmThemeExtractor(FFMPEG, _SlotCountingLLM()), real_video)
+        defaults = ThemeSettings()
+        return (
+            lambda: VlmThemeExtractor(
+                FFMPEG,
+                _SlotCountingLLM(),
+                frames_per_slot=defaults.extractor_frames,
+                max_attempts=defaults.extractor_attempts,
+            ),
+            real_video,
+        )
     return (lambda: FakeThemeExtractor(), fake_video())
 
 

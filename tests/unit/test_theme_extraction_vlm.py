@@ -17,6 +17,7 @@ from frame.application.ports.series.theme_extraction import (
     ThemeExtractionError,
     ThemeExtractionRequest,
 )
+from frame.config.theme_settings import ThemeSettings
 from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.screen import Region, TextRole, TextSource
@@ -377,7 +378,8 @@ def _extractor(*responses, **options) -> tuple[VlmThemeExtractor, ReplayLLMClien
     llm = ReplayLLMClient(
         [r if isinstance(r, str | Exception) else json.dumps(r) for r in responses]
     )
-    return VlmThemeExtractor(FFMPEG, llm, **options), llm
+    setup = {"frames_per_slot": 3, "max_attempts": 2, **options}  # 설정의 기본값과 같은 값
+    return VlmThemeExtractor(FFMPEG, llm, **setup), llm
 
 
 @needs_ffmpeg
@@ -681,7 +683,11 @@ def test_answer_with_the_wrong_shape_is_sent_back_and_the_rejection_is_recorded(
     assert clean.extract(_request(video=video)).detail["rejections"] == []
 
 
-@needs_ffmpeg
 def test_extractor_asks_at_most_twice_by_default():
-    """프레임이 붙는 요청이다. 재질의 횟수를 글만 보내는 호출의 설정(3회)에 맡기지 않는다."""
-    assert VlmThemeExtractor(FFMPEG, ReplayLLMClient([])).max_attempts == 2
+    """프레임이 붙는 요청이다. 재질의 횟수를 글만 보내는 호출의 설정(3회)에 맡기지 않는다.
+
+    기본값은 설정 한 곳에만 있다 (어댑터 생성자에는 없다).
+    """
+    assert ThemeSettings().extractor_attempts == 2
+    with pytest.raises(TypeError):
+        VlmThemeExtractor(FFMPEG, ReplayLLMClient([]))  # type: ignore[call-arg]

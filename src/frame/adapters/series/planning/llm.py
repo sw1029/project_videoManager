@@ -153,7 +153,7 @@ class LLMSeriesPlanner(SeriesPlanner):
         self,
         client: LLMClient,
         *,
-        max_attempts: int = 3,
+        max_attempts: int,  # 설정이 정한다 (FRAME_LLM_MAX_ATTEMPTS)
         timeout_s: float | None = None,
         policy: PlanPolicy = DEFAULT_POLICY,
     ) -> None:

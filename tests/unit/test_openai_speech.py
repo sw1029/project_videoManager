@@ -60,10 +60,14 @@ def _json(document, status=200) -> HttpResponse:
     return HttpResponse(status, json.dumps(document, ensure_ascii=False).encode("utf-8"))
 
 
+# 모델·주소·시간 제한은 설정이 정해 넘긴다. 테스트는 그 자리에 시험용 값을 준다
+SETUP = {"model": "whisper-1", "base_url": "https://speech.test/v1", "timeout_s": 30.0}
+
+
 def _recognizer(*responses, **options) -> tuple[OpenAISpeechRecognizer, FakeTransport]:
     transport = FakeTransport(*responses)
     recognizer = OpenAISpeechRecognizer(
-        key_source=LLMKeyStore(explicit=KEY, env={}), transport=transport, **options
+        key_source=LLMKeyStore(explicit=KEY, env={}), transport=transport, **{**SETUP, **options}
     )
     return recognizer, transport
 
@@ -75,7 +79,7 @@ def test_request_asks_for_word_and_segment_timestamps():
     sent = transport.requests[0]
     assert (sent["method"], sent["url"]) == (
         "POST",
-        "https://api.openai.com/v1/audio/transcriptions",
+        f"{SETUP['base_url']}/audio/transcriptions",
     )
     assert sent["headers"]["Authorization"] == f"Bearer {KEY}"
     assert sent["headers"]["Content-Type"].startswith("multipart/form-data; boundary=")
@@ -196,7 +200,9 @@ def test_failures_are_speech_recognition_errors_without_the_key(response, messag
 
 def test_missing_key_and_empty_audio_fail_before_any_request():
     transport = FakeTransport()
-    recognizer = OpenAISpeechRecognizer(key_source=LLMKeyStore(env={}), transport=transport)
+    recognizer = OpenAISpeechRecognizer(
+        key_source=LLMKeyStore(env={}), transport=transport, **SETUP
+    )
 
     with pytest.raises(SpeechRecognitionError):
         recognizer.transcribe(AUDIO)
