@@ -3,7 +3,8 @@
 1. 올리기 (UploadReferenceImage): 형식(PNG·JPEG·WebP, 파일 내용의 첫 바이트로 판별)·크기를 검사하고
    산출물 저장소의 임시 자리 refs/uploads/{upload_id}.{ext} 에 저장한 뒤 URI 를 돌려준다.
    화면은 그 URI 를 POST /api/projects 의 reference_images[].image_uri 에 쓴다.
-2. 주소 정하기 (resolve_reference_uri): 프로젝트를 만들 때 참조 이미지 URI 를 정한다.
+2. 주소 정하기: 프로젝트를 만들 때 참조 이미지 URI 를 두 단계로 정한다 — 모두 검사한 뒤에(check_reference_uri)
+   옮긴다(place_reference). 뒤의 참조가 거부되면 앞의 것의 복사본이 남지 않게 한다 (델타 D03).
    - 임시 자리의 업로드면 refs/{project_id}/{reference_image_id}.{ext} 로 복사하고 그 URI 를 남긴다.
    - http·https 주소는 그대로 둔다.
    - 그 밖의 주소는 받지 않는다 (422). 서버 저장소의 다른 주소(local://·mem://)로 저장 루트 안의 다른 파일
@@ -82,29 +83,49 @@ class UploadReferenceImage:
         return UploadedReferenceImage(image_uri=uri, media_type=media_type, size_bytes=len(data))
 
 
-def resolve_reference_uri(
-    store: ArtifactStore, image_uri: str, *, project_id: str, reference_image_id: str
-) -> str:
-    """프로젝트의 참조 이미지로 남길 URI. 올린 이미지면 프로젝트 자리로 옮긴 URI, http·https 주소면 받은 그대로.
+@dataclass(frozen=True)
+class CheckedReference:
+    """검사를 통과한 참조 이미지 주소. upload_name 이 있으면 올린 이미지(프로젝트 자리로 옮길 것)다."""
 
-    그 밖의 주소는 ValidationError (422).
+    image_uri: str
+    upload_name: str | None = None
+
+
+def check_reference_uri(store: ArtifactStore, image_uri: str) -> CheckedReference:
+    """1단계: 저장소에 아무것도 쓰지 않고 참조 이미지 주소를 검사한다. 쓸 수 없는 주소는 ValidationError (422).
+
+    참조를 모두 검사한 뒤에 옮겨야, 뒤의 참조가 거부될 때 앞의 것의 복사본이 남지 않는다 (델타 D03).
     """
     name = _upload_name(store, image_uri)
-    if name is None:
-        if not _is_external_address(image_uri):
-            raise ValidationError(
-                "참조 이미지 주소는 올린 이미지의 주소(업로드 응답의 image_uri)이거나 "
-                f"http·https 주소여야 합니다: {image_uri}"
-            )
-        return image_uri
-    try:
-        data = store.get(image_uri)
-    except StorageError as exc:
+    if name is not None:
+        if not store.exists(image_uri):
+            raise _missing_upload(image_uri)
+        return CheckedReference(image_uri, upload_name=name)
+    if not _is_external_address(image_uri):
         raise ValidationError(
-            f"올린 참조 이미지를 찾을 수 없습니다: {image_uri} (다시 올려 주세요)"
-        ) from exc
-    key = f"refs/{project_id}/{reference_image_id}{PurePosixPath(name).suffix}"
-    return store.put(key, data, content_type=store.content_type(image_uri))
+            "참조 이미지 주소는 올린 이미지의 주소(업로드 응답의 image_uri)이거나 "
+            f"http·https 주소여야 합니다: {image_uri}"
+        )
+    return CheckedReference(image_uri)
+
+
+def place_reference(
+    store: ArtifactStore, checked: CheckedReference, *, project_id: str, reference_image_id: str
+) -> str:
+    """2단계: 검사한 참조를 프로젝트에 둔다. 올린 이미지는 refs/{project_id}/{reference_image_id}.{ext} 로 복사한 URI,
+    외부 주소는 받은 그대로."""
+    if checked.upload_name is None:
+        return checked.image_uri
+    try:
+        data = store.get(checked.image_uri)
+    except StorageError as exc:  # 검사와 복사 사이에 없어졌다
+        raise _missing_upload(checked.image_uri) from exc
+    key = f"refs/{project_id}/{reference_image_id}{PurePosixPath(checked.upload_name).suffix}"
+    return store.put(key, data, content_type=store.content_type(checked.image_uri))
+
+
+def _missing_upload(image_uri: str) -> ValidationError:
+    return ValidationError(f"올린 참조 이미지를 찾을 수 없습니다: {image_uri} (다시 올려 주세요)")
 
 
 def _is_external_address(uri: str) -> bool:

@@ -28,7 +28,7 @@ from ..ports.common import Clock, IdGenerator
 from ..ports.jobs import Job, JobDispatcher
 from ..ports.structurer import IrDocumentStructurer, ReferenceImageInput, StructuredDocument
 from ..ports.unit_of_work import UnitOfWorkFactory
-from .upload_reference_image import resolve_reference_uri
+from .upload_reference_image import CheckedReference, check_reference_uri, place_reference
 
 
 class CreateProject:
@@ -75,9 +75,8 @@ class CreateProject:
             seed=command.seed,
             ir=None if structured is None else structured.ir,
         )
-        # 올린 참조 이미지는 저장하기 전에 프로젝트 자리로 옮긴다 (#12).
-        # 없어진 업로드와 업로드가 아닌 저장소 주소는 여기서 거부한다 (감사 A-19)
-        references = [self._reference(ref, version) for ref in command.reference_images]
+        # 올린 참조 이미지는 저장하기 전에 프로젝트 자리로 옮긴다 (#12). 쓸 수 없는 주소는 여기서 거부한다
+        references = self._references(command.reference_images, version)
         with self._uow_factory() as uow:
             uow.projects.add(project)
             uow.versions.add(version)
@@ -97,22 +96,42 @@ class CreateProject:
             repair_notes=() if structured is None else structured.repair_notes,
         )
 
-    def _reference(self, ref: ReferenceImageInput, version: VideoVersion) -> ReferenceImage:
-        reference_image_id = self._ids.new_id("img")
-        image_uri = ref.image_uri
-        if self._artifact_store is not None:
-            image_uri = resolve_reference_uri(
-                self._artifact_store,
-                image_uri,
-                project_id=version.project_id,
-                reference_image_id=reference_image_id,
+    def _references(
+        self, refs: tuple[ReferenceImageInput, ...], version: VideoVersion
+    ) -> list[ReferenceImage]:
+        """참조 이미지를 두 단계로 다룬다: 모두 검사한 뒤에(저장소에 쓰지 않음) 올린 이미지를 프로젝트 자리로 옮긴다.
+
+        뒤의 참조가 거부되면 앞의 것의 복사본이 남지 않는다 (델타 D03). 저장소가 없으면 받은 주소를 그대로 쓴다.
+        """
+        store = self._artifact_store
+        checked = [
+            check_reference_uri(store, ref.image_uri)
+            if store is not None
+            else CheckedReference(ref.image_uri)
+            for ref in refs
+        ]
+        references = []
+        for ref, item in zip(refs, checked, strict=True):
+            reference_image_id = self._ids.new_id("img")
+            image_uri = (
+                place_reference(
+                    store,
+                    item,
+                    project_id=version.project_id,
+                    reference_image_id=reference_image_id,
+                )
+                if store is not None
+                else item.image_uri
             )
-        return ReferenceImage(
-            reference_image_id=reference_image_id,
-            version_id=version.version_id,
-            image_uri=image_uri,
-            entity_key=ref.entity_key,
-        )
+            references.append(
+                ReferenceImage(
+                    reference_image_id=reference_image_id,
+                    version_id=version.version_id,
+                    image_uri=image_uri,
+                    entity_key=ref.entity_key,
+                )
+            )
+        return references
 
     def _structure_document(
         self, document: Mapping[str, Any], command: CreateProjectCommand

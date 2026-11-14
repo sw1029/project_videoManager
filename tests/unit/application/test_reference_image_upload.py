@@ -195,3 +195,30 @@ def test_local_files_are_written_under_the_project_folder(tmp_path):
     assert (tmp_path / "refs" / draft.project_id / "img_0001.png").read_bytes() == png_bytes()
     stored = container.queries.get_version(draft.version_id).reference_images
     assert stored[0].image_uri == f"local://refs/{draft.project_id}/img_0001.png"
+
+
+@pytest.mark.parametrize(
+    "last",
+    ["mem://clips/x/intro.mp4", "mem://refs/uploads/upl_9999.png"],
+    ids=["rejected-address", "missing-upload"],
+)
+def test_a_rejected_reference_leaves_no_copies_of_the_earlier_ones(container, last):
+    """델타 D03: 참조를 모두 검사한 뒤에 옮긴다. 뒤의 참조가 거부되면 앞의 업로드도 프로젝트 자리로 복사되지 않는다
+    (거부된 요청이 어느 행도 가리키지 않는 파일을 남기지 않게)."""
+    upload = container.upload_reference_image.execute(png_bytes()).image_uri
+    command = CreateProjectCommand(
+        "카페",
+        CAFE_PROMPT,
+        reference_images=(
+            ReferenceImageInput(upload, "cup"),
+            ReferenceImageInput(upload, "cup"),
+            ReferenceImageInput(last, "cup"),
+        ),
+    )
+
+    with pytest.raises(ValidationError):
+        container.create_project.execute(command)
+
+    store = container.artifact_store
+    assert not store.exists("mem://refs/prj_0001/img_0001.png")
+    assert not store.exists("mem://refs/prj_0001/img_0002.png")
