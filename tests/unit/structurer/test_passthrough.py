@@ -102,3 +102,22 @@ def test_unfixable_documents_are_rejected_with_the_reason(mutate, message):
 def test_non_object_document_is_rejected():
     with pytest.raises(ValidationError):
         PassthroughStructurer().structure_document(["scenes"])  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["scenes"][0]["requirements"][0].update(expected_value=3),
+        lambda d: d["scenes"][0]["requirements"][0].update(predicate=3),
+        lambda d: d["scenes"][0].update(entity_keys=5),
+        lambda d: d["entities"][0].update(entity_key=["a"]),
+    ],
+    ids=["value-number", "predicate-number", "entity-keys-number", "entity-key-list"],
+)
+def test_malformed_values_are_reported_as_validation_errors(mutate):
+    """감사 8: 포트 계약대로 형식이 틀린 문서는 어디서 틀려도 ValidationError 다 (보정 단계 포함)."""
+    document = _document()
+    mutate(document)
+
+    with pytest.raises(ValidationError):
+        PassthroughStructurer().structure_document(document)

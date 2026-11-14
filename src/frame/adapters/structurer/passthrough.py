@@ -20,12 +20,13 @@ class PassthroughStructurer(IrDocumentStructurer):
     def structure_document(self, document: Mapping[str, Any]) -> StructuredDocument:
         if not isinstance(document, Mapping):
             raise ValidationError("IR 문서는 JSON 객체여야 합니다")
-        repaired, notes = light_repair_with_notes(dict(document))  # 깊은 복사본을 고친다
+        # 보정과 변환은 형식이 맞는 문서를 전제로 짰다. 어디서 틀려도 포트 계약대로 ValidationError 로 알린다 (감사 8)
         try:
+            repaired, notes = light_repair_with_notes(dict(document))  # 깊은 복사본을 고친다
             ir = IntermediateRepresentation.from_dict(repaired)
         except KeyError as exc:
             raise ValidationError(f"IR 문서에 필수 항목이 없습니다: {exc}") from exc
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, AttributeError) as exc:
             raise ValidationError(f"IR 문서의 형식이 올바르지 않습니다: {exc}") from exc
         ir.validate()
         return StructuredDocument(ir=ir, repair_notes=tuple(notes))
