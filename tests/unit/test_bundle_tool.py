@@ -153,6 +153,18 @@ def test_readme_matches_the_os(tmp_path):
     assert "sh run.sh" in linux and "xattr" not in linux
 
 
+def test_readme_line_endings_do_not_depend_on_the_os_that_builds_the_bundle(tmp_path):
+    # 텍스트 모드로 쓰면 Windows 에서 "\r\n" 이 "\r\r\n" 이 되고 (메모장에 빈 줄이 낀다),
+    # POSIX 번들의 안내문에는 "\r" 이 낀다. 읽을 때 줄바꿈을 풀어 주는 read_text 로는 보이지 않는다
+    bundle.write_readme(tmp_path, WINDOWS)
+    windows = (tmp_path / "README.txt").read_bytes()
+    assert b"\r\r" not in windows
+    assert windows.count(b"\r\n") == windows.count(b"\n") > 10
+    for target in (MAC_ARM, LINUX):
+        bundle.write_readme(tmp_path, target)
+        assert b"\r" not in (tmp_path / "README.txt").read_bytes()
+
+
 def test_metadata_marks_the_folder_as_a_bundle(tmp_path):
     bundle.write_metadata(tmp_path, MAC_ARM, REPO)
     assert demo.is_bundle(tmp_path)
@@ -209,6 +221,17 @@ def test_windows_archive_is_a_zip_under_one_top_folder_with_checksum(tmp_path):
     assert all(n.startswith("frame-demo-windows-x64/") for n in names)
     digest, name = (archive.parent / f"{archive.name}.sha256").read_text(encoding="utf-8").split()
     assert name == archive.name and digest == bundle.sha256_of(archive)
+
+
+@pytest.mark.parametrize("target", [WINDOWS, LINUX], ids=["zip", "tar.gz"])
+def test_checksum_file_is_one_line_that_sha256sum_reads_on_any_os(tmp_path, target):
+    # "해시  이름\n" 한 줄. 줄 끝에 "\r" 이 있으면 `sha256sum -c` 가 "이름\r" 이라는 파일을 찾다가 실패한다
+    stage = tmp_path / f"frame-demo-{target.label}"
+    stage.mkdir()
+    (stage / "README.txt").write_bytes(b"x")
+    archive = bundle.make_archive(stage, tmp_path / "out", target)
+    written = (archive.parent / f"{archive.name}.sha256").read_bytes()
+    assert written == f"{bundle.sha256_of(archive)}  {archive.name}\n".encode("ascii")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="실행 권한·심볼릭 링크는 POSIX 에서만 확인")

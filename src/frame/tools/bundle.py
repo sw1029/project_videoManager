@@ -404,10 +404,9 @@ def write_readme(root: Path, target: Target) -> None:
         f"자세한 안내: {DOCS_URL}",
         "",
     ]
-    text = "\n".join(lines)
-    (root / "README.txt").write_text(
-        text.replace("\n", "\r\n") if target.windows else text, encoding="utf-8"
-    )
+    # 바이트로 쓴다: 텍스트 모드는 빌드하는 OS 의 줄바꿈으로 한 번 더 바꾼다 (Windows 에서 "\r\r\n")
+    newline = "\r\n" if target.windows else "\n"
+    (root / "README.txt").write_bytes(newline.join(lines).encode("utf-8"))
 
 
 def _frame_version(repo: Path) -> str:
@@ -473,8 +472,9 @@ def make_archive(stage: Path, out_dir: Path, target: Target) -> Path:
 
         with tarfile.open(archive, "w:gz", compresslevel=6) as tar:
             tar.add(stage, arcname=top, filter=normalize)
-    (out_dir / f"{archive.name}.sha256").write_text(
-        f"{sha256_of(archive)}  {archive.name}\n", "utf-8"
+    # `sha256sum -c` 가 읽는 한 줄. 줄 끝이 "\r\n" 이면 "이름\r" 이라는 파일을 찾으므로 바이트로 쓴다
+    (out_dir / f"{archive.name}.sha256").write_bytes(
+        f"{sha256_of(archive)}  {archive.name}\n".encode()
     )
     return archive
 
