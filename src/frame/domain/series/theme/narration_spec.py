@@ -17,9 +17,43 @@ class NarrationBeat:
     slot_key: str
     purpose: str = ""
     example: str = ""
+    # 원본의 대본에서 잰 것 (ADR-0028). 대본 없이 뽑은 테마에는 없다
+    chars: int | None = None  # 말한 글자 수 (공백·문장부호 제외)
+    spoken_ms: int | None = None  # 말한 시간
+    lead_in_ms: int | None = None  # 자리가 시작하고 말이 나오기까지
+    line_ids: tuple[str, ...] = ()  # 근거가 된 대본의 줄
 
-    def to_dict(self) -> dict[str, str]:
-        return {"slot_key": self.slot_key, "purpose": self.purpose, "example": self.example}
+    def to_dict(self) -> dict[str, Any]:
+        document: dict[str, Any] = {
+            "slot_key": self.slot_key,
+            "purpose": self.purpose,
+            "example": self.example,
+        }
+        # 잰 값이 있을 때만 적는다 (대본 없이 뽑은 옛 테마의 문서·지문이 바뀌지 않게)
+        if self.chars is not None:
+            document["chars"] = self.chars
+        if self.spoken_ms is not None:
+            document["spoken_ms"] = self.spoken_ms
+        if self.lead_in_ms is not None:
+            document["lead_in_ms"] = self.lead_in_ms
+        if self.line_ids:
+            document["line_ids"] = list(self.line_ids)
+        return document
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> NarrationBeat:
+        def number(key: str) -> int | None:
+            return int(data[key]) if data.get(key) is not None else None
+
+        return cls(
+            str(data["slot_key"]),
+            str(data.get("purpose", "")),
+            str(data.get("example", "")),
+            chars=number("chars"),
+            spoken_ms=number("spoken_ms"),
+            lead_in_ms=number("lead_in_ms"),
+            line_ids=tuple(str(i) for i in data.get("line_ids", ())),
+        )
 
 
 @dataclass(frozen=True)
@@ -52,12 +86,7 @@ class NarrationSpec:
             language=data.get("language"),
             tone=str(data.get("tone", "")),
             pace_cps=float(pace) if pace is not None else None,
-            beats=tuple(
-                NarrationBeat(
-                    str(b["slot_key"]), str(b.get("purpose", "")), str(b.get("example", ""))
-                )
-                for b in data.get("beats", ())
-            ),
+            beats=tuple(NarrationBeat.from_dict(b) for b in data.get("beats", ())),
         )
 
 

@@ -399,6 +399,7 @@ def build_theme_services(
             clock,
             platforms=platforms,
             min_slot_ms=ts.min_slot_ms,
+            max_slot_ms=ts.max_slot_ms,
         ),
         create_episode=CreateEpisode(themes, episodes, planner, uow_factory, ids, clock),
         adopt_anchors=AdoptAnchors(themes, episodes, uow_factory),

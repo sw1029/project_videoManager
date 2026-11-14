@@ -87,7 +87,9 @@ class VlmThemeExtractor(ThemeExtractor):
 
     def extract(self, request: ThemeExtractionRequest) -> ThemeExtraction:
         analysis = request.analysis
-        spans = slot_spans_from_shots(analysis.shots, min_slot_ms=request.min_slot_ms)
+        spans = request.slot_spans or slot_spans_from_shots(
+            analysis.shots, min_slot_ms=request.min_slot_ms
+        )
         frames = self._frames(request.video, spans)
         system = build_system_prompt()
         user = self._user_prompt(request, spans, frames)

@@ -28,6 +28,9 @@ class ThemeExtractionRequest:
     analysis: VideoAnalysis
     title: str = ""  # 사용자가 준 제목. 비어 있으면 추출기가 짓는다
     min_slot_ms: int = DEFAULT_MIN_SLOT_MS  # 다시 만들 수 있는 장면 자리의 길이 하한
+    # 자리의 구간 (시작, 끝). 주면 추출기는 그대로 쓴다 (말 멈춤을 보고 다듬은 것일 수 있다).
+    # 없으면 추출기가 컷에서 묶는다 (slot_spans_from_shots)
+    slot_spans: tuple[tuple[int, int], ...] | None = None
 
 
 @dataclass(frozen=True)

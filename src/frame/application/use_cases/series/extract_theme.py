@@ -43,9 +43,16 @@ from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.script import SceneSpan, SpokenScript, build_script, classify_kinds
+from frame.domain.series.script_evidence import apply_script, link_script
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms
 from frame.domain.series.source_analysis import VideoAnalysis
-from frame.domain.series.theme import DEFAULT_MIN_SLOT_MS, SourceOrigin, SourceVideo, Theme
+from frame.domain.series.theme import (
+    DEFAULT_MIN_SLOT_MS,
+    SourceOrigin,
+    SourceVideo,
+    Theme,
+    slot_spans_from_shots,
+)
 from frame.domain.speech import Transcript
 
 log = logging.getLogger(__name__)
@@ -98,6 +105,7 @@ class ExtractTheme:
         *,
         platforms: Sequence[ShortformPlatform] = tuple(ShortformPlatform),
         min_slot_ms: int = DEFAULT_MIN_SLOT_MS,
+        max_slot_ms: int | None = None,
     ) -> None:
         self._themes = themes
         self._store = store
@@ -110,6 +118,7 @@ class ExtractTheme:
         self._clock = clock
         self._platforms = tuple(platforms)
         self._min_slot_ms = min_slot_ms
+        self._max_slot_ms = max_slot_ms
 
     def execute(self, command: ExtractThemeCommand) -> ExtractThemeResult:
         if not command.video:
@@ -158,10 +167,20 @@ class ExtractTheme:
             analysis=analysis,
             title=command.title.strip(),
             min_slot_ms=self._min_slot_ms,
+            slot_spans=self._slot_spans(analysis),
         )
         extraction = self._extractor.extract(request)
         _check_contract(extraction.theme, extraction.source_ir, request)
         theme = extraction.theme
+        # 대본을 근거로 쓴다: 화면에서 읽은 것과 견주고, 내레이션 규칙을 잰다 (모델을 부르지 않는다)
+        script = _script(analysis.transcript, profile, theme, extraction.source_ir)
+        evidence = link_script(theme, script, extraction.screen_texts)
+        if not script.is_empty:
+            theme = apply_script(theme, script, evidence)
+        if evidence.discrepancies:
+            notes.append(
+                f"화면에서 읽은 것과 말이 어긋난 곳이 {len(evidence.discrepancies)}건 있습니다"
+            )
         if command.keep_source:  # 사본은 추출이 끝난 뒤에 둔다 (실패하면 주인 없는 사본이 남는다)
             stored_uri = self._store.put(
                 f"themes/{theme_id}/source.mp4", command.video, "video/mp4"
@@ -174,7 +193,8 @@ class ExtractTheme:
             analysis=analysis,
             screen_texts=tuple(extraction.screen_texts),
             shortform=verdict.to_dict(),
-            script=_script(analysis.transcript, profile, theme, extraction.source_ir),
+            script=script,
+            evidence=evidence,
             notes=(*notes, *extraction.notes),
             detail={**extraction.detail, **self._settings_of(command)},
         )
@@ -187,6 +207,7 @@ class ExtractTheme:
             "extractor": self._extractor.signature,
             "language": command.language,
             "min_slot_ms": self._min_slot_ms,
+            "max_slot_ms": self._max_slot_ms,
             "speech": self._recognizer is not None,
         }
 
@@ -202,6 +223,16 @@ class ExtractTheme:
             if all(record.detail.get(key) == value for key, value in wanted.items()):
                 return record
         return None
+
+    def _slot_spans(self, analysis: VideoAnalysis) -> tuple[tuple[int, int], ...]:
+        """자리의 구간: 컷을 묶되 문장 중간을 자르지 않고, 상한이 있으면 긴 자리를 말 멈춤에서 나눈다."""
+        spoken = build_script(analysis.transcript).lines
+        return slot_spans_from_shots(
+            analysis.shots,
+            min_slot_ms=self._min_slot_ms,
+            speech=[(line.start_ms, line.end_ms) for line in spoken],
+            max_slot_ms=self._max_slot_ms,
+        )
 
     def _profile(
         self, command: ExtractThemeCommand, has_audio: bool, notes: list[str]

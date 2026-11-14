@@ -139,6 +139,8 @@ class TextRule:
     end_ms: int | None = None  # 없으면 자리의 끝까지
     style: TextStyle = field(default_factory=TextStyle)
     example: str = ""  # 원본에서 본 문구
+    # 그 자리에서 하는 말을 받아 적는 자막인가 (ADR-0028). 그러면 편의 자막은 그 자리의 대본 줄을 따른다
+    follows_speech: bool = False
 
     @property
     def variables(self) -> tuple[str, ...]:
@@ -155,6 +157,8 @@ class TextRule:
             "end_ms": self.end_ms,
             "style": self.style.to_dict(),
             "example": self.example,
+            # 참일 때만 적는다 (옛 테마의 문서·지문이 바뀌지 않게)
+            **({"follows_speech": True} if self.follows_speech else {}),
         }
 
     @classmethod
@@ -169,6 +173,7 @@ class TextRule:
             end_ms=int(data["end_ms"]) if data.get("end_ms") is not None else None,
             style=TextStyle.from_dict(data.get("style")),
             example=str(data.get("example", "")),
+            follows_speech=bool(data.get("follows_speech", False)),
         )
 
 

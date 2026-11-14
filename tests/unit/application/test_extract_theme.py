@@ -87,6 +87,69 @@ def test_theme_record_keeps_the_script_of_the_source():
     assert len(series.recognizer.calls) == 1
 
 
+def test_the_script_becomes_evidence_for_the_theme():
+    """대본에서 잰 내레이션 규칙이 테마에 들어가고, 화면과 말을 견준 근거가 기록에 남는다."""
+    series = series_of(series_container())
+
+    record = series.extract_theme.execute(_command()).record
+
+    beat = record.theme.narration.beat("slot_3")
+    assert (beat.example, beat.chars, beat.spoken_ms, beat.lead_in_ms, beat.line_ids) == (
+        "가격은 4,500원.",
+        8,
+        1800,
+        600,
+        ("S3",),
+    )
+    assert record.evidence is not None and record.evidence.discrepancies == ()
+    # 말에만 나온 수량은 '빠뜨린 변수일 수 있다' 고 남는다 (가짜 추출기는 변수를 뽑지 않는다)
+    assert [(u.line_id, u.text) for u in record.evidence.unlinked] == [("S3", "4500원")]
+    assert series.themes.get(record.theme.theme_id).evidence == record.evidence
+
+
+def test_slot_boundaries_do_not_cut_a_sentence_when_the_cuts_leave_a_choice():
+    said = Transcript(
+        "ko",
+        (
+            SpeechSegment(300, 4800, "첫 문장은 컷을 넘어 이어집니다."),
+            SpeechSegment(5200, 8800, "둘째 문장."),
+        ),
+    )
+    cuts = {
+        "duration_ms": 9000,
+        "cuts_ms": (3500, 5000),
+    }  # 가운데 1.5초 컷은 혼자 자리가 될 수 없다
+    series = series_of(series_container())
+
+    with_speech = series.extract_theme.execute(_command(fake_video(**cuts, transcript=said)))
+    without = series.extract_theme.execute(_command(fake_video(**cuts)))
+
+    assert [s.duration_ms for s in with_speech.record.theme.format.slots] == [5000, 4000]
+    assert [s.duration_ms for s in without.record.theme.format.slots] == [3500, 5500]
+    assert [line.scene_key for line in with_speech.record.script.lines] == ["slot_1", "slot_2"]
+
+
+def test_a_long_single_shot_is_split_at_pauses_when_a_maximum_is_set():
+    said = Transcript(
+        "ko",
+        (
+            SpeechSegment(500, 7000, "첫 문단입니다."),
+            SpeechSegment(7600, 15200, "둘째 문단입니다."),
+            SpeechSegment(16000, 23000, "셋째 문단입니다."),
+        ),
+    )
+    video = fake_video(duration_ms=24000, cuts_ms=(), transcript=said)
+    limited = ThemeSettings(text_reader="fake", max_slot_ms=10000)
+
+    whole = series_of(series_container()).extract_theme.execute(_command(video))
+    split = series_of(series_container(theme_settings=limited)).extract_theme.execute(
+        _command(video)
+    )
+
+    assert [s.duration_ms for s in whole.record.theme.format.slots] == [24000]
+    assert [s.duration_ms for s in split.record.theme.format.slots] == [7300, 8300, 8400]
+
+
 def test_source_without_speech_has_an_empty_script():
     series = series_of(series_container())
 

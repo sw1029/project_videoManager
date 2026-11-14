@@ -21,6 +21,7 @@
 | FRAME_THEME_STORE | artifact · memory | 테마·편 문서를 두는 곳 |
 | FRAME_SHORTFORM_PLATFORMS | YOUTUBE_SHORTS,INSTAGRAM_REELS | '기준 내 숏폼' 을 판정할 플랫폼 |
 | FRAME_THEME_MIN_SLOT_MS | 3000 | 다시 만들 수 있는 장면 자리의 길이 하한 |
+| FRAME_THEME_MAX_SLOT_MS | (없음) | 자리 길이의 상한. 주면 더 긴 자리를 말 멈춤에서 나눈다 |
 | FRAME_SHOT_THRESHOLD | 0.3 | ffmpeg 컷 찾기의 scene 점수 하한 |
 """
 
@@ -60,6 +61,8 @@ class ThemeSettings:
     store: str = "artifact"
     platforms: tuple[str, ...] = tuple(str(p) for p in ShortformPlatform)
     min_slot_ms: int = DEFAULT_MIN_SLOT_MS
+    # 자리 길이의 상한. 주면 그보다 긴 자리를 말 멈춤에서 나눈다 (생성 모델이 만들 수 있는 길이에 맞출 때)
+    max_slot_ms: int | None = None
     shot_threshold: float = 0.3
 
     @classmethod
@@ -101,5 +104,6 @@ class ThemeSettings:
             store=text("THEME_STORE", base.store),
             platforms=platforms or base.platforms,
             min_slot_ms=number("THEME_MIN_SLOT_MS", base.min_slot_ms, int),
+            max_slot_ms=number("THEME_MAX_SLOT_MS", 0, int) or None,
             shot_threshold=number("SHOT_THRESHOLD", base.shot_threshold, float),
         )

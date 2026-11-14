@@ -15,6 +15,7 @@ from typing import Any
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.script import SpokenScript
 from frame.domain.series.record import Episode
+from frame.domain.series.script_evidence import ScriptEvidence
 from frame.domain.series.source_analysis import ScreenText, VideoAnalysis
 from frame.domain.series.theme import Theme
 
@@ -30,6 +31,7 @@ class ThemeRecord:
     screen_texts: tuple[ScreenText, ...] = ()
     shortform: Mapping[str, Any] = field(default_factory=dict)  # ShortformVerdict.to_dict()
     script: SpokenScript | None = None  # 원본의 소리에서 뽑은 대본 (ADR-0028). 옛 기록에는 없다
+    evidence: ScriptEvidence | None = None  # 화면에서 읽은 것과 대본을 견준 근거·어긋남
     notes: tuple[str, ...] = ()
     detail: Mapping[str, Any] = field(default_factory=dict)  # 추출 방법·모델·토큰 수
 
@@ -41,6 +43,7 @@ class ThemeRecord:
             "analysis": self.analysis.to_dict() if self.analysis is not None else None,
             "screen_texts": [t.to_dict() for t in self.screen_texts],
             "script": self.script.to_dict() if self.script is not None else None,
+            "evidence": self.evidence.to_dict() if self.evidence is not None else None,
             "shortform": dict(self.shortform),
             "notes": list(self.notes),
             "detail": dict(self.detail),
@@ -50,6 +53,7 @@ class ThemeRecord:
     def from_dict(cls, data: Mapping[str, Any]) -> ThemeRecord:
         analysis = data.get("analysis")
         script = data.get("script")
+        evidence = data.get("evidence")
         return cls(
             theme=Theme.from_dict(data["theme"]),
             source_ir=IntermediateRepresentation.from_dict(data["source_ir"]),
@@ -57,6 +61,7 @@ class ThemeRecord:
             analysis=VideoAnalysis.from_dict(analysis) if analysis is not None else None,
             screen_texts=tuple(ScreenText.from_dict(t) for t in data.get("screen_texts", ())),
             script=SpokenScript.from_dict(script) if script is not None else None,
+            evidence=ScriptEvidence.from_dict(evidence) if evidence is not None else None,
             shortform=dict(data.get("shortform") or {}),
             notes=tuple(str(n) for n in data.get("notes", ())),
             detail=dict(data.get("detail") or {}),

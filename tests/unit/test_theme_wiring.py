@@ -66,6 +66,7 @@ def test_settings_are_read_from_the_environment():
         "FRAME_THEME_STORE": "memory",
         "FRAME_SHORTFORM_PLATFORMS": "youtube_shorts",
         "FRAME_THEME_MIN_SLOT_MS": "2000",
+        "FRAME_THEME_MAX_SLOT_MS": "10000",
         "FRAME_SHOT_THRESHOLD": "0.25",
     }
     settings = ThemeSettings.from_env(env)
@@ -86,6 +87,7 @@ def test_settings_are_read_from_the_environment():
         store="memory",
         platforms=("YOUTUBE_SHORTS",),
         min_slot_ms=2000,
+        max_slot_ms=10000,
         shot_threshold=0.25,
     )
     # .env 에 빈 값으로 남겨 둔 항목은 기본값을 쓴다

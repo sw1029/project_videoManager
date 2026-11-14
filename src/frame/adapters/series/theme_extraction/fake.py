@@ -45,7 +45,9 @@ class FakeThemeExtractor(ThemeExtractor):
         if self._error is not None:
             raise self._error
         analysis = request.analysis
-        spans = slot_spans_from_shots(analysis.shots, min_slot_ms=request.min_slot_ms)
+        spans = request.slot_spans or slot_spans_from_shots(
+            analysis.shots, min_slot_ms=request.min_slot_ms
+        )
         keys = [f"slot_{i}" for i in range(1, len(spans) + 1)]
         slots = tuple(
             SceneSlot(key, end - start, f"장면 {i}", (self.ENTITY_KEY,))

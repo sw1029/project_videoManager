@@ -232,6 +232,55 @@ def test_slot_boundaries_snap_to_the_grid_and_stay_contiguous():
         slot_spans_from_shots(())
 
 
+def test_a_short_shot_joins_the_side_that_does_not_cut_a_sentence():
+    """짧은 컷을 어느 쪽에 붙일지는 말이 정한다. 자리의 수는 같고, 문장 중간에 놓이는 경계가 적은 쪽을 고른다."""
+    shots = shots_from_cuts([3500, 5000], 9000)  # 가운데 1.5초 컷은 혼자 자리가 될 수 없다
+    first_sentence_runs_over_the_cut = ((300, 4800), (5200, 8800))
+    second_sentence_starts_early = ((300, 3300), (3600, 8800))
+
+    assert slot_spans_from_shots(shots) == ((0, 3500), (3500, 9000))  # 말을 모르면 뒤에 붙인다
+    assert slot_spans_from_shots(shots, speech=first_sentence_runs_over_the_cut) == (
+        (0, 5000),
+        (5000, 9000),
+    )
+    assert slot_spans_from_shots(shots, speech=second_sentence_starts_early) == (
+        (0, 3500),
+        (3500, 9000),
+    )
+
+
+def test_speech_never_removes_a_slot_the_cuts_allow():
+    """내레이션은 컷 위로 이어지는 것이 보통이다. 말 중간의 컷이라고 자리를 줄이지 않는다."""
+    shots = shots_from_cuts([4000, 8000], 12000)
+
+    assert slot_spans_from_shots(shots, speech=((500, 11500),)) == (
+        (0, 4000),
+        (4000, 8000),
+        (8000, 12000),
+    )
+
+
+def test_a_long_single_shot_is_split_at_pauses_when_a_maximum_is_given():
+    """컷이 없는 긴 영상(말하는 사람 한 컷): 다시 만들 수 있는 길이가 되게 말 멈춤에서 나눈다."""
+    shots = shots_from_cuts([], 24000)
+    speech = ((500, 7000), (7600, 15200), (16000, 23000))
+
+    assert slot_spans_from_shots(shots, speech=speech) == ((0, 24000),)  # 상한이 없으면 그대로
+    assert slot_spans_from_shots(shots, speech=speech, max_slot_ms=10000) == (
+        (0, 7300),
+        (7300, 15600),
+        (15600, 24000),
+    )
+    # 말 멈춤이 없으면 고르게 나눈다
+    assert slot_spans_from_shots(shots, max_slot_ms=10000) == (
+        (0, 8000),
+        (8000, 16000),
+        (16000, 24000),
+    )
+    # 나눈 조각이 하한보다 짧아지면 나누지 않는다
+    assert slot_spans_from_shots(shots_from_cuts([], 5000), max_slot_ms=4000) == ((0, 5000),)
+
+
 # ---- 직렬화 ----
 def test_theme_round_trips_as_json(theme):
     anchored = theme.with_reference(
