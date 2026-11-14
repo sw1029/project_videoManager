@@ -1,0 +1,303 @@
+"""OpenAI 호환 음성 인식 어댑터: 요청 형식·응답 해석·오류 처리 (가짜 전송, 네트워크·과금 없음)."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from frame.adapters.http_transport import HttpResponse, HttpTransport, TransportError
+from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.speech.openai import OpenAISpeechRecognizer
+from frame.application.ports.speech import (
+    SpeechAudio,
+    SpeechRecognitionError,
+    SpeechServiceError,
+)
+from tests.support.speech import dump_request_fields
+
+KEY = "sk-test-SECRET-1234567890"
+AUDIO = SpeechAudio(b"RIFF....WAVEfmt ", "audio/wav", 8000)
+
+VERBOSE = {
+    "task": "transcribe",
+    "language": "korean",
+    "duration": 7.9,
+    "text": "안녕하세요 오늘의 메뉴예요. 말차 라떼입니다.",
+    "segments": [
+        {"id": 0, "start": 0.3, "end": 2.4, "text": " 안녕하세요 오늘의 메뉴예요."},
+        {"id": 1, "start": 3.0, "end": 4.3, "text": " 말차 라떼입니다."},
+    ],
+    "words": [
+        {"word": "안녕하세요", "start": 0.3, "end": 1.0},
+        {"word": "오늘의", "start": 1.0, "end": 1.6},
+        {"word": "메뉴예요", "start": 1.6, "end": 2.4},
+        {"word": "말차", "start": 3.0, "end": 3.5},
+        {"word": "라떼입니다", "start": 3.5, "end": 4.3},
+    ],
+    "usage": {"type": "duration", "seconds": 8},
+}
+
+
+class FakeTransport(HttpTransport):
+    def __init__(self, *responses) -> None:
+        self.responses = list(responses)
+        self.requests: list[dict] = []
+
+    def request(self, method, url, *, headers=None, body=None, timeout=60.0):
+        self.requests.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": dict(headers or {}),
+                "body": body,
+                "timeout": timeout,
+            }
+        )
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def _json(document, status=200) -> HttpResponse:
+    return HttpResponse(status, json.dumps(document, ensure_ascii=False).encode("utf-8"))
+
+
+# 모델·주소·시간 제한은 설정이 정해 넘긴다. 테스트는 그 자리에 시험용 값을 준다
+SETUP = {"model": "whisper-1", "base_url": "https://speech.test/v1", "timeout_s": 30.0}
+
+
+def _recognizer(*responses, **options) -> tuple[OpenAISpeechRecognizer, FakeTransport]:
+    transport = FakeTransport(*responses)
+    recognizer = OpenAISpeechRecognizer(
+        key_source=LLMKeyStore(explicit=KEY, env={}), transport=transport, **{**SETUP, **options}
+    )
+    return recognizer, transport
+
+
+def test_request_asks_for_word_and_segment_timestamps():
+    recognizer, transport = _recognizer(_json(VERBOSE))
+    recognizer.transcribe(AUDIO, language="ko", hint="말차 라떼, 5,000원")
+
+    sent = transport.requests[0]
+    assert (sent["method"], sent["url"]) == (
+        "POST",
+        f"{SETUP['base_url']}/audio/transcriptions",
+    )
+    assert sent["headers"]["Authorization"] == f"Bearer {KEY}"
+    assert sent["headers"]["Content-Type"].startswith("multipart/form-data; boundary=")
+    assert dump_request_fields(sent["body"]) == {
+        "model": ["whisper-1"],
+        "response_format": ["verbose_json"],
+        "timestamp_granularities[]": ["word", "segment"],
+        "language": ["ko"],
+        "prompt": ["말차 라떼, 5,000원"],
+    }
+    assert b'filename="audio.wav"' in sent["body"] and AUDIO.data in sent["body"]
+
+
+def test_verbose_response_becomes_segments_with_words():
+    recognizer, _ = _recognizer(_json(VERBOSE))
+    transcript = recognizer.transcribe(AUDIO)
+
+    assert transcript.language == "ko"
+    assert [(s.start_ms, s.end_ms, s.text) for s in transcript.segments] == [
+        (300, 2400, "안녕하세요 오늘의 메뉴예요."),
+        (3000, 4300, "말차 라떼입니다."),
+    ]
+    assert [w.text for w in transcript.segments[0].words] == ["안녕하세요", "오늘의", "메뉴예요"]
+    assert [(w.start_ms, w.end_ms) for w in transcript.segments[1].words] == [
+        (3000, 3500),
+        (3500, 4300),
+    ]
+    transcript.validate(AUDIO.duration_ms)
+    assert recognizer.last_usage == {"type": "duration", "seconds": 8}
+
+
+def test_other_base_url_and_model_use_the_same_format():
+    recognizer, transport = _recognizer(
+        _json({"text": "hello"}),
+        model="openai/whisper-large-v3",
+        base_url="https://openrouter.ai/api/v1/",
+        word_timestamps=False,
+    )
+    transcript = recognizer.transcribe(AUDIO)
+
+    assert transport.requests[0]["url"] == "https://openrouter.ai/api/v1/audio/transcriptions"
+    assert dump_request_fields(transport.requests[0]["body"]) == {
+        "model": ["openai/whisper-large-v3"]
+    }
+    # 시각을 주지 않는 응답: 음성 전체가 한 구간이다
+    assert [(s.start_ms, s.end_ms, s.text, s.words) for s in transcript.segments] == [
+        (0, 8000, "hello", ())
+    ]
+
+
+def test_segment_confidence_comes_from_the_recognizer():
+    """verbose_json 의 avg_logprob·no_speech_prob 을 0..1 의 값으로 옮긴다. 없으면 None 이다."""
+    document = {
+        "language": "korean",
+        "segments": [
+            {
+                "start": 0.3,
+                "end": 2.4,
+                "text": "안녕하세요.",
+                "avg_logprob": -0.105,
+                "no_speech_prob": 0.02,
+            },
+            {
+                "start": 5.0,
+                "end": 7.0,
+                "text": "감사합니다.",
+                "avg_logprob": -1.6,
+                "no_speech_prob": 0.9,
+            },
+            {"start": 7.5, "end": 8.0, "text": "값이 없는 구간."},
+        ],
+    }
+    recognizer, _ = _recognizer(_json(document))
+
+    first, second, third = recognizer.transcribe(AUDIO).segments
+
+    assert first.confidence == pytest.approx(0.9, abs=0.001) and first.no_speech == 0.02
+    assert second.confidence == pytest.approx(0.2019, abs=0.001) and second.no_speech == 0.9
+    assert third.confidence is None and third.no_speech is None
+
+
+def test_no_speech_is_an_empty_transcript():
+    recognizer, _ = _recognizer(
+        _json({"text": "", "segments": [], "words": []}), _json({"text": "  "})
+    )
+
+    assert recognizer.transcribe(AUDIO).is_empty
+    assert recognizer.transcribe(AUDIO).segments == ()
+
+
+def test_words_without_segments_make_one_segment():
+    document = {"text": "말차 라떼입니다", "words": VERBOSE["words"][3:]}
+    recognizer, _ = _recognizer(_json(document))
+    transcript = recognizer.transcribe(AUDIO)
+
+    assert [(s.start_ms, s.end_ms) for s in transcript.segments] == [(3000, 4300)]
+    assert len(transcript.segments[0].words) == 2
+
+
+def test_overlapping_and_overlong_segments_are_put_in_order():
+    document = {
+        "text": "a b c",
+        "segments": [
+            {"start": 3.0, "end": 5.0, "text": "b"},
+            {"start": 0.0, "end": 3.4, "text": "a"},  # 뒤 구간과 겹친다
+            {"start": 7.5, "end": 9.5, "text": "c"},  # 음성 길이를 넘는다
+            {"start": 6.0, "end": 6.0, "text": "빈 구간"},
+            {"start": "x", "end": 1.0, "text": "깨진 구간"},
+        ],
+    }
+    recognizer, _ = _recognizer(_json(document))
+    transcript = recognizer.transcribe(AUDIO)
+
+    assert [(s.start_ms, s.end_ms, s.text) for s in transcript.segments] == [
+        (0, 3400, "a"),
+        (3400, 5000, "b"),
+        (7500, 8000, "c"),
+    ]
+    transcript.validate(AUDIO.duration_ms)
+
+
+def test_words_are_dropped_when_they_do_not_line_up_with_the_segments():
+    """낱말이 든 구간과 들지 않은 구간이 섞이면 낱말 시각을 믿지 않는다 (구간만 쓴다)."""
+    document = dict(VERBOSE, words=VERBOSE["words"][:3])
+    recognizer, _ = _recognizer(_json(document))
+
+    assert all(s.words == () for s in recognizer.transcribe(AUDIO).segments)
+
+
+SOUND = SpeechRecognitionError  # 소리(요청 내용)의 문제: 부른 쪽은 내레이션 없이 계속할 수 있다
+SERVICE = SpeechServiceError  # 설정·환경의 문제: 부른 쪽은 다음 유료 단계로 가지 않는다
+
+
+@pytest.mark.parametrize(
+    ("response", "message", "kind"),
+    [
+        (_json({"error": {"message": "Incorrect API key provided"}}, 401), "인증 실패", SERVICE),
+        (_json({"error": {"message": "Forbidden"}}, 403), "인증 실패", SERVICE),
+        (_json({"error": {"message": "Rate limit"}}, 429), "한도 초과", SERVICE),
+        (_json({"error": {"message": "audio file is too large"}}, 413), "too large", SOUND),
+        (_json({"error": {"message": "Invalid file format"}}, 400), "Invalid file", SOUND),
+        (_json({"error": {"message": "Unsupported media type"}}, 415), "Unsupported", SOUND),
+        (_json({"error": {"message": "Unprocessable"}}, 422), "Unprocessable", SOUND),
+        # 잔액 없음 · 주소나 모델 이름이 틀림 · 시간 초과는 소리의 문제가 아니다 (감사 BTS-29 의 남은 것)
+        (_json({"error": {"message": "Insufficient balance"}}, 402), "402", SERVICE),
+        (_json({"error": {"message": "The model does not exist"}}, 404), "404", SERVICE),
+        (_json({"error": {"message": "Request timeout"}}, 408), "408", SERVICE),
+        (HttpResponse(502, b"<html>bad gateway</html>"), "502", SERVICE),
+        (HttpResponse(200, b"not json"), "해석하지 못했습니다", SERVICE),
+        (_json(["not", "an", "object"]), "JSON 객체가 아닙니다", SERVICE),
+        (TransportError("URLError: timed out"), "닿지 못했습니다", SERVICE),
+    ],
+)
+def test_failures_are_told_apart_and_never_carry_the_key(response, message, kind):
+    """실패의 종류를 경우마다 본다: 어댑터의 분류가 바뀌면 이 테스트가 잡는다."""
+    recognizer, _ = _recognizer(response)
+
+    with pytest.raises(SpeechRecognitionError, match=message) as caught:
+        recognizer.transcribe(AUDIO)
+    assert type(caught.value) is kind
+    assert KEY not in str(caught.value)
+
+
+def test_missing_key_and_empty_audio_fail_before_any_request():
+    transport = FakeTransport()
+    recognizer = OpenAISpeechRecognizer(
+        key_source=LLMKeyStore(env={}), transport=transport, **SETUP
+    )
+
+    with pytest.raises(SpeechRecognitionError):
+        recognizer.transcribe(AUDIO)
+    keyed, sent = _recognizer()
+    with pytest.raises(SpeechRecognitionError, match="비어"):
+        keyed.transcribe(SpeechAudio(b""))
+    assert transport.requests == [] and sent.requests == []
+
+
+def test_numbers_that_are_not_finite_do_not_escape_as_other_errors():
+    """시각이 유한한 수가 아니면 그 낱말·구간을 건너뛰고, 길이가 수가 아니면 인식 오류다 (감사 BTS-15)."""
+    document = {
+        "text": "안녕하세요",
+        "words": [
+            {"word": "안녕", "start": 1e999, "end": 2.0},
+            {"word": "하세요", "start": 0.4, "end": 0.9},
+        ],
+        "segments": [{"start": float("nan"), "end": 1.0, "text": "안녕하세요"}],
+    }
+    recognizer, _ = _recognizer(HttpResponse(200, json.dumps(document).encode("utf-8")))
+    transcript = recognizer.transcribe(AUDIO)
+    assert [(s.start_ms, s.end_ms) for s in transcript.segments] == [(400, 900)]
+
+    recognizer, _ = _recognizer(_json({"text": "안녕하세요", "duration": "abc"}))
+    with pytest.raises(SpeechRecognitionError):
+        recognizer.transcribe(SpeechAudio(AUDIO.data, "audio/wav", None))
+
+
+def test_numbers_too_large_to_be_times_do_not_escape_either():
+    """유한하지만 밀리초로 바꾸면 넘치는 수(1e308), 실수가 되지 못하는 정수(10**400)도 건너뛴다."""
+    document = {
+        "text": "안녕하세요",
+        "words": [
+            {"word": "안녕", "start": 1e308, "end": 2.0},
+            {"word": "하세요", "start": 0.4, "end": 0.9},
+        ],
+        "segments": [
+            {"start": 10**400, "end": 1.0, "text": "안녕하세요"},
+            {"start": 0.4, "end": 0.9, "text": "하세요", "no_speech_prob": 10**400},
+        ],
+    }
+    recognizer, _ = _recognizer(HttpResponse(200, json.dumps(document).encode("utf-8")))
+
+    transcript = recognizer.transcribe(AUDIO)
+
+    assert [(s.start_ms, s.end_ms, s.no_speech) for s in transcript.segments] == [(400, 900, None)]
+    recognizer, _ = _recognizer(_json({"text": "안녕하세요", "duration": 1e308}))
+    with pytest.raises(SpeechRecognitionError):
+        recognizer.transcribe(SpeechAudio(AUDIO.data, "audio/wav", None))

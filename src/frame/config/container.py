@@ -68,6 +68,7 @@ from frame.domain.services.propagation import ChangePropagationPolicy, DefaultPr
 
 from .registry import AdapterRegistry, BuildContext, default_registry
 from .settings import Settings
+from .theme_wiring import ThemeServices, build_theme_services
 
 log = logging.getLogger(__name__)
 
@@ -103,6 +104,8 @@ class Container:
     llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
     # 정체성 기준 이미지 추출기 (ADR-0015). FRAME_IDENTITY=off 면 None
     identity_extractor: IdentityReferenceExtractor | None = None
+    # 테마 추출·시리즈 편·녹음 붙이기·화면 국소 수정 (ADR-0025~0027). 조립은 config/theme_wiring.py
+    series: ThemeServices | None = None
 
 
 def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
@@ -236,7 +239,7 @@ def build_container(
         lambda job: run_generation_pipeline.execute(job.payload["version_id"]),
     )
 
-    return Container(
+    container = Container(
         settings=settings,
         ids=ids,
         clock=clock,
@@ -279,3 +282,14 @@ def build_container(
             max_attempts=settings.worker_max_attempts,
         ),
     )
+    container.series = build_theme_services(
+        settings=settings,
+        registry=registry,
+        ctx=ctx,
+        uow_factory=uow_factory,
+        assembler=assembler,
+        create_revision=container.create_revision,
+        accept_generation=container.accept_generation,
+        overrides=ov,
+    )
+    return container
