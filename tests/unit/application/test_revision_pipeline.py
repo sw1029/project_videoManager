@@ -135,6 +135,32 @@ def test_keep_items_change_the_generation_key_but_not_the_condition_fingerprint(
     assert keeping.generation_fingerprint != base.generation_fingerprint
 
 
+def test_what_a_repair_fixes_is_part_of_the_generation_key(ir):
+    """REPAIR 는 조건을 바꾸지 않고 seed 만 바꾼다. 무엇을 고치려는지가 키에 없으면, 같은 부모의 같은 장면에서
+    다른 요구조건을 고치려는 요청이 앞선 REPAIR 의 결과를 그대로 받는다 — 그 요구를 지키라는 지시는 모델에
+    간 적이 없는데도 (감사 A-33).
+    """
+    scene = ir.scene("intro")
+    color = next(r for r in scene.requirements if r.predicate == "color")
+    shirt = next(r for r in scene.requirements if r.predicate == "shirt_color")
+    base = SceneGenerationRequest(
+        "ver_1", scene, tuple(ir.entity(k) for k in scene.entity_keys), seed=8
+    )
+
+    def repairing(*requirements):
+        return replace(base, directive=RevisionDirective(RevisionKind.REPAIR, enforce=requirements))
+
+    assert repairing(color).fingerprint == repairing(shirt).fingerprint == base.fingerprint
+    assert repairing(color).generation_fingerprint != repairing(shirt).generation_fingerprint
+    assert repairing(color).generation_fingerprint != base.generation_fingerprint
+    # 같은 것을 고치는 요청은 같은 키다 (두 번 내지 않는다). 적은 순서는 상관없다
+    assert repairing(color).generation_fingerprint == repairing(color).generation_fingerprint
+    assert (
+        repairing(color, shirt).generation_fingerprint
+        == repairing(shirt, color).generation_fingerprint
+    )
+
+
 def test_fake_generator_records_the_directive():
     rig = Rig()
 

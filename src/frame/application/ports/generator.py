@@ -12,7 +12,8 @@
 - 부모 클립(parent): 수정 버전에서 다시 만드는 장면의 부모 클립과 그때의 장면 조건. 편집을 지원하는 생성기는
   부모 클립을 고쳐서 만들고, 지원하지 않는 생성기는 무시하고 새로 만든다.
 - 수정 지시(directive, ADR-0017): 이 장면을 왜 다시 만드는지. 꼭 지켜야 할 요구조건(바꾼 값 / 반영되지 않았던 값)과
-  그대로 둘 요소. 생성기는 편집 지시문·프롬프트에 쓴다. 그대로 둘 요소만 생성 캐시·작업 원장 키에 들어간다.
+  그대로 둘 요소. 생성기는 편집 지시문·프롬프트에 쓴다. 생성 캐시·작업 원장 키에는 그대로 둘 요소와,
+  다시 맞추기(REPAIR)일 때 고치려는 요구조건이 들어간다.
 
 만들기 전 미리보기 (ADR-0020)
 - preview(request): 이 요청을 지금 만들면 새로 생성할지 부모 클립을 편집할지와 그 어림 비용·시간.
@@ -105,17 +106,28 @@ class SceneGenerationRequest:
 
     @property
     def generation_fingerprint(self) -> str:
-        """생성 결과를 좌우하는 요청 쪽 값의 해시: 조건(fingerprint) + 정체성 기준 이미지 + 그대로 둘 요소.
+        """생성 결과를 좌우하는 요청 쪽 값의 해시: 조건(fingerprint) + 정체성 기준 이미지 + 수정 지시의 일부.
 
-        둘 다 없으면 fingerprint 와 같다 (기준 이미지·수정 지시를 쓰지 않던 때의 캐시·원장 키와 호환).
-        수정 지시 가운데 그대로 둘 요소만 넣는다. 꼭 지켜야 할 요구조건은 이미 조건(또는 seed)에 들어 있다.
+        수정 지시에서 넣는 것
+        - 그대로 둘 요소 (keep).
+        - 다시 맞추기(REPAIR)가 고치려는 요구조건 (enforce). REPAIR 는 조건을 바꾸지 않고 seed 만 바꾸므로,
+          이것이 없으면 같은 부모의 같은 장면에서 다른 요구조건을 고치려는 요청이 같은 키가 된다.
+          CHANGE 의 enforce 는 넣지 않는다: 바뀐 값이 이미 조건에 들어 있다.
+
+        넣을 것이 하나도 없으면 fingerprint 와 같다 (기준 이미지·수정 지시를 쓰지 않던 때의 캐시·원장 키와 호환).
         """
+        directive = self.directive
         keep = (
-            sorted((str(item.aspect), item.entity_key or "") for item in self.directive.keep)
-            if self.directive is not None
+            sorted((str(item.aspect), item.entity_key or "") for item in directive.keep)
+            if directive is not None
             else []
         )
-        if not self.identity_references and not keep:
+        repair = (
+            sorted((r.key, r.expected_value, r.related_entity_key or "") for r in directive.enforce)
+            if directive is not None and directive.kind is RevisionKind.REPAIR
+            else []
+        )
+        if not self.identity_references and not keep and not repair:
             return self.fingerprint
         payload: dict[str, object] = {"fingerprint": self.fingerprint}
         if self.identity_references:
@@ -124,6 +136,8 @@ class SceneGenerationRequest:
             )
         if keep:
             payload["keep"] = keep
+        if repair:
+            payload["repair"] = repair
         return canonical_hash(payload)
 
 

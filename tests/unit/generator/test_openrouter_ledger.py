@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -22,7 +23,8 @@ from frame.adapters.generator.ledger import (
 from frame.adapters.http_transport import HttpResponse, TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError, GenerationTimeout, StorageError
-from frame.application.ports.generator import SceneGenerationRequest
+from frame.application.ports.generator import RevisionDirective, SceneGenerationRequest
+from frame.domain.enums import RevisionKind
 from tests.support.openrouter import (
     JOB_ID,
     SIGNED_URL,
@@ -256,6 +258,29 @@ def test_a_completed_job_whose_clip_is_gone_is_submitted_again_after_the_ttl(tmp
 
     assert len(api.submits) == 2 and again.metadata["ledger"] == "new"
     assert any("만료" in r.getMessage() for r in caplog.records)
+
+
+def test_repairing_a_different_requirement_of_the_same_scene_is_a_new_job(store, ir):
+    """같은 부모의 같은 장면이라도 고치려는 요구조건이 다르면 앞선 결과를 돌려주지 않는다 (감사 A-33)."""
+    api = FakeOpenRouterApi()
+    generator = make_openrouter_generator(store, api)
+    base = _request(ir, seed=8)
+    color = next(r for r in base.scene.requirements if r.predicate == "color")
+    shirt = next(r for r in base.scene.requirements if r.predicate == "shirt_color")
+
+    def repair(requirement, version_id):
+        directive = RevisionDirective(RevisionKind.REPAIR, enforce=(requirement,))
+        return generator.generate_scene(replace(base, version_id=version_id, directive=directive))
+
+    repair(color, "ver_1")
+    second = repair(shirt, "ver_2")
+    again = repair(shirt, "ver_3")
+
+    prompts = [call.json()["prompt"] for call in api.submits]
+    assert len(prompts) == 2  # 같은 것을 고치는 세 번째 요청은 다시 내지 않는다
+    assert "Must show: cup color: red" in prompts[0]
+    assert "Must show: barista shirt color: white" in prompts[1]
+    assert second.metadata["ledger"] == "new" and again.metadata["ledger"] == "reused"
 
 
 def test_other_generator_settings_never_resume_each_others_jobs(store, ir):
