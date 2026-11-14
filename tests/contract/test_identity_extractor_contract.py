@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 
 import pytest
 
@@ -623,6 +624,45 @@ def test_vlm_crop_does_not_guess_which_attribute_a_bare_value_means(store, ir, c
     )
 
     assert image.detail["attributes"] == {}
+
+
+@needs_ffmpeg
+def test_vlm_crop_extracts_a_clip_once_when_two_jobs_ask_at_the_same_time(store, ir, clip_bytes):
+    """같은 클립의 기준을 두 작업이 동시에 뽑으면, 뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 그 기준을 쓴다.
+
+    VLM 이 짚는 박스는 호출마다 조금씩 달라서, 둘이 따로 물으면 기준 이미지가 서로 달라지고
+    (= 생성 캐시·작업 원장의 키가 달라지고) 호출도 두 번 과금된다 (감사 A-27).
+    """
+    asking = threading.Semaphore(0)
+    answer_now = threading.Event()
+
+    class SlowModel(ReplayLLMClient):
+        def complete_json(self, *args, **kwargs):
+            asking.release()  # 모델을 부르는 중이다
+            assert answer_now.wait(10)
+            return super().complete_json(*args, **kwargs)
+
+    llm = SlowModel([_located("cup"), _located("cup")])
+    extractor = VlmCropIdentityExtractor(store, FFMPEG, llm, min_side=8)
+    request = _request(store, ir, clip_bytes, "cup")
+    results: list[tuple] = []
+    jobs = [
+        threading.Thread(target=lambda: results.append(extractor.extract(request)))
+        for _ in range(2)
+    ]
+
+    jobs[0].start()
+    assert asking.acquire(timeout=10)  # 첫 작업이 모델의 답을 기다리고 있다
+    jobs[1].start()
+    second_asked = asking.acquire(timeout=0.5)  # 그동안 둘째 작업도 모델을 불렀는가
+    answer_now.set()
+    for job in jobs:
+        job.join(10)
+
+    assert not second_asked
+    assert len(llm.calls) == 1
+    assert len(results) == 2
+    assert [i.image_uri for i in results[0]] == [i.image_uri for i in results[1]] != []
 
 
 @needs_ffmpeg

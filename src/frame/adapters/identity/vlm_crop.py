@@ -33,6 +33,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from frame.adapters.shared.locking import KeyedLocks
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg
 from frame.adapters.shared.media.frames import Box, ClipFrames, FrameSampler
 from frame.adapters.shared.media.probe import video_size
@@ -92,6 +93,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self._sampler = sampler or FrameSampler.shared(self._ffmpeg)
+        self._locks = KeyedLocks()  # 클립마다: 같은 클립의 기준을 한 번에 한 작업만 뽑는다
         self._llm = llm
         self.positions = tuple(
             positions
@@ -115,6 +117,12 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
     def extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         if not request.entities:
             return ()
+        # 같은 클립을 두 작업이 동시에 뽑으면 박스가 서로 달라 기준 이미지가 둘이 된다 (생성 캐시·원장의 키가 갈린다).
+        # 뒤에 온 작업은 기다렸다가, 앞선 작업이 색인에 남긴 기준을 쓴다 (reuse_existing). 이 프로세스 안에서만 막는다
+        with self._locks.hold(request.clip.uri):
+            return self._extract(request)
+
+    def _extract(self, request: IdentityExtractionRequest) -> tuple[IdentityImage, ...]:
         found: dict[str, IdentityImage] = {}
         rejected: dict[str, tuple[str, ...]] = {}  # 고정 속성과 달라 거른 객체 -> 어긋난 속성
         if self.reuse_existing:
