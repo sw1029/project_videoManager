@@ -291,3 +291,49 @@ def test_display_name_that_is_not_text_is_read_as_text(ir):
     document = ir.to_dict()
     document["entities"][1]["display_name"] = 1
     assert IntermediateRepresentation.from_dict(document).entity("cup").display_name == "1"
+
+
+# ---- 키 형식 (감사 A-01) -----------------------------------------------------------------
+# 키는 저장 경로(clips/{version_id}/{scene_key}.mp4)·요구조건 키(장면:객체:술어)·URL 경로·DB id 에 그대로 들어간다
+
+
+BAD_KEYS = ["../ver_victim/intro", "a/b", "a:b", "-", "컵", "a-b", "a b", "_a", "", "a" * 65]
+
+
+@pytest.mark.parametrize("key", BAD_KEYS)
+def test_scene_keys_must_be_ascii_letters_digits_and_underscores(ir, key):
+    renamed = replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s,
+                scene_key=key,
+                requirements=tuple(replace(r, scene_key=key) for r in s.requirements),
+            )
+            if s.scene_key == "intro"
+            else s
+            for s in ir.scenes
+        ),
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        renamed.validate()
+    assert "장면 키" in excinfo.value.message
+
+
+@pytest.mark.parametrize("key", BAD_KEYS)
+def test_entity_keys_must_be_ascii_letters_digits_and_underscores(key):
+    ir = IntermediateRepresentation(
+        entities=(EntitySpec(key, EntityKind.PROP),),
+        scenes=(SceneSpec("a", 0, 1000, entity_keys=(key,)),),
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        ir.validate()
+    assert "객체 키" in excinfo.value.message
+
+
+@pytest.mark.parametrize("key", ["cup", "scene_01", "Cup2", "0intro", "a", "a" * 64, "slot_3"])
+def test_ordinary_keys_pass(key):
+    IntermediateRepresentation(
+        entities=(EntitySpec(key, EntityKind.PROP),),
+        scenes=(SceneSpec(key, 0, 1000, entity_keys=(key,)),),
+    ).validate()
