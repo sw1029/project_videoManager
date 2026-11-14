@@ -286,6 +286,7 @@ def build_theme_services(
         return FakeSpeechRecognizer()
 
     def _openai_recognizer() -> SpeechRecognizer:
+        from frame.adapters.analysis.caching import CachingSpeechRecognizer
         from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
         from frame.adapters.llm.key_store import LLMKeyStore
         from frame.application.ports.llm import LLMKeySource
@@ -307,12 +308,14 @@ def build_theme_services(
             if not Path(ts.speech_key_file).is_file():
                 raise ConfigurationError("FRAME_SPEECH_KEY_FILE: 키 파일이 없습니다")
             key_source = LLMKeyStore(key_file=ts.speech_key_file, env={})
-        return OpenAISpeechRecognizer(
+        recognizer = OpenAISpeechRecognizer(
             key_source=key_source,
             model=ts.speech_model,
             base_url=base_url,
             timeout_s=ts.speech_timeout_s,
         )
+        # 같은 소리는 한 번만 과금한다: 결과를 산출물 저장소에 남긴다 (감사 BTS-12)
+        return CachingSpeechRecognizer(recognizer, store, f"{ts.speech_model}@{base_url}")
 
     recognizer: SpeechRecognizer | None = pick(
         "speech_recognizer",
@@ -404,9 +407,13 @@ def build_theme_services(
         return FakeScreenTextReader()
 
     def _vlm_reader() -> ScreenTextReader:
+        from frame.adapters.compositor.caching import CachingScreenTextReader
         from frame.adapters.compositor.vlm_reader import VlmScreenTextReader
 
-        return VlmScreenTextReader(ffmpeg(), vlm())
+        client = vlm()
+        profile = f"vlm:{getattr(client, 'model', settings.vlm_model)}"
+        # 같은 화면은 한 번만 읽는다 (감사 BTS-12)
+        return CachingScreenTextReader(VlmScreenTextReader(ffmpeg(), client), store, profile)
 
     text_reader: ScreenTextReader | None = pick(
         "screen_text_reader",

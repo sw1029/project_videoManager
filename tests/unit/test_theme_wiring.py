@@ -137,6 +137,7 @@ def test_override_wins_over_the_setting():
 
 def test_real_adapters_are_built_without_any_network_call():
     """실제 어댑터를 고르면 그 구현이 조립된다. LLM 은 재생 클라이언트라 호출이 나가지 않는다."""
+    from frame.adapters.analysis.caching import CachingSpeechRecognizer
     from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
     from frame.adapters.series.llm import LLMSeriesPlanner
 
@@ -144,8 +145,10 @@ def test_real_adapters_are_built_without_any_network_call():
     theme_settings = ThemeSettings(speech="openai", planner="llm", speech_model="whisper-1")
     series = make_container(settings, theme_settings=theme_settings).series
 
-    assert isinstance(series.recognizer, OpenAISpeechRecognizer)
-    assert series.recognizer.model == "whisper-1"
+    # 유료 인식기에는 결과를 남기는 래퍼가 씌워진다 (같은 소리는 한 번만 과금)
+    assert isinstance(series.recognizer, CachingSpeechRecognizer)
+    assert isinstance(series.recognizer.inner, OpenAISpeechRecognizer)
+    assert series.recognizer.inner.model == "whisper-1"
     assert isinstance(series.planner, LLMSeriesPlanner)
 
 
@@ -154,6 +157,7 @@ def test_ffmpeg_and_vlm_adapters_are_built_when_selected():
     from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber, FfmpegShotDetector
     from frame.adapters.analysis.vlm_theme import VlmThemeExtractor
     from frame.adapters.audio.ffmpeg import FfmpegAudioEditor
+    from frame.adapters.compositor.caching import CachingScreenTextReader
     from frame.adapters.compositor.vlm_reader import VlmScreenTextReader
 
     settings = Settings(jobs="recording", persistence="memory", llm_provider="fake")
@@ -166,7 +170,8 @@ def test_ffmpeg_and_vlm_adapters_are_built_when_selected():
     assert isinstance(series.shot_detector, FfmpegShotDetector)
     assert isinstance(series.audio, FfmpegAudioEditor)
     assert isinstance(series.extractor, VlmThemeExtractor) and series.extractor.frames_per_slot == 2
-    assert isinstance(series.text_reader, VlmScreenTextReader)
+    assert isinstance(series.text_reader, CachingScreenTextReader)
+    assert isinstance(series.text_reader.inner, VlmScreenTextReader)
 
 
 def test_missing_font_fails_at_startup(tmp_path):
@@ -195,6 +200,7 @@ class _SpyTransport:
 def _recognizer(theme_settings, settings=None, **overrides):
     base = settings or Settings(jobs="recording", persistence="memory", llm_provider="fake")
     recognizer = make_container(base, theme_settings=theme_settings, **overrides).series.recognizer
+    recognizer = recognizer.inner  # 결과를 남기는 래퍼 안의 실제 인식기
     spy = _SpyTransport()
     recognizer._http = spy
     return recognizer, spy
