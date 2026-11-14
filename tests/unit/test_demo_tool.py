@@ -102,7 +102,31 @@ def test_foreign_venv_is_detected_so_setup_never_wipes_it(tmp_path):
     assert not demo.foreign_venv(tmp_path, "linux")
 
 
+def _make_checkout(root: Path) -> Path:
+    """setup 이 FRAME 저장소로 알아보는 최소한의 폴더."""
+    (root / "src" / "frame").mkdir(parents=True)
+    (root / "src" / "frame" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "pyproject.toml").write_text('[project]\nname = "frame"\n', encoding="utf-8")
+    return root
+
+
+def test_setup_refuses_a_folder_that_is_not_a_frame_checkout_and_leaves_its_venv(
+    tmp_path, monkeypatch, capsys
+):
+    # --root 를 주지 않으면 지금 폴더가 대상이다. 다른 프로젝트의 폴더에서 치면 쓸 수 없다고 본 그 .venv 를
+    # `venv --clear` 로 비웠다
+    marker = tmp_path / ".venv" / "keep.txt"
+    marker.parent.mkdir()
+    marker.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(demo, "_run", lambda *a, **k: pytest.fail("명령을 실행하면 안 된다"))
+    assert demo.cmd_setup(tmp_path, key_file=None, no_key=True, skip_frontend=True) == 1
+    assert "FRAME 저장소" in capsys.readouterr().err
+    assert marker.is_file()
+    assert not demo.is_frame_checkout(tmp_path) and demo.is_frame_checkout(_make_checkout(tmp_path))
+
+
 def test_setup_stops_on_a_foreign_venv_without_touching_it(tmp_path, monkeypatch, capsys):
+    _make_checkout(tmp_path)
     other = "linux" if demo.platform_key() == "win32" else "win32"
     (demo.venv_python(tmp_path, other).parent).mkdir(parents=True)
     marker = demo.venv_python(tmp_path, other).parent / "keep.txt"
@@ -368,6 +392,40 @@ def test_server_dies_with_the_launcher_on_windows():
     finally:
         if child.poll() is None:
             child.kill()
+
+
+def _port_taken(monkeypatch):
+    monkeypatch.setattr(demo, "_ready_to_run", lambda root: None)
+    monkeypatch.setattr(demo, "_port_free", lambda port, host: False)
+    monkeypatch.setattr(
+        demo,
+        "_start_server",
+        lambda *a, **k: pytest.fail("포트를 쓸 수 없으면 서버를 띄우지 않는다"),
+    )
+
+
+def test_reset_deletes_nothing_when_the_port_is_taken(tmp_path, monkeypatch, capsys):
+    # 예전에는 DB 와 산출물을 먼저 지운 뒤에 "포트를 이미 쓰고 있습니다" 로 끝났다
+    _port_taken(monkeypatch)
+    database = tmp_path / ".demo" / "frame.db"
+    database.parent.mkdir()
+    database.write_bytes(b"db")
+    status = demo.cmd_run(
+        tmp_path, port=8000, offline=True, lan=False, open_browser=False, reset=True
+    )
+    assert status == 1 and "포트 8000" in capsys.readouterr().err
+    assert database.read_bytes() == b"db"
+
+
+def test_smoke_never_checks_a_server_that_is_already_up_on_that_port(tmp_path, monkeypatch, capsys):
+    # 그 포트에 이미 뜬 서버가 /health 에 답하면, 점검이 그 서버의 실제 DB 에 프로젝트를 만들고
+    # 화면에서 넣은 키를 지웠다 (새로 띄운 서버는 포트를 못 잡고 끝났는데도)
+    _port_taken(monkeypatch)
+    monkeypatch.setattr(
+        demo, "_http", lambda *a, **k: pytest.fail("이미 떠 있는 서버를 부르지 않는다")
+    )
+    assert demo.cmd_smoke(tmp_path, port=8000) == 1
+    assert "포트 8000" in capsys.readouterr().err
 
 
 class _StartingServer:

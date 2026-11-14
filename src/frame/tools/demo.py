@@ -186,6 +186,13 @@ def is_bundle(root: Path) -> bool:
     return (root / BUNDLE_MARKER).is_file()
 
 
+def is_frame_checkout(root: Path) -> bool:
+    """setup 이 .venv 를 만들고 `pip install -e .` 을 해도 되는 폴더인지: FRAME 의 pyproject.toml 과 소스가 있다."""
+    return (root / "pyproject.toml").is_file() and (
+        root / "src" / "frame" / "__init__.py"
+    ).is_file()
+
+
 def bundle_python(root: Path, platform: str = sys.platform) -> Path:
     if platform_key(platform) == "win32":
         return root / "python" / "python.exe"
@@ -540,6 +547,15 @@ def _startup_problem(
 
 @contextlib.contextmanager
 def _server(root: Path, env: Mapping[str, str], port: int) -> Iterator[str]:
+    """점검용 서버를 띄웠다가 끝낸다. 그 포트에 이미 뜬 서버가 있으면 띄우지 않는다.
+
+    이미 뜬 서버가 /health 에 답하면 점검이 그 서버(실제 DB·화면에서 넣은 키)에 돌게 된다.
+    """
+    if not _port_free(port, LOOPBACK):
+        raise RuntimeError(
+            f"포트 {port} 를 이미 쓰고 있습니다. 점검은 새로 띄운 서버에만 합니다: "
+            "--port 를 빼거나 비어 있는 포트를 주세요"
+        )
     process = _start_server(root, env, LOOPBACK, port)
     try:
         base = f"http://{LOOPBACK}:{port}"
@@ -634,6 +650,13 @@ def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: 
         runner = runner_hint(bundle=True)
         _say(f"실행: {runner}   (키 없이 오프라인 시연: {runner} --offline)")
         return 0
+    if not is_frame_checkout(
+        root
+    ):  # --root 가 없으면 지금 폴더가 대상이다: 남의 .venv 를 비우지 않는다
+        return _fail(
+            f"FRAME 저장소 폴더가 아닙니다: {root}. 저장소 폴더에서 실행하거나 --root 로 알려 주세요 "
+            "(이 폴더에는 아무것도 만들거나 지우지 않았습니다)"
+        )
     venv = venv_python(root)
     if foreign_venv(root):
         return _fail(
@@ -739,12 +762,12 @@ def cmd_run(
     if problem:
         return _fail(problem)
     demo = root / DEMO_DIR
+    host = "0.0.0.0" if lan else LOOPBACK  # noqa: S104 - --lan 은 같은 네트워크에 여는 선택 기능이다
+    if not _port_free(port, host):  # 지우기 전에 본다: 띄우지도 못할 실행이 DB 를 지우지 않게
+        return _fail(f"포트 {port} 를 이미 쓰고 있습니다. --port 로 바꾸세요 (예: --port 8010)")
     if reset:
         reset_state(demo)
         _say("시연 DB 와 산출물을 지웠습니다 (키 파일은 그대로)")
-    host = "0.0.0.0" if lan else LOOPBACK  # noqa: S104 - --lan 은 같은 네트워크에 여는 선택 기능이다
-    if not _port_free(port, host):
-        return _fail(f"포트 {port} 를 이미 쓰고 있습니다. --port 로 바꾸세요 (예: --port 8010)")
     demo.mkdir(exist_ok=True)
     _stop_on_termination_signals()
     key = key_file_path(root)
