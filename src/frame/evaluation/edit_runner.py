@@ -22,7 +22,14 @@ from typing import Any, Protocol
 from frame.application.dto import CreateRevisionCommand
 from frame.application.errors import AdapterError
 from frame.application.ports.generator import ProductionPreview
-from frame.application.use_cases.plan_revision import PlanRevisionCommand, RevisionPlan
+from frame.application.use_cases import (
+    AcceptGeneration,
+    CreateRevision,
+    PlanRevision,
+    PlanRevisionCommand,
+    ProjectQueries,
+    RevisionPlan,
+)
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
 from frame.domain.errors import DomainError
@@ -51,12 +58,15 @@ TARGETS = {
 
 
 class EditApp(Protocol):
-    """평가가 부르는 유스케이스. config.Container 가 그대로 맞는다."""
+    """평가가 부르는 유스케이스. config.Container 가 그대로 맞는다.
 
-    plan_revision: Any
-    create_revision: Any
-    accept_generation: Any
-    queries: Any
+    evaluation 은 domain·application 만 import 한다. 컨테이너(config) 조립은 부르는 쪽(tools)이 한다.
+    """
+
+    plan_revision: PlanRevision
+    create_revision: CreateRevision
+    accept_generation: AcceptGeneration
+    queries: ProjectQueries
 
 
 class WaitTimeout(Exception):
@@ -105,7 +115,7 @@ class CaseJudgement:
 
 
 def wait_for_version(
-    queries: Any,
+    queries: ProjectQueries,
     version_id: str,
     *,
     timeout_s: float,
