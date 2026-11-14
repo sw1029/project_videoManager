@@ -269,6 +269,63 @@ def test_a_reused_scene_is_judged_when_the_parent_has_no_verdict_for_it(store, i
     assert len(checker.check(ctx)) == 8 and len(llm.calls) == 3
 
 
+def test_an_undetermined_parent_verdict_is_not_inherited(store, ir, video):
+    """부모를 검수할 때 VLM 이 답하지 않아 미판정이 된 장면. 미판정은 판정이 아니므로 물려받지 않고 새로 판정한다.
+
+    물려받으면 그 장면을 다시 만들지 않는 모든 수정 버전에서 계속 미판정으로 남는다 (감사 A-23, ADR-0018).
+    """
+    parent = VideoVersion("ver_0", "prj_1", VersionState.COMPLETED, NOW, ir=ir)
+    parent_checks = (
+        _parent_result(
+            "outro:barista:shirt_color", Verdict.UNDETERMINED, None, reason="LLM_TIMEOUT: 응답 없음"
+        ),
+        _parent_result("outro:cafe:lighting", Verdict.PASS, 1.0),
+    )
+    ctx = _context(
+        store,
+        ir,
+        video,
+        parent=parent,
+        parent_ir=ir,
+        parent_checks=parent_checks,
+        reused_scene_keys=frozenset({"outro"}),
+        changed_scene_keys=frozenset({"intro", "closeup"}),
+    )
+    checker, llm = _checker(store, *_all_yes())
+
+    outro = [o for o in checker.check(ctx) if o.scene_key == "outro"]
+
+    assert len(llm.calls) == 3  # outro 도 물었다
+    assert [(o.requirement_key, o.verdict) for o in outro] == [
+        ("outro:barista:shirt_color", Verdict.PASS),
+        ("outro:cafe:lighting", Verdict.PASS),
+    ]
+    assert all("inherited_from" not in o.detail for o in outro)
+
+
+def test_decided_parent_verdicts_are_inherited_whether_they_pass_or_fail(store, ir, video):
+    parent = VideoVersion("ver_0", "prj_1", VersionState.COMPLETED, NOW, ir=ir)
+    parent_checks = (
+        _parent_result("outro:barista:shirt_color", Verdict.FAIL, 0.0),
+        _parent_result("outro:cafe:lighting", Verdict.PASS, 1.0),
+    )
+    ctx = _context(
+        store,
+        ir,
+        video,
+        parent=parent,
+        parent_ir=ir,
+        parent_checks=parent_checks,
+        reused_scene_keys=frozenset({"outro"}),
+    )
+    checker, llm = _checker(store, *_all_yes()[:2])
+
+    outro = [o for o in checker.check(ctx) if o.scene_key == "outro"]
+
+    assert len(llm.calls) == 2
+    assert [o.verdict for o in outro] == [Verdict.FAIL, Verdict.PASS]
+
+
 # ---- 이 버전에서 바뀐 요구조건 ------------------------------------------------------------
 
 

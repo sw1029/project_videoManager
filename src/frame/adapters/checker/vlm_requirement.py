@@ -15,6 +15,7 @@ Fake 검수기는 클립을 보지 않아 항상 PASS 였다. 컨셉 화면의 '
 규약
 - 다시 만들지 않은 장면(부모 클립 재사용)은 부모 버전의 판정을 물려받는다. 같은 클립을 다시 물으면 답이 흔들려
   바뀌지 않은 장면의 판정이 버전마다 달라질 수 있고 호출 비용도 든다. 부모에 판정이 없으면 새로 판정한다.
+  미판정은 판정이 아니다: 부모에서 미판정이던 요구조건이 하나라도 있으면 그 장면은 새로 판정한다.
 - 판정할 수 없으면 UNDETERMINED: 클립이 영상이 아님, VLM·ffmpeg 호출 실패, 응답에 그 요구조건이 없음.
   VLM 장애로 버전을 FAILED 로 만들지 않는다.
 - 요구조건은 R1, R2 … 프레임은 F1, F2 … 로 짧게 가리킨다 (모델이 긴 키를 그대로 돌려주지 않을 때가 있다).
@@ -144,13 +145,19 @@ class VlmRequirementChecker(Checker):
 
     # ---- 부모 판정 물려받기 ----
     def _inherited(self, ctx: CheckContext, scene: SceneSpec) -> list[CheckOutcome] | None:
-        """부모 클립을 그대로 쓴 장면: 부모 버전의 판정이 요구조건마다 다 있으면 그것을 그대로 쓴다."""
+        """부모 클립을 그대로 쓴 장면: 부모 버전의 판정(PASS·FAIL)이 요구조건마다 다 있으면 그것을 그대로 쓴다.
+
+        미판정은 물려받지 않는다. 부모를 검수할 때 VLM 이 답하지 않았을 뿐일 수 있는데, 물려받으면 그 장면을 다시
+        만들지 않는 모든 수정 버전에서 계속 미판정으로 남는다.
+        """
         if scene.scene_key not in ctx.reused_scene_keys or ctx.parent is None:
             return None
         previous = {
             r.requirement_key: r
             for r in ctx.parent_checks
-            if r.check_type is CheckType.REQUIREMENT and r.requirement_key is not None
+            if r.check_type is CheckType.REQUIREMENT
+            and r.requirement_key is not None
+            and r.verdict is not Verdict.UNDETERMINED
         }
         if any(r.key not in previous for r in scene.requirements):
             return None
