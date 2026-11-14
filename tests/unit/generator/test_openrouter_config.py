@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
+from frame.adapters.assembler import FfmpegVideoAssembler
 from frame.adapters.generator import CachingVideoGenerator
-from frame.adapters.generator.ffmpeg import FfmpegVideoAssembler
 from frame.adapters.generator.openrouter import OpenRouterVideoGenerator
 from frame.application.errors import ConfigurationError
 from frame.config import Settings, build_container

@@ -60,6 +60,11 @@ class LLMKeyStore(LLMKeySource):
                 f"키 파일이 없습니다: {self._key_file}. "
                 "화면의 키 입력란이나 OPENAI_API_KEY 환경 변수로도 설정할 수 있습니다"
             )
+        if self._key_file is not None:
+            return (
+                f"키 파일에서 키를 찾지 못했습니다: {self._key_file}. 키만 있는 줄(sk-...)이나 "
+                "OPENAI_API_KEY=... 줄이 있어야 합니다 (다른 서비스의 변수에 적힌 값은 읽지 않습니다)"
+            )
         return (
             "OpenAI API 키가 설정되지 않았습니다. 화면의 키 입력란(FRAME_LLM_RUNTIME_KEY=true), "
             "OPENAI_API_KEY 환경 변수, FRAME_LLM_KEY_FILE 중 하나로 설정하세요"

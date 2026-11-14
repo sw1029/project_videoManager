@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from frame.domain.enums import VersionState
 from frame.domain.errors import NotFound, VersionNotGeneratable
 
@@ -19,11 +17,11 @@ class AcceptGeneration:
         self,
         uow_factory: UnitOfWorkFactory,
         dispatcher: JobDispatcher,
-        clock: Clock | None = None,
+        clock: Clock,
     ) -> None:
         self._uow_factory = uow_factory
         self._dispatcher = dispatcher
-        self._now = clock.now if clock is not None else (lambda: datetime.now(UTC))
+        self._now = clock.now
 
     def execute(self, version_id: str) -> AcceptGenerationResult:
         with self._uow_factory() as uow:
@@ -39,7 +37,8 @@ class AcceptGeneration:
                     state=version.state,
                 )
             version = uow.versions.get(version_id)
-            assert version is not None
+            if version is None:  # 방금 상태를 바꾼 버전이 다시 읽히지 않는다 (저장소가 어긋났다)
+                raise NotFound(f"버전 {version_id} 을 찾을 수 없습니다", version_id=version_id)
             version.freeze_conditions()
             version.record_queued(self._now())  # 접수 시각 (#2)
             uow.versions.save(version)

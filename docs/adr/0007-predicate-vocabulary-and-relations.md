@@ -11,6 +11,7 @@
 
 ## 결정
 - **술어 어휘** (`domain/vocabulary.py`): 대표 이름·별칭·값 종류(COLOR/TEXT/NUMBER/POSITION/ENTITY)·관계 여부를 등록한다.
+  - 보완 (2026-11-14, 감사 D-07): 값 종류는 여섯이다. ADR-0008 이 `LITERAL` (화면 문구·브랜드 — 철자를 그대로 둔다)을 더했다.
   `RequirementSpec` 과 `AttributeChange` 는 생성 시점에 술어를 정규화한다(소문자, 공백/하이픈 → `_`, 별칭 → 대표 이름).
   등록되지 않은 술어도 정규화 뒤 허용한다(확장성). 어휘는 `GET /api/vocabulary/predicates` 로 화면에 제공한다.
 - **관계 조건 규칙**: 관계 술어는 `related_entity_key` 가 필수이고 `expected_value` 는 상대 객체 키와 같다(비어 있으면 자동 보충).

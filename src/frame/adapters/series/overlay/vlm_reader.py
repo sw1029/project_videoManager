@@ -17,8 +17,9 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from frame.adapters.video_tools import Box, extract_frame, require_ffmpeg
-from frame.adapters.vlm_answers import match_answers
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import Box, extract_frame
+from frame.adapters.shared.vlm.answers import match_answers
 from frame.application.errors import AdapterError
 from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient
 from frame.application.ports.series.overlay import ScreenTextReader

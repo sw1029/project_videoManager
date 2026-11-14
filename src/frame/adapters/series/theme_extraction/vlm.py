@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.series.theme_extraction._text_locator import locate_text
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import extract_frame
 from frame.application.errors import AdapterError
 from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient
 from frame.application.ports.series.theme_extraction import (

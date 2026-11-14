@@ -15,6 +15,7 @@ Fake 검수기는 클립을 보지 않아 항상 PASS 였다. 컨셉 화면의 '
 규약
 - 다시 만들지 않은 장면(부모 클립 재사용)은 부모 버전의 판정을 물려받는다. 같은 클립을 다시 물으면 답이 흔들려
   바뀌지 않은 장면의 판정이 버전마다 달라질 수 있고 호출 비용도 든다. 부모에 판정이 없으면 새로 판정한다.
+  미판정은 판정이 아니다: 부모에서 미판정이던 요구조건이 하나라도 있으면 그 장면은 새로 판정한다.
 - 판정할 수 없으면 UNDETERMINED: 클립이 영상이 아님, VLM·ffmpeg 호출 실패, 응답에 그 요구조건이 없음.
   VLM 장애로 버전을 FAILED 로 만들지 않는다.
 - 요구조건은 R1, R2 … 프레임은 F1, F2 … 로 짧게 가리킨다 (모델이 긴 키를 그대로 돌려주지 않을 때가 있다).
@@ -26,15 +27,16 @@ Fake 검수기는 클립을 보지 않아 항상 PASS 였다. 컨셉 화면의 '
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
-from frame.adapters.vlm_answers import match_answers
-from frame.application.errors import AdapterError
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import FrameSampler, midpoints
+from frame.adapters.shared.vlm.answers import match_answers
+from frame.adapters.shared.vlm.ask import ask_json
+from frame.adapters.shared.vlm.wording import described, predicate_words
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
@@ -42,6 +44,8 @@ from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.ir import RequirementSpec, SceneSpec
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
+
+from ._guard import UnitGuard
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +98,14 @@ RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+class _Subject(TypedDict):
+    """검수 결과가 가리키는 대상. CheckOutcome 의 같은 이름 인자로 넘긴다."""
+
+    requirement_key: str
+    entity_key: str | None
+    scene_key: str
+
+
 @dataclass(frozen=True)
 class _Frame:
     frame_id: str
@@ -116,9 +128,10 @@ class VlmRequirementChecker(Checker):
         threshold: float = 0.5,
         max_side: int = 1024,
         timeout_s: float | None = 180.0,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
-        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(require_ffmpeg(ffmpeg))
         self._llm = llm
         self.frames_per_scene = max(1, int(frames_per_scene))
         self.threshold = threshold  # 고정 속성·장면 조건: 판정된 프레임 가운데 yes 의 비율 하한
@@ -127,22 +140,31 @@ class VlmRequirementChecker(Checker):
 
     def check(self, ctx: CheckContext) -> Sequence[CheckOutcome]:
         outcomes: list[CheckOutcome] = []
+        guard = UnitGuard("요구 반영 검수")
         for scene in ctx.ir.scenes:
             if not scene.requirements or scene.scene_key not in ctx.clips:
                 continue
             inherited = self._inherited(ctx, scene)
-            outcomes.extend(inherited if inherited is not None else self._check_scene(ctx, scene))
+            if inherited is None:
+                inherited = self._check_scene(ctx, scene, guard)
+            outcomes.extend(inherited)
         return outcomes
 
     # ---- 부모 판정 물려받기 ----
     def _inherited(self, ctx: CheckContext, scene: SceneSpec) -> list[CheckOutcome] | None:
-        """부모 클립을 그대로 쓴 장면: 부모 버전의 판정이 요구조건마다 다 있으면 그것을 그대로 쓴다."""
+        """부모 클립을 그대로 쓴 장면: 부모 버전의 판정(PASS·FAIL)이 요구조건마다 다 있으면 그것을 그대로 쓴다.
+
+        미판정은 물려받지 않는다. 부모를 검수할 때 VLM 이 답하지 않았을 뿐일 수 있는데, 물려받으면 그 장면을 다시
+        만들지 않는 모든 수정 버전에서 계속 미판정으로 남는다.
+        """
         if scene.scene_key not in ctx.reused_scene_keys or ctx.parent is None:
             return None
         previous = {
             r.requirement_key: r
             for r in ctx.parent_checks
-            if r.check_type is CheckType.REQUIREMENT and r.requirement_key is not None
+            if r.check_type is CheckType.REQUIREMENT
+            and r.requirement_key is not None
+            and r.verdict is not Verdict.UNDETERMINED
         }
         if any(r.key not in previous for r in scene.requirements):
             return None
@@ -166,17 +188,26 @@ class VlmRequirementChecker(Checker):
         return outcomes
 
     # ---- 장면 하나 ----
-    def _check_scene(self, ctx: CheckContext, scene: SceneSpec) -> list[CheckOutcome]:
+    def _check_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
+        """장면 하나. 판정하지 못하면 (프레임·모델·예상 밖 오류) 이 장면의 요구조건만 미판정으로 남긴다."""
+        return guard.judge(
+            f"장면 {scene.scene_key}",
+            lambda: self._judge_scene(ctx, scene, guard),
+            undetermined=lambda reason: self._undetermined(scene, reason),
+        )
+
+    def _judge_scene(
+        self, ctx: CheckContext, scene: SceneSpec, guard: UnitGuard
+    ) -> list[CheckOutcome]:
         clip = ctx.clips[scene.scene_key]
         if not self._store.content_type(clip.uri).startswith("video/"):
             return self._undetermined(scene, "장면 클립이 영상이 아니라 프레임을 뽑을 수 없음")
         ids = {f"R{n}": r for n, r in enumerate(scene.requirements, start=1)}
-        try:
-            frames = self._frames(scene, self._store.get(clip.uri), clip.duration_ms)
-            answer = self._ask(ctx, scene, ids, frames)
-        except AdapterError as exc:
-            log.warning("요구 반영 검수 미판정 (장면 %s): %s: %s", scene.scene_key, exc.code, exc)
-            return self._undetermined(scene, f"{exc.code}: {exc}")
+        guard.about_to_ask()
+        frames = self._frames(scene, self._store.get(clip.uri), clip.duration_ms)
+        answer = self._ask(ctx, scene, ids, frames)
         outcomes = []
         for index, (rid, requirement) in enumerate(ids.items()):
             reply = answer["requirements"].get(rid)
@@ -189,10 +220,10 @@ class VlmRequirementChecker(Checker):
     def _frames(self, scene: SceneSpec, video: bytes, clip_duration_ms: int) -> list[_Frame]:
         count = self.frames_per_scene
         duration = clip_duration_ms or scene.duration_ms
+        clip = self._sampler.clip(video)
         frames = []
-        for index in range(count):
-            at_ms = int(duration * (index + 0.5) / count)  # 구간의 가운데
-            image = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+        for index, at_ms in enumerate(midpoints(duration, count)):  # 구간마다의 가운데
+            image = clip.at(at_ms, max_side=self.max_side)
             frame_id = f"F{index + 1}"
             frames.append(
                 _Frame(
@@ -214,12 +245,14 @@ class VlmRequirementChecker(Checker):
         ids: Mapping[str, RequirementSpec],
         frames: Sequence[_Frame],
     ) -> dict[str, Any]:
-        lines = [f"Scene '{scene.scene_key}'" + _suffix(scene.description)]
+        lines = [f"Scene '{scene.scene_key}'" + described(scene.description)]
         if scene.entity_keys:
             lines.append("Subjects in this scene:")
             for key in scene.entity_keys:
                 entity = ctx.ir.entity(key)
-                lines.append(f"- {key} ({str(entity.kind).lower()})" + _suffix(entity.description))
+                lines.append(
+                    f"- {key} ({str(entity.kind).lower()})" + described(entity.description)
+                )
         lines.append(
             "Frames in time order: "
             + ", ".join(f"{f.frame_id} ({f.at_ms / 1000:.1f}s)" for f in frames)
@@ -229,25 +262,21 @@ class VlmRequirementChecker(Checker):
             f"{rid}. {_statement(requirement)}{_changed_note(ctx, requirement)}"
             for rid, requirement in ids.items()
         ]
-        completion = self._llm.complete_json(
+        answer = ask_json(
+            self._llm,
             SYSTEM_PROMPT,
             "\n".join(lines),
             RESPONSE_SCHEMA,
             schema_name="requirement_audit",
             timeout_s=self.timeout_s,
             images=[f.image for f in frames],
+            read=lambda data: list(data["requirements"]),
+            what="요구 반영 판정",
         )
-        try:
-            items = list(json.loads(completion.text)["requirements"])
-        except (ValueError, KeyError, TypeError) as exc:
-            raise _BadAnswer(f"요구 반영 판정 응답을 해석하지 못했습니다: {exc}") from exc
         return {
-            "requirements": match_answers(items, list(ids), field="id"),
-            "model": completion.model,
-            "usage": {
-                "input_tokens": completion.input_tokens,
-                "output_tokens": completion.output_tokens,
-            },
+            "requirements": match_answers(answer.value, list(ids), field="id"),
+            "model": answer.model,
+            "usage": answer.usage,
         }
 
     # ---- 판정 ----
@@ -268,7 +297,7 @@ class VlmRequirementChecker(Checker):
         }
         if rule == RULE_SHARE:
             detail["threshold"] = self.threshold
-        fields = {
+        fields: _Subject = {
             "requirement_key": requirement.key,
             "entity_key": requirement.entity_key,
             "scene_key": scene.scene_key,
@@ -324,6 +353,7 @@ class VlmRequirementChecker(Checker):
         )
 
     def _undetermined(self, scene: SceneSpec, reason: str) -> list[CheckOutcome]:
+        """장면 전체를 판정하지 못했다. 요구조건마다 미판정 한 건씩, 판정이 난 결과와 같은 이름으로 대상을 적는다."""
         return [
             CheckOutcome(
                 self.check_type,
@@ -331,14 +361,16 @@ class VlmRequirementChecker(Checker):
                 requirement_key=r.key,
                 entity_key=r.entity_key,
                 scene_key=scene.scene_key,
-                detail={"method": "vlm", "reason": reason[:400]},
+                detail={
+                    "method": "vlm",
+                    "rule": _rule(r),
+                    "predicate": r.predicate,
+                    "expected_value": r.expected_value,
+                    "reason": reason[:400],
+                },
             )
             for r in scene.requirements
         ]
-
-
-class _BadAnswer(AdapterError):
-    code = "LLM_BAD_RESPONSE"
 
 
 def _rule(requirement: RequirementSpec) -> str:
@@ -348,20 +380,14 @@ def _rule(requirement: RequirementSpec) -> str:
     return RULE_SHARE
 
 
-def _words(predicate: str) -> str:
-    return predicate.replace("_", " ")
-
-
-def _suffix(text: str) -> str:
-    return f": {text.strip()}" if text.strip() else ""
-
-
 def _statement(requirement: RequirementSpec) -> str:
     """요구조건 한 줄: 'cup — color: teal', 'barista — holds cup', 'the scene — lighting: warm'."""
     subject = requirement.entity_key or "the scene"
     if requirement.related_entity_key is not None:
-        return f"{subject} — {_words(requirement.predicate)} {requirement.related_entity_key}"
-    return f"{subject} — {_words(requirement.predicate)}: {requirement.expected_value}"
+        return (
+            f"{subject} — {predicate_words(requirement.predicate)} {requirement.related_entity_key}"
+        )
+    return f"{subject} — {predicate_words(requirement.predicate)}: {requirement.expected_value}"
 
 
 def _changed_note(ctx: CheckContext, requirement: RequirementSpec) -> str:
@@ -402,11 +428,11 @@ def _warning_message(requirement: RequirementSpec, observed: str) -> str:
     subject = requirement.entity_key or "장면"
     if requirement.related_entity_key is not None:
         text = (
-            f"{subject} {_words(requirement.predicate)} {requirement.related_entity_key}: "
+            f"{subject} {predicate_words(requirement.predicate)} {requirement.related_entity_key}: "
             "요구한 관계가 보이지 않음"
         )
     else:
-        text = f"{subject} {_words(requirement.predicate)}: 요구 '{requirement.expected_value}'"
+        text = f"{subject} {predicate_words(requirement.predicate)}: 요구 '{requirement.expected_value}'"
     return text + (f", 화면: {observed}" if observed else "")
 
 

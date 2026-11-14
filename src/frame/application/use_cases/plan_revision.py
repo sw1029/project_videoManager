@@ -15,12 +15,10 @@ import logging
 from dataclasses import dataclass, replace
 
 from frame.domain.enums import ChangeScope, CheckType, RevisionKind, Verdict
-from frame.domain.errors import NotFound, ValidationError, VersionNotRevisable
+from frame.domain.errors import NotFound, ValidationError
 from frame.domain.models import ReferenceImage, VideoVersion
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange, ChangePropagationPolicy
-from frame.domain.services.revision_planning import resolve_revision, revision_draft
-from frame.domain.state_machine import REVISABLE_STATES
+from frame.domain.revision import AttributeChange, ChangePropagationPolicy, KeepItem
+from frame.domain.revision.resolution import resolve_revision, revision_draft
 
 from ..pipeline.requests import condition_request, parent_clip_of, revision_directive
 from ..ports.change_request import ChangeRequestInterpreter
@@ -147,13 +145,9 @@ class PlanRevision:
             source = uow.versions.get(command.version_id)
             if source is None:
                 raise NotFound(f"버전 {command.version_id} 을 찾을 수 없습니다")
-            if source.state not in REVISABLE_STATES or source.ir is None:
-                raise VersionNotRevisable(
-                    f"상태 {source.state} 인 버전은 수정할 수 없습니다", state=source.state
-                )
+            ir = source.ensure_revisable()
             checks = uow.checks.list_by_version(command.version_id)
             references = uow.reference_images.list_by_version(command.version_id)
-        ir = source.ir
         text = (command.request_text or "").strip() or None
         change, keep, notes = command.change, command.keep, None
         interpreted = change is None

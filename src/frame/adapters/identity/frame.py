@@ -6,7 +6,8 @@ VLM 없이 ffmpeg 만으로 돈다. 화면 전체를 넘기므로 객체의 모�
 
 from __future__ import annotations
 
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import FrameSampler
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.identity import (
     IdentityExtractionRequest,
@@ -26,9 +27,10 @@ class FrameIdentityExtractor(IdentityReferenceExtractor):
         position: float = 0.5,
         max_side: int = 1024,
         min_output_side: int = 480,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
-        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(require_ffmpeg(ffmpeg))
         self.position = min(1.0, max(0.0, position))  # 클립 길이 중 프레임을 뽑을 위치 (0..1)
         self.max_side = max_side
         self.min_output_side = min_output_side  # 영상 모델이 받는 참조 이미지의 최소 크기를 넘긴다
@@ -37,12 +39,8 @@ class FrameIdentityExtractor(IdentityReferenceExtractor):
         if not request.entities:
             return ()
         at_ms = int(request.clip.duration_ms * self.position)
-        frame = extract_frame(
-            self._ffmpeg,
-            self._store.get(request.clip.uri),
-            at_ms,
-            max_side=self.max_side,
-            min_side=self.min_output_side,
+        frame = self._sampler.clip(self._store.get(request.clip.uri)).at(
+            at_ms, max_side=self.max_side, min_side=self.min_output_side
         )
         # 화면 전체 한 장을 그 장면의 모든 객체가 함께 쓴다 (생성기는 같은 이미지를 한 번만 보낸다)
         uri = self._store.put(

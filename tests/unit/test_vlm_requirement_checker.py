@@ -13,14 +13,14 @@ import pytest
 from frame.adapters.checker import VlmRequirementChecker
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.errors import LLMTimeout
+from frame.application.errors import LLMBadResponse, LLMTimeout
 from frame.application.ports.checker import CheckContext
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import CheckResult
 from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.ir import RequirementSpec
 from frame.domain.models import VideoVersion
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 from tests.support.clock import ManualClock
 from tests.support.video import find_ffmpeg, make_clip
 
@@ -189,7 +189,7 @@ def test_answers_are_matched_to_requirements_even_when_the_id_carries_extra_text
 
 
 def test_missing_answers_and_failed_calls_are_undetermined_not_errors(store, ir, video):
-    replies = [_reply("yes"), LLMTimeout("VLM 응답 없음"), *_all_yes()[2:]]
+    replies = [_reply("yes"), LLMBadResponse("빈 응답"), *_all_yes()[2:]]
     checker, _ = _checker(store, *replies)
 
     outcomes = checker.check(_context(store, ir, video))
@@ -198,8 +198,63 @@ def test_missing_answers_and_failed_calls_are_undetermined_not_errors(store, ir,
     assert [o.verdict for o in intro] == [Verdict.PASS] + [Verdict.UNDETERMINED] * 3
     closeup = [o for o in outcomes if o.scene_key == "closeup"]
     assert {o.verdict for o in closeup} == {Verdict.UNDETERMINED}
-    assert "LLM_TIMEOUT" in closeup[0].detail["reason"]
+    assert "LLM_BAD_RESPONSE" in closeup[0].detail["reason"]
+    # 답을 읽지 못한 것은 그 장면의 일이다. 다음 장면은 그대로 묻는다
     assert {o.verdict for o in outcomes if o.scene_key == "outro"} == {Verdict.PASS}
+
+
+def test_once_the_model_does_not_answer_the_remaining_scenes_are_not_asked(store, ir, video):
+    """모델이 시간 안에 답하지 않으면 남은 장면마다 시간 제한만큼 다시 기다리지 않는다 (감사 A-24)."""
+    checker, llm = _checker(store, _reply("yes", "yes", "yes", "yes"), LLMTimeout("VLM 응답 없음"))
+
+    outcomes = checker.check(_context(store, ir, video))
+
+    assert {o.verdict for o in outcomes if o.scene_key == "intro"} == {Verdict.PASS}
+    closeup = [o for o in outcomes if o.scene_key == "closeup"]
+    outro = [o for o in outcomes if o.scene_key == "outro"]
+    assert {o.verdict for o in closeup + outro} == {Verdict.UNDETERMINED}
+    assert closeup[0].detail["reason"] == "LLM_TIMEOUT: VLM 응답 없음"
+    assert (
+        outro[0].detail["reason"].startswith("LLM_TIMEOUT: ")
+        and "묻지 않" in outro[0].detail["reason"]
+    )
+    assert len(llm.calls) == 2  # outro 는 부르지 않았다
+    # 묻지 않은 장면의 결과도 요구조건마다 한 건씩, 판정이 난 결과와 같은 이름으로 대상을 적는다
+    assert [o.requirement_key for o in outro] == [r.key for r in ir.scene("outro").requirements]
+
+
+def test_an_unexpected_error_in_one_scene_keeps_the_verdicts_of_the_others(store, ir, video):
+    """예전에는 검수기 전체가 예외로 끝나 앞뒤 장면의 판정까지 버려졌다 (감사 A-13)."""
+    replies = [_reply("yes", "yes", "yes", "yes"), KeyError("frames"), _reply("yes", "yes")]
+    checker, llm = _checker(store, *replies)
+
+    outcomes = checker.check(_context(store, ir, video))
+
+    assert {o.verdict for o in outcomes if o.scene_key in ("intro", "outro")} == {Verdict.PASS}
+    closeup = [o for o in outcomes if o.scene_key == "closeup"]
+    assert {o.verdict for o in closeup} == {Verdict.UNDETERMINED}
+    assert closeup[0].detail["reason"] == "UNEXPECTED_ERROR: KeyError"
+    assert len(llm.calls) == 3
+
+
+def test_every_result_names_its_requirement_the_same_way(store, ir, video):
+    """판정이 났든 장면 전체를 판정하지 못했든, 결과의 detail 로 어느 요구조건인지 알 수 있다 (감사 A-16).
+
+    장면 전체가 미판정일 때만 predicate 가 없어서, detail.predicate 로 대상을 찾던 평가 코드가 그 장면을 빼고 셌다.
+    """
+    replies = [_reply("yes"), LLMTimeout("VLM 응답 없음"), *_all_yes()[2:]]
+    checker, _ = _checker(store, *replies)
+
+    outcomes = checker.check(_context(store, ir, video))
+
+    by_key = {r.key: r for r in ir.iter_requirements()}
+    for outcome in outcomes:
+        requirement = by_key[outcome.requirement_key]
+        assert outcome.detail["method"] == "vlm"
+        assert outcome.detail["predicate"] == requirement.predicate
+        assert outcome.detail["expected_value"] == requirement.expected_value
+    undetermined = [o for o in outcomes if o.scene_key == "closeup"]
+    assert {o.verdict for o in undetermined} == {Verdict.UNDETERMINED}
 
 
 def test_clips_that_are_not_video_are_undetermined_without_asking(store, ir):
@@ -267,6 +322,63 @@ def test_a_reused_scene_is_judged_when_the_parent_has_no_verdict_for_it(store, i
     checker, llm = _checker(store, *_all_yes())
 
     assert len(checker.check(ctx)) == 8 and len(llm.calls) == 3
+
+
+def test_an_undetermined_parent_verdict_is_not_inherited(store, ir, video):
+    """부모를 검수할 때 VLM 이 답하지 않아 미판정이 된 장면. 미판정은 판정이 아니므로 물려받지 않고 새로 판정한다.
+
+    물려받으면 그 장면을 다시 만들지 않는 모든 수정 버전에서 계속 미판정으로 남는다 (감사 A-23, ADR-0018).
+    """
+    parent = VideoVersion("ver_0", "prj_1", VersionState.COMPLETED, NOW, ir=ir)
+    parent_checks = (
+        _parent_result(
+            "outro:barista:shirt_color", Verdict.UNDETERMINED, None, reason="LLM_TIMEOUT: 응답 없음"
+        ),
+        _parent_result("outro:cafe:lighting", Verdict.PASS, 1.0),
+    )
+    ctx = _context(
+        store,
+        ir,
+        video,
+        parent=parent,
+        parent_ir=ir,
+        parent_checks=parent_checks,
+        reused_scene_keys=frozenset({"outro"}),
+        changed_scene_keys=frozenset({"intro", "closeup"}),
+    )
+    checker, llm = _checker(store, *_all_yes())
+
+    outro = [o for o in checker.check(ctx) if o.scene_key == "outro"]
+
+    assert len(llm.calls) == 3  # outro 도 물었다
+    assert [(o.requirement_key, o.verdict) for o in outro] == [
+        ("outro:barista:shirt_color", Verdict.PASS),
+        ("outro:cafe:lighting", Verdict.PASS),
+    ]
+    assert all("inherited_from" not in o.detail for o in outro)
+
+
+def test_decided_parent_verdicts_are_inherited_whether_they_pass_or_fail(store, ir, video):
+    parent = VideoVersion("ver_0", "prj_1", VersionState.COMPLETED, NOW, ir=ir)
+    parent_checks = (
+        _parent_result("outro:barista:shirt_color", Verdict.FAIL, 0.0),
+        _parent_result("outro:cafe:lighting", Verdict.PASS, 1.0),
+    )
+    ctx = _context(
+        store,
+        ir,
+        video,
+        parent=parent,
+        parent_ir=ir,
+        parent_checks=parent_checks,
+        reused_scene_keys=frozenset({"outro"}),
+    )
+    checker, llm = _checker(store, *_all_yes()[:2])
+
+    outro = [o for o in checker.check(ctx) if o.scene_key == "outro"]
+
+    assert len(llm.calls) == 2
+    assert [o.verdict for o in outro] == [Verdict.FAIL, Verdict.PASS]
 
 
 # ---- 이 버전에서 바뀐 요구조건 ------------------------------------------------------------

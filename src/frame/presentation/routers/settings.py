@@ -3,6 +3,9 @@
 안전 규칙
 - FRAME_LLM_RUNTIME_KEY=true 일 때만 입력·삭제할 수 있다 (기본 꺼짐). 상태 조회는 항상 가능하다.
 - 기본은 서버와 같은 기기(loopback)에서 온 요청만 받는다. 원격 허용은 FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE.
+  '같은 기기' 는 요청의 주소(request.client.host)로 판단한다. 같은 기기의 역방향 프록시(nginx 등) 뒤에서는 모든 요청이
+  127.0.0.1 로 보이므로, uvicorn 을 --proxy-headers 로 띄워 실제 주소를 받아야 한다. 그러지 않으면 다른 기기에서도
+  키를 넣을 수 있다 (요청 제한 rate_limit.py 와 같은 조건이다).
 - 키는 메모리에만 두고 응답·로그·DB 에 남기지 않는다. 응답에는 끝 4자리만 보인다.
 """
 

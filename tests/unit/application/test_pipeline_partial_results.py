@@ -13,13 +13,13 @@ from frame.adapters.storage import InMemoryArtifactStore
 from frame.adapters.tracker import FakeObjectTracker
 from frame.application.dto import CreateRevisionCommand
 from frame.application.errors import TrackingError
-from frame.application.ports.checker import Checker
+from frame.application.ports.checker import Checker, CheckOutcome
 from frame.application.ports.generator import VideoGenerator
 from frame.application.ports.tracker import ObjectTracker
-from frame.domain.enums import ChangeScope, CheckType, TrackingStatus, VersionState
+from frame.domain.enums import ChangeScope, CheckType, TrackingStatus, Verdict, VersionState
 from frame.domain.errors import MediaNotAvailable
 from frame.domain.progress import StageStatus
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from frame.domain.tracking import TrackRecord
 from tests.support.factories import create_draft, generate, make_container
 
@@ -116,18 +116,23 @@ def test_version_is_still_marked_failed_when_partial_results_cannot_be_saved(cap
 
 
 def test_check_failure_keeps_everything_produced_before_it():
-    class Exploding(Checker):
+    class WrongRequirement(Checker):
+        """이 버전에 없는 요구조건의 결과를 돌려준다. 검수 단계가 무결성 위반으로 실패한다.
+
+        (검수기가 예외로 끝나는 것은 단계의 실패가 아니다: 그 판정만 미판정으로 남는다. 감사 A-13)
+        """
+
         check_type = CheckType.REQUIREMENT
 
         def check(self, ctx):
-            raise RuntimeError("boom")
+            return [CheckOutcome(self.check_type, Verdict.PASS, requirement_key="ghost.color")]
 
-    container = make_container(checkers=(Exploding(),))
+    container = make_container(checkers=(WrongRequirement(),))
     vid = create_draft(container).version_id
 
     version = generate(container, vid)
 
-    assert (version.state, version.error_code) == (VersionState.FAILED, "UNEXPECTED_ERROR")
+    assert (version.state, version.error_code) == (VersionState.FAILED, "INTEGRITY_VIOLATION")
     assert version.video_uri and len(version.clips) == 3
     assert [t.status for t in container.queries.get_entity_tracks(vid, "cup").records] == [
         TrackingStatus.COMPLETED,

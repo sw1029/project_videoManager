@@ -55,6 +55,31 @@ def test_rule_violation_is_fed_back_to_the_model():
     assert "entity_key" in client.calls[1]["user"]
 
 
+def test_an_answer_of_the_wrong_shape_is_fed_back_like_any_other_mistake():
+    """strict 가 아닌 서버는 스키마와 형이 다른 값을 줄 수 있다 (글 자리에 숫자). 재시도 고리 안에서 다룬다.
+
+    고리를 빠져나가면 구조화 실패(STRUCTURING_ERROR)가 아니라 예상 밖 오류가 된다 (감사 A-26).
+    """
+    wrong = _document()
+    wrong["scenes"][0]["requirements"][0]["expected_value"] = 3
+    client = ReplayLLMClient([json.dumps(wrong), json.dumps(_document())])
+    structurer = LLMStructurer(client)
+
+    ir = structurer.structure(_request())
+
+    assert ir == cafe_ir() and structurer.attempts == 2
+    assert "rejected" in client.calls[1]["user"]
+
+
+def test_answers_that_stay_malformed_end_as_a_structuring_error():
+    wrong = _document()
+    wrong["scenes"][0]["requirements"][0]["expected_value"] = 3
+    client = ReplayLLMClient([json.dumps(wrong)] * 2)
+
+    with pytest.raises(StructuringError, match="2회"):
+        LLMStructurer(client, max_attempts=2).structure(_request())
+
+
 def test_gives_up_after_max_attempts():
     client = ReplayLLMClient(["x", "y", "z"])
     with pytest.raises(StructuringError, match="3"):

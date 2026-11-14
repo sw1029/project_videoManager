@@ -8,13 +8,13 @@ import pytest
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.revision import (
+    AttributeChange,
     KeepItem,
     RevisionIntent,
     next_seed,
     normalize_keep,
     repair_targets,
 )
-from frame.domain.services.propagation import AttributeChange
 
 
 def test_entity_aspects_need_an_entity_and_scene_aspects_must_not_have_one():

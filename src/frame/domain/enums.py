@@ -34,7 +34,7 @@ class CheckType(StrEnum):
 class Verdict(StrEnum):
     """CHECK_RESULT.verdict"""
 
-    PASS = "PASS"
+    PASS = "PASS"  # noqa: S105 - 판정값이지 비밀이 아니다
     FAIL = "FAIL"  # 검수 기준 미달 (실행 오류 FAILED 와 구분)
     UNDETERMINED = "UNDETERMINED"  # 미판정 - 통과로 집계하지 않는다
 

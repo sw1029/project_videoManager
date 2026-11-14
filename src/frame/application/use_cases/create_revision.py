@@ -11,10 +11,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from frame.domain.errors import NotFound, VersionNotRevisable
-from frame.domain.services.propagation import ChangePropagationPolicy
-from frame.domain.services.revision_planning import resolve_revision, revision_draft
-from frame.domain.state_machine import REVISABLE_STATES
+from frame.domain.errors import NotFound
+from frame.domain.revision import ChangePropagationPolicy
+from frame.domain.revision.resolution import resolve_revision, revision_draft
 
 from ..dto import CreateRevisionCommand, CreateRevisionResult
 from ..ports.common import Clock, IdGenerator
@@ -39,14 +38,11 @@ class CreateRevision:
             source = uow.versions.get(command.version_id)
             if source is None:
                 raise NotFound(f"버전 {command.version_id} 을 찾을 수 없습니다")
-            if source.state not in REVISABLE_STATES or source.ir is None:
-                raise VersionNotRevisable(
-                    f"상태 {source.state} 인 버전은 수정할 수 없습니다", state=source.state
-                )
+            ir = source.ensure_revisable()
 
             change = command.change
             resolved = resolve_revision(
-                source.ir, change, self._policy, kind=command.kind, keep=command.keep
+                ir, change, self._policy, kind=command.kind, keep=command.keep
             )
             revision = revision_draft(
                 source,

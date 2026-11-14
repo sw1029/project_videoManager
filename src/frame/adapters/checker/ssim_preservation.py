@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from frame.adapters.video_tools import require_ffmpeg, ssim
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.similarity import ssim
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
@@ -62,7 +63,7 @@ class SsimPreservationChecker(Checker):
             log.warning("보존 검수 미판정 (장면 %s): %s: %s", key, exc.code, exc)
             return self._undetermined(key, f"{exc.code}: {exc}")
         passed = score >= self.threshold
-        warnings = ()
+        warnings: tuple[WarningInterval, ...] = ()
         if not passed:
             warnings = (
                 WarningInterval(

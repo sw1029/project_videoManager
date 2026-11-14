@@ -15,7 +15,7 @@ from frame.application.dto import CreateRevisionCommand
 from frame.application.ports.generator import VideoGenerator
 from frame.config import Settings
 from frame.domain.enums import VersionState
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import create_draft, generate, make_container, version_of
 
 # 느린 장면만 마감을 넘기고, 나머지 장면(Fake, 1ms 미만)은 느린 CI 에서도 넉넉히 끝나는 값

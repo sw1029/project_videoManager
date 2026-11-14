@@ -8,6 +8,7 @@
 래퍼: Windows 는 scripts\\setup.cmd · scripts\\run.cmd, macOS·Linux 는 sh scripts/setup.sh · sh scripts/run.sh
 
 의존성을 설치하기 전에도 실행되므로 frame 의 다른 모듈(pydantic·fastapi 사용)을 import 하지 않는다.
+표준 라이브러리만 쓰는 frame.adapters.shared.api_keys (키 파일 읽는 규칙)만 가져온다.
 시연 상태(DB·산출물·키 파일)는 저장소의 .demo/ 에 두며 git 에서 제외된다.
 """
 
@@ -34,14 +35,28 @@ import webbrowser
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path, PurePath
 
+from frame.adapters.shared.api_keys import find_key
+
 MIN_PYTHON = (3, 11)
 MIN_NODE = 18
 DEFAULT_PORT = 8000
 LAN_RATE_LIMIT_PER_MINUTE = "30"
+DEFAULT_GENERATOR = "fake"  # Settings.generator 의 기본값 (런처는 frame.config 를 쓰지 못한다)
+HEALTH_WAIT_S = 90.0  # 서버가 /health 에 답할 때까지 기다리는 시간 (빈 DB 로 뜨는 점검용 서버)
+# run 은 지난 실행이 남긴 분석을 기동 중에 다시 실행할 수 있어 (FRAME_JOBS=inline) 더 기다린다.
+# LLM 호출 하나가 제한 시간 60초 x 2회까지 걸린다. 그보다 짧으면 남은 분석이 실행마다 되풀이된다
+RECOVERY_WAIT_S = 300.0
+SLOW_START_NOTICE_S = 15.0  # 이만큼 지나도 뜨지 않으면 까닭과 건너뛰는 방법을 알린다
+QUICK_TIMEOUT_S = 60.0  # 버전·상태를 묻는 짧은 실행. 이 안에 답이 없으면 없는 것으로 본다
 LOOPBACK = "127.0.0.1"
 DEMO_DIR = ".demo"
 KEY_FILE_NAME = "openai.key"
 BUNDLE_MARKER = "frame-bundle.json"  # OS별 번들(Python·화면 동봉)의 루트에 있는 표식 파일
+# 저장한 키는 폴더 안에 평문으로 남는다. 준비해 둔 폴더를 USB·드라이브로 넘기면 키가 따라간다
+KEY_STAYS_IN_FOLDER = (
+    "저장한 키는 암호화되지 않은 채 이 폴더 안에 있습니다. "
+    "폴더를 복사하거나 다른 사람에게 넘기기 전에 .demo 폴더를 지우세요"
+)
 _KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]{17,400}")
 
 INSTALL_HINTS = {
@@ -98,9 +113,14 @@ def parse_node_major(text: str) -> int | None:
 
 
 def extract_key(text: str) -> str | None:
-    """키 파일 내용에서 sk- 키를 찾는다 (키만 있는 줄과 OPENAI_API_KEY=... 줄 모두)."""
-    match = _KEY_TOKEN.search(text or "")
-    return match.group(0) if match else None
+    """키 파일 내용이나 입력에서 OpenAI 키(sk-...)를 찾는다 (키만 있는 줄과 OPENAI_API_KEY=... 줄 모두).
+
+    다른 서비스의 키는 집지 않는다: 다른 환경 변수의 값과 OpenRouter 키(sk-or-...)는 OpenAI 키가 아니다.
+    """
+    key = find_key(text or "", name="OPENAI_API_KEY", token=_KEY_TOKEN)
+    if key is None or _KEY_TOKEN.fullmatch(key) is None or key.startswith("sk-or-"):
+        return None
+    return key
 
 
 def npm_install_command(frontend: Path) -> list[str]:
@@ -136,13 +156,42 @@ def demo_env(
         env["FRAME_LLM_RUNTIME_KEY"] = "true"  # 키가 없으면 화면에서 입력 (서버와 같은 기기에서만)
         if key_file is not None:
             env["FRAME_LLM_KEY_FILE"] = str(key_file)
-    if lan:  # 인증 없는 시연 서버를 네트워크에 열 때는 요청 수라도 제한한다
-        env.setdefault("FRAME_RATE_LIMIT_PER_MINUTE", LAN_RATE_LIMIT_PER_MINUTE)
+    if lan:
+        # 인증 없는 시연 서버를 네트워크에 연다. 셸에서 물려받은 값이 보호를 끄지 못하게 한다
+        if not _is_positive(env.get("FRAME_RATE_LIMIT_PER_MINUTE", "")):  # 0·빈 값은 "꺼짐" 이다
+            env["FRAME_RATE_LIMIT_PER_MINUTE"] = LAN_RATE_LIMIT_PER_MINUTE
+        env["FRAME_LLM_RUNTIME_KEY_ALLOW_REMOTE"] = "false"  # 키 입력·삭제는 이 기기에서만
     return env
+
+
+def _is_positive(value: str) -> bool:
+    return value.strip().isdecimal() and int(value) > 0
+
+
+def lan_notes(env: Mapping[str, str]) -> list[str]:
+    """--lan 으로 열 때 서버에 실제로 적용되는 설정. 셸에서 물려받은 값까지 여는 사람이 보게 안내에 찍는다."""
+    limit = env["FRAME_RATE_LIMIT_PER_MINUTE"].strip()
+    notes = [
+        f"요청 제한: 기기(IP)마다 분당 {limit}회 (만들기·수정 요청). 키 입력·삭제는 이 기기에서만 됩니다"
+    ]
+    generator = env.get("FRAME_GENERATOR", "").strip()
+    if generator and generator != DEFAULT_GENERATOR:
+        notes.append(
+            f"주의: 영상 생성기가 {generator} 입니다 (FRAME_GENERATOR). "
+            "다른 기기의 요청도 이 서버의 키와 자원으로 영상을 만듭니다"
+        )
+    return notes
 
 
 def is_bundle(root: Path) -> bool:
     return (root / BUNDLE_MARKER).is_file()
+
+
+def is_frame_checkout(root: Path) -> bool:
+    """setup 이 .venv 를 만들고 `pip install -e .` 을 해도 되는 폴더인지: FRAME 의 pyproject.toml 과 소스가 있다."""
+    return (root / "pyproject.toml").is_file() and (
+        root / "src" / "frame" / "__init__.py"
+    ).is_file()
 
 
 def bundle_python(root: Path, platform: str = sys.platform) -> Path:
@@ -251,12 +300,19 @@ def _hint(tool: str) -> str:
 def _utf8_output() -> None:
     """Windows 에서 출력이 파이프로 갈 때(CI·Git Bash 등) 한글 때문에 실패하지 않게 UTF-8 로 맞춘다."""
     for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)  # 바꿔 끼운 스트림에는 없을 수 있다
+        if reconfigure is None:
+            continue
         with contextlib.suppress(AttributeError, ValueError, OSError):
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            reconfigure(encoding="utf-8", errors="replace")
 
 
 def _run(command: Sequence[str], cwd: Path) -> int:
-    """명령을 실행하고 종료 코드를 돌려준다. Windows 의 npm.cmd 같은 래퍼도 경로를 찾아 실행한다."""
+    """명령을 실행하고 종료 코드를 돌려준다. Windows 의 npm.cmd 같은 래퍼도 경로를 찾아 실행한다.
+
+    설치·빌드에 쓴다. 시간 제한이 없다: 출력이 그대로 보이고 Ctrl+C 로 멈출 수 있으며, 느린 연결의 설치를
+    중간에 끊지 않는다 (CI 에서는 잡의 timeout-minutes 가 막는다). 짧은 질의는 _ask 를 쓴다.
+    """
     _say(f"$ {' '.join(command)}")
     executable = shutil.which(command[0]) or command[0]
     try:
@@ -266,11 +322,30 @@ def _run(command: Sequence[str], cwd: Path) -> int:
         return 127
 
 
-def _quiet_ok(command: Sequence[str]) -> bool:
+def _ask(
+    command: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
+) -> subprocess.CompletedProcess[str] | None:
+    """버전·상태를 묻는 짧은 실행. 실행할 수 없거나 QUICK_TIMEOUT_S 안에 끝나지 않으면 None.
+
+    설치·빌드처럼 오래 걸리는 실행은 _run 을 쓴다 (출력이 그대로 보이고 Ctrl+C 로 멈춘다. 시간 제한을 두지 않는다).
+    """
     try:
-        return subprocess.run(command, capture_output=True).returncode == 0
-    except OSError:
-        return False
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            env=dict(env) if env is not None else None,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=QUICK_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _quiet_ok(command: Sequence[str]) -> bool:
+    done = _ask(command)
+    return done is not None and done.returncode == 0
 
 
 def _venv_ready(python: Path) -> bool:
@@ -283,16 +358,14 @@ def _node_major() -> int | None:
     node = shutil.which("node")
     if node is None:
         return None
-    try:
-        result = subprocess.run([node, "--version"], capture_output=True, text=True)
-    except OSError:
-        return None
-    return parse_node_major(result.stdout)
+    result = _ask([node, "--version"])
+    return parse_node_major(result.stdout) if result is not None else None
 
 
 def _port_free(port: int, host: str) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        if os.name != "nt":  # Windows 의 SO_REUSEADDR 는 사용 중인 포트에도 bind 를 허용해 검사가 무의미하다
+        # Windows 의 SO_REUSEADDR 는 사용 중인 포트에도 bind 를 허용해 검사가 무의미하다
+        if os.name != "nt":
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind((host, port))
@@ -318,10 +391,13 @@ def _lan_ip() -> str:
 _LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def _http(method: str, url: str, body: object | None = None, timeout: float = 30) -> tuple[int, bytes]:
+def _http(
+    method: str, url: str, body: object | None = None, timeout: float = 30
+) -> tuple[int, bytes]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers = {"Content-Type": "application/json"} if data is not None else {}
-    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    # 이 기기에서 띄운 시연 서버의 주소만 부른다
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)  # noqa: S310
     try:
         with _LOCAL_OPENER.open(request, timeout=timeout) as response:
             return response.status, response.read()
@@ -395,7 +471,10 @@ def kill_on_close_job(pid: int) -> int:
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.OpenProcess.restype = wintypes.HANDLE
     kernel32.SetInformationJobObject.argtypes = [
-        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
     ]
     kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -405,7 +484,8 @@ def kill_on_close_job(pid: int) -> int:
         raise OSError(ctypes.get_last_error(), "CreateJobObject")  # type: ignore[attr-defined]
     info = ExtendedLimits()
     info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-    process = kernel32.OpenProcess(0x0100 | 0x0001, False, pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    process = kernel32.OpenProcess(0x0100 | 0x0001, False, pid)
     try:
         ok = (
             process
@@ -445,25 +525,64 @@ def _stop(process: subprocess.Popen) -> None:
         process.wait()
 
 
-def _wait_for_health(base: str, process: subprocess.Popen, timeout: float = 90) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            return False
+_LEFTOVER_WAY_OUT = (
+    "--offline 으로 한 번 실행하면 남은 분석이 정리되고, --reset 은 시연 DB 를 지우고 시작합니다"
+)
+
+
+def _startup_problem(
+    base: str,
+    process: subprocess.Popen,
+    *,
+    timeout: float = HEALTH_WAIT_S,
+    slow_after: float | None = None,
+) -> str | None:
+    """서버가 /health 에 답할 때까지 기다린다. 답하면 None, 아니면 사용자에게 보일 까닭.
+
+    slow_after 초가 지나도 뜨지 않으면 한 번 알린다: 지난 실행에서 끝나지 않은 분석을 기동 중에 다시 실행하고
+    있을 수 있다 (재시작 복구, ADR-0013). 그 분석이 끝나야(성공이든 실패든) 다음 실행에서 되풀이되지 않으므로
+    서버가 살아 있는 동안에는 timeout 까지 기다린다.
+    """
+    started = time.monotonic()
+    told = slow_after is None
+    while (waited := time.monotonic() - started) < timeout:
+        code = process.poll()
+        if code is not None:
+            return f"서버가 시작하다가 끝났습니다 (종료 코드 {code}). 위의 서버 로그를 확인하세요"
         with contextlib.suppress(OSError, http.client.HTTPException):
             if _http("GET", f"{base}/health", timeout=2)[0] == 200:
-                return True
+                return None
+        if not told and slow_after is not None and waited >= slow_after:
+            told = True
+            _say(
+                "서버가 아직 준비 중입니다. 지난 실행에서 끝나지 않은 분석이 있으면 시작하면서 다시 실행합니다 "
+                f"(LLM 응답을 기다리느라 몇 분 걸릴 수 있고, 길어도 {timeout:.0f}초까지 기다립니다)"
+            )
+            _say(f"기다리지 않으려면 Ctrl+C 로 멈추세요. {_LEFTOVER_WAY_OUT}")
         time.sleep(0.5)
-    return False
+    return (
+        f"서버가 {timeout:.0f}초 안에 준비되지 않아 멈춥니다. 지난 실행에서 끝나지 않은 분석이 남아 있을 수 "
+        f"있습니다: {_LEFTOVER_WAY_OUT}. 그래도 같으면 위의 서버 로그를 확인하세요"
+    )
 
 
 @contextlib.contextmanager
 def _server(root: Path, env: Mapping[str, str], port: int) -> Iterator[str]:
+    """점검용 서버를 띄웠다가 끝낸다. 그 포트에 이미 뜬 서버가 있으면 띄우지 않는다.
+
+    이미 뜬 서버가 /health 에 답하면 점검이 그 서버(실제 DB·화면에서 넣은 키)에 돌게 된다.
+    """
+    if not _port_free(port, LOOPBACK):
+        raise RuntimeError(
+            f"포트 {port} 를 이미 쓰고 있습니다. 점검은 새로 띄운 서버에만 합니다: "
+            "--port 를 빼거나 비어 있는 포트를 주세요"
+        )
     process = _start_server(root, env, LOOPBACK, port)
     try:
         base = f"http://{LOOPBACK}:{port}"
-        if not _wait_for_health(base, process):
-            raise RuntimeError("서버가 시작되지 않았습니다. 위의 서버 로그를 확인하세요")
+        problem = _startup_problem(base, process)
+        if problem:
+            raise RuntimeError(problem)
         yield base
     finally:
         _stop(process)
@@ -484,12 +603,16 @@ def _ready_to_run(root: Path) -> str | None:
 
 def _report_key_and_port(root: Path) -> None:
     if key_file_path(root).is_file():
-        _say("OpenAI 키: .demo/openai.key 있음")
+        _say(f"OpenAI 키: .demo/openai.key 있음. {KEY_STAYS_IN_FOLDER}")
     elif os.environ.get("OPENAI_API_KEY"):
         _say("OpenAI 키: OPENAI_API_KEY 환경 변수 있음")
     else:
-        _say("OpenAI 키: 없음. 실행 후 화면에서 넣거나, run --offline 으로 키 없이 시연할 수 있습니다")
-    port_state = "사용 가능" if _port_free(DEFAULT_PORT, LOOPBACK) else "사용 중 (run --port 로 변경)"
+        _say(
+            "OpenAI 키: 없음. 실행 후 화면에서 넣거나, run --offline 으로 키 없이 시연할 수 있습니다"
+        )
+    port_state = (
+        "사용 가능" if _port_free(DEFAULT_PORT, LOOPBACK) else "사용 중 (run --port 로 변경)"
+    )
     _say(f"포트 {DEFAULT_PORT}: {port_state}")
 
 
@@ -507,11 +630,15 @@ def cmd_doctor(root: Path) -> int:
         )
         _report_key_and_port(root)
         problem = _ready_to_run(root)
-        _say(f"판정: {problem}" if problem else f"판정: 실행 준비 완료 → {runner_hint(bundle=True)}")
+        _say(
+            f"판정: {problem}" if problem else f"판정: 실행 준비 완료 → {runner_hint(bundle=True)}"
+        )
         return 0 if problem is None else 1
     version = pyplatform.python_version()
-    python_ok = python_supported(sys.version_info)
-    _say(f"Python {version}: {'사용 가능' if python_ok else '3.11 이상 필요. 설치: ' + _hint('python')}")
+    python_ok = python_supported(sys.version_info[:2])
+    _say(
+        f"Python {version}: {'사용 가능' if python_ok else '3.11 이상 필요. 설치: ' + _hint('python')}"
+    )
     venv = venv_python(root)
     if _venv_ready(venv):
         _say("가상환경(.venv): 준비됨")
@@ -524,7 +651,9 @@ def cmd_doctor(root: Path) -> int:
         _say(f"Node.js: 없음. 화면 빌드(setup)에만 필요합니다. 설치: {_hint('node')}")
     else:
         node_ok = node >= MIN_NODE
-        _say(f"Node.js {node}: {'사용 가능' if node_ok else f'{MIN_NODE} 이상 필요. 설치: ' + _hint('node')}")
+        _say(
+            f"Node.js {node}: {'사용 가능' if node_ok else f'{MIN_NODE} 이상 필요. 설치: ' + _hint('node')}"
+        )
     dist = root / "frontend" / "dist" / "index.html"
     _say(f"화면 빌드(frontend/dist): {'있음' if dist.is_file() else '없음 (setup 이 처리)'}")
     _report_key_and_port(root)
@@ -542,6 +671,13 @@ def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: 
         runner = runner_hint(bundle=True)
         _say(f"실행: {runner}   (키 없이 오프라인 시연: {runner} --offline)")
         return 0
+    if not is_frame_checkout(
+        root
+    ):  # --root 가 없으면 지금 폴더가 대상이다: 남의 .venv 를 비우지 않는다
+        return _fail(
+            f"FRAME 저장소 폴더가 아닙니다: {root}. 저장소 폴더에서 실행하거나 --root 로 알려 주세요 "
+            "(이 폴더에는 아무것도 만들거나 지우지 않았습니다)"
+        )
     venv = venv_python(root)
     if foreign_venv(root):
         return _fail(
@@ -564,7 +700,9 @@ def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: 
     _say("백엔드 의존성을 설치합니다 (처음에는 몇 분 걸릴 수 있습니다)")
     pip = [str(venv), "-m", "pip", "install", "--disable-pip-version-check", "-e", ".[llm]"]
     if _run(pip, root) != 0:
-        return _fail("백엔드 의존성 설치에 실패했습니다. 인터넷 연결과 위의 pip 메시지를 확인하세요")
+        return _fail(
+            "백엔드 의존성 설치에 실패했습니다. 인터넷 연결과 위의 pip 메시지를 확인하세요"
+        )
 
     frontend = root / "frontend"
     dist_index = frontend / "dist" / "index.html"
@@ -576,12 +714,18 @@ def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: 
         node = _node_major()
         if node is None or node < MIN_NODE or shutil.which("npm") is None:
             if not dist_index.is_file():
-                return _fail(f"화면 빌드에 Node.js {MIN_NODE} 이상이 필요합니다. 설치: {_hint('node')}")
+                return _fail(
+                    f"화면 빌드에 Node.js {MIN_NODE} 이상이 필요합니다. 설치: {_hint('node')}"
+                )
             _say(f"Node.js {MIN_NODE} 이상이 없어 기존 화면 빌드를 그대로 씁니다")
         else:
             _say(f"화면 의존성을 설치하고 빌드합니다 (Node.js {node})")
-            if _run(npm_install_command(frontend), frontend) or _run(["npm", "run", "build"], frontend):
-                return _fail("화면 빌드에 실패했습니다. frontend/node_modules 를 지우고 다시 실행해 보세요")
+            if _run(npm_install_command(frontend), frontend) or _run(
+                ["npm", "run", "build"], frontend
+            ):
+                return _fail(
+                    "화면 빌드에 실패했습니다. frontend/node_modules 를 지우고 다시 실행해 보세요"
+                )
 
     status = _store_key(root, key_file=key_file, no_key=no_key)
     if status:
@@ -601,7 +745,7 @@ def _store_key(root: Path, *, key_file: str | None, no_key: bool) -> int:
         if key is None:
             return _fail(f"키 파일에서 sk- 로 시작하는 키를 찾지 못했습니다: {source}")
         save_key(demo, key)
-        _say("OpenAI 키를 .demo/openai.key 에 저장했습니다 (git 에서 제외됨)")
+        _say_key_saved(root)
         return 0
     if key_file_path(root).is_file():
         _say("기존 .demo/openai.key 를 그대로 씁니다")
@@ -622,8 +766,14 @@ def _store_key(root: Path, *, key_file: str | None, no_key: bool) -> int:
     if key is None:
         return _fail("sk- 로 시작하는 키가 아닙니다. setup 을 다시 실행하거나 화면에서 입력하세요")
     save_key(demo, key)
-    _say("OpenAI 키를 .demo/openai.key 에 저장했습니다 (git 에서 제외됨)")
+    _say_key_saved(root)
     return 0
+
+
+def _say_key_saved(root: Path) -> None:
+    excluded = "" if is_bundle(root) else " (git 에서 제외됨)"
+    _say(f"OpenAI 키를 .demo/openai.key 에 저장했습니다{excluded}")
+    _say(KEY_STAYS_IN_FOLDER)
 
 
 def cmd_run(
@@ -633,12 +783,12 @@ def cmd_run(
     if problem:
         return _fail(problem)
     demo = root / DEMO_DIR
+    host = "0.0.0.0" if lan else LOOPBACK  # noqa: S104 - --lan 은 같은 네트워크에 여는 선택 기능이다
+    if not _port_free(port, host):  # 지우기 전에 본다: 띄우지도 못할 실행이 DB 를 지우지 않게
+        return _fail(f"포트 {port} 를 이미 쓰고 있습니다. --port 로 바꾸세요 (예: --port 8010)")
     if reset:
         reset_state(demo)
         _say("시연 DB 와 산출물을 지웠습니다 (키 파일은 그대로)")
-    host = "0.0.0.0" if lan else LOOPBACK
-    if not _port_free(port, host):
-        return _fail(f"포트 {port} 를 이미 쓰고 있습니다. --port 로 바꾸세요 (예: --port 8010)")
     demo.mkdir(exist_ok=True)
     _stop_on_termination_signals()
     key = key_file_path(root)
@@ -648,9 +798,12 @@ def cmd_run(
     process = _start_server(root, env, host, port)
     base = f"http://{LOOPBACK}:{port}"
     try:
-        if not _wait_for_health(base, process):
-            return _fail("서버가 시작되지 않았습니다. 위의 서버 로그를 확인하세요")
-        _announce(base, port, offline=offline, lan=lan)
+        problem = _startup_problem(
+            base, process, timeout=RECOVERY_WAIT_S, slow_after=SLOW_START_NOTICE_S
+        )
+        if problem:
+            return _fail(problem)
+        _announce(base, port, offline=offline, lan=lan_notes(env) if lan else None)
         if open_browser and can_open_browser():
             webbrowser.open(base)
         while process.poll() is None:  # Windows 에서도 Ctrl+C 로 바로 끝낼 수 있게 짧게 기다린다
@@ -663,7 +816,8 @@ def cmd_run(
         _stop(process)
 
 
-def _announce(base: str, port: int, *, offline: bool, lan: bool) -> None:
+def _announce(base: str, port: int, *, offline: bool, lan: Sequence[str] | None) -> None:
+    """lan: 네트워크에 열었으면 그때 적용된 설정 안내(lan_notes), 이 기기에만 열었으면 None."""
     mode = "오프라인 (DSL 프리셋, 키 불필요)" if offline else "LLM 자연어 구조화"
     _say(f"실행 중: {base}   [{mode}]   끝내려면 Ctrl+C")
     if not offline:
@@ -671,13 +825,17 @@ def _announce(base: str, port: int, *, offline: bool, lan: bool) -> None:
         if key.get("configured"):
             _say(f"OpenAI 키: 준비됨 ({key.get('hint')})")
         else:
-            _say("OpenAI 키: 없음 → 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣으세요 (이 기기에서만)")
-    if lan:
+            _say(
+                "OpenAI 키: 없음 → 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣으세요 (이 기기에서만)"
+            )
+    if lan is not None:
         _say(f"같은 네트워크의 다른 기기(iPhone·iPad·다른 PC): http://{_lan_ip()}:{port}")
         _say(
             "주의: 인증이 없는 시연용 서버입니다. 믿을 수 있는 네트워크에서만 쓰세요. "
-            "다른 기기도 이 서버의 키로 분석을 요청할 수 있고, 키 입력·삭제만 이 기기로 제한됩니다"
+            "다른 기기도 이 서버의 키로 분석을 요청할 수 있습니다"
         )
+        for note in lan:
+            _say(note)
 
 
 def cmd_smoke(root: Path, *, port: int) -> int:
@@ -719,12 +877,15 @@ def cmd_smoke(root: Path, *, port: int) -> int:
 
 def _smoke_offline(base: str, check: Callable[[bool, str], bool]) -> None:
     status, health = _json("GET", f"{base}/health")
-    check(status == 200 and health.get("structuring_input") == "dsl", "상태 확인 (오프라인 = DSL 입력)")
+    check(
+        status == 200 and health.get("structuring_input") == "dsl",
+        "상태 확인 (오프라인 = DSL 입력)",
+    )
     status, page = _http("GET", f"{base}/")
     check(status == 200 and b"FRAME" in page, "화면을 같은 주소에서 제공")
     status, data = _json("GET", f"{base}/presets.json")
     preset = next((p for p in data.get("presets", []) if p.get("mode") == "dsl"), None)
-    if not check(status == 200 and preset is not None, "시연 프리셋 제공"):
+    if not check(status == 200 and preset is not None, "시연 프리셋 제공") or preset is None:
         return
     body = {
         "title": preset["title"],
@@ -738,7 +899,9 @@ def _smoke_offline(base: str, check: Callable[[bool, str], bool]) -> None:
         return
     status, _ = _json("POST", f"{version_url}/generations")
     version = _json("GET", version_url)[1]
-    if not check(status == 202 and version.get("state") == "COMPLETED", "생성·추적·검수 (COMPLETED)"):
+    if not check(
+        status == 202 and version.get("state") == "COMPLETED", "생성·추적·검수 (COMPLETED)"
+    ):
         return
     check(_http("GET", f"{base}{version.get('video_url')}")[0] == 200, "결과 영상 주소")
     check(_json("GET", f"{version_url}/checks")[0] == 200, "검수 결과 조회")
@@ -753,7 +916,11 @@ def _smoke_online(base: str, check: Callable[[bool, str], bool]) -> None:
         and key.get("configured") is False
     )
     check(started, "LLM 모드: 키 없이 기동, 같은 기기에서 키 입력 가능")
-    project = {"title": "smoke", "prompt": "바리스타가 빨간 컵을 들어 보인다", "target_duration_ms": 8000}
+    project = {
+        "title": "smoke",
+        "prompt": "바리스타가 빨간 컵을 들어 보인다",
+        "target_duration_ms": 8000,
+    }
     created = _json("POST", f"{base}/api/projects", project)[1]
     version = _json("GET", f"{base}/api/versions/{created.get('version_id')}")[1]
     guided = version.get("state") == "FAILED" and version.get("error_code") == "LLM_UNAVAILABLE"
@@ -768,16 +935,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="frame_demo", description="FRAME 시연 준비·실행 (Windows / macOS / Linux)"
     )
-    parser.add_argument("--root", type=Path, help="저장소 또는 압축을 푼 번들 폴더 (기본: 현재 폴더)")
+    parser.add_argument(
+        "--root", type=Path, help="저장소 또는 압축을 푼 번들 폴더 (기본: 현재 폴더)"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="실행 환경 점검")
     setup = sub.add_parser("setup", help="가상환경·의존성 설치, 화면 빌드, API 키 저장(선택)")
     setup.add_argument("--key-file", help="OpenAI 키가 든 파일 (내용을 .demo/openai.key 로 복사)")
-    setup.add_argument("--no-key", action="store_true", help="키를 묻지 않음 (실행 후 화면에서 입력)")
+    setup.add_argument(
+        "--no-key", action="store_true", help="키를 묻지 않음 (실행 후 화면에서 입력)"
+    )
     setup.add_argument("--skip-frontend", action="store_true", help="화면 빌드 생략")
     run = sub.add_parser("run", help="화면+API 서버 실행")
     run.add_argument("--port", type=int, default=DEFAULT_PORT)
-    run.add_argument("--offline", action="store_true", help="인터넷·키 없이 규칙 기반(DSL)으로 시연")
+    run.add_argument(
+        "--offline", action="store_true", help="인터넷·키 없이 규칙 기반(DSL)으로 시연"
+    )
     run.add_argument("--lan", action="store_true", help="같은 네트워크의 다른 기기에서 보기 허용")
     run.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
     run.add_argument("--reset", action="store_true", help="시연 DB·산출물을 지우고 시작 (키 유지)")
@@ -792,7 +965,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     root = Path(args.root or root or Path.cwd()).resolve()
     if args.command == "doctor":
         return cmd_doctor(root)
-    if not python_supported(sys.version_info):
+    if not python_supported(sys.version_info[:2]):
         current = pyplatform.python_version()
         return _fail(f"Python 3.11 이상이 필요합니다 (현재 {current}). 설치: {_hint('python')}")
     if args.command == "setup":

@@ -5,18 +5,17 @@
 - ArtifactClipCache 는 항목을 ArtifactStore 의 cache/clips/<키>.json 에 둔다. 클립과 같은 저장소에 있으므로
   산출물 폴더를 지우면 캐시도 함께 사라지고, local_fs 면 프로세스를 다시 시작해도 남는다.
 - 적중은 클립 산출물이 저장소에 실제로 남아 있을 때만이다. 읽을 수 없는 항목은 없는 것으로 본다 (다시 생성).
-- KeyedLocks 는 같은 키의 동시 요청을 하나로 줄인다 (같은 장면을 두 번 제출해 두 번 과금되는 일을 막는다).
+- 같은 키의 동시 요청은 키별 잠금(frame.adapters.shared.locking.KeyedLocks)이 하나로 줄인다
+  (같은 장면을 두 번 제출해 두 번 과금되는 일을 막는다. 잠금은 그것을 쓰는 데코레이터와 생성기가 쥔다).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -168,25 +167,3 @@ def build_clip_cache(store: ArtifactStore | None, profile: Mapping[str, object])
         return ArtifactClipCache(store, profile)
     log.warning("산출물 저장소가 uri_for 를 지원하지 않아 생성 캐시를 프로세스 메모리에만 둡니다")
     return InMemoryClipCache(profile, store=store)
-
-
-class KeyedLocks:
-    """키별 잠금 (같은 키의 작업을 한 번에 하나만). 쓰는 쪽이 없어지면 잠금도 지운다."""
-
-    def __init__(self) -> None:
-        self._guard = threading.Lock()
-        self._locks: dict[str, tuple[threading.Lock, list[int]]] = {}
-
-    @contextmanager
-    def hold(self, key: str) -> Iterator[None]:
-        with self._guard:
-            lock, users = self._locks.setdefault(key, (threading.Lock(), [0]))
-            users[0] += 1
-        try:
-            with lock:
-                yield
-        finally:
-            with self._guard:
-                users[0] -= 1
-                if users[0] == 0:
-                    del self._locks[key]

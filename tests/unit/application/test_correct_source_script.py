@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.fake_media import fake_video
+from frame.adapters.shared.media.fake_media import fake_video
 from frame.application.use_cases.series import (
     CorrectSourceScriptCommand,
     ExtractThemeCommand,

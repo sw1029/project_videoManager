@@ -7,8 +7,8 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.fake_media import fake_video
 from frame.adapters.series.theme_extraction import FakeThemeExtractor
+from frame.adapters.shared.media.fake_media import fake_video
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.ports.series.theme_extraction import ThemeExtraction, ThemeExtractionError
 from frame.application.ports.speech import SpeechRecognitionError, SpeechServiceError

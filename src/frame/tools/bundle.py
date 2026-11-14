@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import platform as pyplatform
@@ -46,6 +47,10 @@ class BundleError(Exception):
     """번들을 만들거나 확인할 수 없음 (사용자에게 그대로 보여 줄 메시지)."""
 
 
+# 아카이브가 아니거나 중간에 잘린 파일을 열거나 풀 때 나는 예외
+_BROKEN_ARCHIVE = (zipfile.BadZipFile, tarfile.TarError, EOFError)
+
+
 @dataclass(frozen=True)
 class Target:
     triple: str  # python-build-standalone 대상 이름
@@ -70,23 +75,33 @@ TARGETS = {
     t.triple: t
     for t in (
         Target(
-            "x86_64-pc-windows-msvc", "windows-x64", "Windows (x64)",
+            "x86_64-pc-windows-msvc",
+            "windows-x64",
+            "Windows (x64)",
             "1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149",
         ),
         Target(
-            "aarch64-apple-darwin", "macos-arm64", "macOS (Apple Silicon)",
+            "aarch64-apple-darwin",
+            "macos-arm64",
+            "macOS (Apple Silicon)",
             "353d5f1b4fd2715e7053f12f068435d5bbad16b91e057006b5d01e0925709a7e",
         ),
         Target(
-            "x86_64-apple-darwin", "macos-x64", "macOS (Intel)",
+            "x86_64-apple-darwin",
+            "macos-x64",
+            "macOS (Intel)",
             "37c38fda76fec1fbf310adcbafb7f0d96af13b5511bf8ea954c3aa8eec185734",
         ),
         Target(
-            "x86_64-unknown-linux-gnu", "linux-x64", "Linux (x86_64)",
+            "x86_64-unknown-linux-gnu",
+            "linux-x64",
+            "Linux (x86_64)",
             "ce4f6d0a6cfdb3bed6e44c2f9affd85943c76a42e25ad3a259002f31d6fb8a20",
         ),
         Target(
-            "aarch64-unknown-linux-gnu", "linux-arm64", "Linux (ARM64)",
+            "aarch64-unknown-linux-gnu",
+            "linux-arm64",
+            "Linux (ARM64)",
             "bb4b6392670c5d3f93876996fcaa19858a4a413a0c7720144c18b0d6f1f0db2d",
         ),
     )
@@ -99,10 +114,20 @@ _say = launcher._say
 
 
 def detect_target(platform: str = sys.platform, machine: str | None = None) -> Target:
-    arch = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64", "arm64": "aarch64", "aarch64": "aarch64"}
+    arch = {
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "x64": "x86_64",
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+    }
     cpu = arch.get((machine or pyplatform.machine()).lower())
-    system = "win32" if platform == "win32" else "darwin" if platform == "darwin" else (
-        "linux" if platform.startswith("linux") else platform
+    system = (
+        "win32"
+        if platform == "win32"
+        else "darwin"
+        if platform == "darwin"
+        else ("linux" if platform.startswith("linux") else platform)
     )
     triple = {
         ("win32", "x86_64"): "x86_64-pc-windows-msvc",
@@ -112,7 +137,9 @@ def detect_target(platform: str = sys.platform, machine: str | None = None) -> T
         ("linux", "aarch64"): "aarch64-unknown-linux-gnu",
     }.get((system, cpu or ""))
     if triple is None:
-        raise BundleError(f"번들을 지원하지 않는 플랫폼입니다: {platform} / {machine or pyplatform.machine()}")
+        raise BundleError(
+            f"번들을 지원하지 않는 플랫폼입니다: {platform} / {machine or pyplatform.machine()}"
+        )
     return TARGETS[triple]
 
 
@@ -157,15 +184,26 @@ def fetch_python(target: Target, cache_dir: Path, local_archive: Path | None = N
         url = asset_url(target)
         _say(f"휴대용 Python {PYTHON_VERSION} 을 받습니다: {url}")
         partial = path.with_name(path.name + ".part")
-        request = urllib.request.Request(url, headers={"User-Agent": "frame-bundle"})
-        with urllib.request.urlopen(request, timeout=300) as response, partial.open("wb") as out:
-            shutil.copyfileobj(response, out, 1 << 20)
+        # 주소는 코드에 고정한 https 릴리스 주소이고, 받은 파일은 고정한 SHA-256 으로 확인한다
+        request = urllib.request.Request(url, headers={"User-Agent": "frame-bundle"})  # noqa: S310
+        try:
+            response = urllib.request.urlopen(request, timeout=300)  # noqa: S310
+            with response, partial.open("wb") as out:
+                shutil.copyfileobj(response, out, 1 << 20)
+        except (OSError, http.client.HTTPException) as exc:  # 연결 실패·중간에 끊김
+            partial.unlink(missing_ok=True)
+            raise BundleError(
+                f"휴대용 Python 을 받지 못했습니다 ({type(exc).__name__}: {exc}). 인터넷 연결을 확인하거나, "
+                f"미리 받은 파일을 --python-archive 로 주세요: {url}"
+            ) from exc
         partial.replace(path)
     actual = sha256_of(path)
     if actual != target.sha256:
         if not local_archive:
             path.unlink(missing_ok=True)  # 다음 실행에서 다시 받게 한다
-        raise BundleError(f"SHA-256 이 고정값과 다릅니다 ({path.name}: {actual}). 파일이 손상됐거나 바뀌었습니다")
+        raise BundleError(
+            f"SHA-256 이 고정값과 다릅니다 ({path.name}: {actual}). 파일이 손상됐거나 바뀌었습니다"
+        )
     return path
 
 
@@ -178,6 +216,10 @@ def extract_python(archive: Path, dest: Path) -> Path:
             tar.extractall(dest, filter="data")
     except tarfile.FilterError as exc:
         raise BundleError(f"아카이브에 안전하지 않은 항목이 있습니다: {exc}") from exc
+    except _BROKEN_ARCHIVE as exc:
+        raise BundleError(
+            f"아카이브를 풀 수 없습니다 (손상됐을 수 있습니다): {archive.name}"
+        ) from exc
     python_dir = dest / "python"
     if not python_dir.is_dir():
         raise BundleError(f"아카이브에 python/ 폴더가 없습니다: {archive.name}")
@@ -186,7 +228,9 @@ def extract_python(archive: Path, dest: Path) -> Path:
 
 def _require_safe_tar() -> None:
     if not hasattr(tarfile, "data_filter"):
-        raise BundleError("번들을 만들거나 확인하려면 Python 3.11.4 이상이 필요합니다 (tarfile 안전 필터)")
+        raise BundleError(
+            "번들을 만들거나 확인하려면 Python 3.11.4 이상이 필요합니다 (tarfile 안전 필터)"
+        )
 
 
 def _check(command: Sequence[str], cwd: Path) -> None:
@@ -198,10 +242,14 @@ def build_frontend(repo: Path, *, skip: bool) -> None:
     frontend = repo / "frontend"
     if skip:
         if not (frontend / "dist" / "index.html").is_file():
-            raise BundleError("frontend/dist 가 없습니다. --skip-frontend-build 없이 다시 실행하세요")
+            raise BundleError(
+                "frontend/dist 가 없습니다. --skip-frontend-build 없이 다시 실행하세요"
+            )
         return
     if (launcher._node_major() or 0) < launcher.MIN_NODE or shutil.which("npm") is None:
-        raise BundleError(f"화면 빌드에 Node.js {launcher.MIN_NODE} 이상이 필요합니다 (번들을 만드는 기기에만)")
+        raise BundleError(
+            f"화면 빌드에 Node.js {launcher.MIN_NODE} 이상이 필요합니다 (번들을 만드는 기기에만)"
+        )
     _check(launcher.npm_install_command(frontend), frontend)
     _check(["npm", "run", "build"], frontend)
 
@@ -209,12 +257,28 @@ def build_frontend(repo: Path, *, skip: bool) -> None:
 def install_app(python: Path, repo: Path) -> None:
     """동봉 Python 에 FRAME 과 의존성([llm] 포함)을 일반 설치한다 (편집 모드가 아니므로 저장소 없이 동작)."""
     try:
-        has_pip = subprocess.run([str(python), "-m", "pip", "--version"], capture_output=True).returncode == 0
-    except OSError as exc:
-        raise BundleError(f"동봉 Python 을 이 기기에서 실행할 수 없습니다 ({exc}). 대상 OS·CPU 에서 만드세요") from exc
+        has_pip = (
+            subprocess.run(
+                [str(python), "-m", "pip", "--version"],
+                capture_output=True,
+                timeout=launcher.QUICK_TIMEOUT_S,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BundleError(
+            f"동봉 Python 을 이 기기에서 실행할 수 없습니다 ({exc}). 대상 OS·CPU 에서 만드세요"
+        ) from exc
     if not has_pip:
         _check([str(python), "-m", "ensurepip", "--upgrade"], repo)
-    pip = ["-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location", "--no-input"]
+    pip = [
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--no-warn-script-location",
+        "--no-input",
+    ]
     _check([str(python), "-I", *pip, "--no-compile", ".[llm]"], repo)
 
 
@@ -245,7 +309,9 @@ WINDOWS_PATH_BUDGET = 160
 
 def longest_path(stage: Path) -> str:
     top = stage.name
-    return max((f"{top}/{p.relative_to(stage).as_posix()}" for p in stage.rglob("*")), key=len, default=top)
+    return max(
+        (f"{top}/{p.relative_to(stage).as_posix()}" for p in stage.rglob("*")), key=len, default=top
+    )
 
 
 def check_path_budget(stage: Path, target: Target, budget: int = WINDOWS_PATH_BUDGET) -> int:
@@ -296,7 +362,10 @@ _PURPOSE = {
 def write_wrappers(root: Path, target: Target) -> None:
     for command, purpose in _PURPOSE.items():
         if target.windows:  # cmd.exe 는 콘솔 코드 페이지로 읽으므로 ASCII + CRLF
-            lines = [line.replace("@COMMAND@", command).replace("@PURPOSE@", purpose) for line in _CMD_TEMPLATE]
+            lines = [
+                line.replace("@COMMAND@", command).replace("@PURPOSE@", purpose)
+                for line in _CMD_TEMPLATE
+            ]
             (root / f"{command}.cmd").write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
         else:
             text = _SH_TEMPLATE.replace("@COMMAND@", command).replace("@PURPOSE@", purpose)
@@ -339,12 +408,15 @@ def write_readme(root: Path, target: Target) -> None:
         "2. OpenAI 키: 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣습니다.",
         "   키는 브라우저에 저장하지 않고 서버 메모리에만 두며, 다시 시작하면 다시 넣어야 합니다.",
         f"   키를 저장해 두려면 {setup} 를 실행합니다 → {key_path}",
+        f"   {launcher.KEY_STAYS_IN_FOLDER}.",
         f"3. 키·인터넷 없이 시연: {run} --offline   (DSL 프리셋)",
         "",
         *first_run,
         "- 압축은 바탕화면처럼 쓰기 가능한 폴더에 풉니다. DB·결과는 이 폴더의 .demo 에 저장됩니다.",
         *(
-            ["- '파일 이름이 너무 깁니다' 오류가 나면 C:\\frame 처럼 짧은 경로에 푸세요 (Windows 경로 길이 제한)."]
+            [
+                "- '파일 이름이 너무 깁니다' 오류가 나면 C:\\frame 처럼 짧은 경로에 푸세요 (Windows 경로 길이 제한)."
+            ]
             if target.windows
             else []
         ),
@@ -354,24 +426,36 @@ def write_readme(root: Path, target: Target) -> None:
         f"자세한 안내: {DOCS_URL}",
         "",
     ]
-    text = "\n".join(lines)
-    (root / "README.txt").write_text(text.replace("\n", "\r\n") if target.windows else text, encoding="utf-8")
+    # 바이트로 쓴다: 텍스트 모드는 빌드하는 OS 의 줄바꿈으로 한 번 더 바꾼다 (Windows 에서 "\r\r\n")
+    newline = "\r\n" if target.windows else "\n"
+    (root / "README.txt").write_bytes(newline.join(lines).encode("utf-8"))
 
 
 def _frame_version(repo: Path) -> str:
-    match = re.search(r'__version__\s*=\s*"([^"]+)"', (repo / "src" / "frame" / "__init__.py").read_text("utf-8"))
+    match = re.search(
+        r'__version__\s*=\s*"([^"]+)"', (repo / "src" / "frame" / "__init__.py").read_text("utf-8")
+    )
     return match.group(1) if match else "unknown"
 
 
 def _git_sha(repo: Path) -> str:
     try:
         sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607 - PATH 의 git 을 쓴다
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=launcher.QUICK_TIMEOUT_S,
         ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, capture_output=True, text=True
+            ["git", "status", "--porcelain", "--untracked-files=no"],  # noqa: S607 - PATH 의 git
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=launcher.QUICK_TIMEOUT_S,
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError):  # 없음·실패·답 없음
         return "unknown"
     return f"{sha}+dirty" if dirty else sha
 
@@ -387,7 +471,9 @@ def write_metadata(root: Path, target: Target, repo: Path) -> None:
         "python_build": f"python-build-standalone {PBS_RELEASE}",
         "built_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    (root / launcher.BUNDLE_MARKER).write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    (root / launcher.BUNDLE_MARKER).write_text(
+        json.dumps(info, ensure_ascii=False, indent=2) + "\n", "utf-8"
+    )
 
 
 def make_archive(stage: Path, out_dir: Path, target: Target) -> Path:
@@ -410,7 +496,10 @@ def make_archive(stage: Path, out_dir: Path, target: Target) -> Path:
 
         with tarfile.open(archive, "w:gz", compresslevel=6) as tar:
             tar.add(stage, arcname=top, filter=normalize)
-    (out_dir / f"{archive.name}.sha256").write_text(f"{sha256_of(archive)}  {archive.name}\n", "utf-8")
+    # `sha256sum -c` 가 읽는 한 줄. 줄 끝이 "\r\n" 이면 "이름\r" 이라는 파일을 찾으므로 바이트로 쓴다
+    (out_dir / f"{archive.name}.sha256").write_bytes(
+        f"{sha256_of(archive)}  {archive.name}\n".encode()
+    )
     return archive
 
 
@@ -448,11 +537,23 @@ def minimal_env() -> dict[str, str]:
     """Python·Node 가 설치되지 않은 기기처럼: PATH 는 시스템 폴더만 두고 PYTHON*·가상환경 설정은 뺀다."""
     if os.name == "nt":
         keep = {
-            "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP",
-            "USERPROFILE", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA", "HOMEDRIVE", "HOMEPATH", "USERNAME",
+            "SYSTEMROOT",
+            "WINDIR",
+            "SYSTEMDRIVE",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+            "PROGRAMDATA",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "USERNAME",
         }
         env = {k: v for k, v in os.environ.items() if k.upper() in keep}
-        system_root = os.environ.get("SystemRoot", "C:\\Windows")
+        system_root = os.environ.get("SYSTEMROOT", "C:\\Windows")
         env["PATH"] = f"{system_root}\\System32;{system_root};{system_root}\\System32\\Wbem"
         return env
     env = {k: v for k, v in os.environ.items() if k in {"HOME", "USER", "TMPDIR", "LANG", "LC_ALL"}}
@@ -461,13 +562,29 @@ def minimal_env() -> dict[str, str]:
 
 
 def _extract_bundle(archive: Path, dest: Path) -> None:
-    if archive.suffix == ".zip":
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(dest)
-    else:
-        _require_safe_tar()
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(dest, filter="data")
+    try:
+        if archive.suffix == ".zip":
+            with zipfile.ZipFile(archive) as zf:
+                zf.extractall(dest)  # noqa: S202 - 방금 만든 번들을 임시 폴더에 푼다
+        else:
+            _require_safe_tar()
+            with tarfile.open(archive, "r:gz") as tar:
+                tar.extractall(dest, filter="data")
+    except _BROKEN_ARCHIVE as exc:
+        raise BundleError(
+            f"번들 파일을 풀 수 없습니다 (손상됐을 수 있습니다): {archive.name}"
+        ) from exc
+
+
+def _recorded_checksum(archive: Path) -> str:
+    """번들 파일 옆의 .sha256 에 적힌 해시 ("해시  이름" 한 줄)."""
+    checksum = archive.parent / f"{archive.name}.sha256"
+    if not checksum.is_file():
+        raise BundleError(f"{checksum.name} 파일이 없습니다. 번들 파일과 같은 폴더에 함께 두세요")
+    words = checksum.read_text("utf-8", errors="replace").split()
+    if not words:
+        raise BundleError(f"{checksum.name} 파일이 비어 있습니다. 번들과 함께 다시 받으세요")
+    return words[0]
 
 
 def verify(path: Path, target: Target) -> int:
@@ -475,9 +592,7 @@ def verify(path: Path, target: Target) -> int:
     archive = path / archive_name(target) if path.is_dir() else path
     if not archive.is_file():
         raise BundleError(f"번들 파일이 없습니다: {archive}")
-    checksum = archive.parent / f"{archive.name}.sha256"
-    expected = checksum.read_text("utf-8").split()[0] if checksum.is_file() else None
-    if expected != sha256_of(archive):
+    if _recorded_checksum(archive) != sha256_of(archive):
         raise BundleError(f"SHA-256 이 .sha256 파일과 다릅니다: {archive.name}")
     failures: list[str] = []
 
@@ -486,26 +601,38 @@ def verify(path: Path, target: Target) -> int:
         if not ok:
             failures.append(label)
 
-    with tempfile.TemporaryDirectory(prefix="frame-bundle-verify-", ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory(
+        prefix="frame-bundle-verify-", ignore_cleanup_errors=True
+    ) as tmp:
         _extract_bundle(archive, Path(tmp))
         root = (Path(tmp) / top_dir(target)).resolve()
         python = bundled_python(root, target)
         env = minimal_env()
         code = "import frame, platform; print(platform.python_version()); print(frame.__file__)"
-        probe = subprocess.run(
-            [str(python), "-I", "-c", code], capture_output=True, text=True, env=env, cwd=root
+        probe = launcher._ask([str(python), "-I", "-c", code], env=env, cwd=root)
+        lines = probe.stdout.splitlines() if probe is not None else []
+        inside = (
+            probe is not None
+            and probe.returncode == 0
+            and len(lines) == 2
+            and Path(lines[1]).resolve().is_relative_to(root)
         )
-        lines = probe.stdout.splitlines()
-        inside = probe.returncode == 0 and len(lines) == 2 and Path(lines[1]).resolve().is_relative_to(root)
-        check(inside and lines[0] == PYTHON_VERSION, f"동봉 Python {PYTHON_VERSION} 이 번들 안의 FRAME 을 사용")
+        check(
+            inside and lines[0] == PYTHON_VERSION,
+            f"동봉 Python {PYTHON_VERSION} 이 번들 안의 FRAME 을 사용",
+        )
         wrapper = (
             [os.environ.get("COMSPEC", "cmd.exe"), "/c", str(root / "run.cmd"), "--help"]
             if target.windows
             else ["sh", str(root / "run.sh"), "--help"]
         )
-        check(subprocess.run(wrapper, capture_output=True, env=env, cwd=root).returncode == 0, "실행 래퍼")
+        answered = launcher._ask(wrapper, env=env, cwd=root)
+        check(answered is not None and answered.returncode == 0, "실행 래퍼")
         smoke = [str(python), "-I", "-m", "frame.tools.demo", "--root", str(root), "smoke"]
-        check(subprocess.run(smoke, env=env, cwd=root).returncode == 0, "자동 점검 (화면·API·구조화·키 입력)")
+        check(
+            subprocess.run(smoke, env=env, cwd=root).returncode == 0,
+            "자동 점검 (화면·API·구조화·키 입력)",
+        )
     if failures:
         raise BundleError(f"번들 점검 실패 {len(failures)}건: {', '.join(failures)}")
     _say(f"번들 점검 통과: {archive.name}")
@@ -519,7 +646,7 @@ def _rmtree(path: Path) -> None:
     """읽기 전용 파일(Windows)도 지운다."""
 
     def retry(func, target, _exc) -> None:  # noqa: ANN001 - shutil 콜백 형식
-        os.chmod(target, stat.S_IWRITE)
+        Path(target).chmod(stat.S_IWRITE)
         func(target)
 
     if not path.exists():
@@ -537,9 +664,15 @@ def main(argv: Sequence[str] | None = None, *, root: Path) -> int:
     build_cmd = sub.add_parser("build", help="지금 OS·CPU 용 번들을 만든다")
     build_cmd.add_argument("--target", choices=sorted(TARGETS), help="기본: 지금 OS·CPU")
     build_cmd.add_argument("--out", type=Path, help="번들을 둘 폴더 (기본: 저장소의 dist/)")
-    build_cmd.add_argument("--python-archive", type=Path, help="미리 받은 휴대용 Python 아카이브 (SHA-256 은 확인)")
-    build_cmd.add_argument("--skip-frontend-build", action="store_true", help="있는 frontend/dist 를 그대로 사용")
-    verify_cmd = sub.add_parser("verify", help="만든 번들을 임시 폴더에 풀어 저장소 없이 실행되는지 확인")
+    build_cmd.add_argument(
+        "--python-archive", type=Path, help="미리 받은 휴대용 Python 아카이브 (SHA-256 은 확인)"
+    )
+    build_cmd.add_argument(
+        "--skip-frontend-build", action="store_true", help="있는 frontend/dist 를 그대로 사용"
+    )
+    verify_cmd = sub.add_parser(
+        "verify", help="만든 번들을 임시 폴더에 풀어 저장소 없이 실행되는지 확인"
+    )
     verify_cmd.add_argument("path", type=Path, help="번들 파일 또는 그 파일이 있는 폴더")
     verify_cmd.add_argument("--target", choices=sorted(TARGETS), help="기본: 지금 OS·CPU")
     sub.add_parser("targets", help="지원 대상 목록")
@@ -547,7 +680,9 @@ def main(argv: Sequence[str] | None = None, *, root: Path) -> int:
     try:
         if args.command == "targets":
             for target in TARGETS.values():
-                print(f"{target.label:12s} {target.title:22s} {target.triple:28s} {archive_name(target)}")
+                print(
+                    f"{target.label:12s} {target.title:22s} {target.triple:28s} {archive_name(target)}"
+                )
             return 0
         target = TARGETS[args.target] if args.target else detect_target()
         if args.command == "build":

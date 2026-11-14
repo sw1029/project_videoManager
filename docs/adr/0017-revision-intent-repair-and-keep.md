@@ -45,6 +45,10 @@
   그 장면에 해당하는 유지 요소(그 장면에 나오는 객체의 것과 장면 수준의 것).
 - 조건 fingerprint 에는 넣지 않는다. **유지 요소만** 생성 캐시·작업 원장 키(`generation_fingerprint`)에 들어간다.
   유지 요소가 없으면 예전 키 그대로다. 꼭 지켜야 할 요구조건은 이미 조건(또는 seed)에 들어 있다.
+  - 보완 (2026-11-14, 감사 A-33): 다시 맞추기(REPAIR)일 때는 고치려는 요구조건(`enforce` 의 키·값)도 이 키에 넣는다.
+    REPAIR 는 조건을 바꾸지 않고 seed 만 올리므로 seed 는 '무엇을 고치는지' 를 담지 않는다. 그래서 같은 부모의 같은 장면에서
+    다른 요구조건을 고치려는 요청이 앞선 REPAIR 의 결과를 그대로 받았다 (그 요구를 지키라는 지시는 모델에 간 적이 없는데도).
+    CHANGE 와 지시 없는 요청의 키는 그대로다. 이 변경 전에 남은 REPAIR 결과는 새 키로는 찾지 못해 한 번 다시 만들어진다.
 - OpenRouter 어댑터
   - 편집 지시문(ADR-0016): REPAIR 는 부모와 조건 차이가 없으므로 지켜지지 않았던 요구조건을 `- cup: color must be teal` 로 적어
     부모 클립을 고친다. 유지 요소가 있으면 `Do not change: barista (appearance, action and pose); cup (shape and size); the background; the lighting.` 을 더한다.

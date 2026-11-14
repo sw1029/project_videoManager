@@ -67,6 +67,45 @@ def test_mask_key_hides_the_middle():
     assert "abcdefg" not in mask_key("sk-abcdefghijklmnop")
 
 
+# ---- 다른 회사의 키 (감사 A-25) -----------------------------------------------------------
+
+OPENROUTER_KEY = "sk-or-v1-" + "f00d" * 12
+
+
+@pytest.mark.parametrize("base_url", [None, "https://api.openai.com/v1"])
+def test_an_openrouter_key_is_never_sent_to_the_openai_address(base_url):
+    """키 파일을 잘못 지정했거나 두 키가 한 파일에 있을 때. 보내면 다른 회사에 키가 드러난다."""
+    created = []
+
+    with pytest.raises(LLMUnavailable) as excinfo:
+        OpenAIJsonClient(
+            model="gpt-4.1-mini",
+            api_key=OPENROUTER_KEY,
+            env={},
+            base_url=base_url,
+            sdk_factory=created.append,
+        )
+
+    assert created == []  # SDK 클라이언트를 만들지도 않았다
+    assert "OpenRouter" in str(excinfo.value) and OPENROUTER_KEY not in str(excinfo.value)
+    assert "f00d" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("base_url", ["https://openrouter.ai/api/v1", "http://localhost:8001/v1"])
+def test_an_openrouter_key_may_go_to_an_address_that_takes_it(base_url):
+    created = []
+
+    OpenAIJsonClient(
+        model="openai/gpt-4.1-mini",
+        api_key=OPENROUTER_KEY,
+        env={},
+        base_url=base_url,
+        sdk_factory=lambda key: created.append(key) or _sdk(_response("{}")),
+    ).complete_json("s", "u", {"type": "object"})
+
+    assert created == [OPENROUTER_KEY]
+
+
 # ---- 요청 형식 -------------------------------------------------------------
 
 
@@ -133,6 +172,93 @@ def test_sdk_errors_map_to_llm_error_codes(error, code):
     with pytest.raises(LLMError) as excinfo:
         client.complete_json("s", "u", {"type": "object"})
     assert excinfo.value.code == code
+
+
+# ---- 응답 모양과 그 밖의 SDK 오류 (감사 A-13) ----------------------------------------------
+# 이 클라이언트의 실패는 모두 LLMError 여야 한다. 다른 예외가 새면 검수기·구조화기가 '판정 불가·구조화 실패' 로
+# 다루지 못하고 유료 생성이 끝난 버전이 예상 밖 오류로 끝난다.
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        SimpleNamespace(choices=[], model="m", usage=None),
+        SimpleNamespace(choices=None, model="m", usage=None),
+        SimpleNamespace(model="m", usage=None),
+        SimpleNamespace(choices=[SimpleNamespace(message=None)], model="m", usage=None),
+    ],
+    ids=["empty-choices", "null-choices", "no-choices", "no-message"],
+)
+def test_an_answer_without_a_message_is_a_bad_response(response):
+    """OpenAI 호환 서버는 choices 를 비우거나 빼고 답할 때가 있다."""
+    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+
+    with pytest.raises(LLMBadResponse, match="choices"):
+        client.complete_json("s", "u", {"type": "object"})
+
+
+def test_content_that_is_not_text_is_a_bad_response():
+    response = _response([{"type": "text", "text": "{}"}])
+    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+
+    with pytest.raises(LLMBadResponse, match="글이 아닙니다"):
+        client.complete_json("s", "u", {"type": "object"})
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (
+            openai.APIResponseValidationError(
+                response=httpx.Response(200, request=httpx.Request("POST", "https://x")), body=None
+            ),
+            "LLM_BAD_RESPONSE",
+        ),
+        (
+            openai.APIError("boom", request=httpx.Request("POST", "https://x"), body=None),
+            "LLM_UNAVAILABLE",
+        ),
+        (openai.OpenAIError("something the SDK adds later"), "LLM_UNAVAILABLE"),
+    ],
+    ids=["response-validation", "api-error", "any-sdk-error"],
+)
+def test_the_rest_of_the_sdk_errors_are_llm_errors_too(error, code):
+    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(error=error))
+
+    with pytest.raises(LLMError) as excinfo:
+        client.complete_json("s", "u", {"type": "object"})
+
+    assert excinfo.value.code == code
+
+
+# ---- 재시도 상한 (감사 A-24) --------------------------------------------------------------
+
+
+def _record_sdk_clients(monkeypatch):
+    made = []
+    monkeypatch.setattr(openai, "OpenAI", lambda **kwargs: made.append(kwargs) or SimpleNamespace())
+    return made
+
+
+def test_the_sdk_retries_are_limited_explicitly(monkeypatch):
+    """SDK 의 기본 재시도(2회)에 기대지 않는다. 응답하지 않는 서버에서 호출 하나가 시간 제한의 세 배까지 걸린다."""
+    made = _record_sdk_clients(monkeypatch)
+
+    client = OpenAIJsonClient(
+        model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, timeout_s=30
+    )
+
+    assert client.max_retries == 1
+    assert (made[0]["max_retries"], made[0]["timeout"]) == (1, 30)
+
+
+@pytest.mark.parametrize(("given", "used"), [(0, 0), (3, 3), (-1, 0)])
+def test_the_retry_limit_can_be_set(monkeypatch, given, used):
+    made = _record_sdk_clients(monkeypatch)
+
+    OpenAIJsonClient(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, max_retries=given)
+
+    assert made[0]["max_retries"] == used
 
 
 # ---- 호출 시점 키 해석 (화면 입력 키 지원) -------------------------------------------------

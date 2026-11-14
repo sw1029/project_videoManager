@@ -19,14 +19,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
-from frame.application.errors import AdapterError
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import FrameSampler, midpoints
+from frame.adapters.shared.vlm.ask import ask_json
+from frame.adapters.shared.vlm.wording import predicate_words
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
@@ -34,6 +35,8 @@ from frame.domain.checks import WarningInterval
 from frame.domain.enums import CheckType, ReferenceOrigin, TrackingStatus, Verdict
 from frame.domain.ir import EntitySpec, SceneSpec
 from frame.domain.services.identity import appearance_attributes
+
+from ._guard import UnitGuard
 
 log = logging.getLogger(__name__)
 
@@ -121,9 +124,10 @@ class VlmConsistencyChecker(Checker):
         threshold: float = 0.9,
         max_side: int = 1024,  # 480p·720p 프레임은 줄이지 않고 그대로 보여 준다 (얼굴·문구 세부)
         timeout_s: float | None = 180.0,
+        sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store
-        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._sampler = sampler or FrameSampler.shared(require_ffmpeg(ffmpeg))
         self._llm = llm
         self.frames_per_scene = max(1, int(frames_per_scene))
         self.threshold = threshold
@@ -132,18 +136,37 @@ class VlmConsistencyChecker(Checker):
 
     def check(self, ctx: CheckContext) -> Sequence[CheckOutcome]:
         outcomes = []
+        guard = UnitGuard("일관성 검수")
         for entity in ctx.ir.entities:
             scenes = [
                 s for s in ctx.ir.scenes_with_entity(entity.entity_key) if s.scene_key in ctx.clips
             ]
             if not scenes:
                 continue
-            outcomes.append(self._check_entity(ctx, entity, scenes))
+            outcomes.append(self._check_entity(ctx, entity, scenes, guard))
         return outcomes
 
     # ---- 객체 하나 ----
     def _check_entity(
-        self, ctx: CheckContext, entity: EntitySpec, scenes: Sequence[SceneSpec]
+        self,
+        ctx: CheckContext,
+        entity: EntitySpec,
+        scenes: Sequence[SceneSpec],
+        guard: UnitGuard,
+    ) -> CheckOutcome:
+        """객체 하나. 판정하지 못하면 (프레임·모델·집계의 예상 밖 오류) 이 객체만 미판정으로 남긴다."""
+        return guard.judge(
+            f"객체 {entity.entity_key}",
+            lambda: self._judge_entity(ctx, entity, scenes, guard),
+            undetermined=lambda reason: self._undetermined(entity, reason),
+        )
+
+    def _judge_entity(
+        self,
+        ctx: CheckContext,
+        entity: EntitySpec,
+        scenes: Sequence[SceneSpec],
+        guard: UnitGuard,
     ) -> CheckOutcome:
         tracks = [t for t in ctx.tracks if t.entity_key == entity.entity_key]
         if any(t.status is not TrackingStatus.COMPLETED for t in tracks):
@@ -157,13 +180,10 @@ class VlmConsistencyChecker(Checker):
             return self._undetermined(
                 entity, f"장면 클립이 영상이 아니라 프레임을 뽑을 수 없음: {', '.join(not_video)}"
             )
-        try:
-            samples = self._samples(ctx, entity, scenes)
-            reference = self._user_reference(ctx, entity)
-            answer = self._ask(entity, samples, reference)
-        except AdapterError as exc:
-            log.warning("일관성 검수 미판정 (객체 %s): %s: %s", entity.entity_key, exc.code, exc)
-            return self._undetermined(entity, f"{exc.code}: {exc}")
+        guard.about_to_ask()
+        samples = self._samples(ctx, entity, scenes)
+        reference = self._user_reference(ctx, entity)
+        answer = self._ask(entity, samples, reference)
         return self._outcome(entity, samples, answer, user_reference=reference is not None)
 
     def _samples(
@@ -176,11 +196,11 @@ class VlmConsistencyChecker(Checker):
             video = self._store.get(clip.uri)
             duration = clip.duration_ms or scene.duration_ms
             attributes = appearance_attributes(scene, entity.entity_key)
-            for index in range(count):
-                at_ms = int(duration * (index + 0.5) / count)  # 구간의 가운데
-                frame = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+            frames = self._sampler.clip(video)
+            for index, at_ms in enumerate(midpoints(duration, count)):  # 구간마다의 가운데
+                frame = frames.at(at_ms, max_side=self.max_side)
                 frame_id = f"{scene.scene_key}#{index + 1}"
-                expected = "; ".join(f"{_words(p)}: {v}" for p, v in attributes.items())
+                expected = "; ".join(f"{predicate_words(p)}: {v}" for p, v in attributes.items())
                 label = f"Frame {frame_id} — scene '{scene.scene_key}' at {at_ms / 1000:.1f}s"
                 if expected:
                     label += f". Fixed attributes expected here: {expected}"
@@ -223,7 +243,8 @@ class VlmConsistencyChecker(Checker):
         if fixed:
             lines.append("Fixed attributes the subject must keep, per scene:")
             lines += [
-                f"- {scene_key}: " + "; ".join(f"{_words(p)}: {v}" for p, v in attributes.items())
+                f"- {scene_key}: "
+                + "; ".join(f"{predicate_words(p)}: {v}" for p, v in attributes.items())
                 for scene_key, attributes in fixed.items()
             ]
         if reference is not None:
@@ -234,28 +255,21 @@ class VlmConsistencyChecker(Checker):
                 "is visible as the reference."
             )
         images = ([reference] if reference is not None else []) + [s.image for s in samples]
-        completion = self._llm.complete_json(
+        answer = ask_json(
+            self._llm,
             SYSTEM_PROMPT,
             "\n".join(lines),
             RESPONSE_SCHEMA,
             schema_name="consistency_audit",
             timeout_s=self.timeout_s,
             images=images,
+            read=_read_answer,
+            what="일관성 판정",
         )
-        try:
-            data = json.loads(completion.text)
-            frames = {str(f["frame_id"]): f for f in data["frames"] if isinstance(f, dict)}
-        except (ValueError, KeyError, TypeError) as exc:
-            raise _BadAnswer(f"일관성 판정 응답을 해석하지 못했습니다: {exc}") from exc
         return {
-            "frames": frames,
-            "reference_frame_id": data.get("reference_frame_id"),
-            "summary": data.get("summary") or "",
-            "model": completion.model,
-            "usage": {
-                "input_tokens": completion.input_tokens,
-                "output_tokens": completion.output_tokens,
-            },
+            **answer.value,
+            "model": answer.model,
+            "usage": answer.usage,
         }
 
     # ---- 점수와 경고 ----
@@ -348,12 +362,13 @@ class VlmConsistencyChecker(Checker):
         )
 
 
-class _BadAnswer(AdapterError):
-    code = "LLM_BAD_RESPONSE"
-
-
-def _words(predicate: str) -> str:
-    return predicate.replace("_", " ")
+def _read_answer(data: Any) -> dict[str, Any]:
+    """응답 본문에서 쓸 것: 프레임마다의 판정(frame_id -> 항목), 기준 프레임, 요약."""
+    return {
+        "frames": {str(f["frame_id"]): f for f in data["frames"] if isinstance(f, dict)},
+        "reference_frame_id": data.get("reference_frame_id"),
+        "summary": data.get("summary") or "",
+    }
 
 
 def _first_visible(

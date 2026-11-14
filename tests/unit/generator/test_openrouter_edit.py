@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import replace
 
 import pytest
@@ -21,7 +22,7 @@ from frame.adapters.generator.openrouter import (
     VideoModelInfo,
     compile_edit_prompt,
 )
-from frame.adapters.http_transport import TransportError
+from frame.adapters.shared.http import TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import (
@@ -34,8 +35,7 @@ from frame.application.ports.generator import (
 from frame.config import Settings, build_container
 from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.ir import RequirementSpec
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy, KeepItem
 from tests.support.openrouter import (
     JOB_ID,
     SIGNED_URL,
@@ -340,6 +340,35 @@ def test_lookup_failures_that_may_pass_are_asked_again(ir, store):
     assert clip.metadata["edit"]["parent_url_lookups"] == 4
 
 
+@pytest.mark.parametrize("code", [408, 409, 425, 429, 500, 524])
+def test_the_parent_lookup_treats_passing_statuses_like_polling_does(ir, store, code):
+    """부모 작업 조회도 상태 조회·내려받기와 같은 기준으로 '곧 나아질 응답' 을 가린다 (감사 A-37)."""
+    api = _api()
+    api.on(
+        "GET",
+        f"/api/v1/videos/{PARENT_JOB}",
+        error_response(code, "try later"),
+        completed(PARENT_JOB),
+    )
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is True
+    assert clip.metadata["edit"]["parent_url_lookups"] == 2
+
+
+@pytest.mark.parametrize("code", [400, 401, 403])
+def test_the_parent_lookup_does_not_repeat_a_refusal(ir, store, code):
+    api = _api(parent_status=error_response(code, "no"))
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is False
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == 1
+
+
 def test_a_longer_wait_slows_down_to_the_polling_interval(ir, store):
     """오래 기다리게 설정하면 처음 여섯 번만 촘촘히 묻고 그 뒤로는 폴링 간격으로 묻는다."""
     api = _api(parent_status=NO_URLS)
@@ -514,6 +543,135 @@ def test_sharing_a_regeneration_does_not_replace_an_unedited_job_in_flight(ir, s
     assert len(api.submits) == 3
 
 
+def test_sharing_a_regeneration_does_not_write_over_a_job_being_submitted_right_now(ir, store):
+    """조건 키를 다른 요청이 지금 만들고 있으면 (잠금을 쥐고 제출하는 중) 그 키에 쓰지 않는다 (감사 A-09).
+
+    잠금 없이 읽고 쓰면, 상대가 접수 기록을 남기기 전에 '없음' 으로 읽고 그 키에 이쪽 결과를 쓴다. 상대의 접수
+    기록과 서로 덮어쓰게 되고, 그 사이에 끊기면 상대의 과금된 작업을 이어 받을 길이 없다.
+    """
+    in_flight = "gen-vid-1794450000-" + "P" * 20
+    submitting, release = threading.Event(), threading.Event()
+
+    class SlowSubmitForThePlainRequest(FakeOpenRouterApi):
+        def request(self, method, url, **kwargs):
+            if method == "POST" and threading.current_thread().name == "plain":
+                submitting.set()  # 조건 키의 잠금을 쥔 채 제출 응답을 기다린다
+                release.wait(5)
+            return super().request(method, url, **kwargs)
+
+    api = SlowSubmitForThePlainRequest(models=(WAN_30, FLUX_EDIT))
+    api.on(
+        "POST",
+        "/api/v1/videos",
+        error_response(400, "does not support previous_job_id"),  # 편집 요청은 거절된다
+        accepted(),  # 그래서 새로 생성한다
+        accepted(in_flight),  # 편집 없이 같은 조건을 만드는 요청 (늦게 접수된다)
+    )
+    api.add_job(in_flight)
+    generator = make_openrouter_generator(store, api, edit_mode="previous_job")
+    request = _request(ir, store)
+    plain_results = []
+    plain = threading.Thread(
+        name="plain",
+        target=lambda: plain_results.append(
+            generator.generate_scene(replace(request, parent=None))
+        ),
+    )
+    plain.start()
+    try:
+        assert submitting.wait(5)
+
+        clip = generator.generate_scene(replace(request, version_id="ver_2"))
+
+        assert clip.metadata["job_id"] == JOB_ID and clip.metadata["edit"]["applied"] is False
+        # 상대가 아직 접수 기록을 남기지 못한 조건 키에는 아무것도 쓰지 않았다
+        assert _ledger_status(store, generator, request.generation_fingerprint) is None
+    finally:
+        release.set()
+        plain.join(5)
+
+    assert len(api.submits) == 3
+    assert plain_results[0].metadata["job_id"] == in_flight
+    assert _ledger_status(store, generator, request.generation_fingerprint) == "completed"
+    assert _ledger_status(store, generator, generator.result_key(request)) == "completed"
+
+
+# 편집 모델이 제출 전에 이 요청을 받을 수 없다고 드러나는 경우 (감사 A-36)
+SHORT_EDIT = {
+    "id": "vendor/short-edit",
+    "supported_resolutions": None,
+    "supported_aspect_ratios": None,
+    "supported_durations": [2],  # intro 장면은 4초다
+    "generate_audio": False,
+    "seed": False,
+    "pricing_skus": {},
+}
+
+
+def test_an_edit_model_that_is_not_offered_means_regeneration(ir, store):
+    """편집 모델이 모델 목록에 없다 (설정 오타, 목록에서 빠짐). 제출 전이라 과금 없이 새로 생성한다.
+
+    ADR-0016: 편집 모델이 요청을 받지 않아도 수정은 실패하지 않는다.
+    """
+    api = _api()
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model="vendor/not-listed"
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    (submit,) = api.submits
+    assert submit.json()["model"] == "alibaba/wan-3.0" and "input_references" not in submit.json()
+    edit = clip.metadata["edit"]
+    assert edit["applied"] is False and edit["model"] == "vendor/not-listed"
+    assert "FRAME_VIDEO_EDIT_MODEL" in edit["fallback_reason"]  # 어느 설정을 볼지 알려 준다
+    assert "provisional" not in clip.metadata  # 기다린다고 나아지는 사정이 아니다
+
+
+def test_a_scene_too_long_for_the_edit_model_is_regenerated(ir, store):
+    api = FakeOpenRouterApi(models=(WAN_30, SHORT_EDIT))
+    api.on("GET", f"/api/v1/videos/{PARENT_JOB}", completed(PARENT_JOB))
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model="vendor/short-edit"
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    (submit,) = api.submits
+    assert submit.json()["model"] == "alibaba/wan-3.0"
+    edit = clip.metadata["edit"]
+    assert edit["applied"] is False and "최대 길이" in edit["fallback_reason"]
+
+
+def test_a_regeneration_forced_by_the_edit_model_is_not_made_twice(ir, store):
+    """편집 모델 때문에 새로 생성한 결과도 편집 요청의 키로 남는다. 같은 수정을 다시 실행해도 또 내지 않는다."""
+    api = _api()
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model="vendor/not-listed"
+    )
+    request = _request(ir, store)
+    first = generator.generate_scene(request)
+
+    again = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1
+    assert again.uri == first.uri and again.metadata["ledger"] == "reused"
+
+
+def test_a_model_list_that_cannot_be_read_is_not_mistaken_for_an_unusable_edit_model(ir, store):
+    """모델 목록을 못 받은 것은 일시 오류다. 편집을 포기할 일이 아니라 다시 시도할 일이다."""
+    api = _api()
+    api.on("GET", "/api/v1/videos/models", error_response(503, "Service unavailable"))
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model="vendor/not-listed"
+    )
+
+    with pytest.raises(GenerationError, match="503") as excinfo:
+        generator.generate_scene(_request(ir, store))
+
+    assert excinfo.value.retryable is True and api.submits == []
+
+
 @pytest.mark.parametrize("code", [401, 402, 403, 500])
 def test_edit_rejections_that_regeneration_would_also_hit_are_not_retried(ir, store, code):
     api = _api(error_response(code, "nope"))
@@ -645,8 +803,10 @@ def test_edit_prompt_names_what_must_not_change(ir, store):
     assert prompt.splitlines() == [
         "Edit the input video. Apply only these changes:",
         "- cup: color changes from red to teal",
-        "Do not change: barista (action and pose, appearance); cup (shape and size); "
-        "the lighting; the background.",
+        (
+            "Do not change: barista (action and pose, appearance); cup (shape and size); "
+            "the lighting; the background."
+        ),
         EDIT_KEEP_LINE,
     ]
 
@@ -850,6 +1010,34 @@ def test_preview_estimates_the_edit_time_from_edits_this_process_has_made(ir, st
     assert preview.seconds == pytest.approx(clip.metadata["generation_seconds"], abs=0.1)
 
 
+def test_preview_says_generate_when_the_edit_model_cannot_make_the_scene(ir, store):
+    """계획이 '편집' 이라고 답한 장면이 실행에서는 새로 생성되면 계획과 실행이 어긋난다 (감사 A-36)."""
+    api = _api()
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model="vendor/not-listed"
+    )
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.model) == (ProductionMethod.GENERATE, "alibaba/wan-3.0")
+    assert preview.cost_usd == pytest.approx(0.2)  # 새로 생성하는 값: 4초 x $0.05 (480p)
+    assert "vendor/not-listed" in preview.edit_unavailable_reason
+    assert "FRAME_VIDEO_EDIT_MODEL" in preview.edit_unavailable_reason
+    assert not api.submits
+
+
+def test_preview_keeps_saying_edit_when_only_the_price_list_is_unreadable(ir, store):
+    """목록을 못 받은 것은 편집할 수 없다는 뜻이 아니다. 방식은 그대로 알리고 어림 비용만 비운다."""
+    api = _api()
+    api.on("GET", "/api/v1/videos/models", error_response(503, "upstream busy"))
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.cost_usd) == (ProductionMethod.EDIT, None)
+    assert preview.edit_unavailable_reason is None
+
+
 def test_preview_still_answers_when_the_price_list_cannot_be_read(ir, store):
     api = _api()
     api.on("GET", "/api/v1/videos/models", error_response(503, "upstream busy"))
@@ -983,6 +1171,23 @@ def test_a_provisional_regeneration_is_reused_while_the_address_is_still_missing
     assert again.uri == first.uri and again.metadata["ledger"] == "reused"
     assert again.metadata["edit"]["applied"] is False and again.metadata["provisional"] is True
     assert _ledger_status(store, generator, generator.result_key(request)) == "released"
+
+
+def test_a_provisional_regeneration_is_still_reused_days_later(ir, store):
+    """조건 키에만 남은 완료 결과는 생성 캐시에 없다. 클립이 남아 있으면 기한이 지나도 다시 내지 않는다 (감사 A-32)."""
+    api = _api(parent_status=NO_URLS)
+    request = _request(ir, store)
+    first = make_openrouter_generator(
+        store, api, edit_parent_wait_seconds=0, **EDITING
+    ).generate_scene(request)
+
+    later = FakeTime(wall=FakeTime().wall + 25 * 3600)
+    again = make_openrouter_generator(
+        store, api, clock=later, edit_parent_wait_seconds=0, **EDITING
+    ).generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1
+    assert again.uri == first.uri and again.metadata["ledger"] == "reused"
 
 
 def test_a_provisional_regeneration_serves_requests_that_do_not_edit(ir, store):

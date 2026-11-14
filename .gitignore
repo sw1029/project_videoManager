@@ -3,13 +3,19 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 artifacts/
 # 프론트엔드 빌드 산출물 (frontend/ 병합 대비)
 node_modules/
 frontend/dist/
 *.db
+*.sqlite
+*.sqlite3
 .env
+.env.*
+!.env.example
 .ruff_cache/
 .mypy_cache/
 # API 키 파일은 절대 커밋하지 않는다

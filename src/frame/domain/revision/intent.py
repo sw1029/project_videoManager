@@ -14,10 +14,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .enums import ChangeScope, KeepAspect, RevisionKind
-from .errors import NotFound, ValidationError
-from .ir import IntermediateRepresentation, SceneSpec
-from .vocabulary import DEFAULT_VOCABULARY
+from ..enums import ChangeScope, KeepAspect, RevisionKind
+from ..errors import NotFound, ValidationError
+from ..ir import IntermediateRepresentation, SceneSpec
+from ..vocabulary import DEFAULT_VOCABULARY
+from .changes import AttributeChange
 
 ENTITY_ASPECTS = frozenset({KeepAspect.APPEARANCE, KeepAspect.ACTION, KeepAspect.SHAPE})
 SCENE_ASPECTS = frozenset({KeepAspect.BACKGROUND, KeepAspect.LIGHTING, KeepAspect.COMPOSITION})
@@ -120,7 +121,7 @@ class RevisionIntent:
 def normalize_keep(
     ir: IntermediateRepresentation,
     keep: Sequence[KeepItem],
-    change: Any,  # AttributeChange (순환 import 를 피하려고 형을 적지 않는다)
+    change: AttributeChange,
 ) -> tuple[KeepItem, ...]:
     """유지할 요소를 검증하고 중복을 없앤다 (순서는 처음 나온 대로).
 
@@ -140,48 +141,6 @@ def normalize_keep(
         if item not in seen:
             seen.append(item)
     return tuple(seen)
-
-
-def repair_targets(ir: IntermediateRepresentation, change: Any) -> tuple[str, ...]:
-    """REPAIR 로 다시 만들 장면: 범위 안에서 요구조건 (객체, 술어) 이 그 값으로 걸려 있는 장면.
-
-    - 값이 다르면 ValidationError (값을 바꾸는 것은 CHANGE 다).
-    - scope=SCENES 로 짚은 장면에 그 요구조건이 없으면 ValidationError.
-      모든 등장 장면(ALL_APPEARANCES)이면 요구조건이 없는 장면은 대상에서 뺀다.
-    """
-    from .services.propagation import target_scenes  # 순환 import 방지
-
-    targets: list[str] = []
-    for scene_key in target_scenes(ir, change):
-        scene = ir.scene(scene_key)
-        found = [
-            r
-            for r in scene.requirements
-            if r.entity_key == change.entity_key and r.predicate == change.predicate
-        ]
-        if any(r.expected_value == change.new_value for r in found):
-            targets.append(scene_key)
-            continue
-        if found:
-            values = ", ".join(sorted({r.expected_value for r in found}))
-            raise ValidationError(
-                f"장면 '{scene_key}' 의 '{change.predicate}' 요구조건은 {values} 입니다. "
-                "REPAIR 는 요구조건을 바꾸지 않습니다 (값을 바꾸려면 kind=CHANGE)"
-            )
-        if change.scope is ChangeScope.SCENES:
-            raise ValidationError(
-                f"장면 '{scene_key}' 에는 '{change.predicate}' 요구조건이 없습니다 (다시 맞출 대상이 없음)"
-            )
-    if not targets:
-        raise ValidationError(
-            f"'{change.predicate}' = {change.new_value} 요구조건이 걸린 장면이 없습니다"
-        )
-    return tuple(targets)
-
-
-def next_seed(seed: int | None) -> int:
-    """다시 만드는 장면에 쓸 seed. 지금 것과 달라야 같은 요청의 캐시된 결과가 그대로 나오지 않는다."""
-    return (seed or 0) + 1
 
 
 def _altered_by(entity_key: str | None, predicate: str) -> KeepItem | None:

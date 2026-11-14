@@ -1,7 +1,13 @@
+"""메모리 산출물 저장소 (테스트 · 기본 설정). 주소는 mem://<키> 이고 프로세스가 끝나면 사라진다."""
+
 from __future__ import annotations
 
 from frame.application.errors import StorageError
-from frame.application.ports.artifact_store import ArtifactStore, guess_media_type
+from frame.application.ports.artifact_store import (
+    ArtifactStore,
+    check_artifact_key,
+    guess_media_type,
+)
 
 
 class InMemoryArtifactStore(ArtifactStore):
@@ -11,6 +17,7 @@ class InMemoryArtifactStore(ArtifactStore):
         self._blobs: dict[str, tuple[bytes, str]] = {}
 
     def put(self, key: str, data: bytes, content_type: str | None = None) -> str:
+        check_artifact_key(key)
         uri = f"{self.SCHEME}{key}"
         self._blobs[uri] = (bytes(data), content_type or guess_media_type(key))
         return uri
@@ -25,6 +32,7 @@ class InMemoryArtifactStore(ArtifactStore):
         return uri in self._blobs
 
     def uri_for(self, key: str) -> str:
+        check_artifact_key(key)
         return f"{self.SCHEME}{key}"
 
     def content_type(self, uri: str) -> str:

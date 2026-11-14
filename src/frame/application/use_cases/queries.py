@@ -206,11 +206,13 @@ class ProjectQueries:
 
 def _depth(version: VideoVersion, by_id: Mapping[str, VideoVersion]) -> int:
     """원본(루트)까지의 거리. 부모가 프로젝트 목록에 없으면 거기서 멈춘다."""
-    depth, seen, current = 0, {version.version_id}, version
-    while current.parent_version_id in by_id and current.parent_version_id not in seen:
-        current = by_id[current.parent_version_id]
-        seen.add(current.version_id)
+    depth, seen = 0, {version.version_id}
+    parent_id = version.parent_version_id
+    while parent_id is not None and parent_id in by_id and parent_id not in seen:
+        parent = by_id[parent_id]
+        seen.add(parent.version_id)
         depth += 1
+        parent_id = parent.parent_version_id
     return depth
 
 
