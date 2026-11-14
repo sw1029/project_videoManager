@@ -79,7 +79,8 @@ class Settings:
     llm_provider: str = "openai"
     llm_model: str = "gpt-4.1-mini"
     llm_key_file: str | None = None  # 키 파일 경로. 없으면 OPENAI_API_KEY 환경 변수
-    llm_base_url: str | None = None  # 로컬 3090: http://localhost:8001/v1
+    # 로컬 3090: http://localhost:8001/v1. 없으면 OpenAI 다 (셸의 OPENAI_BASE_URL 은 따르지 않는다)
+    llm_base_url: str | None = None
     llm_timeout_s: float = 60.0
     llm_temperature: float | None = 0.0  # None 이면 보내지 않음 (추론 모델은 자동 생략)
     llm_strict_schema: bool = True

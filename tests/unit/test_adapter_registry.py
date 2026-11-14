@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
@@ -117,6 +119,26 @@ def context(tmp_path):
         handlers=JobHandlerRegistry(),
         theme_settings=ThemeSettings(),
     )
+
+
+def test_llm_requests_go_where_frame_says_whatever_the_shell_says(monkeypatch, context):
+    """LLM 클라이언트의 주소는 조립이 정한다: FRAME_LLM_BASE_URL, 없으면 OpenAI (감사 BTS-D05).
+
+    음성 인식이 '주소를 따로 주지 않으면 LLM 과 같은 곳' 이라고 할 때의 그 주소와 같은 값이다 (llm_address).
+    셸의 OPENAI_BASE_URL 은 따르지 않는다 — 따르면 LLM 요청만 그 주소로 가고 같은 키의 인식 요청은 OpenAI 로 간다.
+    """
+    pytest.importorskip("openai")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    # 화면 키 입력을 켜면 키 없이 조립된다 (SDK 클라이언트는 호출할 때 만든다)
+    settings = replace(context.settings, llm_provider="openai", llm_runtime_key=True)
+
+    client = default_registry().build(LLMClient, "openai", replace(context, settings=settings))
+    assert client.base_url == "https://api.openai.com/v1"
+
+    local = replace(settings, llm_base_url=" http://localhost:8001/v1/ ")
+    client = default_registry().build(LLMClient, "openai", replace(context, settings=local))
+    assert client.base_url == "http://localhost:8001/v1"
 
 
 @pytest.mark.parametrize("port", DEFAULT_KEYS, ids=lambda port: port.__name__)

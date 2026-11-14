@@ -9,6 +9,7 @@ from frame.application.errors import ConfigurationError
 from frame.application.ports.llm import LLMClient
 
 from ..registry import AdapterRegistry, BuildContext
+from ._dependencies import llm_address
 
 
 def register(registry: AdapterRegistry) -> None:
@@ -21,7 +22,7 @@ def _openai(ctx: BuildContext) -> LLMClient:
     try:
         return OpenAIJsonClient(
             model=s.llm_model,
-            base_url=s.llm_base_url,
+            base_url=llm_address(ctx),
             timeout_s=s.llm_timeout_s,
             temperature=s.llm_temperature,
             strict=s.llm_strict_schema,

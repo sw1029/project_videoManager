@@ -10,6 +10,7 @@ from frame.application.errors import LLMBadResponse, LLMError, LLMUnavailable
 openai = pytest.importorskip("openai")
 
 from frame.adapters.llm.openai_client import (  # noqa: E402 - importorskip 이후
+    OPENAI_BASE_URL,
     OpenAIJsonClient,
     mask_key,
     resolve_api_key,
@@ -263,6 +264,61 @@ def test_the_retry_limit_can_be_set(monkeypatch, given, used):
     _client(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, max_retries=given)
 
     assert made[0]["max_retries"] == used
+
+
+# ---- 요청이 가는 주소 (감사 BTS-D05) --------------------------------------------------------
+
+
+def test_the_sdk_always_gets_an_explicit_address(monkeypatch):
+    """주소를 주지 않아도 SDK 에는 주소(OpenAI)를 적어 넘긴다. 셸의 OPENAI_BASE_URL 이 요청의 주소를 바꾸지 못한다.
+
+    넘기지 않으면 SDK 는 그 환경 변수를 따른다. 그러면 LLM 요청은 그 주소로 가는데, 조립은 LLM 주소를
+    'FRAME_LLM_BASE_URL, 없으면 OpenAI' 로 보고 같은 키를 쓰는 음성 인식을 OpenAI 로 보낸다 — 한 키가 두 곳으로
+    간다. 주소는 FRAME 의 설정만 따른다.
+    """
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9/v1")
+    made = _record_sdk_clients(monkeypatch)
+
+    client = _client(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={})
+
+    assert client.base_url == made[0]["base_url"] == OPENAI_BASE_URL == "https://api.openai.com/v1"
+
+
+@pytest.mark.parametrize("blank", [None, "", "   "])
+def test_a_blank_address_means_openai(monkeypatch, blank):
+    made = _record_sdk_clients(monkeypatch)
+
+    _client(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, base_url=blank)
+
+    assert made[0]["base_url"] == OPENAI_BASE_URL
+
+
+def test_a_given_address_goes_to_the_sdk_as_it_is(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9/v1")
+    made = _record_sdk_clients(monkeypatch)
+
+    client = _client(
+        model="local-model",
+        api_key="sk-test-" + "a" * 24,
+        env={},
+        base_url="http://localhost:8001/v1",
+    )
+
+    assert client.base_url == made[0]["base_url"] == "http://localhost:8001/v1"
+
+
+def test_the_shell_address_does_not_let_an_openrouter_key_through(monkeypatch):
+    """OPENAI_BASE_URL 이 OpenRouter 를 가리켜도 주소를 주지 않은 요청은 OpenAI 로 간다. OpenRouter 키를 싣지 않는다.
+
+    전에는 그 환경 변수를 '요청이 갈 곳' 으로 보고 키를 통과시켰다 (SDK 도 그 주소를 따랐다).
+    """
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    created = []
+
+    with pytest.raises(LLMUnavailable, match="OpenRouter"):
+        _client(model="gpt-4.1-mini", api_key=OPENROUTER_KEY, env={}, sdk_factory=created.append)
+
+    assert created == []
 
 
 # ---- 호출 시점 키 해석 (화면 입력 키 지원) -------------------------------------------------
