@@ -6,7 +6,7 @@
     빠지므로, 실제 검수기 결과에는 키를 준다 (ADR-0022).
 - 비대상 변경률: 1 - PRESERVATION 점수 평균 (판정 자료가 없으면 None = 미판정, 성공으로 집계하지 않음)
   - 보존 검수기를 둘 이상 켜면 측정 기준(detail.method)별로 나눠 잰다: select_preservation (ADR-0018 · ADR-0022)
-목표: 성공률 >= 80%, 비대상 변경률 <= 10%
+목표: 성공률 >= 80% (SUCCESS_RATE_TARGET), 비대상 변경률 <= 10% (NON_TARGET_CHANGE_TARGET)
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ from dataclasses import dataclass
 from frame.domain.checks import CheckResult
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.metrics import preservation_rate
+
+# 지표 1 목표 (T12). 케이스 판정(evaluate_case)과 전체 판정(EditEvaluation)이 함께 쓴다
+SUCCESS_RATE_TARGET = 0.8  # 전체: 성공한 케이스의 비율 >= 80%
+NON_TARGET_CHANGE_TARGET = 0.1  # 케이스: 비대상 변경률 <= 10% 여야 성공, 전체: 평균 <= 10%
 
 # 비대상 변경률의 측정 기준 = PRESERVATION 결과의 detail.method
 # - vlm_keep: vlm_preservation 의 유지 요소 판정 (요소 하나가 결과 하나, 그대로 1.0 / 달라짐 0.0)
@@ -50,8 +54,8 @@ class EditEvaluation:
     cases: int
     success_rate: float
     mean_non_target_change_rate: float | None
-    success_target: float = 0.8
-    change_target: float = 0.1
+    success_target: float = SUCCESS_RATE_TARGET
+    change_target: float = NON_TARGET_CHANGE_TARGET
 
     @property
     def meets_target(self) -> bool:
@@ -67,7 +71,7 @@ def evaluate_case(case: EditCase) -> EditCaseOutcome:
     target_met = _target_met(case)
     preservation = preservation_rate(case.revision_results)
     change_rate = None if preservation is None else round(1.0 - preservation, 6)
-    success = target_met and change_rate is not None and change_rate <= 0.1
+    success = target_met and change_rate is not None and change_rate <= NON_TARGET_CHANGE_TARGET
     return EditCaseOutcome(case.case_id, success, change_rate, target_met)
 
 

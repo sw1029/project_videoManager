@@ -20,7 +20,9 @@ from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
 
 from .edit_metrics import (
+    NON_TARGET_CHANGE_TARGET,
     PRESERVATION_BASES,
+    SUCCESS_RATE_TARGET,
     EditCase,
     EditCaseOutcome,
     EditEvaluation,
@@ -33,8 +35,8 @@ from .edit_runner import CaseRun
 TOOL_NAME = "frame.tools.evaluate_edits"
 REPORT_VERSION = 1
 TARGETS = {
-    "success_rate": EditEvaluation.success_target,
-    "non_target_change_rate": EditEvaluation.change_target,
+    "success_rate": SUCCESS_RATE_TARGET,
+    "non_target_change_rate": NON_TARGET_CHANGE_TARGET,
 }
 
 

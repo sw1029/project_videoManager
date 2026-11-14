@@ -5,7 +5,9 @@ import pytest
 from frame.domain.checks import CheckResult
 from frame.domain.enums import CheckType, Verdict
 from frame.evaluation.edit_metrics import (
+    NON_TARGET_CHANGE_TARGET,
     PRESERVATION_BASES,
+    SUCCESS_RATE_TARGET,
     EditCase,
     evaluate_case,
     evaluate_cases,
@@ -80,6 +82,20 @@ def test_aggregate_meets_target():
 
 def test_aggregate_without_cases_does_not_meet_target():
     assert not evaluate_cases([]).meets_target
+
+
+def test_targets_are_defined_once_for_case_and_aggregate_judgement():
+    """목표값은 한 곳에만 있다: 케이스 판정(evaluate_case)과 전체 판정(EditEvaluation)이 같은 상수를 쓴다."""
+    assert (SUCCESS_RATE_TARGET, NON_TARGET_CHANGE_TARGET) == (0.8, 0.1)
+    evaluation = evaluate_cases([])
+    assert evaluation.success_target == SUCCESS_RATE_TARGET
+    assert evaluation.change_target == NON_TARGET_CHANGE_TARGET
+
+
+def test_case_succeeds_up_to_the_change_target_and_fails_beyond_it():
+    at_target = 1.0 - NON_TARGET_CHANGE_TARGET
+    assert evaluate_case(_case("at", preservation=(at_target,) * 3)).success
+    assert not evaluate_case(_case("beyond", preservation=(at_target - 0.01,) * 3)).success
 
 
 # ---- 판정할 요구조건을 키로 찾기 (수정 버전 IR 의 바뀐 장면 × 대상 객체 × 술어) ----
