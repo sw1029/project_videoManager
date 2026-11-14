@@ -122,6 +122,26 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self._session.expire_all()
         return result.rowcount == 1
 
+    def replace_draft_ir(self, version_id: str, ir: IntermediateRepresentation) -> bool:
+        # 조건부 UPDATE 로 행을 잡은 뒤에 정규화 행을 다시 만든다. 동시에 온 생성 접수의 조건부 갱신은
+        # 이 트랜잭션이 끝날 때까지 기다리거나(행 잠금) 이미 바뀐 상태를 보고 이쪽이 0 행으로 끝난다
+        result = self._session.execute(
+            update(VersionRow)
+            .where(
+                VersionRow.version_id == version_id,
+                VersionRow.state == str(VersionState.DRAFT),
+                VersionRow.frozen_fingerprint.is_(None),
+            )
+            .values(ir_json=ir.to_json())
+        )
+        self._session.expire_all()
+        if result.rowcount != 1:
+            return False
+        version = self.get(version_id)
+        assert version is not None
+        self._sync_ir_rows(version)
+        return True
+
     # ---- 읽기 -------------------------------------------------------------
     def get(self, version_id: str) -> VideoVersion | None:
         row = self._session.get(VersionRow, version_id)
