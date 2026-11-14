@@ -6,7 +6,6 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Mapping
-from contextvars import ContextVar
 from dataclasses import replace
 from typing import Any
 
@@ -18,6 +17,7 @@ from frame.application.ports.generator import (
     VideoGenerator,
 )
 
+from .abandonment import enter_worker, pause_unless_abandoned
 from .cache import ClipCache, InMemoryClipCache, KeyedLocks
 
 log = logging.getLogger(__name__)
@@ -130,27 +130,15 @@ class RetryingVideoGenerator(VideoGenerator):
 
 # ---- 범용 시간 제한 (이슈 #1, ADR-0012) -------------------------------------------------
 
-# TimeoutVideoGenerator 가 만든 작업 스레드 안에서만 값이 있다. 마감이 지나 호출한 쪽이 먼저 돌아가면 set 된다.
-_ABANDONED: ContextVar[threading.Event | None] = ContextVar(
-    "frame_generation_abandoned", default=None
-)
-
 
 def pause_before_retry(seconds: float) -> None:
     """RetryingVideoGenerator(sleep=...) 에 꽂는 재시도 전 대기.
 
     시간 제한으로 버려진 작업 스레드에서는 다음 시도(외부 API 재제출 = 재과금)를 시작하지 않고
     GenerationTimeout 으로 멈춘다. 그 밖에서는 seconds 만큼 기다린다 (0 이면 바로 돌아온다).
+    버려졌다는 신호는 abandonment 모듈에 있고, 외부 API 어댑터도 제출 직전에 같은 신호를 본다.
     """
-    abandoned = _ABANDONED.get()
-    if abandoned is None:
-        if seconds > 0:
-            time.sleep(seconds)
-        return
-    if abandoned.is_set() or (seconds > 0 and abandoned.wait(seconds)):
-        raise GenerationTimeout(
-            "시간 제한으로 버려진 생성 작업이라 다시 시도하지 않습니다", retryable=False
-        )
+    pause_unless_abandoned(seconds, "다시 시도하지 않습니다")
 
 
 class TimeoutVideoGenerator(VideoGenerator):
@@ -158,7 +146,8 @@ class TimeoutVideoGenerator(VideoGenerator):
 
     - 파이썬 스레드는 강제로 멈출 수 없으므로 내부 호출은 작업 스레드(daemon)에서 돌리고, 호출한 쪽만 마감에 돌아온다.
     - 버려진 작업 스레드는 내부 호출이 스스로 끝날 때까지 돈다 (OpenRouter 는 자체 제한 FRAME_VIDEO_TIMEOUT_S 까지).
-      그 안의 RetryingVideoGenerator 는 pause_before_retry 를 꽂았으면 다음 시도를 하지 않는다.
+      그 안의 RetryingVideoGenerator 는 pause_before_retry 를 꽂았으면 다음 시도를 하지 않고,
+      OpenRouter 어댑터는 버려진 뒤에는 제출(POST)하지 않는다 (abandonment 모듈의 신호).
     - 마감 뒤에 나온 결과는 버린다 (버전은 이미 FAILED). 과금됐을 수 있는 산출물을 회수하도록 URI 를 경고 로그로 남긴다.
     - 시간 초과는 재시도하지 않는다: 외부 작업이 접수돼 계속 돌고 있을 수 있어 다시 제출하면 또 과금된다.
     """
@@ -189,7 +178,7 @@ class TimeoutVideoGenerator(VideoGenerator):
         outcome: dict[str, Any] = {}
 
         def work() -> None:
-            _ABANDONED.set(abandoned)
+            enter_worker(abandoned)
             try:
                 outcome["clip"] = self._inner.generate_scene(request)
             except BaseException as exc:  # noqa: BLE001 - 호출한 스레드에서 그대로 다시 던진다

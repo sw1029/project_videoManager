@@ -9,6 +9,8 @@
 - 그 밖의 제출 오류, 접수 뒤 실패(failed·cancelled·expired), 시간 초과, 다운로드·정규화 실패는 retryable=False 로 보고해
   RetryingVideoGenerator 가 같은 장면을 다시 제출(재과금)하지 않게 한다.
 - 폴링·다운로드(GET)의 일시 오류는 과금과 무관해 계속 시도한다.
+- 범용 시간 제한(ADR-0012)으로 버려진 작업 스레드에서는 제출하지 않는다. 잠금·부모 주소·429 뒤 대기처럼 제출 전에
+  기다리던 스레드가 마감 뒤에 깨어나 접수시키는 일을 막는다 (매 POST 직전에 확인한다).
 - 키는 Authorization 헤더에만 싣고(리다이렉트로 넘기지 않음) 예외·로그·클립 메타데이터에 남기지 않는다.
   서명된 다운로드 URL(urls)도 키처럼 다뤄 기록하지 않는다.
 
@@ -98,6 +100,7 @@ from frame.domain.ir import SceneSpec
 from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
+from .abandonment import stop_if_abandoned
 from .cache import KeyedLocks, generation_key
 from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer, resolve_ffmpeg
 from .ledger import (
@@ -1518,6 +1521,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers = {**self._auth_headers(), "Content-Type": "application/json"}
         for attempt in range(1, self.submit_attempts + 1):
+            # 여기까지 오는 동안(잠금·부모 주소·앞선 429 뒤의 대기) 호출한 쪽이 마감으로 돌아갔으면 접수시키지 않는다
+            stop_if_abandoned("제출하지 않습니다")
             try:
                 resp = self._http.request(
                     "POST",

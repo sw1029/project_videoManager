@@ -19,6 +19,12 @@ from frame.adapters.generator.decorators import pause_before_retry
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import GenerationError, GenerationTimeout
 from frame.application.ports.generator import SceneGenerationRequest, VideoGenerator
+from tests.support.openrouter import (
+    FakeOpenRouterApi,
+    accepted,
+    error_response,
+    make_openrouter_generator,
+)
 
 WAIT = 5.0  # 테스트가 멈춰 버리지 않도록 하는 안전 상한 (정상이면 바로 끝난다)
 
@@ -117,6 +123,46 @@ def test_abandoned_worker_does_not_start_another_attempt(store, release, ir):
     release.set()  # 첫 시도가 '일시 오류(retryable)' 로 끝난다 -> Retry 가 다음 시도를 하려 한다
     assert generator.wait_abandoned(WAIT)
     assert flaky.calls == 1
+
+
+def test_abandoned_worker_does_not_submit_after_waiting_out_a_rate_limit(store, release, ir):
+    """제출이 429 로 밀려 어댑터가 기다리는 사이 마감이 지났다. 버려진 스레드가 깨어나 다시 제출(과금)하지 않는다.
+
+    재시도 데코레이터의 시도 사이만 막으면, 어댑터 안에서 기다리던 제출은 버전이 실패한 뒤에 접수된다 (감사 A-34).
+    """
+    api = FakeOpenRouterApi()
+    api.on(
+        "POST",
+        "/api/v1/videos",
+        error_response(429, "Rate limit exceeded", {"Retry-After": "30"}),
+        accepted(),
+    )
+    waiting = threading.Event()
+
+    def wait_for_the_rate_limit(_seconds):
+        waiting.set()
+        release.wait(WAIT)
+
+    inner = make_openrouter_generator(store, api, sleep=wait_for_the_rate_limit)
+    generator = TimeoutVideoGenerator(inner, timeout_seconds=0.05)
+
+    with pytest.raises(GenerationTimeout):
+        generator.generate_scene(_request(ir))
+    assert waiting.wait(WAIT)  # 어댑터는 429 뒤 다시 보내려고 기다리는 중이다
+
+    release.set()
+    assert generator.wait_abandoned(WAIT)
+    assert len(api.submits) == 1  # 마감 뒤에는 보내지 않았다
+
+
+def test_the_adapter_still_resubmits_a_rate_limited_job_before_the_deadline(store, ir):
+    api = FakeOpenRouterApi()
+    api.on("POST", "/api/v1/videos", error_response(429, "Rate limit exceeded"), accepted())
+    generator = TimeoutVideoGenerator(make_openrouter_generator(store, api), timeout_seconds=WAIT)
+
+    clip = generator.generate_scene(_request(ir))
+
+    assert len(api.submits) == 2 and store.exists(clip.uri)
 
 
 def test_retry_still_retries_outside_an_abandoned_worker(store, ir):

@@ -26,6 +26,11 @@
   - 안쪽 Retry 가 다음 시도를 하지 않는다. 컨테이너는 `RetryingVideoGenerator` 의 대기 함수로 `pause_before_retry` 를 꽂는다.
     버려진 작업 스레드에서는 이 함수가 `GenerationTimeout(retryable=False)` 을 던져 재제출을 막는다 (재시도 대기 중이었다면 바로 깨어난다).
     `RetryingVideoGenerator` 코드는 바꾸지 않았다.
+  - 보완 (2026-11-14, 감사 A-34): 외부 API 어댑터도 같은 신호를 본다. OpenRouter 어댑터는 매 제출(POST) 직전에 확인해,
+    제출 전에 기다리던 스레드(같은 장면의 잠금, 부모 클립의 저장본 주소, 429·502 뒤의 대기)가 마감 뒤에 깨어나 접수시키지 않는다.
+    그때까지는 재시도 데코레이터의 시도 사이만 막아서, 어댑터 안에서 기다리던 제출은 버전이 실패한 뒤에 접수됐다.
+    신호는 `adapters/generator/abandonment.py` 에 있다 (`stop_if_abandoned`·`pause_unless_abandoned`).
+    이미 접수된 작업의 폴링·내려받기는 지금처럼 끝까지 한다 (결과가 원장에 남아 다음 요청이 다시 내지 않는다).
   - daemon 스레드라 프로세스 종료를 막지 않는다. 종료 때 끝나지 않은 외부 작업은 계속돼 과금될 수 있다 (접수 로그의 job id 로 확인).
   - `wait_abandoned(timeout)` 으로 버려진 스레드가 끝나기를 기다릴 수 있다 (테스트·종료 정리용).
 - OpenRouter 자체 제한(`FRAME_VIDEO_TIMEOUT_S`)과의 관계
