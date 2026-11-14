@@ -247,12 +247,17 @@ def test_vlm_reader_sends_one_crop_per_region_and_returns_texts_in_order(tmp_pat
 
 
 @needs_ffmpeg
-def test_vlm_reader_treats_missing_answers_as_no_text_and_bad_answers_as_errors(tmp_path):
+def test_vlm_reader_tells_no_text_from_not_read(tmp_path):
+    """'글자가 없다' 는 답은 빈 문자열, 답이 빠진 영역은 읽지 못한 것(오류)이다."""
     clip = make_clip(FFMPEG, tmp_path / "clip.mp4", size="240x426", fps=10)
+    empty = json.dumps({"texts": [{"id": "T1", "text": "FRAME"}, {"id": "T2", "text": ""}]})
     partial = json.dumps({"texts": [{"id": "T1", "text": "FRAME"}]})
-    reader = VlmScreenTextReader(FFMPEG, ReplayLLMClient([partial, "not json", LLMTimeout("느림")]))
+    answers = [empty, partial, "not json", LLMTimeout("느림")]
+    reader = VlmScreenTextReader(FFMPEG, ReplayLLMClient(answers))
 
     assert reader.read(clip, 1000, (PRICE_REGION, TITLE.region)) == ("FRAME", "")
+    with pytest.raises(AdapterError, match="빠진 영역"):
+        reader.read(clip, 1000, (PRICE_REGION, TITLE.region))
     with pytest.raises(AdapterError):
         reader.read(clip, 1000, (PRICE_REGION,))
     with pytest.raises(LLMTimeout):

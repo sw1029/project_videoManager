@@ -240,3 +240,15 @@ def test_failed_extraction_leaves_no_copy_of_the_source():
     with pytest.raises(ThemeExtractionError):
         series_of(container).extract_theme.execute(command)
     assert not any("source" in uri for uri in container.artifact_store._blobs)
+
+
+def test_oversized_video_is_refused_before_anything_reads_it(monkeypatch):
+    """터무니없이 큰 파일은 겉모습을 읽기도 전에 끊는다 (단계마다 임시 파일로 다시 쓰인다)."""
+    from frame.application.series import extract_theme
+
+    monkeypatch.setattr(extract_theme, "MAX_SOURCE_BYTES", len(VIDEO) - 1)
+    series = series_of(series_container())
+
+    with pytest.raises(ValidationError, match="너무 큽니다"):
+        series.extract_theme.execute(_command())
+    assert series.prober.calls == 0 and series.themes.list() == []

@@ -6,10 +6,11 @@ import json
 
 import pytest
 
-from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer, dump_request_fields
+from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
 from frame.adapters.http_transport import HttpResponse, HttpTransport, TransportError
 from frame.adapters.llm.key_store import LLMKeyStore
 from frame.application.ports.video_analysis import SpeechAudio, SpeechRecognitionError
+from tests.support.speech import dump_request_fields
 
 KEY = "sk-test-SECRET-1234567890"
 AUDIO = SpeechAudio(b"RIFF....WAVEfmt ", "audio/wav", 8000)

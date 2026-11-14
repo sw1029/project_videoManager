@@ -16,6 +16,11 @@ from frame.application.ports.video_analysis import MediaProber, ShotDetector, Vi
 from frame.domain.shortform import MediaInfo
 from frame.domain.video_analysis import Shot, shots_from_cuts
 
+# 받는 영상 코덱. ffmpeg 는 글 파일도 '영상'(bintext·ansi …)으로 읽을 수 있다. 계약은 "영상이 아니면 오류" 다
+VIDEO_CODECS = frozenset(
+    {"h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "mpeg2video", "theora", "prores", "mjpeg"}
+)
+
 
 class FfmpegMediaProber(MediaProber):
     def __init__(self, ffmpeg: str | None, *, timeout_s: float = 120.0) -> None:
@@ -24,7 +29,7 @@ class FfmpegMediaProber(MediaProber):
 
     def probe(self, video: bytes) -> MediaInfo:
         with tempfile.TemporaryDirectory(prefix="frame-probe-") as tmp:
-            path = Path(tmp) / "source.bin"
+            path = Path(tmp) / "source"
             path.write_bytes(video)
             try:
                 found = probe_media(self._ffmpeg, path, self.timeout_s)
@@ -32,6 +37,8 @@ class FfmpegMediaProber(MediaProber):
                 raise VideoAnalysisError(f"영상을 읽지 못했습니다: {exc}") from exc
         if not found.has_video or not found.height or not found.duration_ms:
             raise VideoAnalysisError("영상 스트림이 없는 파일입니다")
+        if (found.video_codec or "").lower() not in VIDEO_CODECS:
+            raise VideoAnalysisError(f"받지 않는 영상 코덱입니다: {found.video_codec}")
         assert found.width is not None
         return MediaInfo(
             width=found.width,
@@ -60,7 +67,7 @@ class FfmpegShotDetector(ShotDetector):
 
     def detect(self, video: bytes, media: MediaInfo) -> tuple[Shot, ...]:
         with tempfile.TemporaryDirectory(prefix="frame-shots-") as tmp:
-            path = Path(tmp) / "source.bin"
+            path = Path(tmp) / "source"
             path.write_bytes(video)
             try:
                 cuts = detect_cuts(

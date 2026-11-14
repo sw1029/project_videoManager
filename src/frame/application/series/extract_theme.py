@@ -50,6 +50,11 @@ from ..ports.video_analysis import (
 log = logging.getLogger(__name__)
 
 
+# 겉모습을 읽기 전에 보는 크기 상한. 영상은 단계마다 임시 파일로 다시 쓰이므로 터무니없이 큰 파일을 먼저 끊는다.
+# 숏폼 플랫폼이 받는 크기(Reels 300MB)보다 넉넉하게 둔다. 길이는 숏폼 규격 판정이 본다 (감사 BTS-30)
+MAX_SOURCE_BYTES = 512 * 1024 * 1024
+
+
 class NotShortform(ValidationError):
     """영상이 숏폼 규격 밖이다 (API 422). context 의 report 에 기준별 판정이 있다."""
 
@@ -108,6 +113,11 @@ class ExtractTheme:
     def execute(self, command: ExtractThemeCommand) -> ExtractThemeResult:
         if not command.video:
             raise ValidationError("영상이 비어 있습니다")
+        if len(command.video) > MAX_SOURCE_BYTES:
+            raise ValidationError(
+                f"영상이 너무 큽니다: {len(command.video) / 1_048_576:.0f}MB "
+                f"(상한 {MAX_SOURCE_BYTES // 1_048_576}MB)"
+            )
         if command.keep_source and command.origin is SourceOrigin.EXTERNAL:
             raise ValidationError(
                 "외부 영상은 저장소에 사본을 두지 않습니다 (keep_source 를 끄세요)"

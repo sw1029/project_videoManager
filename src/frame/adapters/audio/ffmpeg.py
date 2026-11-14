@@ -39,13 +39,13 @@ class FfmpegAudioEditor(AudioEditor):
 
     def probe(self, media: bytes) -> AudioInfo | None:
         with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:
-            path = Path(tmp) / "media.bin"
+            path = Path(tmp) / "media"
             path.write_bytes(media)
             return self._info(path)
 
     def speech_audio(self, media: bytes) -> SpeechAudio | None:
         with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:
-            source, target = Path(tmp) / "media.bin", Path(tmp) / "speech.wav"
+            source, target = Path(tmp) / "media", Path(tmp) / "speech.wav"
             source.write_bytes(media)
             info = self._info(source)
             if info is None:
@@ -78,7 +78,7 @@ class FfmpegAudioEditor(AudioEditor):
             cmd += ["-i", f"anullsrc=r={self.sample_rate}:cl=mono"]
             position: dict[int, int] = {}
             for index in used:
-                path = folder / f"source_{index}.bin"
+                path = folder / f"source_{index}"
                 path.write_bytes(sources[index])
                 if self._info(path) is None:
                     raise AudioError(f"녹음 {index} 에 소리가 없습니다")
@@ -113,7 +113,7 @@ class FfmpegAudioEditor(AudioEditor):
     def mux(self, video: bytes, track: bytes) -> bytes:
         with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:
             folder = Path(tmp)
-            picture, sound, target = folder / "video.mp4", folder / "track.bin", folder / "out.mp4"
+            picture, sound, target = folder / "video.mp4", folder / "track", folder / "out.mp4"
             picture.write_bytes(video)
             sound.write_bytes(track)
             try:

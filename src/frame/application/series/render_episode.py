@@ -113,13 +113,10 @@ class RenderEpisode:
 
         video = self._assembler.assemble(f"episode-{episode.episode_id}", ordered)
         final_uri = video.uri
-        narration = episode.narration
-        with_narration = narration is not None and narration.track_uri is not None
-        if with_narration:
-            assert narration is not None and narration.track_uri is not None
-            muxed = self._audio.mux(
-                self._store.get(video.uri), self._store.get(narration.track_uri)
-            )
+        track_uri = episode.narration.track_uri if episode.narration is not None else None
+        with_narration = track_uri is not None
+        if track_uri is not None:
+            muxed = self._audio.mux(self._store.get(video.uri), self._store.get(track_uri))
             suffix = PurePosixPath(video.uri).suffix or ".bin"
             final_uri = self._store.put(
                 f"episodes/{episode.episode_id}/final{suffix}",

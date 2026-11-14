@@ -357,3 +357,12 @@ def test_extractor_failure_is_an_adapter_error():
     failing = FakeThemeExtractor(error=ThemeExtractionError("주입된 오류"))
     with pytest.raises(ThemeExtractionError):
         failing.extract(_request(fake_video()))
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
+def test_text_is_not_read_as_a_video():
+    """줄바꿈 없는 글 800바이트가 640x80 영상으로 읽혔다 (임시 파일의 확장자 때문에 ffmpeg 가 글 형식을 골랐다)."""
+    from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber
+
+    with pytest.raises(VideoAnalysisError):
+        FfmpegMediaProber(FFMPEG).probe(b"frame " * 134)

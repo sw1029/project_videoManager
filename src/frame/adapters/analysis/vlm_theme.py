@@ -296,7 +296,6 @@ class VlmThemeExtractor(ThemeExtractor):
         max_attempts: int = 2,
         language: str = "Korean",
         timeout_s: float | None = 240.0,
-        vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY,
         refine_text_regions: bool = True,
         max_refined_texts: int = 8,
     ) -> None:
@@ -308,7 +307,6 @@ class VlmThemeExtractor(ThemeExtractor):
         self.max_attempts = max(1, int(max_attempts))
         self.language = language  # 설명·구실·메모를 적을 언어
         self.timeout_s = timeout_s
-        self._vocabulary = vocabulary
         self.refine_text_regions = refine_text_regions  # 얹은 문구의 영역을 문구마다 다시 묻는다
         self.max_refined_texts = max(0, int(max_refined_texts))  # 다시 묻는 호출 수의 상한
         self.last_completion: JsonCompletion | None = None  # 디버깅·기록용 원본 응답
@@ -326,7 +324,7 @@ class VlmThemeExtractor(ThemeExtractor):
         analysis = request.analysis
         spans = slot_spans_from_shots(analysis.shots, min_slot_ms=request.min_slot_ms)
         frames = self._frames(request.video, spans)
-        system = build_system_prompt(self._vocabulary)
+        system = build_system_prompt()
         user = self._user_prompt(request, spans, frames)
         usage = {"input_tokens": 0, "output_tokens": 0}
         last_error = "알 수 없는 오류"

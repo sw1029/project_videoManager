@@ -4,7 +4,8 @@
 1. 클립의 그 시각 프레임에서 영역마다 잘라 낸다 (ffmpeg). 글자 가장자리가 잘리지 않게 조금 넓히고,
    작은 글자는 키운다.
 2. 잘라 낸 이미지를 한 번에 모델에 보여 주고, 이미지마다 보이는 글자를 그대로 받아 적게 한다.
-3. 모델이 답하지 않은 영역은 빈 문자열이다.
+3. 모델이 답하지 않은 영역이 있으면 읽지 못한 것이다 (AdapterError). '글자가 없다' 고 답한 영역만 빈 문자열이다.
+   둘을 같은 빈 문자열로 두면 검수가 읽지 못한 것을 '다르게 읽힘' 으로 센다 (감사 BTS-27).
 
 '그대로 받아 적기' 가 중요하다. 모델은 깨진 글자를 그럴듯하게 고쳐 읽으려 한다. 고치지 말라고 하고,
 읽을 수 없으면 비우라고 한다. 그래도 한 번 읽은 것은 흔들릴 수 있으므로, 불일치는 사람이 볼 수 있게 근거와 함께 남긴다.
@@ -104,6 +105,9 @@ class VlmScreenTextReader(ScreenTextReader):
         except (ValueError, KeyError, TypeError) as exc:
             raise _BadAnswer(f"화면 문구 읽기 응답을 해석하지 못했습니다: {exc}") from exc
         answers = match_answers(items, ids, field="id")
+        missing = [i for i in ids if i not in answers]
+        if missing:
+            raise _BadAnswer(f"화면 문구 읽기 응답에 빠진 영역이 있습니다: {missing}")
         return tuple(
             " ".join(str(answers[i].get("text") or "").split()) if i in answers else "" for i in ids
         )

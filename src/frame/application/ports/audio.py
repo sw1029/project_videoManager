@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from frame.application.errors import AdapterError
+from frame.domain.errors import ValidationError
 
 from .video_analysis import SpeechAudio
 
@@ -36,6 +38,16 @@ class TrackCut:
     source_end_ms: int
     target_start_ms: int  # 트랙 안에서 시작하는 시각
     tempo: float = 1.0  # 1 보다 크면 그만큼 빠르게 (음높이는 그대로)
+
+    def __post_init__(self) -> None:
+        # 조각의 검증을 여기 한곳에 둔다. 어댑터마다 따로 보면 같은 입력에 가짜는 ZeroDivisionError,
+        # 실제는 AudioError 를 냈다 (감사 BTS-27)
+        if self.source_index < 0 or self.source_start_ms < 0 or self.target_start_ms < 0:
+            raise ValidationError(f"트랙 조각의 번호·시각은 0 이상이어야 합니다: {self}")
+        if self.source_end_ms <= self.source_start_ms:
+            raise ValidationError(f"트랙 조각의 끝이 시작보다 뒤여야 합니다: {self}")
+        if not (math.isfinite(self.tempo) and 0.5 <= self.tempo <= 2.0):
+            raise ValidationError(f"트랙 조각의 빠르기는 0.5~2.0 이어야 합니다: {self.tempo}")
 
 
 class AudioEditor(ABC):

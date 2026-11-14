@@ -312,3 +312,19 @@ def test_odd_file_names_never_reach_the_storage_key(container):
     narration = _attach(container, episode, odd).narration
 
     assert narration.recording_uris[0].endswith(".bin") and ".." not in narration.recording_uris[0]
+
+
+def test_returned_narration_is_exactly_what_was_stored(container):
+    """돌려준 값과 저장된 값이 같다 (유사도를 저장할 때 반올림해 서로 달랐다, 감사 BTS-21)."""
+    episode = new_episode(container)
+    wobbly = fake_recording(
+        Transcript(
+            "ko", (SpeechSegment(300, 2400, "안녕하세요 오늘 메뉴예요"),)
+        )  # 대본과 조금 다르다
+    )
+
+    attached = _attach(container, episode, RecordingInput(wobbly, filename="take.m4a"))
+
+    stored = series_of(container).episodes.get(episode.episode_id)
+    assert stored.narration == attached.narration
+    assert 0 < attached.narration.alignments[0].similarity < 1

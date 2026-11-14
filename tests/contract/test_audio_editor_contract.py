@@ -183,3 +183,24 @@ def test_ffmpeg_tempo_shortens_the_cut(tmp_path):
     silences = detect_silences(FFMPEG, path, noise_db=-50.0, min_ms=300)
 
     assert len(silences) == 1 and abs(silences[0][0] - 1600) <= 80
+
+
+@pytest.mark.parametrize(
+    "cut",
+    [
+        {"tempo": 0.0},
+        {"tempo": float("nan")},
+        {"tempo": 3.0},
+        {"source_end_ms": 500},  # 끝이 시작보다 앞
+        {"source_start_ms": -1},
+        {"target_start_ms": -100},
+        {"source_index": -1},
+    ],
+)
+def test_track_cut_is_checked_before_it_reaches_any_editor(cut):
+    """조각의 검증은 포트에 있다. 가짜와 실제 편집기가 같은 입력에 다른 오류를 내지 않는다."""
+    from frame.domain.errors import ValidationError
+
+    base = {"source_index": 0, "source_start_ms": 1000, "source_end_ms": 2000, "target_start_ms": 0}
+    with pytest.raises(ValidationError):
+        TrackCut(**{**base, **cut})

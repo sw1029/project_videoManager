@@ -152,7 +152,7 @@ def region_ssim(
     """
     x, y, w, h = box
     with tempfile.TemporaryDirectory(prefix="frame-ssim-") as tmp:
-        a, b = Path(tmp) / "a.bin", Path(tmp) / "b.bin"
+        a, b = Path(tmp) / "a", Path(tmp) / "b"
         a.write_bytes(first)
         b.write_bytes(second)
         size = probe_media(ffmpeg, a, timeout_s)

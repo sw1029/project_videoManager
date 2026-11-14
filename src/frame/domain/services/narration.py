@@ -89,11 +89,15 @@ class LineAlignment:
     source_index: int = 0  # 어느 녹음 파일인가 (줄마다 녹음했을 때)
     missing_terms: tuple[str, ...] = ()  # 대본 줄에는 있는데 녹음에서 들리지 않은 핵심어
 
+    def __post_init__(self) -> None:
+        # 저장할 때가 아니라 만들 때 반올림한다. 저장할 때 반올림하면 돌려준 값과 저장된 값이 다르다
+        object.__setattr__(self, "similarity", round(float(self.similarity), 4))
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "line_key": self.line_key,
             "status": str(self.status),
-            "similarity": round(self.similarity, 4),
+            "similarity": self.similarity,
             "heard": self.heard,
             "start_ms": self.start_ms,
             "end_ms": self.end_ms,

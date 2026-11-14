@@ -653,3 +653,14 @@ def test_bad_narration_line_asks_for_a_new_recording_of_that_line_only():
     )
     series.render_episode.execute(episode.episode_id)
     assert _check(container, episode).ok
+
+
+def test_patch_given_to_an_overlay_issue_is_refused_not_ignored():
+    """얹은 문구의 어긋남에 준 가리기는 말없이 무시됐다 (문구 수정 분기가 먼저 걸렀다)."""
+    container = _container()
+    episode = _tamper(container, _ready(container), "closeup:price", "말차 라떼 6,000원")
+    patch = PatchRegion("overlay:closeup:price", Region(0.1, 0.7, 0.8, 0.1))
+
+    with pytest.raises(ValidationError, match="화면 속 글자에만"):
+        _correct(container, episode, patches=(patch,))
+    assert series_of(container).episodes.get(episode.episode_id).plan == episode.plan

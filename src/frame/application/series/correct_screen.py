@@ -139,6 +139,15 @@ class CorrectEpisodeScreen:
         unknown = sorted(set(patches) - {i.issue_id for i in issues})
         if unknown:
             raise ValidationError(f"가릴 자리를 준 어긋남이 고칠 대상에 없습니다: {unknown}")
+        misplaced = sorted(
+            i.issue_id
+            for i in issues
+            if i.issue_id in patches and i.kind is not IssueKind.SCENE_TEXT
+        )
+        if misplaced:  # 얹은 문구·녹음에 준 가리기는 앞 분기에서 걸러져 말없이 무시됐다
+            raise ValidationError(
+                f"가리고 다시 쓰는 수정은 화면 속 글자에만 쓸 수 있습니다: {misplaced}"
+            )
 
         plan = episode.plan
         named = set(command.issue_ids)
@@ -153,10 +162,6 @@ class CorrectEpisodeScreen:
                 plan, step = _fix_overlay(plan, issue)
                 steps.append(step)
             elif issue.issue_id in patches:
-                if issue.kind is not IssueKind.SCENE_TEXT:
-                    raise ValidationError(
-                        f"가리고 다시 쓰는 수정은 화면 속 글자에만 쓸 수 있습니다: {issue.issue_id}"
-                    )
                 plan, step = _patch(plan, issue, patches[issue.issue_id])
                 steps.append(step)
             elif issue.issue_id in named:
