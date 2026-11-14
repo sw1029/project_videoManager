@@ -288,6 +288,7 @@ StructuringReport
     영어 어미(smiling/smiles → smile), 한국어 색 이름(빨간색 → red), 붙여 쓰기(close up / closeup)는 같은 말로 본다.
     동사를 부정하는 말(not·never·n't·안·않·못)이 모델 값에만 있으면 다른 조건으로 본다 (smiling ≠ not smiling).
     `안`·`못` 은 뒤에 낱말이 올 때만 부정으로 본다 (`안 웃는다` 는 부정, `카페 안`·`나무 못` 은 자리·물건).
+    `못` 으로 시작하는 낱말은 하다 활용(`못한다`·`못했다`)만 부정이다 (`못생긴`·`못된` 은 꾸미는 말).
   - 알려진 한계: 명사를 부정하는 말(no·without·없)은 보지 않는다 (`walks without umbrella` 는 걷기로 맞다).
     다른 절에 있는 부정도 값 전체를 다른 조건으로 만든다 (`standing, not moving` ≠ standing).
     여러 값이 섞여도 맞춤이다 (골드 red, 모델 `red and blue`). 동의어는 `accept` 로만 받는다.

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 
@@ -25,7 +26,12 @@ _VOWELS = frozenset("aeiouy")
 _NEGATION_WORDS = frozenset({"not", "never", "neither", "nor"})
 # 뒤에 낱말이 올 때만 부정이다 ('카페 안'·'벽의 못' 은 자리·물건)
 _NEGATION_ADVERBS = frozenset({"안", "못"})
-_NEGATION_PREFIXES = ("않", "못")  # 않는다·못한다 처럼 낱말 앞에 붙은 것
+# 낱말 앞에 붙은 부정: 않는다, 그리고 '못' 뒤 음절이 ㅎ 으로 시작하는 하다 활용(못한다·못합니다·못했다·못해).
+# 못생긴·못된 처럼 '못' 으로 시작하는 꾸미는 말은 부정이 아니다. 음절을 자모로 풀어(NFD) 첫소리 ㅎ 을 본다
+_NEGATING_PREFIXES = (
+    unicodedata.normalize("NFD", "않"),
+    unicodedata.normalize("NFD", "못하")[:4],  # 못 + 첫소리 ㅎ
+)
 # (어미, 그 어미를 걷어낼 최소 낱말 길이). 앞에서부터 하나만 걷어낸다
 _SUFFIXES = (("ing", 6), ("ied", 5), ("ies", 5), ("es", 5), ("ed", 5), ("ly", 6), ("s", 4))
 _COLOR_WORDS = {
@@ -98,9 +104,14 @@ def _negated(text: str) -> bool:
         if word in _NEGATION_ADVERBS:
             if index + 1 < len(found):  # 안 웃는다 (부정) / 카페 안 (자리)
                 return True
-        elif word.startswith(_NEGATION_PREFIXES):
+        elif _negating_word(word):
             return True
     return False
+
+
+def _negating_word(word: str) -> bool:
+    """않는다·못한다 처럼 부정을 품은 낱말인가 ('못' 은 하다 활용일 때만이다)."""
+    return unicodedata.normalize("NFD", word).startswith(_NEGATING_PREFIXES)
 
 
 def _phrase_match(expected: str, actual: str) -> bool:
