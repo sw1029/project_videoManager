@@ -1,0 +1,812 @@
+"""프레임을 읽는 LLM 으로 테마를 뽑는다 (FRAME_THEME_EXTRACTOR=vlm, ADR-0025).
+
+방법
+1. 원본의 컷을 다시 만들 수 있는 장면 자리로 묶는다 (slot_spans_from_shots).
+2. 자리마다 표본 프레임을 고르게 뽑는다 (ffmpeg). 전체 프레임 수에 상한을 두고 자리마다 나눈다.
+3. 모델을 한 번 부른다. 프레임과 함께 겉모습·자리의 시간·받아 적은 말소리를 주고, 객체, 자리마다의 내용,
+   스타일, 화면에서 읽은 문구, 문구 규칙, 편마다 바뀌는 변수를 받는다.
+4. 응답을 코드로 다듬는다. 모델이 낸 것 가운데 규칙에 맞는 것만 쓰고, 버린 것은 메모로 남긴다.
+   - 자리의 키·시간은 코드가 정한다 (모델은 S1, S2 … 로만 가리킨다).
+   - 객체 키는 영문 소문자·숫자·밑줄로 맞춘다. 술어·값은 IR 의 어휘로 정규화한다.
+   - 관계·일시적 술어는 고정 속성이 될 수 없다. 배경·문구 객체는 고정 출연이 되지 않는다.
+   - 말 빠르기·자리별 말의 예는 모델이 아니라 받아 적은 말소리에서 계산한다.
+   - 기준 이미지는 붙이지 않는다 (외부 영상의 화면을 잘라 두지 않는다. 필요하면 AdoptAnchors 로 붙인다).
+5. 다듬은 결과가 테마·IR 의 규칙을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts).
+
+한계
+- 프레임만 보므로 움직임·음악은 알 수 없다 (음악은 '알 수 없음' 으로 둔다). 작은 글자는 놓칠 수 있다.
+- 편마다 무엇이 다시 나올지(recurring)는 영상 한 편으로는 알 수 없다. 모델의 짐작이고, 사람이 고칠 값이다.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from frame.adapters.video_tools import extract_frame, require_ffmpeg
+from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient
+from frame.application.ports.video_analysis import (
+    ThemeExtraction,
+    ThemeExtractionError,
+    ThemeExtractionRequest,
+    ThemeExtractor,
+)
+from frame.domain.enums import EntityKind
+from frame.domain.errors import DomainError, ValidationError
+from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
+from frame.domain.screen import Region, TextRole, TextSource
+from frame.domain.theme import (
+    CastMember,
+    Condition,
+    FormatSpec,
+    MusicSpec,
+    NarrationBeat,
+    NarrationSpec,
+    SceneSlot,
+    StyleSpec,
+    TextRule,
+    TextStyle,
+    Theme,
+    ThemeVariable,
+    VariableScope,
+    slot_spans_from_shots,
+    template_variables,
+)
+from frame.domain.video_analysis import ScreenText
+from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
+
+PROMPT_VERSION = "2026-11-14.1"
+SCHEMA_NAME = "theme_observation"
+_CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
+_SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
+_COLOR = re.compile(r"^(?:[A-Za-z]{3,20}|#[0-9A-Fa-f]{6})$")
+_NON_KEY = re.compile(r"[^a-z0-9]+")
+
+
+def build_system_prompt(vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY) -> str:
+    attributes = ", ".join(
+        s.name
+        for s in vocabulary.specs()
+        if not s.relational and not s.transient and s.name not in _SCENE_LEVEL
+    )
+    transient = ", ".join(s.name for s in vocabulary.specs() if s.transient)
+    relations = ", ".join(s.name for s in vocabulary.specs() if s.relational)
+    kinds = ", ".join(str(k) for k in EntityKind)
+    roles = ", ".join(str(r) for r in TextRole)
+    return f"""You analyse ONE short-form video so that new episodes of the same series can be made.
+You get sampled frames grouped by scene slot (S1, S2, ... in time order; each frame is labelled
+like "S2-F1 5.3s"), the time range of every slot, and a transcript of the speech with timestamps
+(it may be empty). Return ONLY JSON that matches the schema.
+
+Entities
+- List every person, animal and object that matters. entity_key is a unique snake_case ASCII name
+  for what the thing is, never how it looks: "mug", not "red_mug". kind is one of {kinds}.
+- recurring is true when the entity would come back in other episodes of the series (the host, a
+  mascot, a signature prop) and false when it belongs to this episode's topic (today's product).
+- fixed_attributes are looks that stay the same through the whole video. Predicates: {attributes}.
+  Never put actions, poses, expressions, positions or relations there.
+
+Slots (one entry per slot, in order)
+- purpose: what this part does in the format, worded so that it fits any episode
+  ("the host greets the viewer", "close-up of today's product").
+- description: what this video actually shows in the slot.
+- entity_keys: the entities visible in the slot.
+- requirements: what is visible in the slot. Object attributes ({attributes}) and what the entity
+  does ({transient}) need entity_key. Relations ({relations}) need entity_key and
+  related_entity_key, and never involve a BACKGROUND entity. Scene-level conditions
+  ({", ".join(_SCENE_LEVEL)}) use entity_key null.
+- narration_purpose: what the speech does during the slot ("names the product"), or "" if silent.
+- Values are short lowercase English phrases ("white shirt and brown apron", "close up"), except
+  text and brand, which keep the exact spelling seen on screen.
+
+Style: conditions that hold for the whole video (scene-level predicates only), 3 to 5 palette
+colour names, and notes on composition, texture and editing feel.
+
+On-screen text
+- screen_texts: every piece of text you can read. Copy it exactly, character by character; do not
+  correct it. role is one of {roles}. source is OVERLAY for text added in editing (captions,
+  titles, price tags, watermarks) and IN_SCENE for text that is physically in the scene (signs,
+  product labels). box is the position as fractions of the frame (x, y = top-left corner, w, h),
+  or null if you cannot tell.
+- text_rules: generalise the OVERLAY texts into rules for future episodes. template is either
+  fixed text or text with variables in braces ("{{menu}} {{price}}"). example is the text seen in
+  this video. color and background are colour names or #RRGGBB (background null if none).
+- variables: the values that change from episode to episode (names, prices, per-slot captions).
+  key is snake_case ASCII, example is this video's value, scope is EPISODE (one value per
+  episode) or SLOT (a different value in each slot). Declare every variable a template uses.
+
+Narration tone: how the speaker talks (register, energy), judged from the transcript; "" if there
+is no speech. Music: you only see frames, so present is null and mood is "".
+Do not invent anything the frames and the transcript do not show."""
+
+
+def _object(properties: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+_STRING = {"type": "string"}
+_NULLABLE_STRING = {"type": ["string", "null"]}
+_CONDITION = _object({"predicate": _STRING, "value": _STRING})
+_BOX = {
+    "anyOf": [
+        _object(
+            {
+                "x": {"type": "number"},
+                "y": {"type": "number"},
+                "w": {"type": "number"},
+                "h": {"type": "number"},
+            }
+        ),
+        {"type": "null"},
+    ]
+}
+
+RESPONSE_SCHEMA: dict[str, Any] = _object(
+    {
+        "title": _STRING,
+        "summary": _STRING,
+        "entities": {
+            "type": "array",
+            "items": _object(
+                {
+                    "entity_key": _STRING,
+                    "kind": {"type": "string", "enum": [str(k) for k in EntityKind]},
+                    "description": _STRING,
+                    "recurring": {"type": "boolean"},
+                    "role": _STRING,
+                    "fixed_attributes": {"type": "array", "items": _CONDITION},
+                }
+            ),
+        },
+        "slots": {
+            "type": "array",
+            "items": _object(
+                {
+                    "slot": _STRING,
+                    "purpose": _STRING,
+                    "description": _STRING,
+                    "entity_keys": {"type": "array", "items": _STRING},
+                    "requirements": {
+                        "type": "array",
+                        "items": _object(
+                            {
+                                "entity_key": _NULLABLE_STRING,
+                                "related_entity_key": _NULLABLE_STRING,
+                                "predicate": _STRING,
+                                "value": _STRING,
+                            }
+                        ),
+                    },
+                    "narration_purpose": _STRING,
+                }
+            ),
+        },
+        "style": _object(
+            {
+                "conditions": {"type": "array", "items": _CONDITION},
+                "palette": {"type": "array", "items": _STRING},
+                "notes": _STRING,
+            }
+        ),
+        "screen_texts": {
+            "type": "array",
+            "items": _object(
+                {
+                    "text": _STRING,
+                    "slot": _STRING,
+                    "role": {"type": "string", "enum": [str(r) for r in TextRole]},
+                    "source": {"type": "string", "enum": [str(s) for s in TextSource]},
+                    "box": _BOX,
+                    "style": _STRING,
+                }
+            ),
+        },
+        "text_rules": {
+            "type": "array",
+            "items": _object(
+                {
+                    "rule_key": _STRING,
+                    "role": {"type": "string", "enum": [str(r) for r in TextRole]},
+                    "template": _STRING,
+                    "slots": {"type": "array", "items": _STRING},
+                    "box": _BOX,
+                    "color": _STRING,
+                    "background": _NULLABLE_STRING,
+                    "example": _STRING,
+                }
+            ),
+        },
+        "variables": {
+            "type": "array",
+            "items": _object(
+                {
+                    "key": _STRING,
+                    "description": _STRING,
+                    "example": _STRING,
+                    "scope": {"type": "string", "enum": [str(s) for s in VariableScope]},
+                }
+            ),
+        },
+        "narration_tone": _STRING,
+        "music": _object({"present": {"type": ["boolean", "null"]}, "mood": _STRING}),
+    }
+)
+
+
+@dataclass(frozen=True)
+class _Frame:
+    label: str
+    slot_index: int
+    at_ms: int
+    image: ImageInput
+
+
+class VlmThemeExtractor(ThemeExtractor):
+    def __init__(
+        self,
+        ffmpeg: str | None,
+        llm: LLMClient,
+        *,
+        frames_per_slot: int = 3,
+        max_frames: int = 24,
+        max_side: int = 768,
+        max_attempts: int = 2,
+        language: str = "Korean",
+        timeout_s: float | None = 240.0,
+        vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY,
+    ) -> None:
+        self._ffmpeg = require_ffmpeg(ffmpeg)
+        self._llm = llm
+        self.frames_per_slot = max(1, int(frames_per_slot))
+        self.max_frames = max(1, int(max_frames))
+        self.max_side = max_side
+        self.max_attempts = max(1, int(max_attempts))
+        self.language = language  # 설명·구실·메모를 적을 언어
+        self.timeout_s = timeout_s
+        self._vocabulary = vocabulary
+        self.last_completion: JsonCompletion | None = None  # 디버깅·기록용 원본 응답
+
+    def extract(self, request: ThemeExtractionRequest) -> ThemeExtraction:
+        analysis = request.analysis
+        spans = slot_spans_from_shots(analysis.shots, min_slot_ms=request.min_slot_ms)
+        frames = self._frames(request.video, spans)
+        system = build_system_prompt(self._vocabulary)
+        user = self._user_prompt(request, spans, frames)
+        usage = {"input_tokens": 0, "output_tokens": 0}
+        last_error = "알 수 없는 오류"
+        prompt = user
+        for attempt in range(1, self.max_attempts + 1):
+            completion = self._llm.complete_json(
+                system,
+                prompt,
+                RESPONSE_SCHEMA,
+                schema_name=SCHEMA_NAME,
+                timeout_s=self.timeout_s,
+                images=[f.image for f in frames],
+            )
+            self.last_completion = completion
+            usage["input_tokens"] += completion.input_tokens or 0
+            usage["output_tokens"] += completion.output_tokens or 0
+            try:
+                document = json.loads(completion.text)
+                if not isinstance(document, dict):
+                    raise ValueError("응답이 JSON 객체가 아닙니다")
+                theme, source_ir, texts, notes = build_theme(request, spans, document)
+            except (ValueError, KeyError, TypeError, DomainError) as exc:
+                last_error = (
+                    exc.message if isinstance(exc, DomainError) else f"{type(exc).__name__}: {exc}"
+                )
+                prompt = (
+                    f"{user}\n\nYour previous answer was rejected: {last_error}\n"
+                    f"Previous answer:\n{completion.text[:4000]}\nReturn the corrected JSON only."
+                )
+                continue
+            detail = {
+                "method": "vlm_frames",
+                "model": completion.model,
+                "prompt_version": PROMPT_VERSION,
+                "frames": len(frames),
+                "attempts": attempt,
+                "usage": usage,
+            }
+            return ThemeExtraction(theme, source_ir, texts, tuple(notes), detail)
+        raise ThemeExtractionError(
+            f"테마 추출이 {self.max_attempts}회 시도 후 실패했습니다: {last_error}"
+        )
+
+    # ---- 프레임 ----
+    def _frames(self, video: bytes, spans: Sequence[tuple[int, int]]) -> list[_Frame]:
+        per_slot = max(1, min(self.frames_per_slot, self.max_frames // max(1, len(spans))))
+        frames: list[_Frame] = []
+        for index, (start, end) in enumerate(spans):
+            if len(frames) >= self.max_frames:
+                break  # 자리가 상한보다 많으면 뒤의 자리는 프레임 없이 시간과 말소리만 준다
+            for number in range(per_slot):
+                at_ms = start + int((end - start) * (number + 0.5) / per_slot)
+                label = f"S{index + 1}-F{number + 1} {at_ms / 1000:.1f}s"
+                image = extract_frame(self._ffmpeg, video, at_ms, max_side=self.max_side)
+                frames.append(
+                    _Frame(label, index, at_ms, ImageInput(image.data, image.media_type, label))
+                )
+        return frames
+
+    def _user_prompt(
+        self,
+        request: ThemeExtractionRequest,
+        spans: Sequence[tuple[int, int]],
+        frames: Sequence[_Frame],
+    ) -> str:
+        media = request.analysis.media
+        lines = [
+            f"Video: {media.width}x{media.height} ({media.aspect_label}), "
+            f"{media.duration_ms / 1000:.1f} s, audio: {'yes' if media.has_audio else 'no'}.",
+            f"Write title, summary, description, purpose, role, notes and tone in {self.language}.",
+        ]
+        if request.title.strip():
+            lines.append(f"Title given by the user: {request.title.strip()}")
+        lines.append("Scene slots:")
+        for index, (start, end) in enumerate(spans):
+            labels = ", ".join(f.label for f in frames if f.slot_index == index) or "no frames"
+            lines.append(f"S{index + 1} {start / 1000:.1f}-{end / 1000:.1f}s (frames: {labels})")
+        cuts = ", ".join(f"{s.duration_ms / 1000:.1f}" for s in request.analysis.shots)
+        lines.append(f"Original shot lengths in seconds: {cuts}")
+        transcript = request.analysis.transcript
+        if transcript is None or transcript.is_empty:
+            lines.append("Transcript: none (no speech was recognised).")
+        else:
+            lines.append(f"Transcript (language: {transcript.language or 'unknown'}):")
+            lines += [
+                f"[{s.start_ms / 1000:.1f}-{s.end_ms / 1000:.1f}] {s.text.strip()}"
+                for s in transcript.segments
+                if s.text.strip()
+            ]
+        return "\n".join(lines)
+
+
+# ---- 응답을 테마와 원본 IR 로 다듬기 (결정적, 순수 함수) -----------------------------------------
+def build_theme(
+    request: ThemeExtractionRequest,
+    spans: Sequence[tuple[int, int]],
+    document: Mapping[str, Any],
+) -> tuple[Theme, IntermediateRepresentation, tuple[ScreenText, ...], list[str]]:
+    """모델의 응답(document)에서 규칙에 맞는 것만 골라 테마·원본 IR·화면 문구를 만든다.
+
+    규칙을 통과하지 못하면 ValidationError (부른 쪽이 모델에 되돌려 보낸다).
+    """
+    notes: list[str] = []
+    slot_keys = [f"slot_{i}" for i in range(1, len(spans) + 1)]
+    answers = _slot_answers(document.get("slots"), len(spans))
+    key_of, entities, raw_entities = _entities(document.get("entities"), notes)
+    kinds = {e.entity_key: e.kind for e in entities}
+
+    cast = _cast(raw_entities, key_of, entities, notes)
+    cast_keys = {c.entity_key for c in cast}
+    style_conditions = _scene_conditions(
+        (document.get("style") or {}).get("conditions"), notes, "스타일"
+    )
+    style_by_predicate = {c.predicate: c for c in style_conditions}
+
+    scenes: list[SceneSpec] = []
+    slots: list[SceneSlot] = []
+    for index, (slot_key, (start, end)) in enumerate(zip(slot_keys, spans, strict=True)):
+        answer = answers.get(index, {})
+        entity_keys = _unique(
+            key_of[_plain(k)] for k in answer.get("entity_keys") or () if _plain(k) in key_of
+        )
+        requirements = _requirements(
+            slot_key, answer.get("requirements"), key_of, kinds, entity_keys, notes
+        )
+        # 고정 출연의 고정 속성과 스타일의 조건은 그 장면의 요구조건이기도 하다 (모델이 빠뜨려도 넣는다)
+        seen = {r.key for r in requirements}
+        for member in cast:
+            if member.entity_key not in entity_keys:
+                continue
+            for condition in member.fixed_attributes:
+                extra = RequirementSpec(
+                    slot_key, condition.predicate, condition.value, member.entity_key
+                )
+                if extra.key not in seen:
+                    requirements.append(extra)
+                    seen.add(extra.key)
+        own_scene_level = [r for r in requirements if r.entity_key is None]
+        for condition in style_conditions:
+            extra = RequirementSpec(slot_key, condition.predicate, condition.value)
+            if extra.key not in seen:
+                requirements.append(extra)
+                seen.add(extra.key)
+        description = " ".join(str(answer.get("description") or "").split())
+        purpose = " ".join(str(answer.get("purpose") or "").split())
+        scenes.append(
+            SceneSpec(
+                slot_key,
+                start,
+                end,
+                description or purpose,
+                tuple(entity_keys),
+                tuple(requirements),
+            )
+        )
+        slots.append(
+            SceneSlot(
+                slot_key=slot_key,
+                duration_ms=end - start,
+                purpose=purpose or description,
+                cast_keys=tuple(k for k in entity_keys if k in cast_keys),
+                # 이 자리만의 장면 조건: 스타일에 없거나 스타일과 값이 다른 것
+                conditions=tuple(
+                    Condition(r.predicate, r.expected_value)
+                    for r in own_scene_level
+                    if style_by_predicate.get(r.predicate) is None
+                    or style_by_predicate[r.predicate].value != r.expected_value
+                ),
+            )
+        )
+    used = {key for scene in scenes for key in scene.entity_keys}
+    dropped = [e.entity_key for e in entities if e.entity_key not in used]
+    if dropped:
+        notes.append(f"어느 자리에도 나오지 않는 객체를 뺐습니다: {dropped}")
+    source_ir = IntermediateRepresentation(
+        entities=tuple(e for e in entities if e.entity_key in used), scenes=tuple(scenes)
+    )
+    source_ir.validate()
+
+    variables = _variables(document.get("variables"), notes)
+    rules, variables = _text_rules(document.get("text_rules"), slot_keys, variables, notes)
+    transcript = request.analysis.transcript
+    spoken = transcript is not None and not transcript.is_empty
+    beats: list[NarrationBeat] = []
+    if spoken:
+        assert transcript is not None
+        for index, (slot_key, (start, end)) in enumerate(zip(slot_keys, spans, strict=True)):
+            said = " ".join(s.text.strip() for s in transcript.within(start, end))
+            purpose = " ".join(str(answers.get(index, {}).get("narration_purpose") or "").split())
+            if said or purpose:
+                beats.append(NarrationBeat(slot_key, purpose, said))
+    music = document.get("music") or {}
+    style = document.get("style") or {}
+    media = request.analysis.media
+    theme = Theme(
+        theme_id=request.theme_id,
+        title=request.title.strip()
+        or str(document.get("title") or "").strip()
+        or request.source.title
+        or "테마",
+        summary=" ".join(str(document.get("summary") or "").split()),
+        source=request.source,
+        format=FormatSpec(
+            slots=tuple(slots),
+            aspect_ratio=media.aspect_label,
+            observed_shot_ms=tuple(s.duration_ms for s in request.analysis.shots),
+        ),
+        cast=tuple(c for c in cast if c.entity_key in used),
+        style=StyleSpec(
+            conditions=tuple(style_conditions),
+            palette=tuple(str(c).strip() for c in style.get("palette") or () if str(c).strip())[:6],
+            notes=" ".join(str(style.get("notes") or "").split()),
+        ),
+        text_rules=tuple(rules),
+        narration=NarrationSpec(
+            present=spoken,
+            language=transcript.language if spoken and transcript is not None else None,
+            tone=" ".join(str(document.get("narration_tone") or "").split()) if spoken else "",
+            pace_cps=transcript.pace_cps if spoken and transcript is not None else None,
+            beats=tuple(beats),
+        ),
+        music=MusicSpec(
+            present=music.get("present") if isinstance(music.get("present"), bool) else None,
+            mood=" ".join(str(music.get("mood") or "").split()),
+        ),
+        variables=tuple(variables),
+    )
+    theme.validate()
+    texts = _screen_texts(document.get("screen_texts"), spans)
+    return theme, source_ir, texts, notes
+
+
+def _plain(raw: Any) -> str:
+    """키를 견줄 수 있게: 소문자, 영문·숫자 아닌 것은 밑줄."""
+    return _NON_KEY.sub("_", str(raw or "").strip().lower()).strip("_")
+
+
+def _unique(items: Any) -> list[str]:
+    return list(dict.fromkeys(items))
+
+
+def _slot_answers(raw: Any, count: int) -> dict[int, Mapping[str, Any]]:
+    """모델의 자리별 답을 자리 번호에 맞춘다. 'S2' 처럼 가리킨 것을 먼저 쓰고, 없으면 나온 순서로 채운다."""
+    items = [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+    answers: dict[int, Mapping[str, Any]] = {}
+    unplaced: list[Mapping[str, Any]] = []
+    for item in items:
+        match = re.search(r"(\d+)", str(item.get("slot") or ""))
+        index = int(match.group(1)) - 1 if match else -1
+        if 0 <= index < count and index not in answers:
+            answers[index] = item
+        else:
+            unplaced.append(item)
+    for index in range(count):
+        if index not in answers and unplaced:
+            answers[index] = unplaced.pop(0)
+    if len(answers) < count:
+        missing = [f"S{i + 1}" for i in range(count) if i not in answers]
+        raise ValidationError(f"자리마다 답이 있어야 합니다. 빠진 자리: {missing}")
+    return answers
+
+
+def _entities(
+    raw: Any, notes: list[str]
+) -> tuple[dict[str, str], list[EntitySpec], dict[str, Mapping[str, Any]]]:
+    """(모델이 쓴 키 -> 다듬은 키, 객체 목록, 다듬은 키 -> 모델의 원래 항목)."""
+    key_of: dict[str, str] = {}
+    entities: list[EntitySpec] = []
+    originals: dict[str, Mapping[str, Any]] = {}
+    for position, item in enumerate(raw if isinstance(raw, list) else [], start=1):
+        if not isinstance(item, dict):
+            continue
+        plain = _plain(item.get("entity_key")) or f"entity_{position}"
+        if plain[0].isdigit():
+            plain = f"entity_{plain}"
+        if plain in originals:
+            notes.append(f"객체 키 '{plain}' 가 두 번 나와 뒤의 것을 뺐습니다")
+            continue
+        try:
+            kind = EntityKind(str(item.get("kind") or "").strip().upper())
+        except ValueError:
+            kind = EntityKind.OTHER
+        key_of[_plain(item.get("entity_key"))] = plain
+        key_of[plain] = plain
+        originals[plain] = item
+        entities.append(
+            EntitySpec(plain, kind, " ".join(str(item.get("description") or "").split()))
+        )
+    return key_of, entities, originals
+
+
+def _conditions(raw: Any, notes: list[str], owner: str) -> list[Condition]:
+    conditions: list[Condition] = []
+    seen: set[str] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            condition = Condition(str(item.get("predicate") or ""), str(item.get("value") or ""))
+        except ValidationError:
+            continue
+        if condition.predicate in seen:
+            notes.append(
+                f"{owner} 의 조건 '{condition.predicate}' 가 두 번 나와 뒤의 것을 뺐습니다"
+            )
+            continue
+        seen.add(condition.predicate)
+        conditions.append(condition)
+    return conditions
+
+
+def _scene_conditions(raw: Any, notes: list[str], owner: str) -> list[Condition]:
+    kept = []
+    for condition in _conditions(raw, notes, owner):
+        if DEFAULT_VOCABULARY.is_relational(condition.predicate):
+            notes.append(f"{owner} 의 관계 조건 '{condition.predicate}' 를 뺐습니다")
+            continue
+        kept.append(condition)
+    return kept
+
+
+def _cast(
+    originals: Mapping[str, Mapping[str, Any]],
+    key_of: Mapping[str, str],
+    entities: Sequence[EntitySpec],
+    notes: list[str],
+) -> list[CastMember]:
+    cast: list[CastMember] = []
+    for entity in entities:
+        item = originals[entity.entity_key]
+        if not item.get("recurring") or entity.kind not in _CAST_KINDS:
+            continue
+        fixed = []
+        for condition in _conditions(item.get("fixed_attributes"), notes, f"'{entity.entity_key}'"):
+            if DEFAULT_VOCABULARY.is_relational(
+                condition.predicate
+            ) or DEFAULT_VOCABULARY.is_transient(condition.predicate):
+                notes.append(
+                    f"'{entity.entity_key}' 의 '{condition.predicate}' 는 고정 속성이 될 수 없어 뺐습니다"
+                )
+                continue
+            fixed.append(condition)
+        cast.append(
+            CastMember(
+                entity_key=entity.entity_key,
+                kind=entity.kind,
+                description=entity.description,
+                role=" ".join(str(item.get("role") or "").split()),
+                fixed_attributes=tuple(fixed),
+            )
+        )
+    return cast
+
+
+def _requirements(
+    slot_key: str,
+    raw: Any,
+    key_of: Mapping[str, str],
+    kinds: Mapping[str, EntityKind],
+    entity_keys: list[str],
+    notes: list[str],
+) -> list[RequirementSpec]:
+    """자리의 요구조건. IR 의 규칙에 맞지 않는 것은 버리고, 조건이 가리키는 객체는 그 장면에 연결한다."""
+    requirements: list[RequirementSpec] = []
+    seen: set[str] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        subject = _lookup(item.get("entity_key"), key_of)
+        related = _lookup(item.get("related_entity_key"), key_of)
+        if (item.get("entity_key") and subject is None) or (
+            item.get("related_entity_key") and related is None
+        ):
+            notes.append(f"장면 '{slot_key}' 의 조건이 없는 객체를 가리켜 뺐습니다: {item}")
+            continue
+        try:
+            predicate = DEFAULT_VOCABULARY.normalize(str(item.get("predicate") or ""))
+        except ValidationError:
+            continue
+        relational = DEFAULT_VOCABULARY.is_relational(predicate)
+        value = str(item.get("value") or "")
+        if relational is True:
+            background = EntityKind.BACKGROUND in (
+                kinds.get(subject or ""),
+                kinds.get(related or ""),
+            )
+            if subject is None or related is None or subject == related or background:
+                notes.append(
+                    f"장면 '{slot_key}' 의 관계 조건 '{predicate}' 를 뺐습니다 (상대 객체 규칙)"
+                )
+                continue
+            value = related
+        else:
+            related = None  # 속성 조건은 상대 객체를 갖지 않는다
+        try:
+            requirement = RequirementSpec(slot_key, predicate, value, subject, related)
+        except ValidationError:
+            continue
+        if not requirement.expected_value or requirement.key in seen:
+            continue
+        seen.add(requirement.key)
+        for key in (subject, related):
+            if key is not None and key not in entity_keys:
+                entity_keys.append(key)
+        requirements.append(requirement)
+    return requirements
+
+
+def _lookup(raw: Any, key_of: Mapping[str, str]) -> str | None:
+    return key_of.get(_plain(raw)) if raw else None
+
+
+def _variables(raw: Any, notes: list[str]) -> list[ThemeVariable]:
+    variables: list[ThemeVariable] = []
+    seen: set[str] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        key = _plain(item.get("key"))
+        if not key or key[0].isdigit() or key in seen:
+            continue
+        seen.add(key)
+        try:
+            scope = VariableScope(str(item.get("scope") or "EPISODE").upper())
+        except ValueError:
+            scope = VariableScope.EPISODE
+        variables.append(
+            ThemeVariable(
+                key,
+                " ".join(str(item.get("description") or "").split()),
+                " ".join(str(item.get("example") or "").split()),
+                scope,
+            )
+        )
+    return variables
+
+
+def _text_rules(
+    raw: Any, slot_keys: Sequence[str], variables: list[ThemeVariable], notes: list[str]
+) -> tuple[list[TextRule], list[ThemeVariable]]:
+    rules: list[TextRule] = []
+    declared = {v.key for v in variables}
+    seen: set[str] = set()
+    for position, item in enumerate(raw if isinstance(raw, list) else [], start=1):
+        if not isinstance(item, dict):
+            continue
+        template = " ".join(str(item.get("template") or "").split())
+        if not template:
+            continue
+        # 틀의 변수 이름도 변수 키와 같은 규칙으로 맞춘다
+        for name in template_variables(template):
+            template = template.replace("{" + name + "}", "{" + (_plain(name) or name) + "}")
+        key = _plain(item.get("rule_key")) or f"rule_{position}"
+        if key in seen:
+            key = f"{key}_{position}"
+        seen.add(key)
+        for name in template_variables(template):
+            if name not in declared:
+                declared.add(name)
+                variables.append(ThemeVariable(name))
+                notes.append(f"문구 규칙 '{key}' 가 쓰는 변수 '{name}' 를 테마의 변수로 더했습니다")
+        try:
+            role = TextRole(str(item.get("role") or "").upper())
+        except ValueError:
+            role = TextRole.OTHER
+        slots = _unique(
+            slot_keys[int(m.group(1)) - 1]
+            for m in (re.search(r"(\d+)", str(s)) for s in item.get("slots") or ())
+            if m and 0 < int(m.group(1)) <= len(slot_keys)
+        )
+        base = TextStyle()
+        color = str(item.get("color") or "")
+        background = item.get("background")
+        style = TextStyle(
+            color=color if _COLOR.match(color) else base.color,
+            background=(
+                str(background)
+                if background and _COLOR.match(str(background))
+                else (None if background is None else base.background)
+            ),
+        )
+        rules.append(
+            TextRule(
+                rule_key=key,
+                template=template,
+                role=role,
+                slot_keys=tuple(slots),
+                region=_region(item.get("box")),
+                style=style,
+                example=" ".join(str(item.get("example") or "").split()),
+            )
+        )
+    return rules, variables
+
+
+def _region(raw: Any) -> Region | None:
+    if not isinstance(raw, dict):
+        return None
+    return Region.clamped(raw.get("x"), raw.get("y"), raw.get("w"), raw.get("h"))
+
+
+def _screen_texts(raw: Any, spans: Sequence[tuple[int, int]]) -> tuple[ScreenText, ...]:
+    texts: list[ScreenText] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(str(item.get("text") or "").split())
+        match = re.search(r"(\d+)", str(item.get("slot") or ""))
+        if not text or not match or not 0 < int(match.group(1)) <= len(spans):
+            continue
+        start, end = spans[int(match.group(1)) - 1]
+        try:
+            role = TextRole(str(item.get("role") or "").upper())
+        except ValueError:
+            role = TextRole.OTHER
+        try:
+            source = TextSource(str(item.get("source") or "").upper())
+        except ValueError:
+            source = TextSource.OVERLAY
+        texts.append(
+            ScreenText(
+                text=text,
+                start_ms=start,
+                end_ms=end,
+                region=_region(item.get("box")),
+                role=role,
+                source=source,
+                style=" ".join(str(item.get("style") or "").split()),
+            )
+        )
+    return tuple(texts)

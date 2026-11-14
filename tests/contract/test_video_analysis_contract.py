@@ -6,6 +6,8 @@ Fake 와 실제 구현이 같은 규약을 지킨다. ffmpeg 구현은 진짜 ff
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, replace
 
 import pytest
@@ -17,7 +19,12 @@ from frame.adapters.analysis import (
     FakeThemeExtractor,
 )
 from frame.adapters.analysis.ffmpeg_media import FfmpegMediaProber, FfmpegShotDetector
+from frame.adapters.analysis.openai_speech import OpenAISpeechRecognizer
+from frame.adapters.analysis.vlm_theme import VlmThemeExtractor
 from frame.adapters.fake_media import fake_recording, fake_video
+from frame.adapters.http_transport import HttpResponse, HttpTransport
+from frame.adapters.llm.key_store import LLMKeyStore
+from frame.application.ports.llm import JsonCompletion, LLMClient
 from frame.application.ports.video_analysis import (
     MediaProber,
     ShotDetector,
@@ -131,9 +138,39 @@ def test_shot_detector_rejects_what_is_not_a_video(kit):
 
 
 # ---- SpeechRecognizer ----
-@pytest.fixture(params=["fake"])
+class _CannedTransport(HttpTransport):
+    """음성 인식 API 흉내: 넘겨받은 응답을 그대로 돌려준다."""
+
+    def __init__(self, status: int, document: dict) -> None:
+        self._response = HttpResponse(status, json.dumps(document, ensure_ascii=False).encode())
+
+    def request(self, method, url, *, headers=None, body=None, timeout=60.0):
+        return self._response
+
+
+def _openai_recognizer(status: int, document: dict) -> OpenAISpeechRecognizer:
+    keys = LLMKeyStore(explicit="sk-test", env={})
+    return OpenAISpeechRecognizer(key_source=keys, transport=_CannedTransport(status, document))
+
+
+@pytest.fixture(params=["fake", "openai"])
 def recognizer_case(request):
     """(인식기, 말이 든 음성, 말이 없는 음성, 실패하는 인식기)."""
+    if request.param == "openai":
+        said = {
+            "language": "korean",
+            "text": SAID.text,
+            "segments": [
+                {"start": s.start_ms / 1000, "end": s.end_ms / 1000, "text": s.text}
+                for s in SAID.segments
+            ],
+        }
+        return (
+            _openai_recognizer(200, said),
+            SpeechAudio(b"RIFF-speech", "audio/wav", 4000),
+            SpeechAudio(b"RIFF-silence", "audio/wav", 2000),
+            _openai_recognizer(500, {"error": {"message": "server error"}}),
+        )
     recording = fake_recording(SAID, 4000)
     silent = fake_recording(Transcript(), 2000)
     return (
@@ -155,6 +192,8 @@ def test_transcript_is_ordered_and_inside_the_audio(recognizer_case):
 
 def test_silence_is_an_empty_transcript_not_an_error(recognizer_case):
     recognizer, _, silent, _ = recognizer_case
+    if isinstance(recognizer, OpenAISpeechRecognizer):  # 말이 없을 때의 API 응답
+        recognizer = _openai_recognizer(200, {"text": "", "segments": []})
     transcript = recognizer.transcribe(silent)
 
     assert transcript.is_empty and transcript.segments == ()
@@ -185,9 +224,63 @@ def _request(video: bytes, *, origin=SourceOrigin.FRAME_GENERATED, cuts=(4000, 8
     return ThemeExtractionRequest("thm_1", source, video, analysis, title="카페 신메뉴 소개")
 
 
-@pytest.fixture(params=["fake"])
-def extractor_case(request):
+class _SlotCountingLLM(LLMClient):
+    """프레임을 읽는 모델 흉내: 질의에 적힌 자리 수만큼 답한다 (자리마다 진행자 하나)."""
+
+    def complete_json(
+        self, system, user, json_schema, *, schema_name="response", timeout_s=None, images=()
+    ):
+        count = len(re.findall(r"^S\d+ ", user, flags=re.MULTILINE))
+        document = {
+            "title": "모델이 지은 제목",
+            "summary": "",
+            "entities": [
+                {
+                    "entity_key": "host",
+                    "kind": "PERSON",
+                    "description": "진행자",
+                    "recurring": True,
+                    "role": "진행자",
+                    "fixed_attributes": [{"predicate": "outfit", "value": "white shirt"}],
+                }
+            ],
+            "slots": [
+                {
+                    "slot": f"S{i}",
+                    "purpose": f"자리 {i}",
+                    "description": f"장면 {i}",
+                    "entity_keys": ["host"],
+                    "requirements": [],
+                    "narration_purpose": "",
+                }
+                for i in range(1, count + 1)
+            ],
+            "style": {"conditions": [], "palette": [], "notes": ""},
+            "screen_texts": [],
+            "text_rules": [],
+            "variables": [],
+            "narration_tone": "",
+            "music": {"present": None, "mood": ""},
+        }
+        return JsonCompletion(json.dumps(document, ensure_ascii=False), "slot-counting")
+
+
+@pytest.fixture(scope="module")
+def real_video(tmp_path_factory) -> bytes | None:
+    if FFMPEG is None:
+        return None
+    folder = tmp_path_factory.mktemp("theme")
+    colors = ("red", "blue", "green", "yellow")
+    return make_cut_clip(FFMPEG, folder / "cafe.mp4", colors=colors, seconds_each=4.0)
+
+
+@pytest.fixture(params=["fake", "vlm"])
+def extractor_case(request, real_video):
     """(추출기를 만드는 함수, 영상 바이트). 추출기는 요청마다 새로 만든다."""
+    if request.param == "vlm":
+        if FFMPEG is None:
+            pytest.skip("ffmpeg 없음 (video extra 미설치)")
+        return (lambda: VlmThemeExtractor(FFMPEG, _SlotCountingLLM()), real_video)
     return (lambda: FakeThemeExtractor(), fake_video())
 
 

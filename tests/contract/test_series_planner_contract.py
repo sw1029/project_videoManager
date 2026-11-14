@@ -7,18 +7,25 @@ LLM 기획은 재생 응답으로 돌린다 (네트워크·과금 없음).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.series import TemplateSeriesPlanner
+from frame.adapters.series.llm import LLMSeriesPlanner
 from frame.application.ports.series import EarlierEpisode, PlanningRequest
 from frame.domain.episode import build_episode_plan
 from frame.domain.errors import ValidationError
-from tests.support.themes import cafe_theme, matcha_brief
+from tests.support.themes import cafe_theme, matcha_brief, matcha_content_document
 
 
-@pytest.fixture(params=["template"])
+@pytest.fixture(params=["template", "llm"])
 def make_planner(request):
     """기획기를 만드는 함수. 요청마다 새로 만든다."""
+    if request.param == "llm":
+        answer = json.dumps(matcha_content_document(), ensure_ascii=False)
+        return lambda: LLMSeriesPlanner(ReplayLLMClient([answer]))
     return lambda: TemplateSeriesPlanner()
 
 
@@ -58,13 +65,14 @@ def test_brief_variables_are_kept_as_given(make_planner):
     assert plan.overlay("closeup:price").text == "말차 라떼 5,000원"
 
 
-def test_missing_required_variable_is_a_validation_error(make_planner):
+# ---- 틀 채우기 기획 ----
+def test_template_planner_cannot_invent_a_missing_variable():
+    """틀 채우기는 값을 지어내지 못한다: 화면 문구에 쓰는 변수가 비어 있으면 요청이 잘못된 것이다."""
     with pytest.raises(ValidationError) as caught:
-        make_planner().plan(_request(variables={"menu": "말차 라떼"}))
+        TemplateSeriesPlanner().plan(_request(variables={"menu": "말차 라떼"}))
     assert "price" in caught.value.context["variables"]
 
 
-# ---- 틀 채우기 기획 ----
 def test_template_planner_swaps_the_source_values_for_this_episode():
     request = _request()
     content = TemplateSeriesPlanner().plan(request)
