@@ -11,8 +11,9 @@ from frame.adapters.series.planning import TemplateSeriesPlanner
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.use_cases.series import AdoptAnchorsCommand, CreateEpisodeCommand
 from frame.config import Settings
-from frame.domain.enums import ReferenceOrigin, VersionState
+from frame.domain.enums import EntityKind, ReferenceOrigin, VersionState
 from frame.domain.errors import NotFound, ValidationError
+from frame.domain.ir import EntitySpec
 from frame.domain.series.theme import AnchorOrigin, SourceOrigin
 from tests.support.factories import version_of
 from tests.support.series import (
@@ -51,6 +52,32 @@ def test_episode_is_generated_by_the_existing_pipeline(container):
 
     assert version.state is VersionState.COMPLETED and version.video_uri
     assert set(version.clips) == {"greeting", "show", "closeup", "outro"}
+
+
+# ---- 편에만 나오는 객체의 키 (감사 P-20: IR 의 키 규칙이 편에도 닿는가) ----
+@pytest.mark.parametrize("bad", ["../x", "a b", "show.cup", "-lead", "컵"])
+def test_an_episode_entity_with_a_key_the_ir_refuses_is_refused_before_anything_is_saved(
+    container, bad
+):
+    """편에만 나오는 객체의 키도 저장 키와 요구조건 키에 들어간다 (감사 A-01).
+
+    저장 키는 정체성 기준 이미지의 색인이다 (references/identity/<클립>/<객체 키>.json).
+    테마의 자리 키와 고정 출연 키는 테마가 검사한다 (BTS-14). 편의 객체는 계획을 만들 때 IR 의 검사를 거친다 —
+    IR 의 키 규칙(#10)과 편 만들기(theme-series)는 서로 다른 브랜치에서 왔고, dev 에서 만난 뒤에야 함께 돈다.
+    """
+    content = matcha_content()
+    first, *rest = content.slots
+    content = replace(
+        content,
+        entities=(*content.entities, EntitySpec(bad, EntityKind.PROP, "이 편에만 나오는 소품")),
+        slots=(replace(first, entity_keys=(*first.entity_keys, bad)), *rest),
+    )
+    series = series_of(container)
+
+    with pytest.raises(ValidationError, match="객체 키"):
+        series.create_episode.execute(CreateEpisodeCommand("thm_cafe", matcha_brief(), content))
+
+    assert series.episodes.list_by_theme("thm_cafe") == []
 
 
 def test_episodes_of_a_theme_are_numbered_in_order(container):

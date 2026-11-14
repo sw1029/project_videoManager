@@ -155,6 +155,24 @@ def test_rejected_answer_is_sent_back_with_the_reason():
     assert retry.startswith(llm.calls[0]["user"])
 
 
+def test_an_entity_key_the_ir_refuses_is_sent_back_to_the_model():
+    """모델이 편의 객체에 붙인 키가 IR 의 키 규칙에 어긋나면 그 까닭을 되돌려 보내 다시 묻는다 (감사 P-20 · A-01).
+
+    기획기는 낸 내용으로 계획을 만들어 보고(build_episode_plan) 통과하지 못한 까닭을 다음 질의에 싣는다.
+    키 규칙은 그 계획의 IR 검사에서 걸린다.
+    """
+    broken = copy.deepcopy(matcha_content_document())
+    text = json.dumps(broken, ensure_ascii=False).replace('"latte"', '"../latte"')
+    planner, llm = _planner(text, matcha_content_document())
+
+    content = planner.plan(_request())
+
+    assert planner.attempts == 2 and [e.entity_key for e in content.entities] == ["latte"]
+    retry = llm.calls[1]["user"]
+    assert "Your previous answer was rejected" in retry
+    assert "객체 키 '../latte'" in retry and "영문·숫자·밑줄" in retry
+
+
 def test_planning_fails_after_the_last_attempt_and_llm_errors_pass_through():
     broken = copy.deepcopy(matcha_content_document())
     broken["slots"][1]["entity_keys"] = ["ghost"]  # 정의하지 않은 객체
