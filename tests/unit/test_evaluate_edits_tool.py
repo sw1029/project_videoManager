@@ -598,3 +598,58 @@ def test_revision_left_unfinished_by_an_error_is_flagged(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "서버를 켜면" in captured.err  # 진행 줄
     assert "서버를 켜면" in captured.out and case["revision_version_id"] in captured.out  # 요약
+
+
+def _block_writes(out):
+    """결과 파일의 임시 파일 자리에 폴더를 두어 쓰기를 막는다 (Windows 에서 다른 프로그램이 잡은 것과 같은 OSError)."""
+    blocker = out.with_name(out.name + ".tmp")
+    blocker.mkdir(parents=True)
+    return blocker
+
+
+def test_failed_write_warns_and_is_retried_after_the_next_case(tmp_path, capsys):
+    """결과 파일을 한 번 못 써도 실행은 계속되고, 다음 케이스 뒤에 끝난 케이스를 모두 다시 쓴다."""
+    out = tmp_path / "out" / "result.json"
+    blocker = _block_writes(out)
+
+    class Unblocking:  # 둘째 케이스를 시작할 때 막힌 것이 풀린다
+        def __init__(self, inner):
+            self.inner = inner
+
+        def execute(self, command):
+            if command.change.new_value == "black":
+                blocker.rmdir()
+            return self.inner.execute(command)
+
+    container = _container()
+    parent = _parent(container)
+    flaky = dataclasses.replace(container, plan_revision=Unblocking(container.plan_revision))
+
+    code, report = _run(
+        tmp_path, flaky, [_cup(parent), _cup(parent, case_id="second", new_value="black")]
+    )
+
+    assert code == 0
+    assert report["complete"] is True
+    assert [c["case_id"] for c in report["cases"]] == ["cup", "second"]
+    assert "결과 파일을 쓰지 못했습니다" in capsys.readouterr().err
+
+
+def test_results_that_cannot_be_written_go_to_a_fallback_file_with_exit_3(tmp_path, capsys):
+    """끝까지 결과 파일을 못 쓰면 같은 폴더의 다른 이름으로 쓰고 종료 코드 3 으로 알린다 (과금된 결과를 잃지 않게)."""
+    out = tmp_path / "out" / "result.json"
+    _block_writes(out)
+    container = _container()
+    parent = _parent(container)
+
+    code, report = _run(
+        tmp_path, container, [_cup(parent), _cup(parent, case_id="second", new_value="black")]
+    )
+
+    assert code == 3
+    assert report is None
+    fallback = json.loads((tmp_path / "out" / "result.fallback.json").read_text("utf-8"))
+    assert fallback["complete"] is True
+    assert [c["case_id"] for c in fallback["cases"]] == ["cup", "second"]
+    captured = capsys.readouterr()
+    assert "result.fallback.json" in captured.err and "result.fallback.json" in captured.out

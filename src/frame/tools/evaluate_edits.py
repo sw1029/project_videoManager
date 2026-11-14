@@ -14,8 +14,11 @@
 - --plan-only 는 변경 계획(다시 만들 장면, 편집 여부, 어림 비용)만 보고 수정 버전을 만들지 않는다.
   실제 실행 전에 비용을 확인하는 용도다.
 
+- 결과 파일을 쓰지 못해도 실행은 계속한다 (다음 케이스 뒤에 다시 쓴다). 마지막까지 못 쓰면 같은 폴더의
+  <이름>.fallback.json, 그다음 임시 폴더에 쓰고 종료 코드 3 으로 알린다.
+
 종료 코드: 0 = 끝까지 돌고 결과를 남김 (목표 달성 여부는 결과에), 2 = 케이스 파일·설정 오류 (아무것도 실행하지 않음),
-130 = Ctrl+C 로 멈춤 (그때까지의 결과를 complete: false 로 남김).
+3 = 결과 파일을 --out 에 쓰지 못함 (쓴 곳을 알린다), 130 = Ctrl+C 로 멈춤 (그때까지의 결과를 남김).
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
@@ -102,8 +106,8 @@ def main(
     print(f"[evaluate_edits] 케이스 {len(specs)}건, {mode}", file=sys.stderr)
     runs: list[CaseRun] = []
 
-    def save(*, complete: bool, interrupted: CaseRun | None = None) -> dict[str, Any]:
-        report = build_report(
+    def report(*, complete: bool, interrupted: CaseRun | None = None) -> dict[str, Any]:
+        return build_report(
             runs,
             basis=args.preservation,
             plan_only=args.plan_only,
@@ -111,8 +115,6 @@ def main(
             complete=complete,
             interrupted=interrupted,
         )
-        _write(out, report)
-        return report
 
     try:
         for index, spec in enumerate(specs, start=1):
@@ -125,16 +127,21 @@ def main(
                 poll_s=args.poll_s,
             )
             runs.append(run)
-            report = save(complete=index == len(specs))
+            if index < len(specs):  # 마지막 케이스 뒤에는 아래에서 다른 이름까지 시도하며 쓴다
+                _save(out, report(complete=False))
             print(f"[{index}/{len(specs)}] {_progress(run, args.plan_only)}", file=sys.stderr)
     except KeyboardInterrupt as exc:
         interrupted = exc.run if isinstance(exc, CaseInterrupted) else None
-        save(complete=False, interrupted=interrupted)
-        print(_interrupted_text(len(runs), len(specs), interrupted, out), file=sys.stderr)
+        # 마지막 케이스까지 끝난 뒤(진행 줄을 찍는 사이)에 온 Ctrl+C 면 결과는 완성돼 있다
+        complete = len(runs) == len(specs)
+        written = _save_final(out, report(complete=complete, interrupted=interrupted))
+        print(_interrupted_text(len(runs), len(specs), interrupted, written), file=sys.stderr)
         return 130
 
-    print(_summary_text(report, out))
-    return 0
+    final = report(complete=True)
+    written = _save_final(out, final)
+    print(_summary_text(final, written))
+    return 0 if written == out else 3
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -197,12 +204,46 @@ def _settings(settings: Settings) -> dict[str, Any]:
     return recorded
 
 
-def _write(path: Path, report: Mapping[str, Any]) -> None:
-    """임시 파일에 쓴 뒤 바꿔 끼운다 (쓰는 도중에 끊겨도 앞의 결과 파일이 깨지지 않게)."""
+def _save(out: Path, report: Mapping[str, Any]) -> None:
+    """케이스 사이의 저장. 못 쓰면 경고만 한다 (기록은 메모리에 있고 다음 케이스 뒤에 다시 쓴다)."""
+    try:
+        _write_json(out, report)
+    except OSError as exc:
+        print(
+            f"주의: 결과 파일을 쓰지 못했습니다 ({type(exc).__name__}: {exc}). "
+            "기록은 남아 있고 다음 케이스 뒤에 다시 씁니다",
+            file=sys.stderr,
+        )
+
+
+def _save_final(out: Path, report: Mapping[str, Any]) -> Path | None:
+    """마지막 저장. --out 에 못 쓰면 같은 폴더, 그다음 임시 폴더에 다른 이름으로 쓴다 (과금된 결과를 잃지 않게).
+
+    쓴 곳을 돌려준다. 모두 실패하면 None.
+    """
+    fallback = f"{out.stem}.fallback{out.suffix}"
+    for path in (out, out.with_name(fallback), Path(tempfile.gettempdir()) / fallback):
+        try:
+            _write_json(path, report)
+        except OSError as exc:
+            print(
+                f"주의: 결과를 {path} 에 쓰지 못했습니다 ({type(exc).__name__}: {exc})",
+                file=sys.stderr,
+            )
+            continue
+        if path != out:
+            print(f"주의: 결과를 {out} 대신 {path} 에 썼습니다", file=sys.stderr)
+        return path
+    print("오류: 결과를 어디에도 쓰지 못했습니다", file=sys.stderr)
+    return None
+
+
+def _write_json(path: Path, data: Mapping[str, Any]) -> None:
+    """임시 파일에 쓴 뒤 바꿔 끼운다 (쓰는 도중에 끊겨도 앞의 파일이 깨지지 않게)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8"
+        json.dumps(data, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8"
     )
     temporary.replace(path)
 
@@ -240,10 +281,13 @@ def _progress(run: CaseRun, plan_only: bool) -> str:
     return f"{head} {state} · {met} · 비대상 변경률 {rates} ({run.elapsed_s:.1f}s)"
 
 
-def _interrupted_text(finished: int, total: int, interrupted: CaseRun | None, out: Path) -> str:
-    lines = [
-        f"중단: 끝난 케이스 {finished}/{total}건을 결과에 남겼습니다 (complete: false) — {out}"
-    ]
+def _interrupted_text(
+    finished: int, total: int, interrupted: CaseRun | None, written: Path | None
+) -> str:
+    if written is None:
+        lines = [f"중단: 끝난 케이스 {finished}/{total}건의 결과를 쓰지 못했습니다 (위 오류 참고)"]
+    else:
+        lines = [f"중단: 끝난 케이스 {finished}/{total}건을 결과에 남겼습니다 — {written}"]
     if interrupted is not None:
         lines.append(_interrupted_case_text(interrupted))
     return "\n".join(lines)
@@ -274,7 +318,7 @@ def _unfinished_text(run: CaseRun) -> str:
     )
 
 
-def _summary_text(report: Mapping[str, Any], out: Path) -> str:
+def _summary_text(report: Mapping[str, Any], written: Path | None) -> str:
     summary = report["summary"]
     if report["plan_only"]:
         cost = summary["estimated_cost_usd"]
@@ -323,7 +367,9 @@ def _summary_text(report: Mapping[str, Any], out: Path) -> str:
                 f"주의: 오류로 끝난 케이스의 수정 버전 {len(unfinished)}개가 접수된 채 남았습니다: {ids}. "
                 "같은 DB 로 서버를 켜면 재시작 복구가 이어서 실행합니다 (남은 생성·검수가 과금될 수 있습니다)"
             )
-    lines.append(f"결과: {out}")
+    lines.append(
+        f"결과: {written}" if written is not None else "결과 파일을 쓰지 못했습니다 (위 오류 참고)"
+    )
     return "\n".join(lines)
 
 
