@@ -299,3 +299,51 @@ def test_plan_round_trips(plan):
     assert restored == plan
     restored.validate()
     assert EpisodeBrief.from_dict(matcha_brief().to_dict()) == matcha_brief()
+
+
+# ---- 편 안에서 객체의 모습은 장면마다 같다 ----
+def test_an_objects_look_is_the_same_in_every_scene_it_appears_in(theme):
+    """기획이 한 장면에만 적은 모습(색·재질·글자)을 그 객체가 나오는 나머지 장면에도 건다.
+
+    둘째 실호출: 컵의 글자가 클로즈업 장면에만 걸려, 손에 든 장면의 컵에는 글자가 없이 생성됐다.
+    """
+    content = _slot(
+        matcha_content(),
+        "closeup",
+        requirements=(
+            RequirementSpec("closeup", "color", "green", "latte"),
+            RequirementSpec("closeup", "text", "MATCHA", "latte"),
+            RequirementSpec("closeup", "position", "on the counter", "latte"),  # 장면마다 다른 것
+        ),
+    )
+    plan = build_episode_plan(theme, matcha_brief(), content)
+
+    show = {r.key: r.expected_value for r in plan.ir.scene("show").requirements}
+    assert show["show:latte:text"] == "MATCHA" and show["show:latte:color"] == "green"
+    assert "show:latte:position" not in show  # 위치·행동·표정은 옮기지 않는다
+    assert any("latte" in n and "text" in n and "show" in n for n in plan.notes)
+    # 그 객체가 나오지 않는 장면에는 걸지 않는다
+    assert not any(r.entity_key == "latte" for r in plan.ir.scene("greeting").requirements)
+
+
+def test_first_stated_look_wins_when_scenes_disagree(theme):
+    content = _slot(
+        matcha_content(),
+        "closeup",
+        requirements=(RequirementSpec("closeup", "color", "pink", "latte"),),
+    )
+    plan = build_episode_plan(theme, matcha_brief(), content)
+
+    closeup = {r.key: r.expected_value for r in plan.ir.scene("closeup").requirements}
+    assert closeup["closeup:latte:color"] == "green"  # 먼저 나온 장면(show)의 값
+    assert any("pink" in n and "green" in n and "closeup" in n for n in plan.notes)
+    assert len(closeup) == len(plan.ir.scene("closeup").requirements)
+
+
+def test_relations_and_scene_conditions_are_not_spread(theme):
+    plan = build_episode_plan(theme, matcha_brief(), matcha_content())
+
+    closeup = {r.key for r in plan.ir.scene("closeup").requirements}
+    assert "closeup:barista:holds:mug" not in closeup  # 관계는 그 장면의 것
+    greeting = {r.key for r in plan.ir.scene("greeting").requirements}
+    assert "greeting:-:camera" not in greeting  # 자리의 조건(클로즈업)은 다른 자리로 가지 않는다

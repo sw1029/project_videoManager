@@ -223,3 +223,65 @@ def test_relation_value_is_always_the_related_entity():
     document["slots"][1]["requirements"][0]["related_entity_key"] = None
     with pytest.raises(ValueError, match="needs related_entity_key"):
         parse_content(cafe_theme(), document)
+
+
+def _printed_text_document():
+    """컵의 글자를 따로 TEXT 객체로 낸 응답 (둘째 실호출에서 모델이 이렇게 냈다)."""
+    document = copy.deepcopy(matcha_content_document())
+    document["entities"].append(
+        {"entity_key": "latte_label", "kind": "TEXT", "description": "컵에 적힌 글자 말차"}
+    )
+    closeup = document["slots"][2]
+    closeup["entity_keys"].append("latte_label")
+    closeup["requirements"] += [
+        {
+            "entity_key": "latte_label",
+            "related_entity_key": "latte",
+            "predicate": "on",
+            "value": "",
+        },
+        {
+            "entity_key": "latte_label",
+            "related_entity_key": None,
+            "predicate": "text",
+            "value": "말차",
+        },
+    ]
+    return document
+
+
+def test_text_printed_on_an_object_becomes_a_text_attribute_of_that_object():
+    """물건에 찍힌 글자를 따로 객체로 두면 그 물건이 나오는 다른 장면에는 글자가 걸리지 않는다."""
+    planner, _ = _planner(_printed_text_document())
+    request = _request()
+    content = planner.plan(request)
+
+    assert planner.attempts == 1
+    assert [e.entity_key for e in content.entities] == ["latte"]
+    closeup = content.slots[2]
+    assert "latte_label" not in closeup.entity_keys
+    kept = {(r.entity_key, r.predicate, r.expected_value) for r in closeup.requirements}
+    assert ("latte", "text", "말차") in kept
+    assert not any(r.entity_key == "latte_label" for r in closeup.requirements)
+    assert not any(r.related_entity_key == "latte_label" for r in closeup.requirements)
+    # 계획에서는 그 물건이 나오는 모든 장면에 걸린다
+    plan = build_episode_plan(request.theme, request.brief, content)
+    show = {r.key: r.expected_value for r in plan.ir.scene("show").requirements}
+    assert show["show:latte:text"] == "말차"
+
+
+def test_text_entity_that_stands_alone_is_kept():
+    """다른 객체 위에 있지 않은 글자(간판)는 그대로 객체다."""
+    document = copy.deepcopy(matcha_content_document())
+    document["entities"].append(
+        {"entity_key": "sign", "kind": "TEXT", "description": "벽의 네온 간판"}
+    )
+    document["slots"][0]["entity_keys"].append("sign")
+    document["slots"][0]["requirements"].append(
+        {"entity_key": "sign", "related_entity_key": None, "predicate": "text", "value": "OPEN"}
+    )
+    planner, _ = _planner(document)
+    content = planner.plan(_request())
+
+    assert [e.entity_key for e in content.entities] == ["latte", "sign"]
+    assert "sign" in content.slots[0].entity_keys

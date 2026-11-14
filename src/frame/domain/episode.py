@@ -4,6 +4,8 @@
 말할 문장, 자리별 문구 값. 테마의 고정 요소는 build_episode_plan 이 넣는다.
 - 장면 = 테마의 자리 그대로 (순서·길이·키). 기획이 자리를 빼거나 더할 수 없다.
 - 고정 출연의 고정 속성과 스타일의 장면 조건은 요구조건으로 들어간다. 기획이 같은 조건에 다른 값을 내면 버린다.
+- 편 안에서 객체의 모습(색·재질·글자)은 그 객체가 나오는 모든 장면에서 같다. 기획이 한 장면에만 적은 모습은
+  나머지 장면에도 건다 (_same_look_in_every_scene).
 - 화면 문구는 IR 에 넣지 않는다. 생성 조건이 아니라 후반 합성 계획(OverlayItem)이다 (ADR-0027).
   문구를 고쳐도 장면의 조건(fingerprint)은 그대로라 영상은 다시 만들어지지 않는다.
 - 녹음 대본(ScriptLine)은 자리마다 한 줄이고, 그 자리의 길이에서 앞뒤 여유를 뺀 시간이 말할 수 있는 예산이다.
@@ -21,6 +23,7 @@ from .ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSp
 from .screen import Region, TextRole
 from .theme import TextStyle, Theme, VariableScope, render_template
 from .video_analysis import spoken_characters
+from .vocabulary import DEFAULT_VOCABULARY
 
 # 문구 규칙에 자리가 없을 때 구실에 따라 두는 기본 자리. 아래쪽 20% 와 오른쪽 가장자리는 플랫폼의 버튼·설명이
 # 덮는 곳이라 피한다.
@@ -307,6 +310,7 @@ def build_episode_plan(
                 requirements=_requirements(theme, slot.slot_key, entity_keys, filled, notes),
             )
         )
+    scenes = _same_look_in_every_scene(scenes, notes)
     unused = [key for key in extras if key not in used]
     if unused:
         notes.append(f"어느 장면에도 나오지 않는 객체를 뺐습니다: {unused}")
@@ -429,6 +433,60 @@ def _requirements(
                 f"({owner} '{existing.expected_value}' 가 우선)"
             )
     return tuple(merged)
+
+
+def _same_look_in_every_scene(scenes: Sequence[SceneSpec], notes: list[str]) -> list[SceneSpec]:
+    """객체의 모습(색·재질·글자 같은 고정 속성)을 그 객체가 나오는 모든 장면에 같게 건다.
+
+    - 한 장면에만 적힌 모습은 그 객체가 나오는 나머지 장면에도 건다.
+    - 같은 속성에 장면마다 다른 값이 적혀 있으면 먼저 나온 장면의 값을 쓴다.
+    - 관계, 장면마다 달라지는 것(행동·자세·표정·위치), 장면 수준 조건은 옮기지 않는다.
+    둘째 실호출에서 컵의 글자가 클로즈업 장면에만 걸려, 손에 든 장면의 컵에는 글자가 없이 생성됐다
+    (같은 컵이 장면마다 달라 일관성 검수가 FAIL). 정체성 기준(ADR-0015)도 장면마다 모습 조건이 같아야 맞는다.
+    """
+    looks: dict[tuple[str, str], str] = {}  # (객체, 술어) -> 먼저 나온 값
+    for scene in scenes:
+        for requirement in scene.requirements:
+            if _is_look(requirement):
+                looks.setdefault(
+                    (str(requirement.entity_key), requirement.predicate), requirement.expected_value
+                )
+    result: list[SceneSpec] = []
+    for scene in scenes:
+        merged: list[RequirementSpec] = []
+        stated: set[tuple[str, str]] = set()
+        for requirement in scene.requirements:
+            if not _is_look(requirement):
+                merged.append(requirement)
+                continue
+            key = (str(requirement.entity_key), requirement.predicate)
+            stated.add(key)
+            first = looks[key]
+            if requirement.expected_value != first:
+                notes.append(
+                    f"장면 '{scene.scene_key}' 의 조건 {requirement.key} = '{requirement.expected_value}' 를 "
+                    f"'{first}' 로 맞췄습니다 (같은 편에서 객체의 모습은 장면마다 같습니다. 먼저 나온 값을 씁니다)"
+                )
+                requirement = replace(requirement, expected_value=first)
+            merged.append(requirement)
+        for (entity_key, predicate), value in looks.items():
+            if entity_key in scene.entity_keys and (entity_key, predicate) not in stated:
+                merged.append(RequirementSpec(scene.scene_key, predicate, value, entity_key))
+                notes.append(
+                    f"객체 '{entity_key}' 의 {predicate} = '{value}' 를 그 객체가 나오는 "
+                    f"장면 '{scene.scene_key}' 에도 걸었습니다"
+                )
+        result.append(replace(scene, requirements=tuple(merged)))
+    return result
+
+
+def _is_look(requirement: RequirementSpec) -> bool:
+    """객체의 모습을 정하는 조건인가: 객체에 걸리고, 관계가 아니고, 장면마다 달라지는 것이 아니다."""
+    return (
+        requirement.entity_key is not None
+        and not requirement.is_relational
+        and not DEFAULT_VOCABULARY.is_transient(requirement.predicate)
+    )
 
 
 # ---- 녹음 대본 ----------------------------------------------------------------

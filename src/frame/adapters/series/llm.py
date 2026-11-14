@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from frame.application.ports.llm import JsonCompletion, LLMClient
@@ -34,7 +35,7 @@ from frame.domain.theme import Theme, VariableScope
 from frame.domain.video_analysis import spoken_characters
 from frame.domain.vocabulary import DEFAULT_VOCABULARY
 
-PROMPT_VERSION = "2026-11-14.4"
+PROMPT_VERSION = "2026-11-14.5"
 SCHEMA_NAME = "episode_content"
 
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
@@ -87,7 +88,8 @@ Also:
 - Keep the episode different from the earlier episodes listed, but inside the same theme.
 - Overlay text (titles, captions, prices) comes from the text rules: never put it into
   requirements. Text that is physically on an object in the scene (a label printed on a cup) is a
-  text requirement on that entity, with the exact spelling as its value."""
+  text requirement on that entity, with the exact spelling as its value. Do not define a separate
+  entity for such text, and state it in every slot where the object appears."""
 
 
 def _object(properties: dict[str, Any]) -> dict[str, Any]:
@@ -316,15 +318,62 @@ def parse_content(theme: Theme, document: Any) -> EpisodeContent:
                 },
             )
         )
-    entities = tuple(
+    entities = [
         EntitySpec(
             str(item["entity_key"]).strip(),
             EntityKind(str(item.get("kind") or EntityKind.OTHER).upper()),
             " ".join(str(item.get("description") or "").split()),
         )
         for item in document.get("entities") or ()
-    )
-    return EpisodeContent(tuple(slots), entities, _pairs(document.get("variables")))
+    ]
+    slots, entities = _fold_printed_text(slots, entities)
+    return EpisodeContent(tuple(slots), tuple(entities), _pairs(document.get("variables")))
+
+
+def _fold_printed_text(
+    slots: list[SlotContent], entities: list[EntitySpec]
+) -> tuple[list[SlotContent], list[EntitySpec]]:
+    """다른 객체 위에 있는(on) 글자 객체를 그 객체의 text 속성으로 옮긴다.
+
+    모델은 '물건에 찍힌 글자는 그 물건의 text 조건' 이라고 일러도 글자를 따로 객체로 내곤 한다 (둘째 실호출).
+    그러면 글자가 그 객체를 적은 장면에만 걸리고, 물건이 나오는 다른 장면에는 걸리지 않는다.
+    다른 객체 위에 있지 않은 글자(간판)는 그대로 둔다.
+    """
+    texts = {e.entity_key for e in entities if e.kind is EntityKind.TEXT}
+    carrier: dict[str, str] = {}  # 글자 객체 -> 그 글자가 찍힌 객체
+    for slot in slots:
+        for requirement in slot.requirements:
+            if (
+                requirement.entity_key in texts
+                and requirement.predicate == "on"
+                and requirement.related_entity_key
+                and requirement.related_entity_key not in texts
+            ):
+                carrier.setdefault(str(requirement.entity_key), requirement.related_entity_key)
+    if not carrier:
+        return slots, entities
+    folded: list[SlotContent] = []
+    for slot in slots:
+        requirements: list[RequirementSpec] = []
+        for requirement in slot.requirements:
+            if requirement.related_entity_key in carrier:
+                continue  # 글자 객체를 향한 관계는 뜻을 잃는다
+            if requirement.entity_key not in carrier:
+                requirements.append(requirement)
+            elif requirement.predicate in ("text", "brand"):
+                requirements.append(
+                    RequirementSpec(
+                        slot.slot_key,
+                        requirement.predicate,
+                        requirement.expected_value,
+                        carrier[str(requirement.entity_key)],
+                    )
+                )
+        keys = [carrier.get(key, key) for key in slot.entity_keys]
+        folded.append(
+            replace(slot, entity_keys=tuple(dict.fromkeys(keys)), requirements=tuple(requirements))
+        )
+    return folded, [e for e in entities if e.entity_key not in carrier]
 
 
 def _check_narration_fits(theme: Theme, script: Any, policy: PlanPolicy) -> None:
