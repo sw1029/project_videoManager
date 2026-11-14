@@ -1,7 +1,7 @@
 """시리즈 기능의 어댑터 (ADR-0025~0027): application/ports/series/ 의 구현.
 
 맡는 개념: 포트마다 하위 패키지 하나. 각 패키지의 입구는 테스트·오프라인용 구현(fake · template · memory)만 내보낸다.
-실제 구현(ffmpeg · LLM)은 조립(config/theme_adapters.py)이 고를 때 import 하므로, ffmpeg·키 없이도 서버가 뜬다.
+실제 구현(ffmpeg · LLM)은 조립(config/registrations/series.py)이 고를 때 import 하므로, ffmpeg·키 없이도 서버가 뜬다.
 
 밖에서 쓰는 이름: 이 입구는 아무것도 내보내지 않는다. 아래 패키지를 import 한다.
 
