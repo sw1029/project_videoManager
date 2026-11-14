@@ -8,6 +8,8 @@
   읽지 못한 것을 굳히지 않는다.
 - 실패는 남기지 않는다. 저장된 문서가 깨졌으면 다시 읽는다.
 - 남기지 못해도 (StorageError · 파일 쓰기의 OSError) 읽은 결과는 돌려준다 (감사 BTS-D04·D35).
+- 같은 요청(같은 키)이 겹치면 뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 남긴 결과를 쓴다 (전에는 둘 다 과금했다 —
+  감사 BTS-12 의 남은 것). 남긴 것이 없으면 기다린 쪽이 스스로 읽는다. 한 프로세스 안에서만 지킨다.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import json
 import logging
 from collections.abc import Sequence
 
+from frame.adapters.shared.locking import KeyedLocks
 from frame.application.errors import StorageError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.series.overlay import ScreenTextReader
@@ -31,25 +34,32 @@ class CachingScreenTextReader(ScreenTextReader):
         self.inner = inner
         self._store = store
         self._profile = profile
+        self._locks = (
+            KeyedLocks()
+        )  # 같은 키의 요청을 한 번에 하나만 (겹친 요청이 둘 다 과금하지 않게)
 
     def read(self, clip: bytes, at_ms: int, regions: Sequence[Region]) -> tuple[str, ...]:
         if not regions:
             return ()
         key = self._key(clip, at_ms, regions)
-        cached = self._load(key, len(regions))
-        if cached is not None:
-            return cached
-        texts = tuple(self.inner.read(clip, at_ms, regions))
-        if all(text.strip() for text in texts):
-            try:
-                self._store.put(
-                    key,
-                    json.dumps({"texts": list(texts)}, ensure_ascii=False).encode("utf-8"),
-                    "application/json",
-                )
-            except (StorageError, OSError) as exc:
-                log.warning("읽은 화면 문구를 남기지 못했습니다: %s: %s", type(exc).__name__, exc)
-        return texts
+        with self._locks.hold(key):
+            cached = self._load(key, len(regions))
+            if cached is not None:
+                return cached
+            texts = tuple(self.inner.read(clip, at_ms, regions))
+            if all(text.strip() for text in texts):
+                self._keep(key, texts)
+            return texts
+
+    def _keep(self, key: str, texts: tuple[str, ...]) -> None:
+        try:
+            self._store.put(
+                key,
+                json.dumps({"texts": list(texts)}, ensure_ascii=False).encode("utf-8"),
+                "application/json",
+            )
+        except (StorageError, OSError) as exc:
+            log.warning("읽은 화면 문구를 남기지 못했습니다: %s: %s", type(exc).__name__, exc)
 
     def _key(self, clip: bytes, at_ms: int, regions: Sequence[Region]) -> str:
         digest = canonical_hash(

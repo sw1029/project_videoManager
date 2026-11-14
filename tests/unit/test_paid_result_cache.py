@@ -1,9 +1,12 @@
 """같은 입력의 유료 호출은 한 번 (감사 BTS-12, ADR-0013 의 원칙).
 
 음성 인식과 화면 글자 읽기의 결과를 산출물 저장소에 남겨, 같은 소리·같은 화면을 다시 물어도 과금하지 않는다.
+같은 것을 두 요청이 동시에 물어도 한 번이다: 뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 남긴 결과를 쓴다.
 """
 
 from __future__ import annotations
+
+import threading
 
 import pytest
 
@@ -115,6 +118,134 @@ def test_transcripts_kept_in_an_older_shape_are_not_read_back():
         assert newer.transcribe(AUDIO) == HEARD and len(newer_inner.calls) == 1
     finally:
         caching.TRANSCRIPT_FORMAT = original
+
+
+# ---- 같은 것을 두 요청이 동시에 물으면 (감사 BTS-12 의 남은 것) ----
+WAIT = 5.0  # 테스트가 멈춰 버리지 않게 하는 안전 상한
+SETTLE = (
+    0.2  # 뒤에 온 요청이 안쪽 어댑터에 닿을 만한 시간. 기다리게 했다면 이 시간이 지나도 닿지 않는다
+)
+
+
+class _Overlap:
+    """안쪽 어댑터의 호출을 붙잡아 두 요청이 겹치게 한다: 첫 호출이 안에 있는 동안 둘째 요청을 보낸다."""
+
+    def __init__(self) -> None:
+        self.first_inside = threading.Event()
+        self.second_inside = threading.Event()
+        self.leave = threading.Event()
+
+    def entered(self, calls: int) -> None:
+        (self.first_inside if calls == 1 else self.second_inside).set()
+        self.leave.wait(WAIT)
+
+    def run(self, ask) -> list:
+        """같은 요청을 두 스레드로 겹쳐 보내고 두 답을 돌려준다."""
+        answers: list = []
+        threads = [threading.Thread(target=lambda: answers.append(ask())) for _ in range(2)]
+        threads[0].start()
+        assert self.first_inside.wait(WAIT)
+        threads[1].start()
+        self.second_inside.wait(SETTLE)
+        self.leave.set()
+        for thread in threads:
+            thread.join(WAIT)
+        return answers
+
+
+def test_the_same_audio_asked_twice_at_once_is_recognised_once():
+    """전에는 둘 다 저장된 결과가 없다고 보고 둘 다 인식기를 불렀다 (두 번 과금)."""
+    overlap = _Overlap()
+
+    class _Slow(_CountingRecognizer):
+        def transcribe(self, audio, *, language=None, hint=""):
+            answer = super().transcribe(audio, language=language, hint=hint)
+            overlap.entered(len(self.calls))
+            return answer
+
+    recognizer, inner, _ = _speech(_Slow())
+
+    answers = overlap.run(lambda: recognizer.transcribe(AUDIO, language="ko"))
+
+    assert answers == [HEARD, HEARD]
+    assert len(inner.calls) == 1
+
+
+def test_recognition_of_another_audio_is_not_kept_waiting():
+    """기다리는 것은 같은 소리의 요청뿐이다. 다른 소리는 앞선 인식이 끝나기를 기다리지 않는다."""
+    inside, leave = threading.Event(), threading.Event()
+    other = SpeechAudio(b"RIFF-two", "audio/wav", 4000)
+
+    class _SlowOnTheFirst(_CountingRecognizer):
+        def transcribe(self, audio, *, language=None, hint=""):
+            answer = super().transcribe(audio, language=language, hint=hint)
+            if audio.data == AUDIO.data:
+                inside.set()
+                leave.wait(WAIT)
+            return answer
+
+    recognizer, inner, _ = _speech(_SlowOnTheFirst())
+    held = threading.Thread(target=lambda: recognizer.transcribe(AUDIO))
+    free = threading.Thread(target=lambda: recognizer.transcribe(other))
+    held.start()
+    try:
+        assert inside.wait(WAIT)
+        free.start()
+        free.join(WAIT / 2)
+        assert not free.is_alive()  # 앞선 인식이 아직 안에 있는데도 끝났다
+    finally:
+        leave.set()
+        held.join(WAIT)
+        free.join(WAIT)
+
+    assert len(inner.calls) == 2
+
+
+def test_a_failed_recognition_lets_the_one_that_waited_ask_again():
+    """앞선 쪽이 실패하면 남긴 결과가 없다. 기다린 쪽은 그 실패를 물려받지 않고 스스로 묻는다."""
+    overlap = _Overlap()
+
+    class _FailsFirst(_CountingRecognizer):
+        def transcribe(self, audio, *, language=None, hint=""):
+            self.calls.append((audio.data, language, hint))
+            number = len(self.calls)  # 기다리는 동안 다른 호출이 들어와도 이 호출의 차례는 그대로다
+            overlap.entered(number)
+            if number == 1:
+                raise SpeechRecognitionError("한도 초과")
+            return HEARD
+
+    recognizer, inner, _ = _speech(_FailsFirst())
+
+    def ask():
+        try:
+            return recognizer.transcribe(AUDIO)
+        except SpeechRecognitionError as exc:
+            return exc
+
+    outcomes = overlap.run(ask)
+
+    assert len(inner.calls) == 2
+    assert sorted(type(outcome).__name__ for outcome in outcomes) == [
+        "SpeechRecognitionError",
+        "Transcript",
+    ]
+
+
+def test_the_same_screen_asked_twice_at_once_is_read_once():
+    overlap = _Overlap()
+
+    class _Slow(_CountingReader):
+        def read(self, clip, at_ms, regions):
+            texts = super().read(clip, at_ms, regions)
+            overlap.entered(len(self.calls))
+            return texts
+
+    reader, inner, _ = _reader(_Slow())
+
+    answers = overlap.run(lambda: reader.read(b"clip-a", 2000, (PRICE, TITLE)))
+
+    assert answers == [("문구 1", "문구 2"), ("문구 1", "문구 2")]
+    assert len(inner.calls) == 1
 
 
 class _FullStore(InMemoryArtifactStore):
