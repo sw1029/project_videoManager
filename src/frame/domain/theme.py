@@ -39,6 +39,28 @@ DEFAULT_MIN_SLOT_MS = 3000  # 장면 자리의 길이 하한 (구조화 프롬�
 SLOT_GRID_MS = 100  # 자리 길이의 단위 (30 fps 에서 프레임 수가 정확히 맞는 길이)
 
 _VARIABLE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# 화면 문구의 색으로 받는 이름 (CSS 색 이름. ffmpeg 도 같은 이름을 안다)
+CSS_COLOR_NAMES = frozenset(
+    (
+        "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue "
+        "blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk "
+        "crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkkhaki darkmagenta "
+        "darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue "
+        "darkslategray darkturquoise darkviolet deeppink deepskyblue dimgray dodgerblue firebrick "
+        "floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow "
+        "honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon "
+        "lightblue lightcoral lightcyan lightgoldenrodyellow lightgreen lightgrey lightpink "
+        "lightsalmon lightseagreen lightskyblue lightslategray lightsteelblue lightyellow lime "
+        "limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple "
+        "mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred "
+        "midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange "
+        "orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff "
+        "peru pink plum powderblue purple red rosybrown royalblue saddlebrown salmon sandybrown "
+        "seagreen seashell sienna silver skyblue slateblue slategray snow springgreen steelblue tan "
+        "teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen "
+    ).split()
+)
 _VARIABLE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -311,6 +333,22 @@ class TextStyle:
             size=float(data.get("size", base.size)),
             bold=bool(data.get("bold", base.bold)),
         )
+
+
+def color_name(raw: object) -> str | None:
+    """색 표기를 화면 문구가 받는 꼴로: #RRGGBB 또는 CSS 색 이름. 모르는 표기는 None.
+
+    'Light Yellow'·'light-yellow' 는 'lightyellow' 로 맞춘다. 목록은 ffmpeg 가 아는 색 이름과 같다.
+    """
+    text = str(raw or "").strip()
+    if _HEX_COLOR.match(text):
+        return text.lower()
+    name = re.sub(r"[\s_-]+", "", text.lower())
+    # gray·grey 는 이름마다 받는 철자가 다르다 (lightgrey, darkgray): 둘 다 찾아본다
+    for candidate in (name, name.replace("grey", "gray"), name.replace("gray", "grey")):
+        if candidate in CSS_COLOR_NAMES:
+            return candidate
+    return None
 
 
 def template_variables(template: str) -> tuple[str, ...]:

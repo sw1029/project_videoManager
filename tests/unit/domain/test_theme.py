@@ -251,3 +251,15 @@ def test_theme_round_trips_as_json(theme):
 def test_fingerprint_ignores_the_id_but_not_the_content(theme):
     assert replace(theme, theme_id="thm_other").fingerprint() == theme.fingerprint()
     assert replace(theme, title="다른 테마").fingerprint() != theme.fingerprint()
+
+
+def test_colour_notation_is_normalised_to_css_names_or_hex():
+    from frame.domain.theme import color_name
+
+    assert color_name("white") == "white" and color_name("#FFE08A") == "#ffe08a"
+    assert color_name("Light Yellow") == "lightyellow"
+    # gray·grey 는 이름마다 받는 철자가 다르다
+    assert color_name("light gray") == "lightgrey" and color_name("dark grey") == "darkgray"
+    assert color_name("dark_slate_gray") == "darkslategray"
+    for unknown in ("shiny rainbow", "rgba(0,0,0,0.5)", "#fff", "", None, "white:enable=0"):
+        assert color_name(unknown) is None

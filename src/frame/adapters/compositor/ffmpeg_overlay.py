@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import re
 import tempfile
 import unicodedata
 from collections.abc import Sequence
@@ -22,8 +21,8 @@ from frame.adapters.video_tools import require_ffmpeg
 from frame.application.errors import ConfigurationError
 from frame.application.ports.compositor import CompositionError, OverlayRenderer
 from frame.domain.episode import OverlayItem
+from frame.domain.theme import color_name
 
-_COLOR = re.compile(r"^(?:[A-Za-z]{3,20}|#[0-9A-Fa-f]{6})$")
 _MIN_FONT_PX = 10
 _FILL = 0.94  # 글자가 영역의 폭을 이만큼까지 쓴다
 
@@ -168,9 +167,11 @@ def _one_line(text: str) -> str:
 
 
 def _color(value: str) -> str:
-    if not _COLOR.match(value or ""):
-        raise CompositionError(f"색은 이름이나 #RRGGBB 로 적어야 합니다: '{value}'")
-    return value
+    """필터에 넣을 색. 아는 색 이름이나 #RRGGBB 만 받는다 (다른 문자열이 필터 문법에 섞이지 않게)."""
+    known = color_name(value)
+    if known is None:
+        raise CompositionError(f"색은 CSS 색 이름이나 #RRGGBB 로 적어야 합니다: '{value}'")
+    return known
 
 
 def _checked_font(path: str) -> str:

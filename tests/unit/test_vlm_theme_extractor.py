@@ -454,3 +454,55 @@ def test_system_prompt_lists_the_vocabulary_and_the_rules():
     assert "{menu} {price}" in prompt  # 틀의 예는 중괄호 그대로 보인다
     assert "ENGLISH phrase" in prompt and "Use only the predicate names" in prompt
     assert "present is null" in prompt
+
+
+def test_colour_names_written_in_two_words_are_understood():
+    """모델은 'light yellow' 처럼 적어 온다. CSS 색 이름으로 맞추고, 띠가 없다는 것(null)은 그대로 둔다."""
+    document = cafe_observation()
+    document["text_rules"][0]["color"] = "Light Yellow"
+    document["text_rules"][0]["background"] = None
+    document["text_rules"][1]["color"] = "shiny rainbow"
+    theme, _, _, _ = _build(document)
+    title, price = theme.text_rules
+
+    assert (title.style.color, title.style.background) == ("lightyellow", None)
+    assert price.style.color == "white"  # 모르는 색은 기본색
+
+
+def test_overlay_text_written_as_an_entity_is_kept_out_of_the_source_ir():
+    """얹은 문구는 생성 조건이 아니다. 영상 안에 찍힌 글자(IN_SCENE)만 객체·조건으로 남는다."""
+    document = cafe_observation()
+    for key, description in (("price_text", "가격 문구"), ("cup_label", "컵에 찍힌 글자")):
+        document["entities"].append(
+            {
+                "entity_key": key,
+                "kind": "TEXT",
+                "description": description,
+                "recurring": False,
+                "role": "",
+                "fixed_attributes": [],
+            }
+        )
+    document["slots"][2]["entity_keys"] += ["price_text", "cup_label"]
+
+    def req(entity, predicate, value):
+        return {
+            "entity_key": entity,
+            "related_entity_key": None,
+            "predicate": predicate,
+            "value": value,
+        }
+
+    document["slots"][2]["requirements"] += [
+        req("price_text", "text", "바닐라 라떼 4,500원"),
+        req("price_text", "color", "yellow"),
+        req("cup_label", "text", "FRAME"),
+    ]
+    _, ir, texts, notes = _build(document)
+
+    assert not ir.has_entity("price_text") and ir.has_entity("cup_label")
+    closeup = {r.key: r.expected_value for r in ir.scene("slot_3").requirements}
+    assert closeup["slot_3:cup_label:text"] == "FRAME"
+    assert not any("price_text" in key for key in closeup)
+    assert any("price_text" in note and "얹은 문구" in note for note in notes)
+    assert len(texts) == 3  # 화면에서 읽은 문구로는 그대로 남는다

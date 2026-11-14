@@ -55,17 +55,17 @@ from frame.domain.theme import (
     Theme,
     ThemeVariable,
     VariableScope,
+    color_name,
     slot_spans_from_shots,
     template_variables,
 )
 from frame.domain.video_analysis import ScreenText
-from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
+from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
-PROMPT_VERSION = "2026-11-14.2"
+PROMPT_VERSION = "2026-11-14.3"
 SCHEMA_NAME = "theme_observation"
 _CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
-_COLOR = re.compile(r"^(?:[A-Za-z]{3,20}|#[0-9A-Fa-f]{6})$")
 _NON_KEY = re.compile(r"[^a-z0-9]+")
 # 객체 키에 들어오면 걷어내는 겉모습 낱말 (색·크기·새것). 키는 '무엇인가' 만 말한다
 _LOOK_WORDS = frozenset(
@@ -120,6 +120,9 @@ Style: conditions that hold for the whole video (scene-level predicates only), 3
 colour names, and notes on composition, texture and editing feel.
 
 On-screen text
+- Text added in editing (OVERLAY) is never an entity and never a requirement: it goes only into
+  screen_texts and text_rules. Only text that is physically in the scene (IN_SCENE) may be a
+  TEXT entity or a text/brand requirement.
 - screen_texts: every piece of text you can read. Copy it exactly, character by character; do not
   correct it. role is one of {roles}. source is OVERLAY for text added in editing (captions,
   titles, price tags, watermarks) and IN_SCENE for text that is physically in the scene (signs,
@@ -127,7 +130,8 @@ On-screen text
   or null if you cannot tell.
 - text_rules: generalise the OVERLAY texts into rules for future episodes. template is either
   fixed text or text with variables in braces ("{{menu}} {{price}}"). example is the text seen in
-  this video. color and background are colour names or #RRGGBB (background null if none).
+  this video. color and background are CSS colour names ("white", "lightyellow") or #RRGGBB
+  (background null if none).
 - variables: the values that change from episode to episode (names, prices, per-slot captions).
   key is snake_case ASCII, example is this video's value, scope is EPISODE (one value per
   episode) or SLOT (a different value in each slot). Declare every variable a template uses.
@@ -410,6 +414,12 @@ def build_theme(
     )
     style_by_predicate = {c.predicate: c for c in style_conditions}
 
+    overlay_texts = {
+        _squash(item.get("text"))
+        for item in document.get("screen_texts") or ()
+        if isinstance(item, dict) and str(item.get("source") or "").upper() != "IN_SCENE"
+    } - {""}
+    overlay_entities: set[str] = set()
     scenes: list[SceneSpec] = []
     slots: list[SceneSlot] = []
     for index, (slot_key, (start, end)) in enumerate(zip(slot_keys, spans, strict=True)):
@@ -420,6 +430,18 @@ def build_theme(
         requirements = _requirements(
             slot_key, answer.get("requirements"), key_of, kinds, entity_keys, notes
         )
+        # 편집에서 얹은 문구를 객체로 적어 온 것은 뺀다: 얹은 문구는 생성 조건이 아니다 (ADR-0027)
+        captions = {
+            r.entity_key
+            for r in requirements
+            if kinds.get(r.entity_key or "") is EntityKind.TEXT
+            and DEFAULT_VOCABULARY.value_kind(r.predicate) is ValueKind.LITERAL
+            and _squash(r.expected_value) in overlay_texts
+        }
+        if captions:
+            overlay_entities.update(k for k in captions if k is not None)
+            requirements = [r for r in requirements if r.entity_key not in captions]
+            entity_keys = [k for k in entity_keys if k not in captions]
         # 고정 출연의 고정 속성과 스타일의 조건은 그 장면의 요구조건이기도 하다 (모델이 빠뜨려도 넣는다)
         seen = {r.key for r in requirements}
         for member in cast:
@@ -464,6 +486,10 @@ def build_theme(
                     or style_by_predicate[r.predicate].value != r.expected_value
                 ),
             )
+        )
+    if overlay_entities:
+        notes.append(
+            f"편집에서 얹은 문구를 객체로 적은 것을 원본 IR 에서 뺐습니다: {sorted(overlay_entities)}"
         )
     used = {key for scene in scenes for key in scene.entity_keys}
     dropped = [e.entity_key for e in entities if e.entity_key not in used]
@@ -525,6 +551,11 @@ def build_theme(
     theme.validate()
     texts = _screen_texts(document.get("screen_texts"), spans)
     return theme, source_ir, texts, notes
+
+
+def _squash(raw: Any) -> str:
+    """문구를 견줄 수 있게: 공백을 없앤다."""
+    return "".join(str(raw or "").split())
 
 
 def _plain(raw: Any) -> str:
@@ -789,15 +820,11 @@ def _text_rules(
             if m and 0 < int(m.group(1)) <= len(slot_keys)
         )
         base = TextStyle()
-        color = str(item.get("color") or "")
         background = item.get("background")
         style = TextStyle(
-            color=color if _COLOR.match(color) else base.color,
-            background=(
-                str(background)
-                if background and _COLOR.match(str(background))
-                else (None if background is None else base.background)
-            ),
+            color=color_name(item.get("color")) or base.color,
+            # 띠가 없다고 한 것(null)은 그대로, 모르는 색 표기는 기본 띠로
+            background=None if background is None else (color_name(background) or base.background),
         )
         rules.append(
             TextRule(
