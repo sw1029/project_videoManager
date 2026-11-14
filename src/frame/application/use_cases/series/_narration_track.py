@@ -3,10 +3,13 @@
 녹음 붙이기(AttachNarration)와 편의 대본 수정(ReviseEpisodeScript)이 함께 쓰는 안쪽 모듈이다.
 줄마다의 맞춤(alignments)이 정해지면, 장면에 놓고(place_lines) 조각을 이어 트랙 하나로 만든다.
 맞춤이 없는 줄(MISSING)의 자리는 무음이다.
+트랙의 키에는 내용의 해시가 든다: 편 문서가 가리키는 트랙의 내용은 바뀌지 않는다. 고정 키면 트랙을 쓴 뒤 편 문서
+저장이 실패했을 때 문서(옛 맞춤 기록)와 트랙(새 내용)이 어긋난다 (감사 BTS-D08·D39, 녹음 파일의 BTS-23 과 같다).
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 
 from frame.application.ports.artifact_store import ArtifactStore
@@ -43,7 +46,10 @@ def narration_track(
         if p.status is not PlacementStatus.MISSING
     ]
     track = audio.render_track(sources, cuts, episode.plan.ir.total_duration_ms)
-    track_uri = store.put(f"episodes/{episode.episode_id}/narration{audio.track_suffix}", track)
+    digest = hashlib.sha256(track).hexdigest()[:16]
+    track_uri = store.put(
+        f"episodes/{episode.episode_id}/narration-{digest}{audio.track_suffix}", track
+    )
     return NarrationResult(tuple(uris), tuple(alignments), tuple(placements), track_uri)
 
 

@@ -49,6 +49,9 @@ class PlacementStatus(StrEnum):
     MISSING = "MISSING"  # 놓을 음성이 없다
 
 
+MAX_TRACK_TEMPO = 2.0  # 트랙 조각이 받는 빠르기의 상한 (ports/series/audio.TrackCut 과 같은 값)
+
+
 @dataclass(frozen=True)
 class NarrationPolicy:
     lead_in_ms: int = 200  # 장면이 시작하고 말이 나오기까지
@@ -58,8 +61,11 @@ class NarrationPolicy:
     min_similarity: float = 0.6  # 이보다 낮으면 대본과 다르게 읽은 것으로 본다
 
     def __post_init__(self) -> None:
-        if self.max_tempo < 1.0:
-            raise ValidationError(f"빠르기 상한은 1 이상이어야 합니다: {self.max_tempo}")
+        # 위쪽은 트랙 조각(TrackCut)이 받는 빠르기의 상한이다. 넘는 정책은 트랙을 만들 때에야 거절됐다
+        if not 1.0 <= self.max_tempo <= MAX_TRACK_TEMPO:  # nan 도 여기서 걸린다
+            raise ValidationError(
+                f"빠르기 상한은 1 이상 {MAX_TRACK_TEMPO:g} 이하여야 합니다: {self.max_tempo}"
+            )
         if not 0 <= self.min_similarity <= 1:
             raise ValidationError(f"유사도 기준은 0~1 이어야 합니다: {self.min_similarity}")
 

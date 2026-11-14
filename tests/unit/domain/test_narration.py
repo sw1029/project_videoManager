@@ -284,6 +284,14 @@ def test_lines_recorded_separately_are_cut_from_their_own_files():
         place_lines(SCRIPT, alignments, SPANS, [1600])
 
 
+def test_tempo_limit_stays_within_what_a_track_cut_accepts():
+    """빠르기 상한은 트랙 조각이 받는 범위(2.0) 안이어야 한다. 넘으면 정책을 만들 때 알린다 (감사 BTS-27 의 남은 것)."""
+    NarrationPolicy(max_tempo=2.0)
+    for bad in (0.9, 2.5, float("inf"), float("nan")):
+        with pytest.raises(ValidationError, match="빠르기"):
+            NarrationPolicy(max_tempo=bad)
+
+
 def test_unknown_scene_and_bad_policy_are_rejected():
     with pytest.raises(ValidationError, match="장면"):
         place_lines(SCRIPT, _aligned((0, 1000)), {"greeting": (0, 4000)}, [1000])

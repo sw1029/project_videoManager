@@ -358,3 +358,12 @@ def test_usual_keys_pass():
             text_rules=rules,
             narration=replace(theme.narration, beats=beats),
         ).validate()
+
+
+def test_variable_key_is_checked_to_its_very_end():
+    """변수 키 끝의 줄바꿈도 받지 않는다 (match 와 $ 는 줄 끝의 \\n 앞에서도 맞는다 — 감사 BTS-14 의 남은 것)."""
+    theme = cafe_theme()
+    broken = replace(theme.variables[0], key=theme.variables[0].key + "\n")
+
+    with pytest.raises(ValidationError, match="변수의 키"):
+        replace(theme, variables=(broken, *theme.variables[1:])).validate()

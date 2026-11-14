@@ -119,8 +119,10 @@ class RenderEpisode:
         if track_uri is not None:
             muxed = self._audio.mux(self._store.get(video.uri), self._store.get(track_uri))
             suffix = PurePosixPath(video.uri).suffix or ".bin"
+            # 내용으로 이름을 짓는다: 편 문서가 가리키는 완성본의 내용은 바뀌지 않는다 (감사 BTS-D39)
+            digest = hashlib.sha256(muxed).hexdigest()[:16]
             final_uri = self._store.put(
-                f"episodes/{episode.episode_id}/final{suffix}",
+                f"episodes/{episode.episode_id}/final-{digest}{suffix}",
                 muxed,
                 self._store.content_type(video.uri),
             )

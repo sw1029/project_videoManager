@@ -321,5 +321,13 @@ def test_ffmpeg_signature_changes_with_the_font_and_the_encoding(tmp_path):
         != base.signature
     )
     assert FfmpegOverlayRenderer(FFMPEG, FONT, crf=23).signature != base.signature
+    # 이름이 같아도 내용이 다른 글꼴은 다른 지문이다 (감사 BTS-28 의 남은 것: 이름만 견줘도 통과하던 테스트)
+    twin = tmp_path / "twin" / "other.ttf"
+    twin.parent.mkdir()
+    twin.write_bytes(b"another font under the same name")
+    assert (
+        FfmpegOverlayRenderer(FFMPEG, str(twin)).signature
+        != FfmpegOverlayRenderer(FFMPEG, str(other)).signature
+    )
     # 지문에 폴더 이름은 넣지 않는다 (저장소의 키에 사용자의 경로가 남지 않게)
     assert str(tmp_path) not in FfmpegOverlayRenderer(FFMPEG, str(other)).signature

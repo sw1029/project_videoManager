@@ -7,6 +7,7 @@ from contextlib import AbstractContextManager
 from typing import Any
 
 from frame.adapters.series.store._key_locks import KeyLocks
+from frame.adapters.series.store.artifact import check_document_id
 from frame.application.ports.series.repositories import (
     EpisodeRepository,
     ThemeRecord,
@@ -24,10 +25,10 @@ class InMemoryThemeRepository(ThemeRepository):
         self._documents: dict[str, dict[str, Any]] = {}
 
     def save(self, record: ThemeRecord) -> None:
-        self._documents[record.theme.theme_id] = _copy(record.to_dict())
+        self._documents[check_document_id(record.theme.theme_id)] = _copy(record.to_dict())
 
     def get(self, theme_id: str) -> ThemeRecord | None:
-        document = self._documents.get(theme_id)
+        document = self._documents.get(check_document_id(theme_id))
         return ThemeRecord.from_dict(document) if document is not None else None
 
     def list(self) -> list[ThemeRecord]:
@@ -44,10 +45,10 @@ class InMemoryEpisodeRepository(EpisodeRepository):
         return self._locks.hold(key)
 
     def save(self, episode: Episode) -> None:
-        self._documents[episode.episode_id] = _copy(episode.to_dict())
+        self._documents[check_document_id(episode.episode_id)] = _copy(episode.to_dict())
 
     def get(self, episode_id: str) -> Episode | None:
-        document = self._documents.get(episode_id)
+        document = self._documents.get(check_document_id(episode_id))
         return Episode.from_dict(document) if document is not None else None
 
     def list_by_theme(self, theme_id: str) -> list[Episode]:

@@ -81,7 +81,9 @@ def test_one_take_is_aligned_to_the_script_and_placed_in_each_scene(container):
     assert narration.recording_uris == (
         f"mem://episodes/{episode.episode_id}/recordings/{digest}.m4a",
     )
-    assert narration.track_uri == f"mem://episodes/{episode.episode_id}/narration.json"
+    # 트랙의 키에는 내용의 해시가 든다: 편 문서가 가리키는 트랙의 내용은 바뀌지 않는다 (감사 BTS-D08·D39)
+    prefix = f"mem://episodes/{episode.episode_id}/narration-"
+    assert narration.track_uri.startswith(prefix) and narration.track_uri.endswith(".json")
     assert series_of(container).episodes.get(episode.episode_id) == episode
 
 
@@ -322,6 +324,31 @@ def test_recording_that_cannot_be_read_is_a_validation_error_with_real_and_fake_
         episode = new_episode(container)
         with pytest.raises(ValidationError, match="소리가 없습니다"):
             _attach(container, episode, RecordingInput(b"not audio at all", filename="x.wav"))
+
+
+def test_track_an_episode_points_to_is_not_overwritten_by_a_failed_attach(container):
+    """트랙을 쓴 뒤 편 문서 저장이 실패해도, 문서가 가리키는 트랙의 내용은 그대로다 (감사 BTS-D08·D39).
+
+    트랙이 고정 키면 문서는 옛 맞춤 기록을 갖고 같은 주소의 트랙만 새 내용이 된다 (다음 완성본에 다른 소리가 붙는다).
+    """
+    series = series_of(container)
+    episode = _attach(container, new_episode(container), _whole())
+    before = container.artifact_store.get(episode.narration.track_uri)
+    original_save = series.episodes.save
+
+    def failing(_episode):
+        raise RuntimeError("저장 실패")
+
+    series.episodes.save = failing
+    try:
+        with pytest.raises(RuntimeError):
+            _attach(container, episode, _line("L3", "가격은 육천 원"))
+    finally:
+        series.episodes.save = original_save
+
+    kept = series.episodes.get(episode.episode_id)
+    assert kept.narration == episode.narration
+    assert container.artifact_store.get(kept.narration.track_uri) == before
 
 
 # ---- 녹음 파일은 내용으로 이름을 짓는다 (감사 BTS-23) ----

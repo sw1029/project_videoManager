@@ -178,6 +178,23 @@ def test_moving_to_a_revision_keeps_history_and_drops_the_render():
     "bad",
     ["../secret", "a/b", "thm_1\n", "index.json", "thm.a", "THM_A", "", "-x" * 40],
 )
+def test_memory_repository_refuses_the_same_ids(bad):
+    """메모리 저장소도 같은 id 만 받는다. 테스트에서 통과한 id 가 실제 저장소에서 거절되지 않게 (감사 BTS-14)."""
+    themes, episodes = InMemoryThemeRepository(), InMemoryEpisodeRepository()
+    with pytest.raises(ValidationError):
+        themes.get(bad)
+    with pytest.raises(ValidationError):
+        themes.save(replace(_record(), theme=replace(_record().theme, theme_id=bad)))
+    with pytest.raises(ValidationError):
+        episodes.get(bad)
+    with pytest.raises(ValidationError):
+        episodes.save(replace(_episode(), episode_id=bad))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["../secret", "a/b", "thm_1\n", "index.json", "thm.a", "THM_A", "", "-x" * 40],
+)
 def test_artifact_repository_refuses_unsafe_ids(bad):
     """id 는 소문자·숫자·밑줄·붙임표만 받는다 (점·대문자·줄바꿈·경로 구분자를 받지 않는다, 감사 BTS-14)."""
     themes = ArtifactThemeRepository(InMemoryArtifactStore())
@@ -200,6 +217,31 @@ def test_broken_index_is_reported_and_not_overwritten():
     with pytest.raises(StorageError):
         themes.save(_record("thm_b"))
     assert store.get(index) == b'{"oops": 1}'  # 색인을 덮어쓰지 않았다
+
+
+def test_broken_document_is_a_storage_error_when_read_by_id():
+    """손으로 고쳐 깨진 문서를 id 로 읽으면 이름 없는 KeyError 가 아니라 저장소 오류다 (감사 BTS-14 의 남은 것)."""
+    store = InMemoryArtifactStore()
+    themes, episodes = ArtifactThemeRepository(store), ArtifactEpisodeRepository(store)
+    themes.save(_record())
+    episodes.save(_episode())
+    for uri in list(store._blobs):
+        if uri.endswith(("theme.json", "episode.json")):
+            store._blobs[uri] = (b"{}", "application/json")
+
+    with pytest.raises(StorageError, match="thm_cafe"):
+        themes.get("thm_cafe")
+    with pytest.raises(StorageError, match="ep_1"):
+        episodes.get("ep_1")
+
+
+def test_theme_id_follows_the_rule_of_the_store():
+    """도메인과 저장소의 id 규칙이 같다: 검사를 통과한 테마가 저장에서 거절되지 않는다 (감사 BTS-14 의 남은 것)."""
+    theme = _record().theme
+    for bad in ("THM_A", "thm.a", "thm a", ""):
+        with pytest.raises(ValidationError):
+            replace(theme, theme_id=bad).validate()
+    replace(theme, theme_id="thm_2-b").validate()
 
 
 def test_broken_document_is_skipped_when_listing():

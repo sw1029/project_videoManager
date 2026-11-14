@@ -37,6 +37,17 @@ T = TypeVar("T")
 
 _SAFE_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _LOCK = threading.Lock()
+# 저장된 문서를 타입으로 옮기다 나는 오류 (손으로 고쳤거나 잘린 문서)
+_BROKEN = (DomainError, KeyError, TypeError, ValueError, AttributeError)
+
+
+def check_document_id(doc_id: str) -> str:
+    """저장할 수 있는 id 인지 본다 (테마·편). 아니면 ValidationError. 메모리 저장소도 같은 규칙을 쓴다."""
+    if not _SAFE_ID.fullmatch(doc_id):  # match 는 줄 끝의 \n 앞에서도 맞는다
+        raise ValidationError(
+            f"저장할 수 없는 id 입니다: {doc_id!r} (소문자·숫자·밑줄·붙임표, 64자까지)"
+        )
+    return doc_id
 
 
 class _Documents:
@@ -52,11 +63,22 @@ class _Documents:
         self._name = name
 
     def _key(self, doc_id: str) -> str:
-        if not _SAFE_ID.fullmatch(doc_id):  # match 는 줄 끝의 \n 앞에서도 맞는다
-            raise ValidationError(
-                f"저장할 수 없는 id 입니다: {doc_id!r} (소문자·숫자·밑줄·붙임표, 64자까지)"
-            )
-        return f"{self._folder}/{doc_id}/{self._name}.json"
+        return f"{self._folder}/{check_document_id(doc_id)}/{self._name}.json"
+
+    def parsed(self, doc_id: str, parse: Callable[[dict[str, Any]], T]) -> T | None:
+        """문서 하나를 읽어 parse 로 옮긴다. 없으면 None, 깨졌으면 StorageError (감사 BTS-14 의 남은 것).
+
+        깨진 문서에 이름 없는 KeyError 를 그대로 내지 않는다. 목록(all)은 깨진 문서를 건너뛴다.
+        """
+        document = self.get(doc_id)
+        if document is None:
+            return None
+        try:
+            return parse(document)
+        except _BROKEN as exc:
+            raise StorageError(
+                f"저장된 문서가 깨졌습니다: {self._folder}/{doc_id} ({type(exc).__name__})"
+            ) from exc
 
     def _read(self, key: str) -> Any | None:
         uri = self._store.uri_for(key)
@@ -115,8 +137,7 @@ class ArtifactThemeRepository(ThemeRepository):
         self._documents.save(record.theme.theme_id, record.to_dict())
 
     def get(self, theme_id: str) -> ThemeRecord | None:
-        document = self._documents.get(theme_id)
-        return ThemeRecord.from_dict(document) if document is not None else None
+        return self._documents.parsed(theme_id, ThemeRecord.from_dict)
 
     def list(self) -> list[ThemeRecord]:
         records = self._documents.all(ThemeRecord.from_dict)
@@ -135,8 +156,7 @@ class ArtifactEpisodeRepository(EpisodeRepository):
         self._documents.save(episode.episode_id, episode.to_dict())
 
     def get(self, episode_id: str) -> Episode | None:
-        document = self._documents.get(episode_id)
-        return Episode.from_dict(document) if document is not None else None
+        return self._documents.parsed(episode_id, Episode.from_dict)
 
     def list_by_theme(self, theme_id: str) -> list[Episode]:
         episodes = self._documents.all(Episode.from_dict)

@@ -32,7 +32,9 @@ THEME_SCHEMA_VERSION = 1
 KEY_FORMAT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,63}")
 
 
-_THEME_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+# 테마 id 는 저장 키에 들어간다. 저장소가 받는 것과 같은 규칙이다: 소문자·숫자로 시작, 소문자·숫자·밑줄·붙임표,
+# 64자까지 (대문자를 받으면 검사를 통과한 테마가 저장에서 거절된다 — 감사 BTS-14 의 남은 것)
+_THEME_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 
 
 @dataclass(frozen=True)
@@ -198,7 +200,7 @@ class Theme:
         keys = [v.key for v in self.variables]
         if len(keys) != len(set(keys)):
             raise ValidationError(f"변수의 키가 중복됩니다: {keys}")
-        bad = [k for k in keys if not _VARIABLE_KEY.match(k)]
+        bad = [k for k in keys if not _VARIABLE_KEY.fullmatch(k)]  # match 는 끝의 \n 을 지나친다
         if bad:
             raise ValidationError(f"변수의 키는 영문·숫자·밑줄이어야 합니다: {bad}")
 

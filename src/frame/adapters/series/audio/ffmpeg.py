@@ -99,14 +99,9 @@ class FfmpegAudioEditor(AudioEditor):
         if total_ms <= 0:
             raise AudioError(f"트랙 길이가 잘못되었습니다: {total_ms} ms")
         for cut in cuts:
+            # 조각의 시각·빠르기는 TrackCut 이 만들 때 검증한다. 여기서는 녹음이 있는지만 본다
             if not 0 <= cut.source_index < len(sources):
                 raise AudioError(f"조각이 가리키는 녹음이 없습니다: {cut.source_index}")
-            if (
-                cut.source_end_ms <= cut.source_start_ms
-                or cut.tempo <= 0
-                or cut.target_start_ms < 0
-            ):
-                raise AudioError(f"조각이 잘못되었습니다: {cut}")
         with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:
             folder = Path(tmp)
             used = sorted({cut.source_index for cut in cuts})
