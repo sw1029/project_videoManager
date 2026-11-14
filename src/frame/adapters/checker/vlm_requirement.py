@@ -339,6 +339,7 @@ class VlmRequirementChecker(Checker):
         )
 
     def _undetermined(self, scene: SceneSpec, reason: str) -> list[CheckOutcome]:
+        """장면 전체를 판정하지 못했다. 요구조건마다 미판정 한 건씩, 판정이 난 결과와 같은 이름으로 대상을 적는다."""
         return [
             CheckOutcome(
                 self.check_type,
@@ -346,7 +347,13 @@ class VlmRequirementChecker(Checker):
                 requirement_key=r.key,
                 entity_key=r.entity_key,
                 scene_key=scene.scene_key,
-                detail={"method": "vlm", "reason": reason[:400]},
+                detail={
+                    "method": "vlm",
+                    "rule": _rule(r),
+                    "predicate": r.predicate,
+                    "expected_value": r.expected_value,
+                    "reason": reason[:400],
+                },
             )
             for r in scene.requirements
         ]

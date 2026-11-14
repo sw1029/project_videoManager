@@ -202,6 +202,26 @@ def test_missing_answers_and_failed_calls_are_undetermined_not_errors(store, ir,
     assert {o.verdict for o in outcomes if o.scene_key == "outro"} == {Verdict.PASS}
 
 
+def test_every_result_names_its_requirement_the_same_way(store, ir, video):
+    """판정이 났든 장면 전체를 판정하지 못했든, 결과의 detail 로 어느 요구조건인지 알 수 있다 (감사 A-16).
+
+    장면 전체가 미판정일 때만 predicate 가 없어서, detail.predicate 로 대상을 찾던 평가 코드가 그 장면을 빼고 셌다.
+    """
+    replies = [_reply("yes"), LLMTimeout("VLM 응답 없음"), *_all_yes()[2:]]
+    checker, _ = _checker(store, *replies)
+
+    outcomes = checker.check(_context(store, ir, video))
+
+    by_key = {r.key: r for r in ir.iter_requirements()}
+    for outcome in outcomes:
+        requirement = by_key[outcome.requirement_key]
+        assert outcome.detail["method"] == "vlm"
+        assert outcome.detail["predicate"] == requirement.predicate
+        assert outcome.detail["expected_value"] == requirement.expected_value
+    undetermined = [o for o in outcomes if o.scene_key == "closeup"]
+    assert {o.verdict for o in undetermined} == {Verdict.UNDETERMINED}
+
+
 def test_clips_that_are_not_video_are_undetermined_without_asking(store, ir):
     clips = {}
     for scene in ir.scenes:
