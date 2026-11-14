@@ -31,7 +31,8 @@
   원장·메타데이터·로그에는 남기지 않는다.
 - 시간 어림은 기록이 있을 때만 준다: 그 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간, 없으면 이 프로세스가
   그 모델로 만든 작업들의 중앙값.
-- 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다.
+- 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다. 제출하기 전에 편집 모델이
+  이 요청을 받을 수 없다고 드러나도(모델 목록에 없음, 장면이 그 모델의 최대 길이보다 김) 마찬가지다.
 - 편집 결과는 부모 클립에 달려 있으므로 캐시·원장 키(result_key)에 부모 클립을 넣는다.
 - 편집하지 못한 사정이 일시적이면(저장본 주소가 아직 나오지 않음) 새로 생성한 결과를 편집 요청의 키에 남기지 않는다
   (ADR-0021). 조건 키로만 남기고 편집 키는 released 로 비운다. 클립에는 provisional 표시를 해
@@ -716,7 +717,22 @@ class OpenRouterVideoGenerator(VideoGenerator):
                     "같은 수정을 다시 요청하면 편집을 다시 시도함"
                 )
             return rejected
-        body, details = self._edit_body(request, plan, source)
+        attempt = self._edit_attempt(plan, source)
+        try:
+            body, details = self._edit_body(request, plan, source, attempt)
+        except GenerationError as exc:
+            if (
+                exc.retryable
+            ):  # 모델 목록을 받지 못한 것은 일시 오류다. 새로 생성하는 데도 같은 목록이 필요하다
+                raise
+            # 편집 모델이 이 요청을 받을 수 없다는 것이 제출 전에 드러났다. 과금 전이니 장면을 새로 만든다
+            log.warning(
+                "편집 모델(%s)이 장면 %s 를 받을 수 없어 편집하지 않고 새로 생성합니다: %s",
+                plan.model,
+                request.scene.scene_key,
+                exc,
+            )
+            return {**attempt, "applied": False, "fallback_reason": str(exc)[:300]}
         try:
             job = self._submit(body)
         except _SubmitRejected as exc:
@@ -730,7 +746,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 plan.model,
                 exc,
             )
-            return {**details["edit"], "applied": False, "fallback_reason": str(exc)[:300]}
+            return {**attempt, "applied": False, "fallback_reason": str(exc)[:300]}
         try:
             return self._accepted(request, key, job, details)
         except GenerationError:
@@ -1056,13 +1072,19 @@ class OpenRouterVideoGenerator(VideoGenerator):
                         if source.may_appear
                         else "부모 영상의 저장본이 없거나 만료돼 편집할 수 없습니다"
                     )
+            cost = None
             if reason is None:
-                cost = None
                 try:
                     info = self.model_info(plan.model, timeout=quick)
                     cost = self._edit_billing(info, scene)[2]
                 except GenerationError as exc:
-                    log.warning("편집 모델의 가격을 읽지 못해 어림 비용을 비웁니다: %s", exc)
+                    if exc.retryable:
+                        log.warning("편집 모델의 가격을 읽지 못해 어림 비용을 비웁니다: %s", exc)
+                    else:
+                        # 실행하면 제출 전 확인에서 걸려 새로 생성된다. 계획도 그렇게 알린다
+                        detail = str(exc)[:240]
+                        reason = f"편집 모델({plan.model})이 이 장면을 받을 수 없습니다: {detail}"
+            if reason is None:
                 return ProductionPreview(
                     ProductionMethod.EDIT,
                     model=plan.model,
@@ -1118,12 +1140,38 @@ class OpenRouterVideoGenerator(VideoGenerator):
         with self._memo_lock:
             self._seen_seconds.setdefault(model, deque(maxlen=_SEEN_SECONDS_KEPT)).append(seconds)
 
+    def _edit_attempt(self, plan: _EditPlan, source: _ParentUrl) -> dict[str, Any]:
+        """클립 메타데이터에 남기는 편집 시도 기록 (applied 는 편집으로 만들었는가). 주소 자체는 남기지 않는다."""
+        edit: dict[str, Any] = {
+            "mode": plan.mode,
+            "model": plan.model,
+            "applied": True,
+            "parent_version_id": plan.parent_version_id,
+            "parent_clip_uri": plan.parent_clip_uri,
+        }
+        if plan.previous_job_id is not None:
+            edit["previous_job_id"] = plan.previous_job_id
+        if plan.parent_job_id is not None:
+            edit["parent_job_id"] = plan.parent_job_id
+        if source.lookups:
+            # 저장본 주소를 얻기까지 부모 작업을 조회한 횟수
+            edit["parent_url_lookups"] = source.lookups
+        if source.held:
+            # 앞서(변경 계획을 볼 때 등) 구해 들고 있던 주소를 썼다
+            edit["parent_url_held"] = True
+        return edit
+
     def _edit_body(
-        self, request: SceneGenerationRequest, plan: _EditPlan, source: _ParentUrl
+        self,
+        request: SceneGenerationRequest,
+        plan: _EditPlan,
+        source: _ParentUrl,
+        attempt: Mapping[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """편집 요청 본문. 모델 메타데이터에 없는 선택 값은 보내지 않는다 (목록에 없는 값은 거부된다).
 
-        source 는 영상 참조로 보낼 부모 클립 주소다 (video_reference 에서만 쓴다).
+        source 는 영상 참조로 보낼 부모 클립 주소다 (video_reference 에서만 쓴다). attempt 는 편집 시도 기록이다.
+        편집 모델이 목록에 없거나 장면이 그 모델의 최대 길이보다 길면 GenerationError(retryable=False) 다.
         """
         video_url = source.url
         info = self.model_info(plan.model)
@@ -1145,23 +1193,6 @@ class OpenRouterVideoGenerator(VideoGenerator):
             body["previous_job_id"] = plan.previous_job_id
         else:
             body["input_references"] = [{"type": "video_url", "video_url": {"url": video_url}}]
-        edit: dict[str, Any] = {
-            "mode": plan.mode,
-            "model": plan.model,
-            "applied": True,
-            "parent_version_id": plan.parent_version_id,
-            "parent_clip_uri": plan.parent_clip_uri,
-        }
-        if plan.previous_job_id is not None:
-            edit["previous_job_id"] = plan.previous_job_id
-        if plan.parent_job_id is not None:
-            edit["parent_job_id"] = plan.parent_job_id
-        if source.lookups:
-            # 저장본 주소를 얻기까지 부모 작업을 조회한 횟수
-            edit["parent_url_lookups"] = source.lookups
-        if source.held:
-            # 앞서(변경 계획을 볼 때 등) 구해 들고 있던 주소를 썼다. 주소 자체는 남기지 않는다
-            edit["parent_url_held"] = True
         details: dict[str, Any] = {
             "model": plan.model,
             "estimated_cost_usd": estimated_cost,
@@ -1170,7 +1201,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             "reference_count": 0 if plan.mode == EDIT_PREVIOUS_JOB else 1,
             "identity_reference_count": 0,
             "prompt": plan.prompt,
-            "edit": edit,
+            "edit": dict(attempt),
         }
         return body, details
 
@@ -1420,8 +1451,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
             raise GenerationError("OpenRouter 영상 모델 목록의 형식이 예상과 다릅니다") from exc
         if found is None:
             available = ", ".join(sorted(str(m.get("id")) for m in models))
+            setting = "FRAME_VIDEO_MODEL" if model == self.model else "FRAME_VIDEO_EDIT_MODEL"
             raise GenerationError(
-                f"OpenRouter 영상 모델 목록에 '{model}' 이 없습니다. FRAME_VIDEO_MODEL 을 확인하세요 "
+                f"OpenRouter 영상 모델 목록에 '{model}' 이 없습니다. {setting} 을 확인하세요 "
                 f"(사용 가능: {available})",
                 retryable=False,
             )
