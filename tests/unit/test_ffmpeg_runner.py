@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,9 +21,11 @@ from frame.adapters.shared.media.ffmpeg import (
     VideoToolError,
     available_filters,
     filter_names,
+    resolve_ffmpeg,
     run_ffmpeg,
     tail,
 )
+from frame.application.errors import ConfigurationError
 from tests.support.video import find_ffmpeg
 
 FFMPEG = find_ffmpeg()
@@ -30,6 +33,52 @@ FFMPEG = find_ffmpeg()
 
 def _python(code: str) -> list[str]:
     return [sys.executable, "-c", code]
+
+
+# ---- 찾는 순서: 설정 -> PATH -> 번들 -------------------------------------------------------
+# Docker 이미지(ADR-0034)와 CI 의 글꼴 잡은 'PATH 의 ffmpeg 가 video extra 의 번들보다 먼저' 에 기댄다:
+# 번들이 Linux 에 가져오는 ffmpeg 로는 화면 문구를 그릴 수 없다 (감사 A-43).
+
+
+def _bundle(path: str) -> SimpleNamespace:
+    """imageio_ffmpeg 패키지를 흉내 낸다 (get_ffmpeg_exe 가 번들의 실행 파일 경로를 준다)."""
+    return SimpleNamespace(get_ffmpeg_exe=lambda: path)
+
+
+def test_an_ffmpeg_on_the_path_is_used_before_the_bundled_one(monkeypatch, tmp_path):
+    on_path, bundled = str(tmp_path / "system-ffmpeg"), str(tmp_path / "bundled-ffmpeg")
+    monkeypatch.setattr(
+        ffmpeg_module.shutil, "which", lambda name: on_path if name == "ffmpeg" else None
+    )
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", _bundle(bundled))
+
+    assert resolve_ffmpeg() == on_path
+
+
+def test_a_configured_ffmpeg_is_used_before_the_one_on_the_path(monkeypatch, tmp_path):
+    configured = tmp_path / "configured-ffmpeg"
+    configured.write_bytes(b"")
+    monkeypatch.setattr(ffmpeg_module.shutil, "which", lambda name: str(tmp_path / "system-ffmpeg"))
+
+    assert resolve_ffmpeg(str(configured)) == str(configured)
+
+
+def test_the_bundled_ffmpeg_is_used_when_the_path_has_none(monkeypatch, tmp_path):
+    bundled = str(tmp_path / "bundled-ffmpeg")
+    monkeypatch.setattr(ffmpeg_module.shutil, "which", lambda name: None)
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", _bundle(bundled))
+
+    assert resolve_ffmpeg() == bundled
+
+
+def test_no_ffmpeg_anywhere_is_a_configuration_error(monkeypatch):
+    monkeypatch.setattr(ffmpeg_module.shutil, "which", lambda name: None)
+    monkeypatch.setitem(
+        sys.modules, "imageio_ffmpeg", None
+    )  # import 하면 ImportError 다 (extra 미설치)
+
+    with pytest.raises(ConfigurationError, match="ffmpeg 를 찾지 못했습니다"):
+        resolve_ffmpeg()
 
 
 def test_the_exit_code_and_what_was_written_to_stderr_come_back():
