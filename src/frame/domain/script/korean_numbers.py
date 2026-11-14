@@ -207,7 +207,7 @@ def _scan_mixed(norm: str, start: int) -> list[tuple[int, Decimal]]:
                 break
             if not group and big > _BARE_BIG:
                 break  # 혼자 선 '억'·'조' 는 수가 아니다
-            total += (group if group else Decimal(1)) * big  # '만 원' 의 '만' 은 1만
+            total += (group or Decimal(1)) * big  # '만 원' 의 '만' 은 1만
             section, pending, last_small, last_big, index = Decimal(0), None, 10_000, big, at + 1
         elif ch in _POINTS and found:
             whole = total + section + (pending or 0)

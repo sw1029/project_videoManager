@@ -22,26 +22,31 @@ _HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 # 화면 문구의 색으로 받는 이름 (CSS 색 이름. ffmpeg 도 같은 이름을 안다)
-CSS_COLOR_NAMES = frozenset(
-    (
-        "aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue "
-        "blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk "
-        "crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkkhaki darkmagenta "
-        "darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue "
-        "darkslategray darkturquoise darkviolet deeppink deepskyblue dimgray dodgerblue firebrick "
-        "floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow "
-        "honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon "
-        "lightblue lightcoral lightcyan lightgoldenrodyellow lightgreen lightgrey lightpink "
-        "lightsalmon lightseagreen lightskyblue lightslategray lightsteelblue lightyellow lime "
-        "limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple "
-        "mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred "
-        "midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange "
-        "orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff "
-        "peru pink plum powderblue purple red rosybrown royalblue saddlebrown salmon sandybrown "
-        "seagreen seashell sienna silver skyblue slateblue slategray snow springgreen steelblue tan "
-        "teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen "
-    ).split()
-)
+# fmt: off
+CSS_COLOR_NAMES = frozenset({
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue",
+    "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkkhaki", "darkmagenta",
+    "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen",
+    "darkslateblue", "darkslategray", "darkturquoise", "darkviolet", "deeppink", "deepskyblue",
+    "dimgray", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro",
+    "ghostwhite", "gold", "goldenrod", "gray", "green", "greenyellow", "honeydew", "hotpink",
+    "indianred", "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen",
+    "lemonchiffon", "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow",
+    "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue",
+    "lightslategray", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta",
+    "maroon", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple",
+    "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise",
+    "mediumvioletred", "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite",
+    "navy", "oldlace", "olive", "olivedrab", "orange", "orangered", "orchid", "palegoldenrod",
+    "palegreen", "paleturquoise", "palevioletred", "papayawhip", "peachpuff", "peru", "pink",
+    "plum", "powderblue", "purple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon",
+    "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue",
+    "slategray", "snow", "springgreen", "steelblue", "tan", "teal", "thistle", "tomato",
+    "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen",
+})
+# fmt: on
 
 
 _VARIABLE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

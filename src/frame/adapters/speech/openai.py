@@ -194,7 +194,7 @@ def _transcript(
     if not segments and text:
         # 시각을 주지 않는 모델: 음성 전체를 한 구간으로 본다
         try:
-            end = duration_ms if duration_ms else _ms(document.get("duration") or 0)
+            end = duration_ms or _ms(document.get("duration") or 0)
         except (TypeError, ValueError) as exc:
             raise SpeechRecognitionError("음성 인식 API 응답의 길이를 해석하지 못했습니다") from exc
         segments = [SpeechSegment(0, max(end, 1), text)]

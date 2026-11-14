@@ -175,13 +175,12 @@ def build_theme(
 
     variables = _variables(document.get("variables"), notes)
     rules, variables = _text_rules(document.get("text_rules"), slot_keys, variables, notes)
-    transcript = request.analysis.transcript
-    spoken = transcript is not None and not transcript.is_empty
+    heard = request.analysis.transcript
+    spoken = heard if heard is not None and not heard.is_empty else None  # 말이 든 받아쓰기만
     beats: list[NarrationBeat] = []
-    if spoken:
-        assert transcript is not None
+    if spoken is not None:
         for index, (slot_key, (start, end)) in enumerate(zip(slot_keys, spans, strict=True)):
-            said = " ".join(s.text.strip() for s in transcript.within(start, end))
+            said = " ".join(s.text.strip() for s in spoken.within(start, end))
             purpose = " ".join(str(answers.get(index, {}).get("narration_purpose") or "").split())
             if said or purpose:
                 beats.append(NarrationBeat(slot_key, purpose, said))
@@ -209,10 +208,14 @@ def build_theme(
         ),
         text_rules=tuple(rules),
         narration=NarrationSpec(
-            present=spoken,
-            language=transcript.language if spoken and transcript is not None else None,
-            tone=" ".join(str(document.get("narration_tone") or "").split()) if spoken else "",
-            pace_cps=transcript.pace_cps if spoken and transcript is not None else None,
+            present=spoken is not None,
+            language=spoken.language if spoken is not None else None,
+            tone=(
+                " ".join(str(document.get("narration_tone") or "").split())
+                if spoken is not None
+                else ""
+            ),
+            pace_cps=spoken.pace_cps if spoken is not None else None,
             beats=tuple(beats),
         ),
         music=MusicSpec(

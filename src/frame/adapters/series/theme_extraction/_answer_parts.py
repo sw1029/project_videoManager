@@ -40,10 +40,13 @@ _SLOT_REF = re.compile(r"\s*(?:(?:slot|s)[\s_#:-]*(\d+)(?![.\d]).*|(\d+))\s*", r
 
 
 # 객체 키에 들어오면 걷어내는 겉모습 낱말 (색·크기·새것). 키는 '무엇인가' 만 말한다
-_LOOK_WORDS = frozenset(
-    "red blue green yellow orange purple pink brown black white gray grey teal beige cream gold "
-    "silver navy dark light bright big small large little tiny new old".split()
-)
+# fmt: off
+_LOOK_WORDS = frozenset({
+    "red", "blue", "green", "yellow", "orange", "purple", "pink", "brown", "black", "white",
+    "gray", "grey", "teal", "beige", "cream", "gold", "silver", "navy", "dark", "light",
+    "bright", "big", "small", "large", "little", "tiny", "new", "old",
+})
+# fmt: on
 
 
 def _slot_index(raw: Any, count: int) -> int | None:

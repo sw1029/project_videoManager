@@ -109,8 +109,10 @@ def script_block(transcript: Transcript | None, spans: Sequence[tuple[int, int]]
     if script.is_empty:
         return ["Script: none (no speech was recognised)."]
     lines = [
-        f"Script (language: {script.language or 'unknown'}), "
-        "one line per sentence with the slot it was said in:"
+        (
+            f"Script (language: {script.language or 'unknown'}), "
+            "one line per sentence with the slot it was said in:"
+        )
     ]
     for number, line in enumerate(script.lines, start=1):
         slots = "+".join(line.scene_keys) or "no slot"

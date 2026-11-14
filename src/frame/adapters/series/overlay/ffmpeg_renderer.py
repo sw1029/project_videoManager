@@ -18,8 +18,9 @@ import tempfile
 import unicodedata
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
 
-from frame.adapters.media_tools import MediaProbe, MediaToolError, probe_media, run_ffmpeg, tail
+from frame.adapters.media_tools import MediaToolError, probe_media, run_ffmpeg, tail
 from frame.adapters.video_tools import require_ffmpeg
 from frame.application.errors import ConfigurationError
 from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
@@ -143,6 +144,14 @@ def fit_font_px(text: str, wanted_px: int, region_w_px: float, region_h_px: floa
     return max(_MIN_FONT_PX, int(size))
 
 
+class _Canvas(NamedTuple):
+    """문구를 얹을 클립의 겉모습. 영상이 아니면 만들어지지 않는다 (값이 모두 있다)."""
+
+    width: int
+    height: int
+    frames: int
+
+
 class FfmpegOverlayRenderer(OverlayRenderer):
     def __init__(
         self,
@@ -193,28 +202,23 @@ class FfmpegOverlayRenderer(OverlayRenderer):
             if code != 0 or not target.is_file():
                 raise CompositionError(f"화면 문구를 얹지 못했습니다: {tail(log)}")
             result = self._probe(target)
-            if (result.width, result.height, result.frames) != (
-                probe.width,
-                probe.height,
-                probe.frames,
-            ):
+            if result != probe:
                 raise CompositionError(
                     f"합성 결과가 원본과 다릅니다: {result.width}x{result.height} {result.frames} 프레임 "
                     f"(원본 {probe.width}x{probe.height} {probe.frames} 프레임)"
                 )
             return target.read_bytes()
 
-    def _probe(self, path: Path) -> MediaProbe:
+    def _probe(self, path: Path) -> _Canvas:
         try:
             probe = probe_media(self._ffmpeg, path, self.timeout_s)
         except MediaToolError as exc:
             raise CompositionError(f"장면 클립을 읽지 못했습니다: {exc}") from exc
-        if not probe.has_video or not probe.height or not probe.frames:
+        if not probe.has_video or not probe.width or not probe.height or not probe.frames:
             raise CompositionError("문구를 얹을 클립이 영상이 아닙니다")
-        return probe
+        return _Canvas(probe.width, probe.height, probe.frames)
 
-    def _filters(self, item: OverlayItem, index: int, probe: MediaProbe) -> list[str]:
-        assert probe.width is not None and probe.height is not None
+    def _filters(self, item: OverlayItem, index: int, probe: _Canvas) -> list[str]:
         region, style = item.region, item.style
         x, y = region.x * probe.width, region.y * probe.height
         w, h = region.w * probe.width, region.h * probe.height

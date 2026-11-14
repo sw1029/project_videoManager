@@ -163,10 +163,11 @@ def _group_ends(
             if before is None or points[j] - points[i] < min_slot_ms:
                 continue
             candidate = (before[0] + 1, before[1] - cut_in_sentence, (*before[2], -points[j]))
-            if best[j] is None or candidate > best[j]:
+            current = best[j]
+            if current is None or candidate > current:
                 best[j] = candidate
-    chosen = best[last]
-    assert chosen is not None  # 전체가 min_slot_ms 이상이면 자리 하나짜리 묶음이 늘 있다
+    # 전체가 min_slot_ms 이상이므로 자리 하나짜리 묶음은 늘 있다 (처음부터 끝까지)
+    chosen = best[last] or (1, 0, (-points[last],))
     return [-point for point in chosen[2]]
 
 

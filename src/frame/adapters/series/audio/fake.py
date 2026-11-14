@@ -113,20 +113,21 @@ def _span(part: dict[str, Any], start_ms: int, end_ms: int | None) -> dict[str, 
     duration = int(part["duration_ms"])
     start = max(0, min(start_ms, duration))
     end = duration if end_ms is None else max(start, min(end_ms, duration))
-    heard: list[SpeechSegment] = []
-    for key in ("transcript", "missed"):
-        for segment in Transcript.from_dict(part.get(key) or {}).segments:
-            if start <= (segment.start_ms + segment.end_ms) / 2 < end:
-                heard.append(
-                    SpeechSegment(
-                        max(0, segment.start_ms - start),
-                        min(end, segment.end_ms) - start,
-                        segment.text,
-                        confidence=segment.confidence,
-                        no_speech=segment.no_speech,
-                    )
-                )
-    heard.sort(key=lambda s: s.start_ms)
+    heard = sorted(
+        (
+            SpeechSegment(
+                max(0, segment.start_ms - start),
+                min(end, segment.end_ms) - start,
+                segment.text,
+                confidence=segment.confidence,
+                no_speech=segment.no_speech,
+            )
+            for key in ("transcript", "missed")
+            for segment in Transcript.from_dict(part.get(key) or {}).segments
+            if start <= (segment.start_ms + segment.end_ms) / 2 < end
+        ),
+        key=lambda s: s.start_ms,
+    )
     return {"duration_ms": end - start, "transcript": Transcript("ko", tuple(heard)).to_dict()}
 
 

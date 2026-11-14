@@ -344,7 +344,8 @@ def place_lines(
         if alignment is None or alignment.start_ms is None or alignment.end_ms is None:
             placements.append(Placement(line.line_key, line.scene_key, PlacementStatus.MISSING))
             continue
-        start, end = _cut_span(alignment, ordered, index, source_durations_ms, policy)
+        heard = (alignment.start_ms, alignment.end_ms)
+        start, end = _cut_span(alignment, heard, ordered, index, source_durations_ms, policy)
         scene_start, scene_end = scene_spans[line.scene_key]
         budget = max(1, scene_end - scene_start - policy.lead_in_ms - policy.tail_ms)
         natural = end - start
@@ -374,25 +375,29 @@ def place_lines(
 
 def _cut_span(
     alignment: LineAlignment,
+    heard: tuple[int, int],
     ordered: Sequence[LineAlignment | None],
     index: int,
     source_durations_ms: Sequence[int],
     policy: NarrationPolicy,
 ) -> tuple[int, int]:
-    """녹음에서 잘라 낼 구간: 말소리 앞뒤에 여유를 두되, 같은 파일의 이웃 줄과 겹치지 않게 한다."""
-    assert alignment.start_ms is not None and alignment.end_ms is not None
+    """녹음에서 잘라 낼 구간: 말소리 앞뒤에 여유를 두되, 같은 파일의 이웃 줄과 겹치지 않게 한다.
+
+    heard 는 그 줄이 녹음에서 들린 (시작, 끝) 이다.
+    """
+    heard_start, heard_end = heard
     if not 0 <= alignment.source_index < len(source_durations_ms):
         raise ValidationError(f"녹음 파일 번호가 잘못되었습니다: {alignment.source_index}")
     low, high = 0, source_durations_ms[alignment.source_index]
     for other in ordered[:index]:
         if other is not None and other.end_ms is not None and _same_file(other, alignment):
-            low = max(low, (other.end_ms + alignment.start_ms) // 2)
+            low = max(low, (other.end_ms + heard_start) // 2)
     for other in ordered[index + 1 :]:
         if other is not None and other.start_ms is not None and _same_file(other, alignment):
-            high = min(high, (alignment.end_ms + other.start_ms) // 2)
+            high = min(high, (heard_end + other.start_ms) // 2)
             break
-    start = max(low, alignment.start_ms - policy.pad_ms)
-    end = min(high, alignment.end_ms + policy.pad_ms)
+    start = max(low, heard_start - policy.pad_ms)
+    end = min(high, heard_end + policy.pad_ms)
     return (start, max(start + 1, end))
 
 

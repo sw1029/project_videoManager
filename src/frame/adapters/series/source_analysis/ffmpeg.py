@@ -39,11 +39,10 @@ class FfmpegMediaProber(MediaProber):
                 found = probe_media(self._ffmpeg, path, self.timeout_s)
             except MediaToolError as exc:
                 raise VideoAnalysisError(f"영상을 읽지 못했습니다: {exc}") from exc
-        if not found.has_video or not found.height or not found.duration_ms:
+        if not found.has_video or not found.width or not found.height or not found.duration_ms:
             raise VideoAnalysisError("영상 스트림이 없는 파일입니다")
         if (found.video_codec or "").lower() not in VIDEO_CODECS:
             raise VideoAnalysisError(f"받지 않는 영상 코덱입니다: {found.video_codec}")
-        assert found.width is not None
         return MediaInfo(
             width=found.width,
             height=found.height,

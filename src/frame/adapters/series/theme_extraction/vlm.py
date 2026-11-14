@@ -232,11 +232,15 @@ class VlmThemeExtractor(ThemeExtractor):
     ) -> str:
         media = request.analysis.media
         lines = [
-            f"Video: {media.width}x{media.height} ({media.aspect_label}), "
-            f"{media.duration_ms / 1000:.1f} s, audio: {'yes' if media.has_audio else 'no'}.",
-            "Write title, summary, description, purpose, role, notes, tone and narration_purpose in "
-            f"{self.language}. Keep every requirement value, fixed attribute value and style condition "
-            "value in English.",
+            (
+                f"Video: {media.width}x{media.height} ({media.aspect_label}), "
+                f"{media.duration_ms / 1000:.1f} s, audio: {'yes' if media.has_audio else 'no'}."
+            ),
+            (
+                "Write title, summary, description, purpose, role, notes, tone and narration_purpose in "
+                f"{self.language}. Keep every requirement value, fixed attribute value and style "
+                "condition value in English."
+            ),
         ]
         if request.title.strip():
             lines.append(f"Title given by the user: {request.title.strip()}")
