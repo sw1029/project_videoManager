@@ -18,7 +18,10 @@
 | ② 시리즈 생성 · 녹음 | 편 계획(고정 요소는 코드가 넣는다), 편 사이 정체성(테마의 기준 이미지), 녹음 붙이기(인식 → 줄 맞추기 → 장면에 놓기) | 테마 하나로 편 둘 (편당 $0.85). 요구조건 36건 모두 통과, 그중 27건이 테마가 넣은 것. 고정 인물은 두 편 모두 테마 기준 이미지와 9/9 프레임 일치. 형식 4자리 × 4초 그대로 | **실제 말소리로 한 녹음 붙이기** (Fake·ffmpeg 계약 테스트까지. 말소리 파일이 없다, §5.6) |
 | ③ 국소 수정 | 화면 검수(요구조건·일관성·문구·녹음) → 어긋남의 종류마다 가장 좁은 방법 | 얹은 가격을 틀리게 → 찾음 → 그 장면만 다시 합성 (나머지 3장면 바이트 그대로, 생성 호출 0). 자연 발생한 컵 불일치 → 그 장면만 편집 ($0.12, 41초) → 글자·일관성 통과, 나머지 3장면 재사용 | 움직이는 화면 속 글자를 가리고 다시 쓰기, 틀린 줄만 다시 녹음 (테스트로만 확인) |
 
-- 테스트: 982 → **1324** 통과 (+342). 새 모듈이 대부분이고, 공용 파일은 `config/container.py` 하나만 고쳤다 (+15 −1).
+- 테스트: 982 → **1405** 통과 (+423). 새 모듈이 대부분이고, 고친 공용 파일은 `config/container.py` (+15 −1) 와
+  `presentation/main.py` (+4 −1) 둘이다.
+- 실험 뒤에 백엔드 감사(24항목)를 반영했다 (§4.5): 돈이 드는 동작은 기본이 아니게, 같은 입력에는 한 번만 과금,
+  수정 버전은 끝난 뒤에만 편의 기준 버전, 코드는 개념 단위 패키지로. §5 의 수치는 그 전에 잰 것이고 다시 재지 않았다.
 - 실호출이 설계를 여러 번 바꿨다. 모델이 낸 것을 그대로 쓰면 안 되는 곳이 열 군데 넘게 나왔고 모두 코드와 테스트로 막았다 (§4.4).
   실험 중에 찾은 우리 쪽 결함도 넷이다: 합성 캐시 키에 글꼴이 빠짐, 가린 글자를 검수가 다시 지적함, 일관성 실패를 화면 검수가 놓침,
   기획이 물건의 글자를 한 장면에만 걺.
@@ -45,7 +48,7 @@
 - YouTube Shorts: 정사각 또는 세로, 3분 이하 (support.google.com/youtube/answer/15424877).
 - Instagram Reels: 3분을 넘으면 새 시청자에게 추천되지 않는다 (about.instagram.com/features/reels).
   게시 API 규격은 3초 이상, 9:16 권장, 23~60fps, 가로 1920 이하, 300MB 이하 (developers.facebook.com 의 ig-user/media).
-- 판정은 두 단계다. `REQUIRED` 를 어기면 숏폼이 아니고, `RECOMMENDED` 를 어기면 경고만 한다 (`domain/shortform.py`).
+- 판정은 두 단계다. `REQUIRED` 를 어기면 숏폼이 아니고, `RECOMMENDED` 를 어기면 경고만 한다 (`domain/series/shortform.py`).
 
 ## 3. 선행 연구와 구현
 
@@ -198,8 +201,10 @@ IR 은 영상 한 편의 조건이고, 테마는 편 사이의 규칙이다 (ADR
 | `ThemeRepository` · `EpisodeRepository` | 산출물 저장소의 JSON | 메모리 |
 
 - Fake 와 실제 어댑터가 같은 계약 테스트를 지난다 (`tests/contract/`). ffmpeg 어댑터는 진짜 ffmpeg 로, LLM 어댑터는 재생 응답으로 돌린다.
-- 설정은 `config/theme_wiring.py` 의 `ThemeSettings` 에 있다 (`FRAME_THEME_EXTRACTOR`, `FRAME_SERIES_PLANNER`, `FRAME_OVERLAY_RENDERER` …). 기본값은 모두 Fake·오프라인이다.
-- 고친 공용 파일은 `config/container.py` 하나다 (`Container.series`). `settings.py`·`registry.py`·`schemas.py`·라우터·`openapi.json` 은 고치지 않았다.
+- 설정은 `config/theme_settings.py` 의 `ThemeSettings` 에 있다 (`FRAME_THEME_EXTRACTOR`, `FRAME_SERIES_PLANNER`, `FRAME_OVERLAY_RENDERER` …).
+  기본값은 모두 Fake·오프라인이다. 환경 변수는 서버 입구(`presentation/main.py`)에서 한 번만 읽고, 조립(`config/theme_wiring.py`)은 읽지 않는다.
+- 고친 공용 파일은 `config/container.py` (`Container.series`) 와 `presentation/main.py` (설정을 읽어 넘기는 석 줄) 둘이다.
+  `settings.py`·`registry.py`·`schemas.py`·라우터·`openapi.json` 은 고치지 않았다.
   **HTTP 라우터는 만들지 않았다** (§6).
 
 ### 4.4 실호출이 바꾼 것
@@ -218,6 +223,31 @@ IR 은 영상 한 편의 조건이고, 테마는 편 사이의 규칙이다 (ADR
 | 기획 | 말할 문장 4줄 중 3줄이 장면보다 김 | 빠르기를 올려도 안 들어가면 글자 수와 상한을 알려 되돌려 보낸다 |
 | 기획 | 테마의 장소를 `cafe counter` 로 바꿈 | 버리고 메모에 남긴다 (고정 요소는 코드가 넣는다) |
 | 기획 | 컵의 글자를 따로 객체로 두고 한 장면에만 걺 → 같은 컵이 장면마다 다름 | 물건 위의 글자는 물건의 속성으로. 편 안에서 객체의 모습은 장면마다 같게 건다 |
+
+### 4.5 감사 반영 (2026-11-14)
+
+실험을 마친 뒤 백엔드 감사가 이 브랜치에 24항목(높음 1 · 중간 10 · 낮음 13)을 전했다. 고친 것을 묶으면 다섯 가지다.
+
+| 묶음 | 전 | 뒤 |
+|---|---|---|
+| 돈이 드는 동작은 기본이 아니다 | 화면 수정이 찾은 것 전부를 고치고 생성까지 접수했다. 가려서 고친 글자가 검수에 남아, 한 번 더 부르면 그 장면을 유료로 다시 만들었다 | 가려서 고친 것은 어긋난 곳에서 뺀다. 클립 수정은 `issue_ids` 로 짚은 것만, 생성 접수는 `generate=True` 를 줘야 한다 |
+| 같은 입력에는 한 번만 과금 | 추출이 뒤에서 실패하면 음성 인식부터 다시 과금했고, 같은 영상을 두 번 주면 테마가 둘 생겼다. 재시도가 곱해져 프레임 24장짜리 요청이 최대 9번 나갔다 | 같은 영상·같은 추출기 지문이면 있는 테마를 돌려준다. 인식·화면 읽기의 결과를 입력의 해시로 남긴다. 추출의 되묻기는 따로 센다 (기본 2) |
+| 키가 다른 주소로 나가지 않는다 | 인식 주소를 바꾸면 LLM 의 키나 환경 변수의 키가 그 주소로 갈 수 있었다 | 주소가 LLM 과 다르면 전용 키 파일만 쓴다. https 만 받는다 |
+| 편의 기록이 어긋나지 않는다 | 편이 끝나지 않은 수정 버전으로 먼저 옮겨져, 실패하면 편이 멈추고 검수는 '어긋난 곳 없음' 이었다. 문서를 읽고 고쳐 통째로 덮어썼다. 실패한 붙이기가 녹음 파일을 덮어썼다 | 수정 버전은 끝난 뒤에만 기준 버전이 된다. 검수의 판정은 맞음·틀림·모름 셋이다. 편의 키를 쥐고 고친다. 녹음은 내용의 해시를 키로 둔다 |
+| 코드는 개념 단위로 | 새 모듈이 다섯 계층에 평면으로 놓였고 500줄을 넘는 모듈이 둘이었다 | 계층마다 `series` 패키지, 음성 인식은 따로. 패키지 입구마다 맡는 개념·모듈 지도. 모든 모듈이 500줄 이하 |
+
+코드가 놓인 자리
+
+| 계층 | 자리 | 안에 있는 것 |
+|---|---|---|
+| 도메인 | `domain/series/` | `theme/` · `episode/` · `record` · `narration` · `screen_correction/` · `shortform` · `source_analysis` |
+| 도메인 (일반 타입) | `domain/media.py`, `domain/screen.py` | 영상의 겉모습, 화면 좌표와 문구의 구실 |
+| 포트 | `application/ports/series/`, `application/ports/speech.py` | 원본 분석 · 테마 추출 · 기획 · 소리 편집 · 후반 합성 · 저장, 음성 인식 |
+| 유스케이스 | `application/use_cases/series/` | 유스케이스 하나가 모듈 하나 (아홉 개) |
+| 어댑터 | `adapters/series/`, `adapters/speech/` | 포트마다 하위 패키지 (fake 와 실제 구현) |
+| 설정·조립 | `config/theme_settings.py`, `config/theme_wiring.py` | 환경 변수 읽기, 어댑터 고르기와 유스케이스 묶기 |
+
+미룬 것은 까닭과 함께 세션 노트의 '감사 반영 (11-14)' 표에 있다 (공용 모듈로 모으는 일은 머지 뒤 감사 세션이 한다).
 
 ## 5. 실험
 
@@ -417,7 +447,9 @@ IR 은 영상 한 편의 조건이고, 테마는 편 사이의 규칙이다 (ADR
 
 ## 7. 재현
 
-- 코드와 테스트는 이 브랜치에 있다. 검사: `python -m pytest -q -p no:cacheprovider -m "not slow and not gpu"` (1324 통과), `ruff check src tests`.
+- 코드와 테스트는 이 브랜치에 있다. 검사: `python -m pytest -q -p no:cacheprovider -m "not slow and not gpu"` (1405 통과), `ruff check src tests`.
 - 실험 하니스와 산출물(영상·원장·실행 기록)은 저장소 밖 스크래치패드에 있다. 세션 노트 `theme-series.md` 에 경로와 줄별 원장이 있다.
 - 하니스의 순서: `a1_extract.py` (추출·채점) → `b1_series.py theme|plan|generate|render|check` (편) → `c1_overlay.py` · `c1b_font.py` (문구 수정) →
   `r1_region.py` (영역 찾기) → `b3_regions.py` (영역 반영) → `c2_revise.py` (장면 수정).
+  §5 의 실행은 감사 반영 전의 코드로 했다. 지금은 생성 접수에 `generate=True` 를 줘야 하고, 수정 버전은 끝난 뒤
+  `SettleEpisode` (또는 편을 읽는 다른 유스케이스)가 기준 버전으로 옮긴다.
