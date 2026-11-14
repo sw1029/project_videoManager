@@ -99,6 +99,7 @@ class CaseRun:
     response: str | None = None  # 모델의 마지막 원본 응답 (JSON 문자열)
     model: str | None = None  # 응답이 알려 준 모델 이름
     attempts: int | None = None
+    # 마지막 시도의 토큰. 구조화기가 마지막 응답만 들고 있어 자기수정 재시도분은 빠진다 (attempts 로 가늠한다)
     input_tokens: int | None = None
     output_tokens: int | None = None
     repair_notes: tuple[str, ...] = ()
