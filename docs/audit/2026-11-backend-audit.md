@@ -459,7 +459,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 - 근거: 문서의 규칙은 "다른 어댑터를 import 하지 않는다 (공용 common 제외)" 다. 실제로는 `checker → video_tools`(4)·`vlm_answers`(2),
   `identity → video_tools`(2)·`vlm_answers`(1), `generator → http_transport`(1) 이다. 어느 것이 공용인지는 파일 이름으로만 알 수 있다.
 - 제안: `adapters/shared/` 패키지로 모으고 옛 경로는 다시 내보낸다. 규칙은 "어댑터 패키지끼리는 `adapters.shared` 만 import" 가 된다.
-- 담당·시점: **감사 · 지금** (R-03 과 함께) · 상태: 열림
+- 담당·시점: **감사 · 지금** (R-03 과 함께) · 상태: **해결** (`36209a9`) — 넷을 `adapters/shared/` 로 옮겼다: `runtime`(ID·시계), `http`(전송 계층), `vlm/answers`, `media/`(`frames`·`probe`·`similarity`·`ffmpeg`). 옛 경로는 이름만 다시 내보내는 호환 모듈이다 (작업 중인 브랜치가 쓴다. ADR-0031 3절). 검사: 어댑터 최상위에는 호환 모듈만 있다 · 호환 모듈은 구현을 담지 않는다 · 옛 경로를 쓰는 모듈은 기준선의 것(`config/container.py`)뿐이다
 
 ### L-04 · 낮음 · `evaluation` 이 `application` 을 쓰기 시작했다
 - 근거: #21 `evaluation/edit_runner.py:19-22`, #17 `evaluation/structuring_gold.py:20-21`. 둘 다 유스케이스·포트만 쓰고 어댑터·컨테이너는
@@ -523,7 +523,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
   `generation_key` 의 인자 이름은 `fingerprint` 인데 실제로 넘기는 값은 `result_key` 다.
 - 제안: 표 하나로 정리한다 — 이름, 무엇을 담는가, 누가 판단에 쓰는가 (버전 사이 재사용 / 생성 캐시·원장 / 정체성 기준의 유효성).
   그 표를 용어집과 `ports/generator.py` 의 머리말에 두고, 이름을 맞춘다 (`generation_key(result_key, profile)`). R-01 과 함께.
-- 담당·시점: **감사** — 표·용어집은 지금, 이름 변경은 머지 뒤 (P-08) · 상태: 열림
+- 담당·시점: **감사** — 표·용어집은 지금, 이름 변경은 머지 뒤 (P-08) · 상태: **일부 해결** (`b91f4fe`) — 일곱 가지를 표 하나로 정리했다 (`docs/GLOSSARY.md` 3절: 이름 · 어디 · 담는 것 · 누가 판단에 쓰는가). 남은 것: 이름 맞추기 (`generation_key(result_key, profile)`)와 `domain/fingerprints.py` 로 정의를 모으는 일은 머지 뒤 (P-08, R-01 과 함께 — `domain/ir.py` 를 #10 이 고친다)
 
 #### K-02 · 중간 · [이름] 같은 낱말이 여러 개념을 가리킨다
 - '수정' 계열: `revision`(수정 버전), `change`(CHANGE — 값을 바꾼다), `repair`(REPAIR — 다시 맞추기. 구조화의 `repair.py` 는 '보정' 이라는 다른 뜻이다),
@@ -541,7 +541,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 - 제안: 용어집 `docs/GLOSSARY.md` — 낱말 하나에 뜻 하나, 한국어 이름과 코드 이름을 짝짓는다. 낱말은 연구 문서·ADR 의 것을 따른다
   (정체성 기준 이미지, 다시 맞추기(REPAIR), 유지할 요소, 변경 계획, 부모 클립 편집, 임시 결과). 새 이름은 용어집의 낱말로 짓는다.
   기존 이름은 옮기는 김에만 맞춘다 (이름만 바꾸는 커밋은 다른 브랜치와 충돌한다) — `revision_planning` 은 M-07 에서 옮길 때 `resolution` 으로.
-- 담당·시점: **감사 · 지금** (용어집. ADR-0031 과 함께) · 상태: 열림
+- 담당·시점: **감사 · 지금** (용어집. ADR-0031 과 함께) · 상태: **해결** (`b91f4fe`) — 용어집 `docs/GLOSSARY.md`: '수정' · '참조' · '검수' · '보존' · '조립' 계열을 가르고 한국어 이름과 코드 이름을 짝지었다. 새 이름은 용어집의 낱말로 짓는다 (ADR-0031 규칙 2). 기존 이름은 옮기는 김에만 맞춘다 (`revision_planning` → `resolution` 은 M-07 에서)
 
 #### K-03 · 중간 · [길잡이] 패키지의 입구와 모듈 지도가 없다
 - 어디: `__init__.py` 에 설명이 없는 패키지 10개 — `adapters/{change_request,checker,generator,identity,jobs,persistence/sqlalchemy,storage,structurer,tracker}`,
@@ -560,7 +560,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
      `docs/ARCHITECTURE.md` §4 는 다른 브랜치가 고치고 있어, 머지 뒤 그 절이 새 문서를 가리키게 한다 (P-11).
   3. **지키는 검사**: 아키텍처 테스트가 '패키지에 설명과 `__all__` 이 있는가', '밖에서 `_` 모듈을 import 하지 않는가', '모듈 지도의 패키지 목록이
      실제와 같은가' 를 본다 (지금 없는 곳은 기준선 목록. §9 G2·G8).
-- 담당·시점: **감사 · 2단계** (테스트) / 3단계 (설명 채우기 — 옮기는 패키지부터) · 상태: **일부 해결** (`681501d` — 검사 셋과 모듈 지도 `docs/MODULE_MAP.md`. 설명·`__all__` 은 기준선으로 남아 3단계에 채운다)
+- 담당·시점: **감사 · 2단계** (테스트) / 3단계 (설명 채우기 — 옮기는 패키지부터) · 상태: **해결** (`681501d` · `23a008f` · `b91f4fe`, 한 곳만 남김) — 검사 셋과 모듈 지도(`681501d`), 패키지 설명 9개와 `__all__` 8개, 설명 없던 모듈 셋(`23a008f`), 배치 규칙은 ADR-0031(`b91f4fe`). 기준선: 설명 없는 패키지 10 → 1 (`adapters/structurer` 는 #10 이 그 파일을 고쳐 머지 뒤에), `__all__` 없는 패키지 8 → 0. `docs/ARCHITECTURE.md` §4 가 모듈 지도를 가리키게 하는 일은 머지 뒤 (P-11)
 
 #### K-04 · 중간 · [섞임] `adapters/generator/` 한 패키지에 네 개념이 섞여 있다
 - 어디: `src/frame/adapters/generator/` (7모듈 2,786줄) — 제공자 구현(`openrouter.py`·`fake.py`·`stubs.py`), 복원력 데코레이터(`decorators.py`:
@@ -572,7 +572,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 - 제안: `generator/openrouter/`(제공자) · `generator/resilience.py`(재시도·시간 제한·결과 캐시) · `generator/records/`(생성 캐시·작업 원장·키 잠금) ·
   `generator/normalizer.py`(클립 정규화) · `assembler/`(조립기 구현) 로 나눈다. ffmpeg 실행·영상 정보는 `shared/media/` 로 (R-03).
   조립기 포트는 `ports/assembler.py` 로 떼고 `ports/generator.py` 가 다시 내보낸다.
-- 담당·시점: **감사 · 지금** (M-01 과 같은 묶음) · 상태: 열림
+- 담당·시점: **감사 · 지금** (M-01 과 같은 묶음) · 상태: **일부 해결** (`bde28ff`) — 조립기를 `adapters/assembler/` 로, 조립기 포트를 `ports/assembler.py` 로 뗐다 (`ports/generator.py` 가 다시 내보낸다). 클립 정규화는 `generator/normalizer.py`, 클립 검사는 `shared/media/probe.py`. 남은 것: `generator/openrouter/` 하위 패키지(M-01), `decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` — 뒤의 둘은 `config/container.py`(다른 브랜치가 고친다)가 `generator.cache`·`generator.decorators` 를 import 하고 있어 옮기면 호환 모듈이 둘 더 생긴다. 머지 뒤에 한다
 
 #### K-05 · 낮음 · [섞임·이름] 기술 종류나 방법으로 묶은 모듈
 - 어디
@@ -586,7 +586,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
   열거형은 그 개념의 모듈 옆으로 (수정의 셋은 `domain/revision/` 을 만들 때 함께. `enums.py` 는 다시 내보낸다).
   `domain/services/` 의 나머지 둘(`identity.py`·`comparison.py`)은 `domain/` 바로 아래로 올리고 `services/` 는 호환 경로로만 남긴다.
   `dto.py`·`queries.py` 는 자원별로 나눈다 (머지 뒤 — `dto.py` 는 #10 이 고치고 있고, `queries.py` 는 M-03 의 자원 구분과 함께 한다).
-- 담당·시점: **감사** — 어댑터 쪽과 `domain/revision/` 은 지금, `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12) · 상태: 열림
+- 담당·시점: **감사** — 어댑터 쪽과 `domain/revision/` 은 지금, `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12) · 상태: **일부 해결** (`36209a9`) — 어댑터 쪽의 방법으로 지은 이름을 개념 이름으로 옮겼다 (`common.py` → `shared/runtime.py`, `video_tools.py` → `shared/media/{frames,probe,similarity}.py`, `vlm_answers.py` → `shared/vlm/answers.py`). 남은 것: `generator/decorators.py`·`stubs.py` (K-04 와 함께 머지 뒤), 수정의 열거형과 `domain/services/` (M-07), `dto.py`·`queries.py`·나머지 열거형은 머지 뒤 (P-12)
 
 #### 목표 배치
 
@@ -753,7 +753,7 @@ src/frame/
 |---|---|---|---|---|---|
 | R-01 | 중간 | 장면 조건 해시의 내용이 두 군데서 조립된다. 장면에 필드를 더하면 둘을 같이 고쳐야 재사용 판단이 맞는다 | `domain/ir.py:284-308` `scene_fingerprint`, `application/ports/generator.py:81-104` `fingerprint` | 도메인 함수 하나(`scene_condition_payload(scene, entities)`)를 둘이 쓴다 | 머지 뒤 (`ir.py` 를 #10 이 고친다. P-08) |
 | R-02 | 중간 | 생성기 데코레이터 셋이 `profile`·`result_key`·`preview` 위임을 각각 적는다 (9개 메서드). 포트에 선택 메서드를 더할 때 하나라도 빠뜨리면 기본 구현이 조용히 답한다 | `adapters/generator/decorators.py:44-52`, `:106-113`, `:175-184` | 위임 기반 클래스 `DelegatingVideoGenerator` (Decorator) | **해결** `3a6096b` (`DelegatingVideoGenerator`. 포트의 공개 메서드가 모두 위임되는지 보는 테스트) |
-| R-03 | 중간 | ffmpeg 실행기(`_run`)와 로그 꼬리(`_tail`)가 글자까지 같은 두 벌이고, 영상 정보 해석도 두 군데다 | `adapters/generator/ffmpeg.py:308-338`, `adapters/video_tools.py:154-172`; `ffmpeg.py:40-50` `VideoProbe` vs `video_tools.py:115-124` `video_size` | `adapters/shared/media/` 한 곳: 실행·꼬리·정보 읽기·임시 파일. 임시 파일 이름에 `.bin` 을 쓰지 않는다 — ffmpeg 가 확장자로 'Binary text' 형식을 골라, `video_size` (`video_tools.py:118` 의 `media.bin`)에 줄바꿈 없는 글 800바이트를 주면 640×80 영상으로 읽힌다 (재현) | **일부 해결** `a5f87e3` (실행기와 꼬리를 `adapters/shared/media/ffmpeg.py` 로 모았다 — `run_ffmpeg`·`tail`. 영상 정보 읽기 두 벌과 임시 파일 이름은 구조 묶음에서) |
+| R-03 | 중간 | ffmpeg 실행기(`_run`)와 로그 꼬리(`_tail`)가 글자까지 같은 두 벌이고, 영상 정보 해석도 두 군데다 | `adapters/generator/ffmpeg.py:308-338`, `adapters/video_tools.py:154-172`; `ffmpeg.py:40-50` `VideoProbe` vs `video_tools.py:115-124` `video_size` | `adapters/shared/media/` 한 곳: 실행·꼬리·정보 읽기·임시 파일. 임시 파일 이름에 `.bin` 을 쓰지 않는다 — ffmpeg 가 확장자로 'Binary text' 형식을 골라, `video_size` (`video_tools.py:118` 의 `media.bin`)에 줄바꿈 없는 글 800바이트를 주면 640×80 영상으로 읽힌다 (재현) | **해결** (`a5f87e3` · `36209a9` · `bde28ff`) — ffmpeg 찾기·실행은 `adapters/shared/media/ffmpeg.py` 한 곳 (`resolve_ffmpeg`·`require_ffmpeg`·`run_ffmpeg`·`run_reading`·`tail`), 영상 정보 읽기는 `shared/media/probe.py` 한 곳 (`video_size`·`probe_video`·`VideoProbe`). 생성기의 정규화와 조립기는 공용 모듈의 오류를 예전과 같은 문구의 생성 오류로 바꿔 올린다. 남은 것: theme-series 의 `adapters/media_tools.py` 실행기를 이것으로 바꾸는 일 (머지 뒤, P-15) |
 | R-04 | 낮음 | 클립 메타데이터의 공통 기록(모델·비용·시간·편집 여부)을 읽는 코드가 두 벌 (#21 이 세 벌째), `_number` 는 세 벌 | `presentation/mappers.py:172-195`, `application/use_cases/plan_revision.py:267-268` | 값 객체 `ClipProduction.from_metadata()` | 새 모듈과 `plan_revision.py` 는 지금, 나머지는 머지 뒤 (P-04) |
 | R-05 | 낮음 | '수정할 수 있는 버전인가' 확인이 두 유스케이스에, 요청 → 명령 변환이 라우터 두 곳에 있다 | `create_revision.py:39-45`·`plan_revision.py:147-153`; `routers/versions.py:136-146`·`:179-197` | `VideoVersion.ensure_revisable()`; 변환은 `mappers` 로 | 앞은 지금, 뒤는 머지 뒤 (P-09) |
 | R-06 | 낮음 | 시계 포트가 없을 때의 대체 구현(`datetime.now(UTC)` 람다)이 유스케이스 두 곳에 있다 | `accept_generation.py:26`, `run_generation_pipeline.py:56` | `Clock` 을 필수 인자로 (컨테이너는 이미 넘긴다) | 지금 |
@@ -1080,7 +1080,10 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 위로, 테마 도메인을 하위 패키지로 (그 세션이 하지 않았을 때) | theme-series | R-03, L-03, K-03 |
 | P-16 | 구조화 프롬프트·보정 규칙을 바꾸는 수정 (프롬프트의 참조 이미지 URI, 빈 문자열 키 보정). 골드셋 리플레이로 점수 변화를 보고 프롬프트 버전을 올린다 | #17 | A-26(b), A-29 |
 
-옛 경로에서 다시 내보내는 호환 import 는 모든 작업 중 브랜치가 dev 에 들어간 뒤 한 번에 걷어낸다 (그때 `git grep` 으로 쓰는 곳이 없는지 확인).
+| P-17 | 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
+| P-18 | 운영: 기동 복구를 요청 처리 뒤로 옮기기·서버 종료 때 디스패처 `shutdown()` (`presentation/app.py`), `pymysql[rsa]` 를 `pyproject.toml` 로 | #10·#11·#12 | O-05, A-07, O-03 |
+
+옛 경로에서 다시 내보내는 호환 import 는 모든 작업 중 브랜치가 dev 에 들어간 뒤 한 번에 걷어낸다 (그때 `git grep` 으로 쓰는 곳이 없는지 확인. P-17).
 
 ### 12.3 결정이 필요한 것
 
