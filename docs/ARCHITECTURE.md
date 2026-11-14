@@ -261,7 +261,12 @@ FRAME/
 │   │   ├── settings.py             #   FRAME_* 환경 변수 → Settings
 │   │   ├── registry.py             #   AdapterRegistry: (포트, 키) → 팩토리
 │   │   └── container.py            #   build_container(settings, overrides)
-│   └── evaluation/edit_metrics.py  # 지표 1 평가 하네스 (20건 수정 실험 집계)
+│   ├── evaluation/                 # 지표 1 평가 하네스 (20건 수정 실험, ADR-0022)
+│   │   ├── edit_metrics.py         #   판정·집계 (대상 요구조건 키, 측정 기준별 보존 결과)
+│   │   ├── edit_cases.py           #   케이스 파일(JSON) 읽기
+│   │   ├── edit_runner.py          #   케이스 실행: 계획 → 수정 → 생성 → 검수 (실행 기록 CaseRun)
+│   │   └── edit_report.py          #   실행 기록의 판정과 결과 파일(JSON) 내용
+│   └── tools/evaluate_edits.py     # 지표 1 평가 CLI (python -m frame.tools.evaluate_edits)
 ├── tests/
 │   ├── support/factories.py        # 공용 컨테이너 팩토리, 예시 프롬프트, cafe_ir()
 │   ├── unit/domain/                # 상태기계 · IR · 전파 · 지표
@@ -389,7 +394,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 
 - 실제 모델·외부 API 테스트는 `slow`/`gpu` 마커로 분리하고 CI 기본 실행에서 제외한다 (`-m "not slow and not gpu"`).
 - Definition of Done 의 "정상·오류 입력 포함 단위/통합 테스트 통과" 는 1~4단계, "모든 AC 충족" 은 5단계 마커 리포트로 확인한다.
-- 지표 1(수정 20건)은 `evaluation/edit_metrics.py` 하네스로 집계하며, 하네스 자체는 Fake 로 단위 테스트한다.
+- 지표 1(수정 20건)은 `python -m frame.tools.evaluate_edits` 로 실행·집계하며(`evaluation/` 하네스, ADR-0022), 하네스 자체는 Fake 로 단위·통합 테스트한다.
 
 ---
 
@@ -408,7 +413,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
 | T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |
 | T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks`, `GET /comparison`, `GET /dashboard` | API 제공 |
-| T12 선택 변경·비대상 보존 평가 | `evaluation/edit_metrics.py` | 제공 |
+| T12 선택 변경·비대상 보존 평가 | `evaluation/*`, `tools/evaluate_edits.py` | 제공 (평가 CLI, 실제 모델 실행은 승인 뒤) |
 | T13 원본 보존·상태·오류 통합 테스트 | `tests/integration`, `tests/api` | 제공 |
 | T14 README·시연 절차 | `README.md` | 제공 |
 
@@ -452,3 +457,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0019](adr/0019-revision-plan-and-change-request.md) | 변경 계획 미리보기 · 글로 쓴 변경 요청의 해석 · 참조 이미지 HTTP 경로 |
 | [0020](adr/0020-production-preview-and-held-parent-url.md) | 생성기의 만들기 전 미리보기(편집·새로 생성, 어림값) · 계획 때 받은 부모 주소를 메모리에 들고 있다가 편집 |
 | [0021](adr/0021-provisional-results.md) | 일시적인 사정으로 낸 임시 결과(`provisional`)는 요청의 키에 남기지 않는다 · 작업 원장의 `released` |
+| [0022](adr/0022-edit-evaluation-cli.md) | 지표 1 평가 CLI: 인프로세스 실행(계획→수정→생성→검수) · 측정 기준(`vlm_keep`·`ssim`)별 비대상 변경률 · 대상 요구조건은 키로 |
