@@ -12,6 +12,8 @@
 
 보수적으로 뽑는다. 단위가 붙지 않은 수는 수량이 아니다: '이 메뉴' 의 '이', '일을 한다' 의 '일', '오늘' 의 '오' 를
 수로 읽지 않는다. 혼자 선 '이' 는 단위 앞에서도 수로 읽지 않는다 ('이 잔' 은 대개 '이 컵' 이라는 뜻이다).
+수에 단위가 붙은 꼴의 흔한 낱말(사원·만일·십분·한시)도 수량이 아니다. 어림수('이삼천 원'·'서너 개')와 전화번호 같은
+숫자열은 값 하나로 읽을 수 없어 뽑지 않는다 (사람이 볼 것으로 남는다).
 자리(start·end)는 NFKC 로 맞춘 글에서의 자리다.
 """
 
@@ -134,6 +136,9 @@ _ALIASES: tuple[tuple[str, str], ...] = tuple(
 )
 # 단위 바로 뒤에 붙을 수 있는 음절 (조사·접미사의 첫 음절). 그 밖의 한글이 이어지면 단위가 아니라 다른 낱말이다
 # ('오 분야', '두 시간표', '세 세트' 의 '세트').
+# 한 글자 수사에 단위가 붙은 꼴이지만 다른 뜻의 낱말인 것. 붙여 쓴 꼴은 수량으로 읽지 않는다
+# ('십 분'·'한 시' 처럼 띄어 쓴 것은 수량이다). '만원'·'천원' 은 값을 말하는 것이 보통이라 넣지 않는다.
+_NOT_QUANTITIES = frozenset({"사원", "구원", "일원", "만일", "십분", "한시", "한번"})
 _FOLLOWERS = frozenset("이가은는을를에의도만과와랑로입인임였예요짜씩쯤간째당대부까밖뿐나여라면서")
 
 
@@ -297,7 +302,10 @@ def _quantity_at(norm: str, lower: str, start: int) -> Quantity | None:
         unit = _unit_at(lower, at)
         if unit is not None:
             name, unit_end = unit
-            return Quantity(value, name, start, unit_end, norm[start:unit_end])
+            raw = norm[start:unit_end]
+            if raw in _NOT_QUANTITIES:
+                return None  # 수가 아니라 낱말이다. 더 짧게 끊어 읽지도 않는다
+            return Quantity(value, name, start, unit_end, raw)
     return None
 
 
@@ -377,7 +385,7 @@ def _scan_mixed(norm: str, start: int) -> list[tuple[int, Decimal]]:
                 break
             total += (group if group else Decimal(1)) * big  # '만 원' 의 '만' 은 1만
             section, pending, last_small, last_big, index = Decimal(0), None, 10_000, big, at + 1
-        elif ch == "점" and found:
+        elif ch in "점쩜" and found:  # '쩜' 은 말할 때의 소수점이다
             fraction_at = at + 2 if at + 1 < len(norm) and norm[at + 1] == " " else at + 1
             digits = ""
             while fraction_at < len(norm) and norm[fraction_at] in _SINO_DIGITS:

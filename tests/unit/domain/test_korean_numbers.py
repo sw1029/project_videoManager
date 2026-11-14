@@ -116,6 +116,34 @@ def test_numbers_without_a_unit_are_not_quantities(text):
     assert quantities(text) == ()
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "신입 사원입니다",
+        "구원 투수가 나왔다",
+        "만일 그렇다면",
+        "십분 활용하세요",
+        "한시도 쉬지 않고",
+    ],
+)
+def test_common_words_that_look_like_a_number_with_a_unit_are_not_quantities(text):
+    """한 글자 수사에 단위가 붙은 꼴의 흔한 낱말 (사원·구원·만일·십분·한시). 띄어 쓴 것만 수량으로 읽는다."""
+    assert quantities(text) == ()
+
+
+def test_the_same_words_written_apart_are_quantities():
+    assert _pairs("십 분 동안 끓이세요") == [(Decimal(10), "분")]
+    assert _pairs("한 시에 만나요") == [(Decimal(1), "시")]
+    assert _pairs("단돈 만원입니다") == [
+        (Decimal(10000), "원")
+    ]  # 붙여 써도 낱말이 아닌 것은 수량이다
+
+
+def test_the_colloquial_decimal_point_is_read_too():
+    assert parse_number("일 쩜 오") == Decimal("1.5")
+    assert _pairs("용량은 일 점 오 리터") == [(Decimal("1.5"), "l")]
+
+
 def test_the_longest_number_before_a_unit_wins_and_days_backtrack():
     assert _pairs("이십 일 동안") == [(Decimal(20), "일")]
     assert _pairs("이십일 일 동안") == [(Decimal(21), "일")]

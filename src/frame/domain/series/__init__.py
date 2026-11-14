@@ -22,10 +22,14 @@
 - record              편의 기록: 기준 버전 · 만들고 있는 수정 버전 · 녹음 결과 · 완성본
 - narration           녹음 붙이기: 받아 적은 말과 대본 맞추기 · 장면에 놓기
 - screen_correction/  화면 국소 수정: 어긋난 곳의 종류 · 찾기 · 고치는 걸음
+- script_evidence     대본을 테마의 근거로: 화면에서 읽은 것과 말을 견준 근거 · 어긋남 · 내레이션 규칙 (ADR-0028)
+- script_correction   뽑은 대본의 줄을 고친 뒤, 그 줄에 걸린 것만 다시 맞춘다 (ADR-0029)
+- script_revision     편의 녹음 대본만 고친다: 줄과 그 줄을 따르는 자막 (ADR-0029)
 
 이 패키지 밖의 일반 타입
 - domain/media.py   MediaInfo: 영상의 겉모습
 - domain/speech.py  Transcript · SpeechSegment · Word: 받아 적은 말소리 (음성 인식의 결과)
+- domain/script/    SpokenScript · SpokenLine: 받아쓰기를 줄 단위로 다듬은 대본, 한국어 수량 (ADR-0028)
 - domain/screen.py  Region · TextRole: 화면 좌표와 문구의 구실
 """
 
