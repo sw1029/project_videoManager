@@ -23,6 +23,10 @@ def _copy(document: dict[str, Any]) -> dict[str, Any]:
 class InMemoryThemeRepository(ThemeRepository):
     def __init__(self) -> None:
         self._documents: dict[str, dict[str, Any]] = {}
+        self._locks = KeyedLocks(reentrant=True)
+
+    def lock(self, key: str) -> AbstractContextManager[None]:
+        return self._locks.hold(key)
 
     def save(self, record: ThemeRecord) -> None:
         self._documents[check_document_id(record.theme.theme_id)] = _copy(record.to_dict())

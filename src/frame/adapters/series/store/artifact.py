@@ -131,6 +131,10 @@ class _Documents:
 class ArtifactThemeRepository(ThemeRepository):
     def __init__(self, store: ArtifactStore) -> None:
         self._documents = _Documents(store, "themes", "theme")
+        self._locks = KeyedLocks(reentrant=True)
+
+    def lock(self, key: str) -> AbstractContextManager[None]:
+        return self._locks.hold(key)
 
     def save(self, record: ThemeRecord) -> None:
         self._documents.save(record.theme.theme_id, record.to_dict())

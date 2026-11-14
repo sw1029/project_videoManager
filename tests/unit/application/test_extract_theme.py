@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from dataclasses import replace
 
 import pytest
@@ -437,6 +438,76 @@ def test_same_video_is_not_extracted_twice():
     assert again.reused is True and again.record == first.record and again.verdict.within
     assert len(recognizer.calls) == 1 and len(extractor.requests) == 1
     assert len(series.themes.list()) == 1
+
+
+# ---- 같은 영상의 추출이 겹치면 (감사 BTS-12 의 남은 것) ----
+WAIT = 5.0  # 테스트가 멈춰 버리지 않게 하는 안전 상한
+SETTLE = 0.2  # 뒤에 온 요청이 추출기에 닿을 만한 시간. 기다리게 했다면 이 시간이 지나도 닿지 않는다
+
+
+def test_the_same_video_sent_twice_at_once_is_extracted_once():
+    """뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 그 테마를 돌려받는다.
+
+    전에는 둘 다 '뽑은 적이 없다' 고 보고 둘 다 추출했다: 두 번 과금하고 테마가 둘 생겼다.
+    """
+    first_inside, second_inside, leave = threading.Event(), threading.Event(), threading.Event()
+
+    class _Slow(FakeThemeExtractor):
+        def extract(self, request):
+            extraction = super().extract(request)
+            (first_inside if len(self.requests) == 1 else second_inside).set()
+            leave.wait(WAIT)
+            return extraction
+
+    extractor = _Slow()
+    series = series_of(series_container(theme_extractor=extractor))
+    results: list = []
+    threads = [
+        threading.Thread(target=lambda: results.append(series.extract_theme.execute(_command())))
+        for _ in range(2)
+    ]
+    threads[0].start()
+    assert first_inside.wait(WAIT)
+    threads[1].start()
+    second_inside.wait(SETTLE)
+    leave.set()
+    for thread in threads:
+        thread.join(WAIT)
+
+    assert len(extractor.requests) == 1 and len(series.themes.list()) == 1
+    assert sorted(result.reused for result in results) == [False, True]
+    assert results[0].record == results[1].record
+
+
+def test_extraction_of_another_video_is_not_kept_waiting():
+    """기다리는 것은 같은 영상의 요청뿐이다."""
+    inside, leave = threading.Event(), threading.Event()
+
+    class _SlowOnTheFirst(FakeThemeExtractor):
+        def extract(self, request):
+            extraction = super().extract(request)
+            if len(self.requests) == 1:
+                inside.set()
+                leave.wait(WAIT)
+            return extraction
+
+    extractor = _SlowOnTheFirst()
+    series = series_of(series_container(theme_extractor=extractor))
+    other = fake_video(transcript=SAID, duration_ms=20000)
+    held = threading.Thread(target=lambda: series.extract_theme.execute(_command()))
+    free = threading.Thread(target=lambda: series.extract_theme.execute(_command(other)))
+    held.start()
+    try:
+        assert inside.wait(WAIT)
+        free.start()
+        free.join(WAIT / 2)
+        assert not free.is_alive()  # 앞선 추출이 아직 안에 있는데도 끝났다
+    finally:
+        leave.set()
+        held.join(WAIT)
+        free.join(WAIT)
+
+    assert len(extractor.requests) == 2 and len(series.themes.list()) == 2
 
 
 def test_forced_or_differently_configured_extraction_runs_again():
