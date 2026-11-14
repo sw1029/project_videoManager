@@ -94,6 +94,10 @@ API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바�
   `changed_scene_count`, 상태별 개수·최신 버전을 한 번에 준다.
 - **입력 예시**: `/health` 의 `structuring_input` 이 `dsl` 이면 DSL 예시를, `natural_language` 이면 자연어 예시를 보여준다.
 - **장면 수준 조건 수정**: `POST /revisions` 에서 `entity_key` 를 생략하면 장소·조명·분위기 같은 장면 조건을 바꾼다.
+- **블록 입력 (IR 직접 입력)**: `POST /api/projects` 에 `prompt` 대신 `ir`(GET 의 `ir` 과 같은 모양)을 보내면 LLM 없이 보정·검증만 거쳐
+  바로 DRAFT 가 된다 (201, `repair_notes` 에 서버가 고친 것). 객체의 화면 라벨은 `display_name` 에 둔다 (생성 조건이 아니다).
+- **구조화 결과 수정**: DRAFT 에서 `PUT /api/versions/{id}/ir` 로 고친 IR 을 보내면 보정·검증 뒤 저장하고 고친 버전과
+  `repair_notes` 를 돌려준다. 생성이 접수된 뒤에는 409 `VERSION_NOT_EDITABLE` ([ADR-0022](docs/adr/0022-direct-ir-input-draft-edit-and-display-name.md)).
 
 화면 개발용 백엔드 실행 예시 (데이터 유지 + 비동기 실행 + 영상 Range 지원):
 

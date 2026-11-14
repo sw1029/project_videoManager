@@ -136,7 +136,8 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-  [*] --> STRUCTURING : POST /projects
+  [*] --> STRUCTURING : POST /projects {prompt}
+  [*] --> DRAFT : POST /projects {ir} (블록 IR 직접 입력, ADR-0022)
   STRUCTURING --> DRAFT : 구조화 성공 (IR 저장)
   STRUCTURING --> FAILED : 구조화 실패
   DRAFT --> QUEUED : POST /generations (조건부 갱신 + 조건 고정)
@@ -358,11 +359,12 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 
 | Method | Endpoint | 유스케이스 | 성공 | 거부 |
 |---|---|---|---|---|
-| POST | `/api/projects` | `CreateProject` | 202 `{project_id, version_id, STRUCTURING}` | 422 |
+| POST | `/api/projects` | `CreateProject` | 202 `{project_id, version_id, STRUCTURING}` (글) · 201 `{…, DRAFT, repair_notes}` (`ir` 직접 입력, 보정·검증만, ADR-0022) | 422 / 429 |
 | GET | `/api/projects/{project_id}` | `ProjectQueries.get_project` | 200 버전 목록 | 404 |
 | GET | `/api/versions/{version_id}` | `get_version` | 200 IR·상태·`video_url`/`clip_url`·미디어 형식 (FAILED 면 `error_code`/`error_message`) | 404 |
 | GET | `/api/versions/{version_id}/video` | `get_video_uri` | 200 결과 영상 (파일 저장소는 Range 206) | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
 | GET | `/api/versions/{version_id}/scenes/{scene_key}/clip` | `get_clip_uri` | 200 장면 클립 | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
+| PUT | `/api/versions/{version_id}/ir` | `EditDraftIr` | 200 고친 뒤의 버전 + `repair_notes` (DRAFT 의 구조화 결과 수정: 보정 → 검증 → 조건부 저장, ADR-0022) | 404 / 409 `VERSION_NOT_EDITABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/revisions` | `CreateRevision` | 201 `{version_id, parent_version_id, DRAFT, changed_scene_keys}`. `entity_key` 생략 시 장면 수준 조건 | 404 / 409 `VERSION_NOT_REVISABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
@@ -452,3 +454,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0019](adr/0019-revision-plan-and-change-request.md) | 변경 계획 미리보기 · 글로 쓴 변경 요청의 해석 · 참조 이미지 HTTP 경로 |
 | [0020](adr/0020-production-preview-and-held-parent-url.md) | 생성기의 만들기 전 미리보기(편집·새로 생성, 어림값) · 계획 때 받은 부모 주소를 메모리에 들고 있다가 편집 |
 | [0021](adr/0021-provisional-results.md) | 일시적인 사정으로 낸 임시 결과(`provisional`)는 요청의 키에 남기지 않는다 · 작업 원장의 `released` |
+| [0022](adr/0022-direct-ir-input-draft-edit-and-display-name.md) | IR 직접 입력(블록, 바로 DRAFT) · DRAFT IR 수정(조건부 저장, 보정 메모) · 객체의 표시 이름 `display_name`(생성 조건 아님) |
