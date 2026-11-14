@@ -316,6 +316,28 @@ def test_setup_copies_a_key_file_without_printing_it(tmp_path, capsys):
     assert KEY not in out.out + out.err
 
 
+@pytest.mark.parametrize("bundled", [False, True], ids=["repository", "bundle"])
+def test_storing_a_key_says_it_stays_in_the_folder_and_travels_with_it(tmp_path, capsys, bundled):
+    # 키는 폴더 안에 평문으로 남는다. 준비해 둔 폴더를 USB·드라이브로 넘기면 키가 따라간다
+    if bundled:
+        _make_bundle(tmp_path)
+    source = tmp_path / "key.txt"
+    source.write_text(KEY, encoding="utf-8")
+    assert demo._store_key(tmp_path, key_file=str(source), no_key=False) == 0
+    out = capsys.readouterr().out
+    assert "넘기기 전에" in out and ".demo 폴더를 지우세요" in out
+    assert ("git" in out) is not bundled  # 번들에는 git 이 없다
+
+
+def test_doctor_reminds_that_a_stored_key_travels_with_the_folder(tmp_path, capsys):
+    demo._report_key_and_port(tmp_path)
+    assert "넘기기 전에" not in capsys.readouterr().out  # 저장한 키가 없으면 말하지 않는다
+    demo.save_key(tmp_path / ".demo", KEY)
+    demo._report_key_and_port(tmp_path)
+    out = capsys.readouterr().out
+    assert ".demo/openai.key 있음" in out and "넘기기 전에" in out
+
+
 def test_setup_rejects_a_key_file_without_a_key(tmp_path, capsys):
     source = tmp_path / "key.txt"
     source.write_text("nothing here", encoding="utf-8")

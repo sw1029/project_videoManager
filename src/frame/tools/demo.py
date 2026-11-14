@@ -51,6 +51,11 @@ LOOPBACK = "127.0.0.1"
 DEMO_DIR = ".demo"
 KEY_FILE_NAME = "openai.key"
 BUNDLE_MARKER = "frame-bundle.json"  # OS별 번들(Python·화면 동봉)의 루트에 있는 표식 파일
+# 저장한 키는 폴더 안에 평문으로 남는다. 준비해 둔 폴더를 USB·드라이브로 넘기면 키가 따라간다
+KEY_STAYS_IN_FOLDER = (
+    "저장한 키는 암호화되지 않은 채 이 폴더 안에 있습니다. "
+    "폴더를 복사하거나 다른 사람에게 넘기기 전에 .demo 폴더를 지우세요"
+)
 _KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]{17,400}")
 
 INSTALL_HINTS = {
@@ -561,7 +566,7 @@ def _ready_to_run(root: Path) -> str | None:
 
 def _report_key_and_port(root: Path) -> None:
     if key_file_path(root).is_file():
-        _say("OpenAI 키: .demo/openai.key 있음")
+        _say(f"OpenAI 키: .demo/openai.key 있음. {KEY_STAYS_IN_FOLDER}")
     elif os.environ.get("OPENAI_API_KEY"):
         _say("OpenAI 키: OPENAI_API_KEY 환경 변수 있음")
     else:
@@ -696,7 +701,7 @@ def _store_key(root: Path, *, key_file: str | None, no_key: bool) -> int:
         if key is None:
             return _fail(f"키 파일에서 sk- 로 시작하는 키를 찾지 못했습니다: {source}")
         save_key(demo, key)
-        _say("OpenAI 키를 .demo/openai.key 에 저장했습니다 (git 에서 제외됨)")
+        _say_key_saved(root)
         return 0
     if key_file_path(root).is_file():
         _say("기존 .demo/openai.key 를 그대로 씁니다")
@@ -717,8 +722,14 @@ def _store_key(root: Path, *, key_file: str | None, no_key: bool) -> int:
     if key is None:
         return _fail("sk- 로 시작하는 키가 아닙니다. setup 을 다시 실행하거나 화면에서 입력하세요")
     save_key(demo, key)
-    _say("OpenAI 키를 .demo/openai.key 에 저장했습니다 (git 에서 제외됨)")
+    _say_key_saved(root)
     return 0
+
+
+def _say_key_saved(root: Path) -> None:
+    excluded = "" if is_bundle(root) else " (git 에서 제외됨)"
+    _say(f"OpenAI 키를 .demo/openai.key 에 저장했습니다{excluded}")
+    _say(KEY_STAYS_IN_FOLDER)
 
 
 def cmd_run(

@@ -133,6 +133,8 @@ python scripts/frame_demo.py smoke       # Windows: py -3 scripts\frame_demo.py 
 3. **환경 변수**: 실행 전에 `OPENAI_API_KEY` 를 설정한다.
 
 화면과 API 응답에는 키의 끝 4자리(`sk-...abcd`)만 보인다. 공용 컴퓨터라면 시연 후 `.demo/openai.key` 를 지운다.
+저장한 키는 폴더 안에 암호화되지 않은 채 있다. 준비해 둔 폴더(번들 포함)를 복사하거나 USB·드라이브로 넘기기 전에
+`.demo` 폴더를 지운다 — 지우지 않으면 키가 함께 넘어간다 (`setup`·`doctor` 가 같은 안내를 낸다).
 키를 코드·커밋·화면 소스·이슈에 붙여 넣지 않는다.
 
 ## 6. 시연 순서 (권장)

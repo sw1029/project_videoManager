@@ -387,6 +387,7 @@ def write_readme(root: Path, target: Target) -> None:
         "2. OpenAI 키: 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣습니다.",
         "   키는 브라우저에 저장하지 않고 서버 메모리에만 두며, 다시 시작하면 다시 넣어야 합니다.",
         f"   키를 저장해 두려면 {setup} 를 실행합니다 → {key_path}",
+        f"   {launcher.KEY_STAYS_IN_FOLDER}.",
         f"3. 키·인터넷 없이 시연: {run} --offline   (DSL 프리셋)",
         "",
         *first_run,

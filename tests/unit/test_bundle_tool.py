@@ -153,6 +153,14 @@ def test_readme_matches_the_os(tmp_path):
     assert "sh run.sh" in linux and "xattr" not in linux
 
 
+@pytest.mark.parametrize("target", [WINDOWS, MAC_ARM, LINUX], ids=["windows", "macos", "linux"])
+def test_readme_warns_that_a_stored_key_travels_with_the_folder(tmp_path, target):
+    # setup 으로 저장한 키는 번들 폴더 안(.demo)에 평문으로 남는다 - 폴더를 넘기면 키가 따라간다
+    bundle.write_readme(tmp_path, target)
+    readme = (tmp_path / "README.txt").read_text(encoding="utf-8")
+    assert demo.KEY_STAYS_IN_FOLDER in readme
+
+
 def test_readme_line_endings_do_not_depend_on_the_os_that_builds_the_bundle(tmp_path):
     # 텍스트 모드로 쓰면 Windows 에서 "\r\n" 이 "\r\r\n" 이 되고 (메모장에 빈 줄이 낀다),
     # POSIX 번들의 안내문에는 "\r" 이 낀다. 읽을 때 줄바꿈을 풀어 주는 read_text 로는 보이지 않는다
