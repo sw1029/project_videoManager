@@ -264,7 +264,8 @@ FRAME/
 │   ├── evaluation/                 # 지표 1 평가 하네스 (20건 수정 실험, ADR-0022)
 │   │   ├── edit_metrics.py         #   판정·집계 (대상 요구조건 키, 측정 기준별 보존 결과)
 │   │   ├── edit_cases.py           #   케이스 파일(JSON) 읽기
-│   │   └── edit_runner.py          #   계획 → 수정 → 생성 → 검수 실행과 결과 보고서
+│   │   ├── edit_runner.py          #   케이스 실행: 계획 → 수정 → 생성 → 검수 (실행 기록 CaseRun)
+│   │   └── edit_report.py          #   실행 기록의 판정과 결과 파일(JSON) 내용
 │   └── tools/evaluate_edits.py     # 지표 1 평가 CLI (python -m frame.tools.evaluate_edits)
 ├── tests/
 │   ├── support/factories.py        # 공용 컨테이너 팩토리, 예시 프롬프트, cafe_ir()

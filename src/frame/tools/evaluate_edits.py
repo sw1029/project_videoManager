@@ -34,7 +34,8 @@ from frame.application.errors import AdapterError, ConfigurationError
 from frame.config import Container, Settings, build_container
 from frame.evaluation.edit_cases import CaseFileError, load_cases
 from frame.evaluation.edit_metrics import PRESERVATION_BASES
-from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, build_report, judge, run_case
+from frame.evaluation.edit_report import build_report, judge
+from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, run_case
 
 # 측정 기준(detail.method)을 내는 보존 검수기 (FRAME_CHECKERS 의 키)
 _BASIS_CHECKERS = {"vlm_keep": "vlm_preservation", "ssim": "ssim_preservation"}
