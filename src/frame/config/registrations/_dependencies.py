@@ -1,6 +1,7 @@
 """팩토리들이 함께 기대는 것: 먼저 만들어진 객체, ffmpeg 경로, 글·이미지를 읽는 LLM 클라이언트.
 
 팩토리는 조립 맥락(BuildContext) 하나만 받는다. 거기서 필요한 것을 꺼내는 방법을 포트 모듈마다 다시 쓰지 않게 모았다.
+구현이 아직 없는 뼈대 어댑터를 거절하는 팩토리(skeleton)도 여기에 있다.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from frame.application.errors import ConfigurationError
 from frame.application.ports import ArtifactStore, JobHandlerRegistry
 from frame.application.ports.llm import LLMClient
 
-from ..registry import AdapterRegistry, BuildContext
+from ..registry import AdapterRegistry, BuildContext, Factory
 
 
 def artifact_store(ctx: BuildContext) -> ArtifactStore:
@@ -32,6 +33,22 @@ def job_handlers(ctx: BuildContext) -> JobHandlerRegistry:
 def ffmpeg_path(ctx: BuildContext) -> str:
     """ffmpeg 실행 파일. 찾지 못하면 ConfigurationError 라서, 이것을 쓰는 어댑터는 기동 시점에 실패한다."""
     return resolve_ffmpeg(ctx.settings.video_ffmpeg)
+
+
+def skeleton(setting: str, key: str, *, working: str) -> Factory:
+    """구현이 아직 없는 뼈대 어댑터의 자리. 고르면 조립할 때 ConfigurationError 로 거절한다 (서버가 뜨지 않는다).
+
+    뼈대 어댑터는 부르면 언제나 실패한다. 조립에서 거절하지 않으면 유료 생성이 끝난 뒤의 단계에서야 실패한다.
+    setting 은 설정 변수 이름, working 은 지금 쓸 수 있는 값이다.
+    """
+
+    def refuse(ctx: BuildContext) -> None:
+        raise ConfigurationError(
+            f"{setting}={key} 는 아직 구현되지 않은 뼈대 어댑터라서 쓸 수 없습니다. "
+            f"지금 쓸 수 있는 값: {working}"
+        )
+
+    return refuse
 
 
 def llm_client(registry: AdapterRegistry, ctx: BuildContext) -> LLMClient:

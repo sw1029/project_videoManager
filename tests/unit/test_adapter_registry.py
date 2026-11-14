@@ -26,7 +26,13 @@ from frame.application.ports import (
 )
 from frame.application.ports.change_request import ChangeRequestInterpreter
 from frame.application.ports.llm import LLMClient
-from frame.config import AdapterRegistry, BuildContext, Settings, default_registry
+from frame.config import (
+    AdapterRegistry,
+    BuildContext,
+    Settings,
+    build_container,
+    default_registry,
+)
 
 # 포트 -> 설정에 쓸 수 있는 키 (FRAME_GENERATOR=external_api 의 external_api). 어댑터를 더하면 이 표에도 올린다
 DEFAULT_KEYS: dict[type, list[str]] = {
@@ -55,11 +61,14 @@ DEFAULT_KEYS: dict[type, list[str]] = {
 # (openai: tests/unit/test_settings.py, external_api: tests/unit/generator/test_openrouter_config.py)
 NEEDS_THE_OUTSIDE = {(LLMClient, "openai"), (VideoGenerator, "external_api")}
 
+# 자리(설정 키)는 있지만 구현이 아직 없는 뼈대 어댑터. 고르면 서버가 뜨지 않는다 (감사 A-31)
+SKELETONS = [(VideoGenerator, "diffusers"), (ObjectTracker, "opencv")]
+
 BUILDABLE_OFFLINE = [
     (port, key)
     for port, keys in DEFAULT_KEYS.items()
     for key in keys
-    if (port, key) not in NEEDS_THE_OUTSIDE
+    if (port, key) not in NEEDS_THE_OUTSIDE and (port, key) not in SKELETONS
 ]
 
 
@@ -103,6 +112,31 @@ def test_every_default_adapter_can_be_built(port, key, context):
         assert isinstance(built, port)
     if hasattr(built, "shutdown"):
         built.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("port", "key"), SKELETONS, ids=lambda value: getattr(value, "__name__", value)
+)
+def test_a_skeleton_adapter_is_refused_when_it_is_built(port, key, context):
+    """뼈대 어댑터는 부르면 언제나 실패한다. 조립할 때 거절하지 않으면 유료 생성이 끝난 뒤에야 실패한다."""
+    with pytest.raises(ConfigurationError, match="뼈대") as raised:
+        default_registry().build(port, key, context)
+
+    assert key in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("settings", "variable"),
+    [
+        (Settings(tracker="opencv"), "FRAME_TRACKER"),
+        (Settings(generator="diffusers"), "FRAME_GENERATOR"),
+    ],
+    ids=["tracker", "generator"],
+)
+def test_choosing_a_skeleton_adapter_stops_the_server_from_starting(settings, variable):
+    """다른 어댑터와 같은 원칙이다: 쓸 수 없는 구성은 요청을 받기 전에, 기동할 때 실패한다."""
+    with pytest.raises(ConfigurationError, match=variable):
+        build_container(settings)
 
 
 def test_an_unknown_key_names_the_port_and_the_available_keys(context):

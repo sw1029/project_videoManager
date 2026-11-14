@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
-from frame.adapters.generator import (
-    DiffusersVideoGenerator,
-    FakeVideoGenerator,
-    OpenRouterVideoGenerator,
-)
+from frame.adapters.generator import FakeVideoGenerator, OpenRouterVideoGenerator
 from frame.adapters.generator.ffmpeg import FfmpegVideoNormalizer
 from frame.adapters.generator.openrouter import resolve_openrouter_key
 from frame.application.ports import VideoGenerator
 
 from ..registry import AdapterRegistry, BuildContext
-from ._dependencies import artifact_store, ffmpeg_path
+from ._dependencies import artifact_store, ffmpeg_path, skeleton
 
 
 def register(registry: AdapterRegistry) -> None:
     registry.register(VideoGenerator, "fake", lambda ctx: FakeVideoGenerator(artifact_store(ctx)))
-    registry.register(VideoGenerator, "diffusers", lambda ctx: DiffusersVideoGenerator())
+    # 로컬 추론(DiffusersVideoGenerator)은 뼈대뿐이다. 구현하면 여기서 그 클래스를 만든다
+    registry.register(
+        VideoGenerator,
+        "diffusers",
+        skeleton("FRAME_GENERATOR", "diffusers", working="fake · external_api"),
+    )
     registry.register(VideoGenerator, "external_api", _openrouter)
 
 
