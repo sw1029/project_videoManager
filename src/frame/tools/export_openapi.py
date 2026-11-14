@@ -71,9 +71,16 @@ def contract_signature(spec: dict[str, Any]) -> set[str]:
             signature.add(head)
             for param in op.get("parameters", []):
                 signature.add(f"{head} param:{param['name']}")
-            body = op.get("requestBody", {}).get("content", {}).get("application/json", {})
-            if "schema" in body:
-                signature |= {f"{head} body:{f}" for f in _fields(body["schema"], components, "")}
+            content = op.get("requestBody", {}).get("content", {})
+            for media_type in (
+                "application/json",
+                "multipart/form-data",
+            ):  # 업로드는 multipart (#12)
+                body = content.get(media_type, {})
+                if "schema" in body:
+                    signature |= {
+                        f"{head} body:{f}" for f in _fields(body["schema"], components, "")
+                    }
             for status, response in op.get("responses", {}).items():
                 signature.add(f"{head} -> {status}")
                 content = response.get("content", {}).get("application/json", {})
