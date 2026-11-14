@@ -10,7 +10,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from frame.adapters.media_tools import MediaToolError, detect_cuts, probe_media
+from frame.adapters.shared.media.media_tools import MediaToolError, detect_cuts, probe_media
 from frame.adapters.video_tools import require_ffmpeg
 from frame.application.ports.series.source_analysis import (
     MediaProber,

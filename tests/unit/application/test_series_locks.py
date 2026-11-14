@@ -11,9 +11,9 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.fake_media import fake_recording
 from frame.adapters.series.planning import TemplateSeriesPlanner
 from frame.adapters.series.store import InMemoryEpisodeRepository, InMemoryThemeRepository
+from frame.adapters.shared.media.fake_media import fake_recording
 from frame.application.ports.series.repositories import theme_lock_key
 from frame.application.use_cases.series import (
     AdoptAnchorsCommand,

@@ -9,9 +9,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from frame.adapters.fake_media import fake_video
 from frame.adapters.series.source_analysis import FakeMediaProber, FakeShotDetector
 from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber, FfmpegShotDetector
+from frame.adapters.shared.media.fake_media import fake_video
 from frame.application.ports.series.source_analysis import (
     MediaProber,
     ShotDetector,
@@ -114,8 +114,8 @@ def test_motion_jpeg_is_not_in_the_list_of_accepted_codecs():
 
     MJPEG 는 영상 정보를 읽는 쪽이 '그림 한 장'(음악 파일의 표지)으로 본다. 목록에 있어도 거기까지 가지 못했다.
     """
-    from frame.adapters.media_tools import _STILL_CODECS
     from frame.adapters.series.source_analysis.ffmpeg import VIDEO_CODECS
+    from frame.adapters.shared.media.media_tools import _STILL_CODECS
 
     assert "mjpeg" not in VIDEO_CODECS and not (VIDEO_CODECS & _STILL_CODECS)
 

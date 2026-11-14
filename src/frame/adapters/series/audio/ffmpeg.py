@@ -13,7 +13,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from frame.adapters.media_tools import (
+from frame.adapters.shared.media.media_tools import (
     MediaToolError,
     detect_silences,
     probe_media,

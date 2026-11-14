@@ -6,7 +6,7 @@
 밖에서 쓰는 이름: FakeAudioEditor. ffmpeg 구현은 조립이 고를 때 import 한다.
 
 모듈 지도
-- fake    FakeAudioEditor: 가짜 영상·녹음(adapters/fake_media.py)에 적힌 말소리를 잘라 옮긴다
+- fake    FakeAudioEditor: 가짜 영상·녹음(adapters/shared/media/fake_media.py)에 적힌 말소리를 잘라 옮긴다
 - ffmpeg  FfmpegAudioEditor: 무음 구간을 채워 장면 길이에 맞춘 트랙을 만들고 영상에 붙인다
 """
 

@@ -5,7 +5,7 @@
 밖에서 쓰는 이름: FakeSpeechRecognizer. 실제 구현은 조립이 고를 때 import 한다.
 
 모듈 지도
-- fake     FakeSpeechRecognizer: 가짜 음성(adapters/fake_media.py)에 적힌 말소리를 그대로 돌려준다
+- fake     FakeSpeechRecognizer: 가짜 음성(adapters/shared/media/fake_media.py)에 적힌 말소리를 그대로 돌려준다
 - openai   OpenAISpeechRecognizer: OpenAI 호환 /audio/transcriptions. 키는 Authorization 헤더에만 싣는다
 - faster_whisper  FasterWhisperRecognizer: 이 컴퓨터에서 받아 적는다 (과금 없음, 말 구간 검출 포함. 선택 설치)
 - caching  CachingSpeechRecognizer: 같은 소리·같은 설정이면 다시 부르지 않는다 (과금은 한 번)

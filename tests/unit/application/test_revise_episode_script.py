@@ -6,8 +6,8 @@ from dataclasses import replace
 
 import pytest
 
-from frame.adapters.fake_media import fake_recording
 from frame.adapters.generator import FakeVideoGenerator
+from frame.adapters.shared.media.fake_media import fake_recording
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.use_cases.series import (

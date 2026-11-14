@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frame.adapters.fake_media import decode_fake_media
+from frame.adapters.shared.media.fake_media import decode_fake_media
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
 from frame.domain.speech import Transcript
 
