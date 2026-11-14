@@ -13,7 +13,8 @@
                   오류: FfmpegNotRun (실행하지 못했거나 시간 안에 끝나지 않음), VideoToolError (영상을 읽지 못함)
     frames        프레임 뽑기: FrameSampler (같은 클립의 같은 프레임을 다시 뽑지 않는다 - 어댑터는 이것을 쓴다),
                   midpoints (표본 시각), extract_frame, 정규화 좌표의 사각형 Box, 뽑은 이미지 Image
-    probe         영상 정보: video_size (가로, 세로), probe_video (코덱 · 크기 · fps · 프레임 수 · 길이)
+    probe         영상 정보: video_size (가로, 세로), probe_video (코덱 · 크기 · fps · 프레임 수 · 길이),
+                  read_video_packets (프레임 세기 - 패킷 목록의 줄 수. ffmpeg 의 진행 줄에 기대지 않는다)
     similarity    두 영상의 구조 유사도: ssim
     media_tools   시리즈·음성 어댑터가 쓰는 읽기 (ADR-0025·0027): probe_media (영상·소리 스트림의 겉모습),
                   detect_cuts (컷의 시각), detect_silences (무음 구간), region_ssim (화면 한 영역 안팎의 유사도).

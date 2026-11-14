@@ -23,6 +23,7 @@ from frame.application.errors import AdapterError
 
 from . import ffmpeg as _runner
 from .ffmpeg import tail
+from .probe import read_video_packets
 
 _DURATION = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_LINE = re.compile(r"Stream #\d+:\d+.*?: Video: (\w+).*")
@@ -30,7 +31,6 @@ _AUDIO_LINE = re.compile(r"Stream #\d+:\d+.*?: Audio: (\w+).*")
 _SIZE = re.compile(r", (\d{2,5})x(\d{2,5})")
 _FPS = re.compile(r"(\d+(?:\.\d+)?) (?:fps|tbr)")
 _SAMPLE_RATE = re.compile(r"(\d+) Hz")
-_FRAMES = re.compile(r"frame=\s*(\d+)")
 _PTS_TIME = re.compile(r"Parsed_showinfo.*?pts_time:\s*([0-9.]+)")
 _SILENCE_START = re.compile(r"silence_start:\s*(-?[0-9.]+)")
 _SILENCE_END = re.compile(r"silence_end:\s*([0-9.]+)")
@@ -90,11 +90,8 @@ def probe_media(ffmpeg: str, path: str | Path, timeout_s: float = 120.0) -> Medi
         return probe
     line = video.group(0)
     size, fps = _SIZE.search(line), _FPS.search(line)
-    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path)]
-    cmd += ["-map", "0:v:0", "-c", "copy", "-f", "null", "-"]
-    code, log = run_ffmpeg(cmd, timeout_s)
-    counted = _FRAMES.findall(log)
-    frames = int(counted[-1]) if code == 0 and counted else None
+    # 프레임은 패킷 목록의 줄로 센다. 진행 줄의 frame= 은 ffmpeg 의 판마다 달라 쓰지 않는다 (.probe 의 설명)
+    _, _, frames = read_video_packets(ffmpeg, path, timeout_s, run=run_ffmpeg)
     rate = float(fps.group(1)) if fps else None
     exact = round(frames * 1000 / rate) if frames and rate else duration
     return MediaProbe(
