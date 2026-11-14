@@ -30,7 +30,7 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from frame.adapters.video_tools import extract_frame, require_ffmpeg
 from frame.adapters.vlm_answers import match_answers
@@ -92,6 +92,14 @@ RESPONSE_SCHEMA: dict[str, Any] = {
         }
     },
 }
+
+
+class _Subject(TypedDict):
+    """검수 결과가 가리키는 대상. CheckOutcome 의 같은 이름 인자로 넘긴다."""
+
+    requirement_key: str
+    entity_key: str | None
+    scene_key: str
 
 
 @dataclass(frozen=True)
@@ -268,7 +276,7 @@ class VlmRequirementChecker(Checker):
         }
         if rule == RULE_SHARE:
             detail["threshold"] = self.threshold
-        fields = {
+        fields: _Subject = {
             "requirement_key": requirement.key,
             "entity_key": requirement.entity_key,
             "scene_key": scene.scene_key,

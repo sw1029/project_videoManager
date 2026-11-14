@@ -95,4 +95,36 @@ exclude = ["src/frame/presentation/app.py", "src/frame/presentation/schemas.py"]
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
+files = ["src"]
 strict = false
+warn_unused_configs = true  # 아래 예외가 더는 맞는 모듈이 없으면 알려 준다
+
+# 도메인은 strict 와 같은 수준으로 검사한다 (켤 때 0건). 다른 패키지는 strict 기준선(2026-11: 42건)을 줄인 뒤 여기에 더한다 (ADR-0030)
+[[tool.mypy.overrides]]
+module = ["frame.domain.*"]
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
+# 형 정보가 없는 외부 패키지
+[[tool.mypy.overrides]]
+module = ["imageio_ffmpeg"]
+ignore_missing_imports = true
+
+# 기준선: 다른 브랜치가 고치고 있는 파일의 오류 3건. 그 브랜치가 dev 에 들어온 뒤 고치고 이 두 항목을 지운다. 더하지 않는다
+[[tool.mypy.overrides]]
+module = ["frame.config.container"]
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = ["frame.adapters.persistence.sqlalchemy.repositories"]
+disable_error_code = ["attr-defined"]

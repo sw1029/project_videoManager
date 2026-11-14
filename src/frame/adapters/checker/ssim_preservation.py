@@ -62,7 +62,7 @@ class SsimPreservationChecker(Checker):
             log.warning("보존 검수 미판정 (장면 %s): %s: %s", key, exc.code, exc)
             return self._undetermined(key, f"{exc.code}: {exc}")
         passed = score >= self.threshold
-        warnings = ()
+        warnings: tuple[WarningInterval, ...] = ()
         if not passed:
             warnings = (
                 WarningInterval(

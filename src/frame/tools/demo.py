@@ -251,8 +251,11 @@ def _hint(tool: str) -> str:
 def _utf8_output() -> None:
     """Windows 에서 출력이 파이프로 갈 때(CI·Git Bash 등) 한글 때문에 실패하지 않게 UTF-8 로 맞춘다."""
     for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)  # 바꿔 끼운 스트림에는 없을 수 있다
+        if reconfigure is None:
+            continue
         with contextlib.suppress(AttributeError, ValueError, OSError):
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            reconfigure(encoding="utf-8", errors="replace")
 
 
 def _run(command: Sequence[str], cwd: Path) -> int:
@@ -524,7 +527,7 @@ def cmd_doctor(root: Path) -> int:
         )
         return 0 if problem is None else 1
     version = pyplatform.python_version()
-    python_ok = python_supported(sys.version_info)
+    python_ok = python_supported(sys.version_info[:2])
     _say(
         f"Python {version}: {'사용 가능' if python_ok else '3.11 이상 필요. 설치: ' + _hint('python')}"
     )
@@ -755,7 +758,7 @@ def _smoke_offline(base: str, check: Callable[[bool, str], bool]) -> None:
     check(status == 200 and b"FRAME" in page, "화면을 같은 주소에서 제공")
     status, data = _json("GET", f"{base}/presets.json")
     preset = next((p for p in data.get("presets", []) if p.get("mode") == "dsl"), None)
-    if not check(status == 200 and preset is not None, "시연 프리셋 제공"):
+    if not check(status == 200 and preset is not None, "시연 프리셋 제공") or preset is None:
         return
     body = {
         "title": preset["title"],
@@ -835,7 +838,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     root = Path(args.root or root or Path.cwd()).resolve()
     if args.command == "doctor":
         return cmd_doctor(root)
-    if not python_supported(sys.version_info):
+    if not python_supported(sys.version_info[:2]):
         current = pyplatform.python_version()
         return _fail(f"Python 3.11 이상이 필요합니다 (현재 {current}). 설치: {_hint('python')}")
     if args.command == "setup":

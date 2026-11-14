@@ -898,8 +898,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
             )
         # 영상 참조는 HTTPS 주소만 받는다: 클립이 이미 원격 주소이거나, 부모 작업의 저장본 주소를 받아 올 수 있어야 한다
         job_id = clip.metadata.get("job_id")
-        has_job = isinstance(job_id, str) and bool(_JOB_ID.match(job_id))
-        if not has_job and not self._usable_video_url(clip.uri):
+        parent_job = job_id if isinstance(job_id, str) and _JOB_ID.match(job_id) else None
+        if parent_job is None and not self._usable_video_url(clip.uri):
             return None
         return _EditPlan(
             EDIT_VIDEO_REFERENCE,
@@ -907,7 +907,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             prompt,
             parent.version_id,
             clip.uri,
-            parent_job_id=job_id if has_job else None,
+            parent_job_id=parent_job,
         )
 
     def _usable_video_url(self, url: str) -> bool:
@@ -993,8 +993,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         url = urls[0]
         if isinstance(url, str) and self._usable_video_url(url):
             expires_at = data.get("expires_at")
-            known = isinstance(expires_at, int | float) and not isinstance(expires_at, bool)
-            return url, False, float(expires_at) if known else None
+            if isinstance(expires_at, int | float) and not isinstance(expires_at, bool):
+                return url, False, float(expires_at)
+            return url, False, None
         return None, False, None
 
     # ---- 부모 주소 보관 (ADR-0020): 프로세스 메모리에만, 잠시 ----
@@ -1198,7 +1199,8 @@ class OpenRouterVideoGenerator(VideoGenerator):
             f"clips/{request.version_id}/{scene.scene_key}.mp4", normalized.data, "video/mp4"
         )
 
-        usage = final.get("usage") if isinstance(final.get("usage"), dict) else {}
+        raw_usage = final.get("usage")
+        usage = raw_usage if isinstance(raw_usage, dict) else {}
         details = record.details
         metadata: dict[str, object] = {
             "generator": "openrouter",

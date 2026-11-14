@@ -62,7 +62,7 @@ class FakeVideoGenerator(VideoGenerator):
             raise self._error
         if request.scene.scene_key in self._fail_scene_keys:
             raise GenerationError(f"장면 '{request.scene.scene_key}' 생성 실패 (주입된 오류)")
-        payload = {
+        payload: dict[str, object] = {
             "scene_key": request.scene.scene_key,
             "fingerprint": request.fingerprint,
             "seed": request.seed,

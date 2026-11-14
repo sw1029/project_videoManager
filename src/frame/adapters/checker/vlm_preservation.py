@@ -26,7 +26,7 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from frame.adapters.video_tools import extract_frame, require_ffmpeg
 from frame.adapters.vlm_answers import match_answers
@@ -104,6 +104,13 @@ RESPONSE_SCHEMA: dict[str, Any] = {
         }
     },
 }
+
+
+class _Subject(TypedDict):
+    """검수 결과가 가리키는 대상. CheckOutcome 의 같은 이름 인자로 넘긴다."""
+
+    entity_key: str | None
+    scene_key: str
 
 
 @dataclass(frozen=True)
@@ -285,7 +292,7 @@ class VlmPreservationChecker(Checker):
             "aspect": str(item.aspect),
             "requested": element.requested,
         }
-        fields = {"entity_key": item.entity_key, "scene_key": scene.scene_key}
+        fields: _Subject = {"entity_key": item.entity_key, "scene_key": scene.scene_key}
         kept = str((reply or {}).get("kept") or "").strip().lower()
         if kept not in ("yes", "no"):
             detail["reason"] = (
