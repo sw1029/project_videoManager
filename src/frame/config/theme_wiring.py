@@ -54,6 +54,7 @@ from frame.application.series import (
     CreateEpisode,
     ExtractTheme,
     RenderEpisode,
+    ReviseEpisode,
 )
 from frame.application.use_cases import AcceptGeneration, CreateRevision
 from frame.domain.shortform import ShortformPlatform
@@ -138,6 +139,7 @@ class ThemeServices:
     render_episode: RenderEpisode
     check_screen: CheckEpisodeScreen
     correct_screen: CorrectEpisodeScreen
+    revise_episode: ReviseEpisode
 
     def adapter_keys(self) -> dict[str, str]:
         """어떤 어댑터로 조립됐는지 (/health·기록용)."""
@@ -433,6 +435,9 @@ def build_theme_services(
         check_screen=check_screen,
         correct_screen=CorrectEpisodeScreen(
             episodes, check_screen, create_revision, accept_generation
+        ),
+        revise_episode=ReviseEpisode(
+            themes, episodes, uow_factory, create_revision, accept_generation
         ),
     )
 
