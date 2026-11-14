@@ -151,9 +151,44 @@ def test_numbers_of_two_or_more_syllables_may_be_written_together_with_the_unit(
         "후임 사장으로 백 사장이 아니라 다른 후보를 원했다",  # 백 사장 ≠ 104장
     ],
 )
-def test_a_single_sino_digit_written_together_with_a_unit_is_a_word(text):
-    """한 글자 한자어 수(일·삼·사…구)에 단위가 붙은 꼴은 대개 다른 낱말이다. 띄어 쓴 것만 수량으로 읽는다."""
+def test_a_single_sino_digit_written_together_with_a_unit_is_often_a_word(text):
+    """한 글자 한자어 수에 단위가 붙은 꼴 가운데 낱말인 것: 원·도·세 앞, 고유어 수로 세는 단위 앞, 낱말 목록."""
     assert quantities(text) == ()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "육회 한 접시",  # 육회 ≠ 6회
+        "세계 일주를 떠났다",  # 일주 ≠ 1주
+        "사주팔자",
+        "오점을 남겼다",
+        "전국 팔도",
+        "화면 구도가 좋다",
+        "구위가 좋은 투수",
+    ],
+)
+def test_more_words_made_of_a_single_digit_and_a_unit(text):
+    assert quantities(text) == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("지난해 삼월 김 전 장관의 동료", [(3, "월")]),
+        ("천구백사십년 팔월 십오일 연합군은", [(1940, "년"), (8, "월"), (15, "일")]),
+        ("앞으로 오년 밖에 남지 않은", [(5, "년")]),
+        ("위민관 삼층 영상국무회의실", [(3, "층")]),
+        ("화재 당시 일층으로 추락했던", [(1, "층")]),
+        ("지난 구월 구일에도", [(9, "월"), (9, "일")]),
+        ("사일 새벽 두 명 더 추가되면서", [(4, "일"), (2, "명")]),
+        ("반에서 일등을 했다", [(1, "등")]),
+        ("이천 십이년 맥북", [(2012, "년")]),
+    ],
+)
+def test_dates_floors_and_years_written_together_are_read(text, expected):
+    """받아 적은 글은 '삼월'·'오년'·'삼층' 처럼 붙여 적는다 (Zeroth-Korean · FLEURS 를 받아 적은 결과)."""
+    assert _pairs(text) == [(Decimal(value), unit) for value, unit in expected]
 
 
 def test_the_same_single_digit_written_apart_is_a_quantity():
@@ -178,6 +213,16 @@ def test_the_same_single_digit_written_apart_is_a_quantity():
 )
 def test_verb_endings_are_not_units(text):
     assert quantities(text) == ()
+
+
+def test_longer_numbers_that_make_a_word_with_a_unit():
+    assert quantities("청와대 등은 백사장이 아니라 다른 후보를 원했다") == ()  # 백사장 ≠ 104장
+    assert quantities("백일장에 나갔다") == ()
+
+
+def test_a_listed_word_is_a_quantity_when_a_duration_follows():
+    assert _pairs("첫 신고 전 십분 사이에 건물 출입구로") == [(Decimal(10), "분")]
+    assert quantities("십분 활용하세요") == ()
 
 
 def test_times_written_together_are_still_read():
@@ -274,6 +319,7 @@ def test_big_units_after_a_number_are_read():
         ("유권자 네 명 중 한 명꼴로 기권했다", [(4, "명"), (1, "명")]),
         ("매장보다 천 원어치 더 담았어요", [(1000, "원")]),
         ("만 원보다 싸요", [(10000, "원")]),
+        ("그동안 팔 년동안 국내에 체류하면서", [(8, "년")]),
     ],
 )
 def test_particles_after_a_unit(text, expected):

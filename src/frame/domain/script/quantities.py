@@ -12,7 +12,9 @@
 보수적으로 뽑는다: 잘못 읽은 값은 화면과 말이 어긋난다는 거짓 경고가 되므로, 놓치는 쪽이 낫다.
 숫자로 적은 수('5분')는 그대로 믿는다. 한글로 적은 수는 낱말과 겹치므로 아래를 본다
 (규칙마다의 근거는 오픈 말뭉치의 대본에서 잰 것이다: docs/research/theme-series.md §8.7).
-1. 한 글자 한자어 수(일·삼…구)에 한 글자 단위를 붙여 쓴 꼴은 낱말이다: 사회·사장·구분·오세요. 띄어 쓴 것만 읽는다.
+1. 한 글자 한자어 수(일·삼…구)에 한 글자 단위를 붙여 쓴 꼴은 낱말일 때가 많다. 원·도·세 앞(사원·일도·오세요),
+   고유어 수로 세는 단위 앞(사장·사명), 낱말 목록(사회·구분·사위·오일)은 읽지 않는다. 날짜·층·해는 읽는다
+   (삼월·사일·오년·삼층: 받아 적은 글이 이렇게 붙여 적는다).
 2. 수와 단위는 짝이 맞아야 한다. 고유어 수는 한자어 수로만 세는 단위를 받지 않고 (한 일·세일·두세요·두 분),
    한 글자 한자어 수는 고유어 수로 세는 단위를 받지 않는다 (사 달라고·오시는).
 3. 한글로 적은 영(영·공)은 소수일 때만 수다: 공원·공장·영장.
@@ -21,7 +23,8 @@
    뒤에 기간을 말하는 낱말이 올 때만 한다 (십일까지·삼십일 동안. '십일 대 팔'·'이십일 세기' 는 아니다).
 6. 시는 24, 월은 12 까지다 (이천시). 붙여 쓴 '두시' 는 뒤가 때를 말하는 조사일 때만 읽는다 (두시면·두시고는 '두다' 다).
    '분의' 뒤에 수가 오면 분수다 (4분의 1).
-7. 그래도 남는 흔한 낱말은 목록으로 뺀다: 한층·한쪽·천장·만세·만주.
+7. 그래도 남는 흔한 낱말은 목록으로 뺀다: 한층·한쪽·천장·만세·만주·백사장. 뒤에 기간을 말하는 낱말이 오면 읽는다
+   (십분 활용 / 십분 사이에).
 어림수('이삼천 원'·'서너 개')와 전화번호 같은 숫자열은 값 하나로 읽을 수 없어 뽑지 않는다 (사람이 볼 것으로 남는다).
 자리(start·end)는 NFKC 로 맞춘 글에서의 자리다.
 """
@@ -138,6 +141,7 @@ _PARTICLES = (
     "마다",
     "어치",
     "정도",
+    "동안",
     "꼴",
     "께",
     "경",
@@ -149,15 +153,34 @@ _TIME_FOLLOWERS = frozenset("에부까쯤경가를의반입인이예였")
 # 기간을 말하는 낱말: 모호한 수('이 년'·'십일'·'사 주') 뒤에 오면 수량으로 읽는다
 _DURATION = re.compile(
     r"(?:간|째)|"
-    r" ?(?:동안|전|후|뒤|만에|이내|이상|이하|정도|쯤|연속|내내|가량|남짓|미만)"
+    r" ?(?:동안|사이|전|후|뒤|만에|이내|이상|이하|정도|쯤|연속|내내|가량|남짓|미만)"
     r"(?:에|은|는|도|이|가|의|으로|로|부터|까지|만|을|를)?(?![가-힣])"
 )
 # 수에 단위가 붙은 꼴이지만 다른 뜻의 낱말. 붙여 쓴 꼴은 수량으로 읽지 않는다
 # ('십 분'·'한 시' 처럼 띄어 쓴 것은 수량이다). '만원'·'천원' 은 값을 말하는 것이 보통이라 넣지 않는다.
 _WORDS = frozenset(
     {"십분", "한시", "한번", "한층", "한쪽", "천장", "만일", "만세", "만주", "만회", "만점"}
-    | {"천주", "백주", "천도", "백도"}
+    | {"천주", "백주", "천도", "백도", "백사장", "백일장"}
 )
+# 한 글자 한자어 수에 단위를 붙여 쓴 꼴의 낱말 (규칙 1)
+_DIGIT_WORDS = frozenset(
+    {
+        "사회",
+        "육회",
+        "사분",
+        "구분",
+        "사위",
+        "구위",
+        "일주",
+        "사주",
+        "구주",
+        "오일",
+        "일일",
+        "오점",
+        "사초",
+    }
+)
+_NO_LONE_DIGIT = frozenset({"원", "도", "세"})  # 사원·구원 · 일도·팔도 · 오세요·사세요
 _NUMBER_WORDS = frozenset({"만일"})  # 수의 꼴이지만 낱말이다 (10001 을 '만일' 이라고 적지 않는다)
 # 띄어 써도 동사와 겹치는 짝: 뒤에 기간을 말하는 낱말이 올 때만 수량이다 ('사 주면' 은 '사다 + 주다' 다)
 _VERB_PAIRS = frozenset({("사", "주")})
@@ -293,8 +316,8 @@ def _quantity_at(norm: str, lower: str, start: int) -> Quantity | None:
             continue
         alias, unit, end = found
         raw = norm[start:end]
-        if raw in _WORDS:
-            return None  # 수가 아니라 낱말이다. 더 짧게 끊어 읽지도 않는다
+        if raw in _WORDS and not _DURATION.match(norm[end:]):
+            return None  # 수가 아니라 낱말이다. 더 짧게 끊어 읽지도 않는다 (십분 활용)
         attached = None if spaced else alias
         if _plausible(text, number, unit, attached, norm[end:], split_one=number.end < longest):
             return Quantity(number.value, unit.name, start, end, raw)
@@ -369,8 +392,12 @@ def _plausible(
         return False  # 사 달라고 · 오시는 · 사명
     last = text.rsplit(" ", 1)[-1]  # 수의 마지막 낱말 ('백 사' 의 '사')
     if attached is not None and len(last) == 1 and len(attached) == 1:
-        if last in SINO_DIGIT_WORDS:
-            return False  # 사회 · 사장 · 구분 · 오세요 · 백 사장
+        if last in SINO_DIGIT_WORDS and (
+            unit.counts is Counting.NATIVE
+            or unit.name in _NO_LONE_DIGIT
+            or last + attached in _DIGIT_WORDS
+        ):
+            return False  # 사장 · 백 사장 / 사원 · 일도 · 오세요 / 사회 · 구분 · 오일
         first = following[:1]
         if unit.name == "시" and is_hangul(first) and first not in _TIME_FOLLOWERS:
             return False  # 두시면 · 두시고
