@@ -62,8 +62,12 @@ Mock 라이브러리는 쓰지 않는다. 포트가 작고 Fake 가 있으므로
 
 ## 7. 지표 측정 절차 (T12)
 
-1. Fake 로 하네스 동작을 검증한다: `tests/unit/test_edit_metrics.py`, `tests/acceptance/test_us01_selective_edit.py`
-2. 실제 생성·검수 어댑터로 컨테이너를 조립한 뒤 단일 속성 수정 20건을 `CreateRevision → AcceptGeneration` 으로 실행한다
-3. 각 수정 버전의 `GET /checks` 결과를 `EditCase` 로 묶어 `evaluate_cases()` 에 넣는다
-4. `success_rate ≥ 0.8`, `mean_non_target_change_rate ≤ 0.1` 이면 `meets_target` 이 참이다. 미판정(`UNDETERMINED`)은 성공으로 세지 않는다
-5. 결과(JSON)와 판정 근거(클립 URI·검수 detail)를 저장소에 기록한다 (Sprint Backlog 평가 계획)
+1. Fake 로 하네스 동작을 검증한다: `tests/unit/test_edit_metrics.py`, `tests/unit/test_edit_cases.py`,
+   `tests/unit/test_evaluate_edits_tool.py`, `tests/integration/test_evaluate_edits_cli.py`, `tests/acceptance/test_us01_selective_edit.py`
+2. 단일 속성 수정 20건을 케이스 파일(`docs/evaluation/edit_cases.example.json` 형식)로 적고, 실제 어댑터 설정으로
+   `python -m frame.tools.evaluate_edits --plan-only` 를 돌려 다시 만들 장면·편집 여부·어림 비용을 확인한다 (ADR-0022)
+3. 승인을 받은 뒤 같은 설정으로 `--plan-only` 없이 돌린다. 케이스마다 계획 → `CreateRevision` → `AcceptGeneration` → 완료 대기 →
+   검수 결과를 `EditCase`(대상 요구조건 키 포함)로 묶어 `evaluate_cases()` 에 넣는다
+4. `success_rate ≥ 0.8`, `mean_non_target_change_rate ≤ 0.1` 이면 `meets_target` 이 참이다. 미판정(`UNDETERMINED`)과 결과가 없는
+   대상 요구조건은 성공으로 세지 않는다. 비대상 변경률은 측정 기준(`vlm_keep`·`ssim`)마다 따로 남는다
+5. 결과 JSON 에 판정 근거(클립 URI·검수 detail)가 함께 남는다. 저장소에 기록한다 (Sprint Backlog 평가 계획)
