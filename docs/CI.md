@@ -102,6 +102,9 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 4. **audit 잡**: 결과만 본다. 고칠 것이 있으면 이슈로 올리고, 조용해지면 `continue-on-error` 를 뺀다.
 5. **릴리스**: `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다. 태그는 패키지 버전으로
    시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
+6. **docker 잡**: `docker/Dockerfile` 로 이미지를 빌드해 띄우고 `/health` 가 답하는지 본다. 이미지 빌드는 로컬에서 돌려 보지 못했다
+   (구성 파일의 내용은 `tests/unit/test_docker_files.py` 가, compose 의 문법은 `docker compose config` 로 확인했다).
+   통과하면 `continue-on-error` 를 뺀다. 실패하면 로그의 `docker build` 단계부터 본다 (비 root 사용자의 쓰기 권한, extra 설치).
 
 ## 7. 저장소 설정 제안 (이 작업에서는 바꾸지 않았다)
 

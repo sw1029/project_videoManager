@@ -86,6 +86,25 @@ jobs:
       - run: pip install -e ".[llm,video]" pip-audit
       - run: pip-audit --skip-editable --progress-spinner off
 
+  docker:
+    # 이미지를 빌드해 띄우고 /health 가 답하는지 본다 (이슈 #6). 로컬에서 돌려 보지 못한 잡이라
+    # 처음에는 결과만 보고 머지를 막지 않는다 (ADR-0030, docs/CI.md 6절)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f docker/Dockerfile -t frame-api:ci .
+      - name: 이미지가 뜨고 건강 검사가 통과하는지
+        run: |
+          docker run -d --name frame-api -p 127.0.0.1:8000:8000 frame-api:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs frame-api
+          exit 1
+
   frontend:
     # frontend/ 가 있는 브랜치에서만 빌드한다 (dev 에는 아직 없어 단계가 건너뛰어진다)
     runs-on: ubuntu-latest
