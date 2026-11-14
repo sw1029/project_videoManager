@@ -158,6 +158,8 @@ class ExtractTheme:
         if not command.force:
             known = self._known(sha256, command)
             if known is not None:
+                if command.keep_source and known.theme.source.stored_uri is None:
+                    known = self._with_copy(known, command.video)
                 return ExtractThemeResult(known, verdict, reused=True)
         shots = self._shot_detector.detect(command.video, media)
         notes: list[str] = []
@@ -212,6 +214,19 @@ class ExtractTheme:
         self._themes.save(record)
         return ExtractThemeResult(record, verdict)
 
+    def _with_copy(self, record: ThemeRecord, video: bytes) -> ThemeRecord:
+        """이미 뽑은 테마에 영상의 사본만 붙인다. 다시 뽑지 않는다 (감사 BTS-D09).
+
+        사본이 없다는 까닭으로 다시 뽑으면 추출이 다시 과금되고 테마가 둘 생긴다.
+        """
+        stored_uri = self._store.put(
+            f"themes/{record.theme.theme_id}/source.mp4", video, "video/mp4"
+        )
+        source = replace(record.theme.source, stored_uri=stored_uri)
+        updated = replace(record, theme=replace(record.theme, source=source))
+        self._themes.save(updated)
+        return updated
+
     def _settings_of(self, command: ExtractThemeCommand) -> dict[str, object]:
         """결과를 바꿀 수 있는 설정. 같은 영상을 다시 뽑을지 정할 때 견준다."""
         return {
@@ -230,8 +245,6 @@ class ExtractTheme:
         for record in reversed(self._themes.list()):
             source = record.theme.source
             if source.sha256 != sha256 or source.origin is not command.origin:
-                continue
-            if command.keep_source and source.stored_uri is None:
                 continue
             if all(record.detail.get(key) == value for key, value in wanted.items()):
                 return record

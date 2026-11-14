@@ -20,9 +20,10 @@ from frame.application.ports.series.source_analysis import (
 from frame.domain.media import MediaInfo
 from frame.domain.series.source_analysis import Shot, shots_from_cuts
 
-# 받는 영상 코덱. ffmpeg 는 글 파일도 '영상'(bintext·ansi …)으로 읽을 수 있다. 계약은 "영상이 아니면 오류" 다
+# 받는 영상 코덱. ffmpeg 는 글 파일도 '영상'(bintext·ansi …)으로 읽을 수 있다. 계약은 "영상이 아니면 오류" 다.
+# MJPEG 는 없다: 영상 정보를 읽는 쪽(media_tools)이 그림 한 장(음악 파일의 표지)으로 본다 (감사 BTS-D36)
 VIDEO_CODECS = frozenset(
-    {"h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "mpeg2video", "theora", "prores", "mjpeg"}
+    {"h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "mpeg2video", "theora", "prores"}
 )
 
 
@@ -40,7 +41,9 @@ class FfmpegMediaProber(MediaProber):
             except MediaToolError as exc:
                 raise VideoAnalysisError(f"영상을 읽지 못했습니다: {exc}") from exc
         if not found.has_video or not found.width or not found.height or not found.duration_ms:
-            raise VideoAnalysisError("영상 스트림이 없는 파일입니다")
+            raise VideoAnalysisError(
+                "영상 스트림이 없는 파일입니다 (그림 한 장뿐인 파일과 MJPEG 영상은 받지 않습니다)"
+            )
         if (found.video_codec or "").lower() not in VIDEO_CODECS:
             raise VideoAnalysisError(f"받지 않는 영상 코덱입니다: {found.video_codec}")
         return MediaInfo(

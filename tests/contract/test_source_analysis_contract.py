@@ -109,6 +109,17 @@ def test_shot_detector_rejects_what_is_not_a_video(kit):
         kit.detector.detect(b"not a video at all", media)
 
 
+def test_motion_jpeg_is_not_in_the_list_of_accepted_codecs():
+    """받는 코덱 목록과 동작이 같아야 한다 (감사 BTS-D36).
+
+    MJPEG 는 영상 정보를 읽는 쪽이 '그림 한 장'(음악 파일의 표지)으로 본다. 목록에 있어도 거기까지 가지 못했다.
+    """
+    from frame.adapters.media_tools import _STILL_CODECS
+    from frame.adapters.series.source_analysis.ffmpeg import VIDEO_CODECS
+
+    assert "mjpeg" not in VIDEO_CODECS and not (VIDEO_CODECS & _STILL_CODECS)
+
+
 @pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
 def test_text_is_not_read_as_a_video():
     """줄바꿈 없는 글 800바이트가 640x80 영상으로 읽혔다 (임시 파일의 확장자 때문에 ffmpeg 가 글 형식을 골랐다)."""

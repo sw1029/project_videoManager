@@ -3,6 +3,7 @@
 모델이 낸 것을 그대로 믿지 않는다. 규칙에 맞는 것만 쓰고 버린 것은 메모로 남긴다.
 - 자리는 'S3'·'slot 3'·숫자·프레임 이름으로만 읽는다 (시각을 자리 번호로 읽지 않는다).
 - 객체 키는 영문 소문자·숫자·밑줄로 맞추고 겉모습 낱말을 걷어낸다. 영문이 아닌 키도 서로 가른다.
+  다듬은 키가 겹치는데 모델이 쓴 키가 다르면 ('커피 cup' · '종이 cup') 다른 객체다: 번호를 붙여 살린다.
 - 어휘에 없는 술어는 버린다. 객체가 아닌 것을 향한 관계는 행동으로 옮긴다.
 - 응답의 큰 모양(목록·객체)을 입구에서 본다.
 - 글 필드는 찍히지 않는 글자를 빼고 길이를 묶는다 (_words). 외부 영상의 말·글자가 모델을 거쳐 테마의 글이 되고,
@@ -125,6 +126,7 @@ def _entities(
     key_of: dict[str, str] = {}
     entities: list[EntitySpec] = []
     originals: dict[str, Mapping[str, Any]] = {}
+    written: dict[str, str] = {}  # 다듬은 키 -> 모델이 쓴 키
     for position, item in enumerate(raw if isinstance(raw, list) else [], start=1):
         if not isinstance(item, dict):
             continue
@@ -139,8 +141,18 @@ def _entities(
             key_of[plain] = bare
             plain = bare
         if plain in originals:
-            notes.append(f"객체 키 '{plain}' 가 두 번 나와 뒤의 것을 뺐습니다")
-            continue
+            if not raw_key or raw_key == written.get(plain):
+                notes.append(f"객체 키 '{plain}' 가 두 번 나와 뒤의 것을 뺐습니다")
+                continue
+            # 다듬은 키만 겹친다: 모델은 다른 객체로 적었다. 빼면 그것을 가리키던 자리·요구조건이
+            # 첫 객체로 풀린다 (감사 BTS-D06)
+            number = 2
+            while f"{plain}_{number}" in originals:
+                number += 1
+            notes.append(
+                f"객체 키 '{plain}' 가 겹쳐 '{raw_key}' 를 '{plain}_{number}' 로 적었습니다"
+            )
+            plain = f"{plain}_{number}"
         try:
             kind = EntityKind(str(item.get("kind") or "").strip().upper())
         except ValueError:
@@ -151,6 +163,7 @@ def _entities(
             if name:
                 key_of.setdefault(name, plain)
         originals[plain] = item
+        written[plain] = raw_key
         entities.append(EntitySpec(plain, kind, _words(item.get("description"))))
     return key_of, entities, originals
 

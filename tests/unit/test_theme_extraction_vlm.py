@@ -707,6 +707,35 @@ def test_text_region_is_kept_when_it_cannot_be_asked_again(video):
 
 
 @needs_ffmpeg
+def test_text_region_is_kept_when_its_frame_cannot_be_extracted(video, monkeypatch):
+    """문구 영역을 다시 묻는 것은 덤이다. 그 단계의 프레임 뽑기가 실패해도 추출은 실패하지 않는다 (감사 BTS-D33).
+
+    본 호출의 답은 이미 받았다 (과금). 예외가 밖으로 나가면 그 결과를 버리고, 다시 부르면 본 호출부터 다시 과금된다.
+    """
+    from frame.adapters.series.theme_extraction import vlm as module
+    from frame.adapters.video_tools import VideoToolError
+
+    real = module.extract_frame
+
+    def flaky(ffmpeg, clip, at_ms, **options):
+        if options.get("min_side") == 720:  # 영역을 다시 물을 때 뽑는 큰 프레임
+            raise VideoToolError("ffmpeg 가 시간 안에 끝나지 않았습니다")
+        return real(ffmpeg, clip, at_ms, **options)
+
+    monkeypatch.setattr(module, "extract_frame", flaky)
+    extractor, llm = _extractor(cafe_observation())
+
+    extraction = extractor.extract(_request(video=video))
+
+    assert len(llm.calls) == 1  # 본 호출뿐이다. 영역은 묻지 못했다
+    assert any(
+        "영역을 다시 묻지 못했습니다" in note and "VIDEO_TOOL_ERROR" in note
+        for note in extraction.notes
+    )
+    assert _box(extraction.screen_texts[0].region) == (0.1, 0.08, 0.8, 0.08)
+
+
+@needs_ffmpeg
 def test_regions_are_not_asked_again_when_turned_off(video):
     extractor, llm = _extractor(cafe_observation(), refine_text_regions=False)
     extraction = extractor.extract(_request(video=video))
@@ -754,6 +783,30 @@ def test_keys_that_are_not_english_stay_separate():
     assert [(r.entity_key, r.related_entity_key) for r in held] == [("entity_1", "entity_2")]
     colors = [r for r in ir.scene("slot_3").requirements if r.predicate == "color"]
     assert [(r.entity_key, r.expected_value) for r in colors] == [("entity_2", "red")]
+
+
+def test_mixed_keys_with_the_same_english_part_stay_separate():
+    """'커피 cup' 과 '종이 cup' 은 다듬으면 둘 다 cup 이다. 모델이 쓴 키가 다르면 다른 객체다 (감사 BTS-D06).
+
+    뒤 객체를 빼면 그것을 가리키던 자리와 요구조건이 첫 객체로 풀린다 (오류 없이 틀린 테마).
+    """
+    document = _renamed(cafe_observation(), {"barista": "커피 cup", "mug": "종이 cup"})
+
+    theme, ir, _, notes = _build(document)
+
+    keys = [e.entity_key for e in ir.entities]
+    assert keys[:2] == ["cup", "cup_2"] and len(keys) == len(set(keys)) == 3
+    assert [c.entity_key for c in theme.cast] == ["cup", "cup_2"]
+    held = [r for r in ir.scene("slot_2").requirements if r.predicate == "holds"]
+    assert [(r.entity_key, r.related_entity_key) for r in held] == [("cup", "cup_2")]
+    colors = [r for r in ir.scene("slot_3").requirements if r.predicate == "color"]
+    assert [(r.entity_key, r.expected_value) for r in colors] == [("cup_2", "red")]
+    assert any("cup_2" in note for note in notes)
+    # 모델이 같은 키를 두 번 쓴 것은 그대로 뒤의 것을 뺀다
+    twice = copy.deepcopy(cafe_observation())
+    twice["entities"].append(dict(twice["entities"][0]))
+    _, again, _, dropped = _build(twice)
+    assert len(again.entities) == 3 and any("두 번 나와" in note for note in dropped)
 
 
 def test_key_with_both_scripts_uses_its_english_part():

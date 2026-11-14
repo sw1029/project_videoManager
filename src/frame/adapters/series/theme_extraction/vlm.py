@@ -21,7 +21,7 @@ from typing import Any
 
 from frame.adapters.series.theme_extraction._text_locator import locate_text
 from frame.adapters.video_tools import extract_frame, require_ffmpeg
-from frame.application.errors import LLMError
+from frame.application.errors import AdapterError
 from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient
 from frame.application.ports.series.theme_extraction import (
     ThemeExtraction,
@@ -176,18 +176,20 @@ class VlmThemeExtractor(ThemeExtractor):
                 break
             shown = [f.at_ms for f in frames if f.slot_index == index]
             at_ms = shown[len(shown) // 2] if shown else sum(spans[index]) // 2
-            image = extract_frame(
-                self._ffmpeg, video, at_ms, max_side=1280, min_side=720, image_format="png"
-            )
             asked += 1
             try:
+                # 프레임 뽑기도 이 안에 둔다: 본 호출의 답은 이미 받았다 (과금). 덤인 이 단계의 실패가
+                # 그 결과를 버리게 두지 않는다 (감사 BTS-D33)
+                image = extract_frame(
+                    self._ffmpeg, video, at_ms, max_side=1280, min_side=720, image_format="png"
+                )
                 region, completion = locate_text(
                     self._llm,
                     ImageInput(image.data, image.media_type, "frame"),
                     f'caption "{text}"',
                     timeout_s=self.timeout_s,
                 )
-            except LLMError as exc:
+            except AdapterError as exc:  # LLM 호출 실패 · 프레임을 뽑지 못함
                 notes.append(
                     f"화면 문구의 영역을 다시 묻지 못했습니다 ({exc.code}). 처음 받은 영역을 둡니다"
                 )

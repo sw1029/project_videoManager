@@ -460,6 +460,30 @@ def test_forced_or_differently_configured_extraction_runs_again():
     assert changed.extract_theme.execute(_command()).reused is False
 
 
+def test_keeping_a_copy_later_attaches_it_to_the_theme_already_extracted():
+    """같은 영상을 '사본을 두라' 며 다시 부르면, 다시 뽑지 않고 있던 테마에 사본만 붙인다 (감사 BTS-D09).
+
+    전에는 사본이 없는 테마를 '없는 것' 으로 보아 추출을 다시 과금하고 테마가 둘 생겼다.
+    """
+    extractor = FakeThemeExtractor()
+    container = series_container(theme_extractor=extractor)
+    series = series_of(container)
+    kept = {"origin": SourceOrigin.FRAME_GENERATED}
+    first = series.extract_theme.execute(_command(**kept)).record
+    assert first.theme.source.stored_uri is None
+
+    again = series.extract_theme.execute(_command(keep_source=True, **kept))
+
+    assert again.reused and len(extractor.requests) == 1 and len(series.themes.list()) == 1
+    stored = again.record.theme.source.stored_uri
+    assert stored is not None and container.artifact_store.get(stored) == VIDEO
+    assert again.record.theme.theme_id == first.theme.theme_id
+    assert series.themes.get(first.theme.theme_id) == again.record
+    # 사본이 이미 있으면 그대로 돌려준다
+    third = series.extract_theme.execute(_command(keep_source=True, **kept))
+    assert third.reused and third.record == again.record
+
+
 def test_another_recognizer_is_another_configuration():
     """인식기가 바뀌면 (가짜 -> 실제, 모델 변경) 예전 테마를 돌려주지 않는다 (감사 BTS-D65).
 
