@@ -19,7 +19,7 @@ Fake 어댑터만으로 전체 흐름(접수 → 구조화 → 생성 접수 →
 | 선택적 수정 전략 | **장면 단위 생성 + 생성 조건 fingerprint**. 수정 버전은 조건이 바뀐 장면만 재생성하고 나머지 장면 클립은 재사용(바이트 동일) → AC-01 비대상 보존의 1차 보장 |
 | 상태·무결성 | 문서의 상태 enum(STRUCTURING→DRAFT→QUEUED→PROCESSING→COMPLETED/FAILED)과 무결성 규칙 5개를 도메인(상태 전이표·IR.validate)과 DB(조건부 UPDATE·UNIQUE·FK) 양쪽에서 강제 |
 | TDD | 5단 테스트 피라미드(도메인 → 유스케이스(Fake) → 어댑터 계약 → 통합(SQLite) → API/인수). AC 번호를 `@pytest.mark.ac("AC-xx")` 로 추적 |
-| 스택 | Python 3.11 · FastAPI 0.115.13 · SQLAlchemy 2.x(MySQL 8.4 운영, SQLite 테스트) · pytest · Docker (문서의 개발 환경 그대로) |
+| 스택 | Python 3.11 · FastAPI 0.133.0 · Starlette 1.3.1 · SQLAlchemy 2.x(MySQL 8.4 운영, SQLite 테스트) · pytest · Docker (과제 문서의 개발 환경에서 FastAPI 만 올렸다 — 문서의 0.115.13 이 묶는 Starlette 에 알려진 취약점이 있다, ADR-0033) |
 
 ---
 

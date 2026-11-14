@@ -2,7 +2,8 @@
 
 무엇을 검사하는지, 로컬에서 어떻게 돌리는지, 걸렸을 때 어떻게 고치는지를 적는다. 결정의 배경은
 [ADR-0030](adr/0030-ci-quality-gates-and-baselines.md) 과
-[ADR-0032](adr/0032-no-machine-paths-single-source-settings.md)(절대 경로 · 설정값의 출처 · 이름 없는 수)에 있다.
+[ADR-0032](adr/0032-no-machine-paths-single-source-settings.md)(절대 경로 · 설정값의 출처 · 이름 없는 수),
+[ADR-0033](adr/0033-fastapi-starlette-upgrade-for-known-vulnerabilities.md)(FastAPI · Starlette 의 고정)에 있다.
 
 ## 1. 한 번에 돌리기
 
@@ -35,6 +36,7 @@ python scripts/check.py --list
 | 커버리지 하한 | 전체 89% · 제품 코드(tools 제외) 95% · 핵심(domain·application) 97% | 테스트를 더한다. 하한은 `scripts/check.py` 의 `COVERAGE_FLOORS` 에 있고 올리기만 한다 |
 
 CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번 더 (compat 잡), 의존성 취약점 검사 (audit 잡, 실패해도 막지 않는다),
+화면 문구 합성 테스트를 한글 글꼴이 있는 러너에서 (overlay-font 잡, 실패해도 막지 않는다),
 화면 빌드 (frontend 잡), 시연 경로 점검 (demo-smoke 잡), 번들 빌드와 릴리스 (`bundle.yml`).
 
 ## 3. 유료 테스트와 테스트 환경
@@ -52,6 +54,9 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
   (`tests/conftest.py`). 설정이 필요한 테스트는 `monkeypatch.setenv` 나 `Settings(...)` 로 직접 준다.
 - 새 실제 호출 테스트는 `tests/live/` 에 두고 `pytestmark = pytest.mark.slow` 를 단다.
 - ffmpeg 가 없으면 실제 영상 테스트는 건너뛴다 (실행 머리말의 `ffmpeg:` 줄에 보인다). CI 는 `FRAME_REQUIRE_FFMPEG=1` 로 돌아 없으면 실패한다.
+- 한글 글꼴이 없으면 화면 문구 합성 테스트 9개는 건너뛴다 (머리말의 `한글 글꼴:` 줄). `FRAME_REQUIRE_KOREAN_FONT=1` 을 주면 글꼴이 없을 때 실패한다 — 글꼴을 깐 overlay-font 잡이 쓴다.
+- **설치된 판이 `pyproject.toml` 의 고정(`==`)과 다르면** `test_the_installed_packages_are_the_pinned_ones` 가 실패한다. `pip install -e ".[dev,llm,video]"` 로 다시 설치한다.
+  고정을 올린 변경이 들어오기 전의 브랜치를 새 판이 깔린 환경에서 돌리면 명세 스냅숏 테스트가 실패할 수 있다 — dev 를 합치면 없어진다 (ADR-0033).
 
 ## 4. 정적 검사에 걸렸을 때
 
@@ -136,7 +141,11 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 3. **docker 잡**: 한 번 통과했다. 몇 번 더 통과하는 것을 보고 `continue-on-error` 를 뺀다.
    실패하면 로그의 `docker build` 단계부터 본다 (비 root 사용자의 쓰기 권한, extra 설치).
 4. **audit 잡**: 결과만 본다 (보고서 §12.3 결정 10). 조용해지면 `continue-on-error` 를 뺀다.
-5. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
+   FastAPI · Starlette 를 올린 뒤(ADR-0033)의 첫 실행에서 Starlette 의 것이 없어졌는지 본다. 러너 환경의 `setuptools` 두 건은 남는다 (프로젝트의 의존성이 아니고, 손대지 않기로 했다).
+5. **overlay-font 잡** (보고서 §12.3 결정 11): 처음 도는 잡이다. `fonts-noto-cjk` 를 깔고 `tests/contract/test_overlay_contract.py` 만 돌린다.
+   글꼴을 찾지 못하면 테스트를 모으기 전에 실패한다 (`FRAME_REQUIRE_KOREAN_FONT=1`). 그 테스트 아홉 개는 Linux 에서 돈 적이 없다 — 글꼴이 달라 글자 크기와 유사도 값이 갈릴 수 있다.
+   통과하는 것을 본 뒤에 test 잡에 글꼴 설치를 옮기고 이 잡을 없앨지 정한다. 실패하면 값이 어떻게 갈렸는지 로그에서 본다.
+6. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
    태그는 패키지 버전으로 시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
 
 ## 7. 저장소 설정 제안 (이 작업에서는 바꾸지 않았다)

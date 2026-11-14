@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import os
 import socket
 import tomllib
@@ -10,12 +11,15 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.pins import exact_pins, pin_problems
 from tests.support.switches import (
     API_KEY_VARIABLES,
     ffmpeg_required,
     is_loopback,
+    korean_font_required,
     live_tests_enabled,
     missing_ffmpeg_message,
+    missing_korean_font_message,
     shell_leak_names,
 )
 
@@ -95,12 +99,74 @@ def test_a_missing_ffmpeg_fails_the_run_only_when_required():
     assert missing_ffmpeg_message({}, None) is None  # 로컬에서는 지금처럼 건너뛴다
 
 
+def test_a_korean_font_is_required_only_when_asked():
+    assert korean_font_required({"FRAME_REQUIRE_KOREAN_FONT": "1"})
+    assert not korean_font_required({})
+    assert not korean_font_required({"FRAME_REQUIRE_FFMPEG": "1"})  # ffmpeg 의 스위치와는 따로다
+
+
+def test_a_missing_korean_font_fails_the_run_only_when_required():
+    """한글 글꼴을 깐 CI 잡은 화면 문구 합성 테스트를 건너뛴 채 통과로 보이지 않게, 글꼴이 없으면 실패한다."""
+    required = {"FRAME_REQUIRE_KOREAN_FONT": "1"}
+
+    assert "한글 글꼴을 찾지 못했습니다" in (missing_korean_font_message(required, None) or "")
+    assert missing_korean_font_message(required, "fonts/korean.ttc") is None
+    assert missing_korean_font_message({}, None) is None  # 로컬과 다른 잡에서는 지금처럼 건너뛴다
+
+
 def test_pytest_leaves_paid_tests_out_by_default():
     options = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     addopts = options["tool"]["pytest"]["ini_options"]["addopts"]
 
     assert "-m 'not slow and not gpu'" in addopts  # 명령줄의 -m 이 뒤에 와서 이긴다
     assert "--strict-markers" in addopts and "--strict-config" in addopts
+
+
+def test_exact_pins_are_the_requirements_written_with_two_equals_signs():
+    requirements = [
+        "fastapi==0.133.0",
+        "starlette == 1.3.1",
+        "sqlalchemy>=2.0,<3",  # 범위는 고정이 아니다
+        "tomli==2.0.1; python_version < '3.11'",  # 조건이 붙은 것도 뺀다
+    ]
+
+    assert exact_pins(requirements) == {"fastapi": "0.133.0", "starlette": "1.3.1"}
+
+
+def test_a_pin_that_differs_from_what_is_installed_is_reported():
+    installed = {"fastapi": "0.115.13", "ruff": "0.17.4"}.get
+
+    problems = pin_problems(
+        required={"fastapi": "0.133.0", "uvicorn": "0.34.2"},
+        optional={"ruff": "0.17.4", "torch": "2.5.1"},  # 선택 설치는 없어도 된다
+        installed=installed,
+    )
+
+    assert problems == [
+        "fastapi: 설치된 판 0.115.13, 고정 0.133.0",
+        "uvicorn: 설치되지 않음 (고정 0.34.2)",
+    ]
+
+
+def test_the_installed_packages_are_the_pinned_ones():
+    """정확히 고정한 판(pyproject 의 ==)과 이 환경에 설치된 판이 같다 (ADR-0033).
+
+    다르면 로컬의 결과가 CI 와 달라진다 (OpenAPI 명세 · 포맷 · 타입 검사). 고정을 올린 뒤에는 설치를 다시 한다.
+    """
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    extras = [line for lines in project["optional-dependencies"].values() for line in lines]
+
+    def installed(name: str) -> str | None:
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            return None
+
+    problems = pin_problems(exact_pins(project["dependencies"]), exact_pins(extras), installed)
+
+    assert problems == [], (
+        "설치된 판이 pyproject.toml 의 고정과 다르다. pip install -e '.[dev,llm,video]' 로 다시 설치한다"
+    )
 
 
 def test_every_live_test_module_is_marked_slow():

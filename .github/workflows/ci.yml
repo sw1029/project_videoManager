@@ -86,6 +86,32 @@ jobs:
       - run: pip install -e ".[llm,video]" pip-audit
       - run: pip-audit --skip-editable --progress-spinner off
 
+  overlay-font:
+    # 화면 문구 합성의 ffmpeg 테스트를 한글 글꼴이 있는 러너에서 돌린다 (보고서 §12.3 결정 11).
+    # 다른 잡의 러너에는 한글 글꼴이 없어 이 테스트 9개가 건너뛰어진다. Linux 에서 돈 적이 없는 테스트라
+    # 처음에는 결과만 보고 머지를 막지 않는다. 통과하는 것을 본 뒤에 test 잡으로 옮긴다 (docs/CI.md 6절)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    env:
+      FRAME_REQUIRE_FFMPEG: "1"
+      # 글꼴을 찾지 못하면 건너뛰지 않고 실패한다 (건너뛴 채 통과로 보이지 않게)
+      FRAME_REQUIRE_KOREAN_FONT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: 한글 글꼴 (Noto Sans CJK)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev,llm,video]"
+      - name: 화면 문구 합성 계약 테스트
+        run: python -m pytest tests/contract/test_overlay_contract.py
+
   docker:
     # 이미지를 빌드해 띄우고 /health 가 답하는지 본다 (이슈 #6). 로컬에서 돌려 보지 못한 잡이라
     # 처음에는 결과만 보고 머지를 막지 않는다 (ADR-0030, docs/CI.md 6절)
