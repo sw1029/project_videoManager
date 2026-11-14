@@ -81,10 +81,10 @@ class CaseScore:
     missed_requirements: tuple[str, ...] = ()  # 아예 내지 않은 필수 조건
     mismatched_requirements: tuple[ValueMismatch, ...] = ()  # 냈지만 값이 틀린 조건
     spurious_requirements: tuple[str, ...] = ()  # 골드에 없는 조건
-    error: str | None = None  # 구조화 실패
-    entity_matching: str = (
-        EXHAUSTIVE  # 객체 짝을 고른 방법 (greedy 면 가장 좋은 짝을 놓쳤을 수 있다)
-    )
+    # 실패: 구조화(오류 코드·UNEXPECTED_ERROR) 또는 채점기의 결함(SCORING_ERROR)
+    error: str | None = None
+    # 객체 짝을 고른 방법 (greedy 면 가장 좋은 짝을 놓쳤을 수 있다)
+    entity_matching: str = EXHAUSTIVE
 
     @property
     def scene_count_match(self) -> bool:

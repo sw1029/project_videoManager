@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -33,6 +34,8 @@ from ._summary import (
     headline,
     summarize,
 )
+
+log = logging.getLogger(__name__)
 
 RECORD_VERSION = 1
 _DIGITS = 4  # 기록에 남기는 비율의 소수 자릿수
@@ -75,8 +78,12 @@ def run_gold_set(
     *,
     clock: Callable[[], float] = time.perf_counter,
 ) -> tuple[CaseRun, ...]:
-    """사례를 차례로 구조화해 채점한다. 구조화 실패는 그 사례의 실패로 기록하고 다음 사례로 넘어간다.
+    """사례를 차례로 구조화해 채점한다. 실패는 그 사례의 실패로 기록하고 다음 사례로 넘어간다.
 
+    - 구조화 실패: 어댑터·도메인 오류는 그 코드로, 구조화기 안의 결함은 UNEXPECTED_ERROR 로 남긴다
+    - 채점 실패(채점기 자신의 결함): SCORING_ERROR 로 남겨 모델의 실패와 가른다. 응답은 남아 고친 뒤 다시 채점할 수 있다
+    - 예상 밖 오류는 트레이스백을 로그로 낸다. 기록은 끝에 한 번 쓰므로, 여기서 멈추면 앞서 돈 들인 응답까지 잃는다.
+      Ctrl+C(BaseException)는 그대로 멈춘다
     StructuringRunDetails 를 따르는 구조화기면 시도 횟수·원본 응답·토큰·보정 메모도 남긴다.
     """
     details = structurer if isinstance(structurer, StructuringRunDetails) else None
@@ -87,19 +94,18 @@ def run_gold_set(
         notes: tuple[str, ...] = ()
         try:
             ir = structurer.structure(case.request())
-            score = score_case(case.case_id, case.spec, ir)
-            notes = tuple(details.last_repair_notes) if details else ()
         except (AdapterError, DomainError) as exc:
             score = failed_case(case.case_id, case.spec, _describe(exc))
         except Exception as exc:  # noqa: BLE001
-            # 구조화기 안의 결함(KeyError 등)도 그 사례의 실패로 남기고 다음 사례를 돈다.
-            # 기록은 끝에 한 번 쓰므로, 여기서 멈추면 앞서 돈 들인 응답까지 잃는다.
-            # Ctrl+C(BaseException)는 그대로 멈춘다.
-            score = failed_case(
-                case.case_id,
-                case.spec,
-                f"UNEXPECTED_ERROR: {type(exc).__name__}: {public_message(str(exc))}",
-            )
+            log.exception("골드 사례 %s 를 구조화하다 예상 밖 오류가 났다", case.case_id)
+            score = failed_case(case.case_id, case.spec, _unexpected("UNEXPECTED_ERROR", exc))
+        else:
+            notes = tuple(details.last_repair_notes) if details else ()
+            try:
+                score = score_case(case.case_id, case.spec, ir)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("골드 사례 %s 를 채점하다 오류가 났다 (채점기의 결함)", case.case_id)
+                score = failed_case(case.case_id, case.spec, _unexpected("SCORING_ERROR", exc))
         elapsed_ms = round((clock() - started) * 1000)
         completion = details.last_completion if details else None
         if completion is before:  # 이번 사례에서 응답을 받지 못했다
@@ -123,6 +129,10 @@ def run_gold_set(
 def _describe(exc: Exception) -> str:
     code = getattr(exc, "code", None) or type(exc).__name__
     return f"{code}: {public_message(str(exc))}"
+
+
+def _unexpected(code: str, exc: Exception) -> str:
+    return f"{code}: {type(exc).__name__}: {public_message(str(exc))}"
 
 
 def public_message(text: str) -> str:

@@ -5,6 +5,7 @@
 
 import importlib
 import json
+import logging
 import re
 from collections import Counter
 from pathlib import Path
@@ -411,3 +412,34 @@ def test_record_drops_account_and_query_parts_of_urls():
         run_at="2026-11-14",
     )
     assert record["structurer"]["base_url"] == "http://localhost:8001/v1"
+
+
+# ---- 채점기의 결함과 모델의 실패를 가른다 ---------------------------------------------------
+def test_scoring_errors_are_told_apart_from_structuring_failures(cases, monkeypatch, caplog):
+    """채점기 자신의 결함은 SCORING_ERROR 로 남기고 트레이스백을 로그로 낸다.
+
+    응답은 남아 채점기를 고친 뒤 다시 채점할 수 있다.
+    """
+    case = _case(cases, "ko-05-ramen-recipe")
+
+    def broken_scoring(*args, **kwargs):
+        raise ZeroDivisionError("division by zero")
+
+    records_module = importlib.import_module("frame.evaluation.structuring._records")
+    monkeypatch.setattr(records_module, "score_case", broken_scoring)
+    with caplog.at_level(logging.ERROR, logger=records_module.__name__):
+        run = _replay_runs([case], _perfect_responses([case]))[0]
+    assert run.score.error == "SCORING_ERROR: ZeroDivisionError: division by zero"
+    assert run.response and run.attempts == 1
+    assert any(r.exc_info for r in caplog.records)
+
+
+def test_unexpected_structurer_errors_are_logged_with_a_traceback(cases, caplog):
+    class Broken(FakeStructurer):
+        def structure(self, request):
+            raise KeyError("scenes")
+
+    with caplog.at_level(logging.ERROR, logger="frame.evaluation.structuring._records"):
+        run = run_gold_set(Broken(), cases[:1])[0]
+    assert run.score.error.startswith("UNEXPECTED_ERROR: KeyError")
+    assert any(r.exc_info for r in caplog.records)
