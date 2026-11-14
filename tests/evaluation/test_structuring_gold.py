@@ -16,6 +16,7 @@ from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
 from frame.domain.enums import EntityKind
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 from frame.evaluation.structuring_gold import (
+    GoldCase,
     build_record,
     compare_records,
     format_comparison,
@@ -24,6 +25,7 @@ from frame.evaluation.structuring_gold import (
     load_gold_cases,
     read_record,
     recorded_responses,
+    rescore_record,
     run_gold_set,
     write_record,
 )
@@ -218,3 +220,69 @@ def test_record_round_trip_replay_and_comparison(cases, tmp_path):
 def test_latest_record_of_an_empty_folder_is_none(tmp_path):
     assert latest_record(tmp_path) is None
     assert latest_record(tmp_path / "missing") is None
+
+
+def _revised(case, edit):
+    """골드 한 건을 고친 사본 (edit 가 기대 IR 문서를 고친다)."""
+    document = json.loads(json.dumps(case.document))
+    edit(document)
+    return GoldCase.from_dict(
+        {
+            "case_id": case.case_id,
+            "language": case.language,
+            "brief": case.brief,
+            "target_duration_ms": case.target_duration_ms,
+            "expected": document,
+        }
+    )
+
+
+def _replay_structurer(text):
+    return LLMStructurer(ReplayLLMClient([text], model="rescoring-model"), max_attempts=1)
+
+
+def test_rescoring_with_a_revised_gold_keeps_the_run_and_updates_the_scores(cases):
+    """골드를 고친 뒤 옛 기록의 원본 응답을 다시 채점한다. 모델을 부르지 않고 실행 정보는 그대로다."""
+    record = build_record(
+        _replay_runs(cases, _perfect_responses(cases)),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    ramen = _case(cases, "ko-05-ramen-recipe")
+
+    def add_condition(document):  # 응답에는 없는 필수 조건을 골드에 더한다
+        document["scenes"][2]["requirements"].append(
+            {"entity_key": "caption", "predicate": "color", "expected_value": "white"}
+        )
+
+    revised = [_revised(c, add_condition) if c is ramen else c for c in cases]
+    rescored = rescore_record(
+        record, revised, _replay_structurer, rescored_at="2026-11-15T08:00:00+09:00"
+    )
+
+    assert rescored["run_at"] == record["run_at"]
+    assert rescored["structurer"] == record["structurer"]  # 응답이 알려 준 모델도 원래 것
+    assert rescored["gold"]["fingerprint"] != record["gold"]["fingerprint"]
+    assert rescored["rescored"] == {
+        "at": "2026-11-15T08:00:00+09:00",
+        "gold_fingerprint_before": record["gold"]["fingerprint"],
+    }
+    entry = next(c for c in rescored["cases"] if c["case_id"] == ramen.case_id)
+    original = next(c for c in record["cases"] if c["case_id"] == ramen.case_id)
+    assert entry["missed_requirements"] == ["done:caption:color"]
+    for field in ("response", "model", "attempts", "tokens", "elapsed_ms", "repair_notes"):
+        assert entry[field] == original[field]
+    assert rescored["summary"]["requirement_recall"] < 1.0
+    assert compare_records(record, rescored).cases[0].newly_missed == ("done:caption:color",)
+
+
+def test_rescoring_keeps_a_failed_case_failed(cases):
+    case = _case(cases, "ko-05-ramen-recipe")
+    record = build_record(
+        _replay_runs([case], {case.case_id: "not json"}),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    rescored = rescore_record(record, [case], _replay_structurer, rescored_at="2026-11-15")
+    assert rescored["summary"]["failures"] == 1
+    assert rescored["cases"][0]["error"]

@@ -248,11 +248,17 @@ def record_filename(record: Mapping[str, Any]) -> str:
 
 
 def write_record(record: Mapping[str, Any], directory: Path | str) -> Path:
+    """폴더에 record_filename 이름으로 쓴다."""
     folder = Path(directory)
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / record_filename(record)
-    path.write_text(json.dumps(record, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    return path
+    return save_record(record, folder / record_filename(record))
+
+
+def save_record(record: Mapping[str, Any], path: Path | str) -> Path:
+    """정해진 파일에 쓴다 (다시 채점한 기록으로 원래 파일을 고쳐 쓸 때)."""
+    target = Path(path)
+    target.write_text(json.dumps(record, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return target
 
 
 def read_record(path: Path | str) -> dict[str, Any]:
@@ -279,6 +285,54 @@ def latest_record(
 def recorded_responses(record: Mapping[str, Any]) -> dict[str, str]:
     """사례 id → 원본 응답. ReplayLLMClient 로 다시 채점할 때 쓴다 (응답이 없던 사례는 빠진다)."""
     return {c["case_id"]: c["response"] for c in record["cases"] if c.get("response") is not None}
+
+
+def rescore_record(
+    record: Mapping[str, Any],
+    cases: Iterable[GoldCase],
+    structurer_for: Callable[[str], RequirementStructurer],
+    *,
+    rescored_at: str,
+) -> dict[str, Any]:
+    """기록에 남은 원본 응답을 지금 골드로 다시 채점한 새 기록. 모델을 부르지 않는다.
+
+    structurer_for(응답) 은 그 응답 하나만 재생하는 구조화기를 만든다
+    (예: LLMStructurer(ReplayLLMClient([응답]), max_attempts=1)).
+    실행 시각·구조화기·모델·시도 횟수·토큰·시간·보정 메모는 원래 기록의 것을 그대로 둔다.
+    기록에 없는 골드 사례는 건너뛰고, 응답 없이 실패했던 사례는 원래 오류로 다시 실패 처리한다.
+    """
+    entries = {c["case_id"]: c for c in record["cases"]}
+    runs: list[CaseRun] = []
+    for case in cases:
+        entry = entries.get(case.case_id)
+        if entry is None:
+            continue
+        response = entry.get("response")
+        if response is None:
+            score = failed_case(case.case_id, case.spec, entry.get("error") or "응답 없음")
+        else:
+            score = run_gold_set(structurer_for(response), [case])[0].score
+        tokens = entry.get("tokens") or {}
+        runs.append(
+            CaseRun(
+                case,
+                score,
+                response=response,
+                model=entry.get("model"),
+                attempts=entry.get("attempts"),
+                input_tokens=tokens.get("input"),
+                output_tokens=tokens.get("output"),
+                repair_notes=tuple(entry.get("repair_notes", ())),
+                elapsed_ms=int(entry.get("elapsed_ms", 0)),
+            )
+        )
+    structurer = {k: v for k, v in record["structurer"].items() if k != "reported_models"}
+    rescored = build_record(runs, structurer=structurer, run_at=str(record["run_at"]))
+    rescored["rescored"] = {
+        "at": rescored_at,
+        "gold_fingerprint_before": record.get("gold", {}).get("fingerprint"),
+    }
+    return rescored
 
 
 # ---- 비교 ----------------------------------------------------------------------
