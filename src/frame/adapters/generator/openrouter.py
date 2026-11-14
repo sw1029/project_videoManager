@@ -1315,6 +1315,10 @@ class OpenRouterVideoGenerator(VideoGenerator):
 
         돌려주는 값: 그 키에 쓸 수 있는 결과가 있는가 (지금 남겼거나 이미 있었다). 그 키로 다른 작업이 진행 중이면
         덮어쓰지 않고 False 다.
+
+        그 키는 이 요청의 키가 아니므로 그 키의 잠금 안에서 읽고 쓴다. 다른 요청이 지금 그 키로 만들고 있으면
+        (잠금을 쥐고 제출·대기하는 중) 기다리지 않고 물러난다: 상대는 몇 분씩 쥐고 있을 수 있고, 상대가 접수 기록을
+        남기기 전에 읽으면 '없음' 으로 보여 그 기록과 서로 덮어쓰게 된다 (감사 A-09).
         """
         edit = record.details.get("edit")
         if not isinstance(edit, Mapping) or edit.get("applied") is not False:
@@ -1322,21 +1326,26 @@ class OpenRouterVideoGenerator(VideoGenerator):
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         if plain_key == record.key:
             return False
-        existing = self._resumable(plain_key)
-        if existing is not None:
-            if existing.status != COMPLETED:
-                return False  # 그 키로 진행 중인 작업이 있다. 덮어쓰지 않는다 (이어 받을 수 있어야 한다)
-            if self._has_clip(existing):
-                return True  # 이미 쓸 수 있는 결과가 있다. 그대로 둔다
-        private = ("edit", "provisional")  # 이 요청의 것: 조건 키의 결과에는 싣지 않는다
-        return self._remember(
-            replace(
-                record,
-                key=plain_key,
-                details={k: v for k, v in record.details.items() if k != "edit"},
-                clip_metadata={k: v for k, v in record.clip_metadata.items() if k not in private},
+        with self._locks.try_hold(plain_key) as free:
+            if not free:
+                return False  # 그 키로 지금 만들고 있는 요청이 있다
+            existing = self._resumable(plain_key)
+            if existing is not None:
+                if existing.status != COMPLETED:
+                    return False  # 그 키로 진행 중인 작업이 있다. 덮어쓰지 않는다 (이어 받을 수 있어야 한다)
+                if self._has_clip(existing):
+                    return True  # 이미 쓸 수 있는 결과가 있다. 그대로 둔다
+            private = ("edit", "provisional")  # 이 요청의 것: 조건 키의 결과에는 싣지 않는다
+            return self._remember(
+                replace(
+                    record,
+                    key=plain_key,
+                    details={k: v for k, v in record.details.items() if k != "edit"},
+                    clip_metadata={
+                        k: v for k, v in record.clip_metadata.items() if k not in private
+                    },
+                )
             )
-        )
 
     def _reuse(self, request: SceneGenerationRequest, record: JobRecord) -> GeneratedClip:
         """원장에 클립까지 저장된 작업: 제출·폴링·다운로드 없이 그 클립을 돌려준다."""

@@ -179,14 +179,38 @@ class KeyedLocks:
 
     @contextmanager
     def hold(self, key: str) -> Iterator[None]:
-        with self._guard:
-            lock, users = self._locks.setdefault(key, (threading.Lock(), [0]))
-            users[0] += 1
+        """그 키의 잠금을 얻을 때까지 기다렸다가, 블록이 끝나면 푼다."""
+        lock = self._enter(key)
         try:
             with lock:
                 yield
         finally:
-            with self._guard:
-                users[0] -= 1
-                if users[0] == 0:
-                    del self._locks[key]
+            self._leave(key)
+
+    @contextmanager
+    def try_hold(self, key: str) -> Iterator[bool]:
+        """기다리지 않고 얻어 본다. 얻었으면 True 를 내주고 블록이 끝나면 푼다. 다른 쪽이 쥐고 있으면 False 를 내준다.
+
+        남의 키에 잠깐 쓰려는 쪽이 쓴다: 그 키로 누가 일하는 중이면 끼어들지 않고 물러난다.
+        """
+        lock = self._enter(key)
+        acquired = lock.acquire(blocking=False)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                lock.release()
+            self._leave(key)
+
+    def _enter(self, key: str) -> threading.Lock:
+        with self._guard:
+            lock, users = self._locks.setdefault(key, (threading.Lock(), [0]))
+            users[0] += 1
+        return lock
+
+    def _leave(self, key: str) -> None:
+        with self._guard:
+            users = self._locks[key][1]
+            users[0] -= 1
+            if users[0] == 0:
+                del self._locks[key]

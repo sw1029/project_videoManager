@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import replace
 
 import pytest
@@ -541,6 +542,59 @@ def test_sharing_a_regeneration_does_not_replace_an_unedited_job_in_flight(ir, s
     resumed = plain.generate_scene(replace(request, parent=None, version_id="ver_2"))
     assert resumed.metadata["job_id"] == in_flight and resumed.metadata["ledger"] == "resumed"
     assert len(api.submits) == 3
+
+
+def test_sharing_a_regeneration_does_not_write_over_a_job_being_submitted_right_now(ir, store):
+    """조건 키를 다른 요청이 지금 만들고 있으면 (잠금을 쥐고 제출하는 중) 그 키에 쓰지 않는다 (감사 A-09).
+
+    잠금 없이 읽고 쓰면, 상대가 접수 기록을 남기기 전에 '없음' 으로 읽고 그 키에 이쪽 결과를 쓴다. 상대의 접수
+    기록과 서로 덮어쓰게 되고, 그 사이에 끊기면 상대의 과금된 작업을 이어 받을 길이 없다.
+    """
+    in_flight = "gen-vid-1794450000-" + "P" * 20
+    submitting, release = threading.Event(), threading.Event()
+
+    class SlowSubmitForThePlainRequest(FakeOpenRouterApi):
+        def request(self, method, url, **kwargs):
+            if method == "POST" and threading.current_thread().name == "plain":
+                submitting.set()  # 조건 키의 잠금을 쥔 채 제출 응답을 기다린다
+                release.wait(5)
+            return super().request(method, url, **kwargs)
+
+    api = SlowSubmitForThePlainRequest(models=(WAN_30, FLUX_EDIT))
+    api.on(
+        "POST",
+        "/api/v1/videos",
+        error_response(400, "does not support previous_job_id"),  # 편집 요청은 거절된다
+        accepted(),  # 그래서 새로 생성한다
+        accepted(in_flight),  # 편집 없이 같은 조건을 만드는 요청 (늦게 접수된다)
+    )
+    api.add_job(in_flight)
+    generator = make_openrouter_generator(store, api, edit_mode="previous_job")
+    request = _request(ir, store)
+    plain_results = []
+    plain = threading.Thread(
+        name="plain",
+        target=lambda: plain_results.append(
+            generator.generate_scene(replace(request, parent=None))
+        ),
+    )
+    plain.start()
+    try:
+        assert submitting.wait(5)
+
+        clip = generator.generate_scene(replace(request, version_id="ver_2"))
+
+        assert clip.metadata["job_id"] == JOB_ID and clip.metadata["edit"]["applied"] is False
+        # 상대가 아직 접수 기록을 남기지 못한 조건 키에는 아무것도 쓰지 않았다
+        assert _ledger_status(store, generator, request.generation_fingerprint) is None
+    finally:
+        release.set()
+        plain.join(5)
+
+    assert len(api.submits) == 3
+    assert plain_results[0].metadata["job_id"] == in_flight
+    assert _ledger_status(store, generator, request.generation_fingerprint) == "completed"
+    assert _ledger_status(store, generator, generator.result_key(request)) == "completed"
 
 
 # 편집 모델이 제출 전에 이 요청을 받을 수 없다고 드러나는 경우 (감사 A-36)
