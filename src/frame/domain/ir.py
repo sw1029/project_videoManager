@@ -7,6 +7,8 @@
 불변(frozen) 객체이며, 변경은 항상 새 IR 을 만들어 반환한다 (원본 버전 보존 원칙).
 
 스키마 규칙 (validate 가 강제)
+- 객체 키·장면 키는 영문·숫자·밑줄로 된 64자 이하이고 영문·숫자로 시작한다 (KEY_PATTERN).
+  키는 저장 경로·요구조건 키·URL 경로·DB id 에 그대로 들어가기 때문이다.
 - 객체 키는 프로젝트 내, 장면 키는 버전 내 유일.
 - 장면은 0 ms 에서 시작해 빈틈·겹침 없이 이어진다 (조립기가 순서대로 이어 붙이기 때문).
 - 요구조건의 술어와 값은 어휘(vocabulary)로 정규화되고, 관계 술어는 상대 객체가 필수이며 값은 상대 객체 키와 같다.
@@ -17,6 +19,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
@@ -27,6 +30,18 @@ from .hashing import canonical_hash
 from .vocabulary import DEFAULT_VOCABULARY
 
 IR_SCHEMA_VERSION = 1
+
+# 객체·장면 키의 형식 (감사 A-01). 키는 클립 저장 경로(clips/{version_id}/{scene_key}.mp4),
+# 요구조건 키(장면:객체:술어, 장면 수준 조건은 객체 자리에 '-'), URL 경로, DB id 에 그대로 들어간다.
+# 그래서 '/'·'..'·':'·'-' 를 받지 않는다
+KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,63}")
+
+
+def _check_key(kind: str, key: object) -> None:
+    if not isinstance(key, str) or KEY_PATTERN.fullmatch(key) is None:
+        raise ValidationError(
+            f"{kind} 키 {key!r} 는 영문·숫자·밑줄로 된 64자 이하여야 합니다 (영문·숫자로 시작)"
+        )
 
 
 @dataclass(frozen=True)
@@ -63,6 +78,9 @@ class EntitySpec:
     entity_key: str
     kind: EntityKind = EntityKind.OTHER
     description: str = ""
+    # 화면에 보여 줄 이름 ("컵 01", "바리스타", ADR-0023). 생성 조건이 아니다: 장면·생성 fingerprint 에 넣지 않고
+    # 생성 지시문에도 쓰지 않는다. 비어 있으면 화면이 종류와 순번으로 라벨을 만든다
+    display_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,12 +139,24 @@ class IntermediateRepresentation:
 
     # ---- 무결성 규칙 (ERD 규칙 2·3·4 의 도메인 측 검증 + 타임라인·관계 규칙) ----------
     def validate(self) -> None:
+        # 키 형식을 먼저 본다. 요구조건의 객체·상대 키는 '장면에 연결된 객체' 검사가 이 키들로 덮는다
+        for e in self.entities:
+            _check_key("객체", e.entity_key)
+        for s in self.scenes:
+            _check_key("장면", s.scene_key)
+        # 유일성은 대소문자를 가리지 않고 본다: 대소문자를 가리지 않는 파일 시스템(Windows·macOS)에서
+        # intro·Intro 의 클립(clips/{version_id}/{scene_key}) 이 한 파일이 되기 때문이다 (델타 D02).
+        # 키는 ASCII 라 lower() 로 충분하다
         entity_keys = [e.entity_key for e in self.entities]
-        if len(entity_keys) != len(set(entity_keys)):
-            raise ValidationError("entity_key 는 프로젝트 내에서 유일해야 합니다")
+        if len(entity_keys) != len({k.lower() for k in entity_keys}):
+            raise ValidationError(
+                "entity_key 는 프로젝트 내에서 유일해야 합니다 (대소문자만 다른 키도 같은 키로 본다)"
+            )
         scene_keys = [s.scene_key for s in self.scenes]
-        if len(scene_keys) != len(set(scene_keys)):
-            raise ValidationError("scene_key 는 버전 내에서 유일해야 합니다")
+        if len(scene_keys) != len({k.lower() for k in scene_keys}):
+            raise ValidationError(
+                "scene_key 는 버전 내에서 유일해야 합니다 (대소문자만 다른 키도 같은 키로 본다)"
+            )
         if not self.scenes:
             raise ValidationError("장면이 하나 이상 있어야 합니다")
         self._validate_timeline()
@@ -207,10 +237,7 @@ class IntermediateRepresentation:
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": IR_SCHEMA_VERSION,
-            "entities": [
-                {"entity_key": e.entity_key, "kind": str(e.kind), "description": e.description}
-                for e in self.entities
-            ],
+            "entities": [_entity_dict(e) for e in self.entities],
             "scenes": [
                 {
                     "scene_key": s.scene_key,
@@ -245,6 +272,7 @@ class IntermediateRepresentation:
                 entity_key=e["entity_key"],
                 kind=EntityKind(e.get("kind", EntityKind.OTHER)),
                 description=e.get("description", ""),
+                display_name=str(e.get("display_name") or "").strip(),
             )
             for e in data.get("entities", [])
         )
@@ -306,3 +334,15 @@ class IntermediateRepresentation:
             ],
         }
         return canonical_hash(payload)
+
+
+def _entity_dict(entity: EntitySpec) -> dict[str, Any]:
+    document: dict[str, Any] = {
+        "entity_key": entity.entity_key,
+        "kind": str(entity.kind),
+        "description": entity.description,
+    }
+    # 비어 있으면 넣지 않는다: 표시 이름이 없던 문서·fingerprint 가 그대로다
+    if entity.display_name:
+        document["display_name"] = entity.display_name
+    return document

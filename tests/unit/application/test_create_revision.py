@@ -40,11 +40,13 @@ def test_parent_version_is_untouched(container, draft):
 
 
 def test_reference_images_are_copied_to_revision(container):
-    refs = [ReferenceImageInput("mem://refs/cup.png", "cup")]
+    refs = [ReferenceImageInput("https://example.com/refs/cup.png", "cup")]
     draft = create_draft(container, references=refs)
     result = _revise(container, draft.version_id)
     copied = container.queries.get_version(result.version_id).reference_images
-    assert [(r.image_uri, r.entity_key) for r in copied] == [("mem://refs/cup.png", "cup")]
+    assert [(r.image_uri, r.entity_key) for r in copied] == [
+        ("https://example.com/refs/cup.png", "cup")
+    ]
     assert copied[0].version_id == result.version_id
 
 

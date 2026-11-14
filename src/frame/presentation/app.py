@@ -26,7 +26,7 @@ from . import mappers
 from .errors import register_error_handlers
 from .rate_limit import SlidingWindowRateLimiter
 from .recovery import RecoveryLoop
-from .routers import projects, versions, vocabulary
+from .routers import projects, reference_images, versions, vocabulary
 from .routers import settings as settings_router
 from .schemas import HealthAdaptersOut, HealthOut
 
@@ -53,13 +53,15 @@ def create_app(container: Container) -> FastAPI:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
-            allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+            # API 가 쓰는 메서드 전부 (DELETE: 화면 키 지우기, PUT: DRAFT IR 수정. 감사 A-04)
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             allow_headers=["*"],
             expose_headers=["Content-Range", "Accept-Ranges", "Retry-After"],
         )
 
     prefix = settings.api_prefix
     app.include_router(projects.router, prefix=prefix)
+    app.include_router(reference_images.router, prefix=prefix)
     app.include_router(versions.router, prefix=prefix)
     app.include_router(vocabulary.router, prefix=prefix)
     app.include_router(settings_router.router, prefix=prefix)
@@ -110,7 +112,8 @@ def _health(container: Container, request: Request) -> HealthOut:
     uses_llm = s.structurer == "llm"
     keys = container.llm_keys
     key_status = None
-    if keys is not None:  # 입력 가능 여부는 요청한 기기 기준 (다른 기기에는 '서버 기기에서 입력' 안내)
+    # 입력 가능 여부는 요청한 기기 기준 (다른 기기에는 '서버 기기에서 입력' 안내)
+    if keys is not None:
         allowed = settings_router.entry_allowed(request, s)
         key_status = mappers.llm_key_out(keys.status(), s, entry_allowed=allowed)
     return HealthOut(

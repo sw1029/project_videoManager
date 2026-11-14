@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from frame.domain.checks import CheckResult
 from frame.domain.enums import RevisionKind, Verdict, VersionState
@@ -20,17 +21,20 @@ from .ports.structurer import ReferenceImageInput
 @dataclass(frozen=True)
 class CreateProjectCommand:
     title: str
-    prompt: str
+    prompt: str  # 자연어(또는 DSL) 요구사항. ir 을 주면 비워도 되고, 주면 원문으로만 보관한다
     reference_images: tuple[ReferenceImageInput, ...] = ()
     target_duration_ms: int | None = None
     seed: int | None = None
+    # 블록 입력 화면이 조립한 IR 문서 (IR.to_dict 형식, #10). 주면 LLM 없이 보정·검증만 거쳐 바로 DRAFT 가 된다
+    ir: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
 class CreateProjectResult:
     project_id: str
     version_id: str
-    state: VersionState
+    state: VersionState  # 자연어: STRUCTURING / IR 직접 입력: DRAFT
+    repair_notes: tuple[str, ...] = ()  # IR 직접 입력에서 보정이 고친 것
 
 
 @dataclass(frozen=True)
