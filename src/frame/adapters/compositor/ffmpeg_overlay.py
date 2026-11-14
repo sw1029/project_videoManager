@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unicodedata
 from collections.abc import Sequence
@@ -95,6 +96,14 @@ class FfmpegOverlayRenderer(OverlayRenderer):
         self.crf = crf
         self.preset = preset
         self.timeout_s = timeout_s
+        fonts = "+".join(
+            dict.fromkeys(_font_id(path) for path in (font_file, regular_font_file or font_file))
+        )
+        self._signature = f"ffmpeg-drawtext:1:{fonts}:crf{crf}:{preset}"
+
+    @property
+    def signature(self) -> str:
+        return self._signature
 
     def render(self, clip: bytes, overlays: Sequence[OverlayItem]) -> bytes:
         if not overlays:
@@ -172,6 +181,12 @@ def _color(value: str) -> str:
     if known is None:
         raise CompositionError(f"색은 CSS 색 이름이나 #RRGGBB 로 적어야 합니다: '{value}'")
     return known
+
+
+def _font_id(path: str) -> str:
+    """글꼴의 지문: 파일 이름 + 내용의 해시 앞부분. 폴더는 넣지 않는다 (저장소의 키에 경로가 남지 않게)."""
+    file = Path(path)
+    return f"{file.name}-{hashlib.sha256(file.read_bytes()).hexdigest()[:8]}"
 
 
 def _checked_font(path: str) -> str:

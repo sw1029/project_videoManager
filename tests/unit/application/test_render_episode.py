@@ -134,3 +134,25 @@ def test_narration_track_is_muxed_onto_the_final_video(container, episode):
         "매장에서 만나요",
     ]
     assert render.scene_uris == silent.scene_uris
+
+
+def test_changing_how_overlays_are_drawn_recomposes_the_scenes(container, episode, renderer):
+    """합성 결과는 '클립 + 문구 + 그리는 설정' 으로 정한다.
+
+    글꼴에 글자가 없어 빈 네모로 찍힌 문구는 글꼴을 바꿔 고친다. 문구는 그대로이므로, 설정이 키에 없으면
+    깨진 합성 결과를 다시 쓰게 된다.
+    """
+    first = _render(container, episode).episode.render
+    assert _render(container, episode).composed_now == ()
+
+    renderer.signature = "fake:another-font"
+    changed = _render(container, episode)
+
+    assert changed.composed_now == ("greeting", "closeup") and changed.reused == ()
+    assert changed.episode.render.scene_uris["closeup"] != first.scene_uris["closeup"]
+    # 문구가 없는 장면은 설정과 무관하다
+    assert changed.episode.render.scene_uris["show"] == first.scene_uris["show"]
+
+    renderer.signature = "fake"  # 되돌리면 예전 합성 결과를 다시 쓴다
+    back = _render(container, episode)
+    assert back.composed_now == () and back.episode.render.scene_uris == first.scene_uris

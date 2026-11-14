@@ -30,9 +30,18 @@ def decode_fake_composite(clip: bytes) -> dict[str, Any] | None:
 
 
 class FakeOverlayRenderer(OverlayRenderer):
-    def __init__(self, error: Exception | None = None) -> None:
+    def __init__(self, error: Exception | None = None, signature: str = "fake") -> None:
         self._error = error
+        self._signature = signature
         self.renders: list[tuple[OverlayItem, ...]] = []  # 스파이: 합성한 문구 묶음
+
+    @property
+    def signature(self) -> str:
+        return self._signature
+
+    @signature.setter
+    def signature(self, value: str) -> None:
+        self._signature = value  # 테스트: 글꼴을 바꾼 것처럼 설정을 바꾼다
 
     def render(self, clip: bytes, overlays: Sequence[OverlayItem]) -> bytes:
         if not overlays:

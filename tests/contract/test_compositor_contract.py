@@ -258,3 +258,26 @@ def test_vlm_reader_treats_missing_answers_as_no_text_and_bad_answers_as_errors(
     with pytest.raises(LLMTimeout):
         reader.read(clip, 1000, (PRICE_REGION,))
     assert reader.read(clip, 1000, ()) == ()  # 영역이 없으면 모델을 부르지 않는다
+
+
+def test_signature_names_the_way_overlays_are_drawn(kit):
+    """같은 설정이면 같은 지문이다. 장면 합성 결과를 다시 쓸지 정하는 키에 들어간다."""
+    assert isinstance(kit.renderer.signature, str) and kit.renderer.signature
+    assert kit.renderer.signature == kit.renderer.signature
+
+
+@needs_ffmpeg
+def test_ffmpeg_signature_changes_with_the_font_and_the_encoding(tmp_path):
+    other = tmp_path / "other.ttf"
+    other.write_bytes(b"not really a font")  # 있는 파일이면 된다 (그리지는 않는다)
+    base = FfmpegOverlayRenderer(FFMPEG, FONT)
+
+    assert FfmpegOverlayRenderer(FFMPEG, FONT).signature == base.signature
+    assert FfmpegOverlayRenderer(FFMPEG, str(other)).signature != base.signature
+    assert (
+        FfmpegOverlayRenderer(FFMPEG, FONT, regular_font_file=str(other)).signature
+        != base.signature
+    )
+    assert FfmpegOverlayRenderer(FFMPEG, FONT, crf=23).signature != base.signature
+    # 지문에 폴더 이름은 넣지 않는다 (저장소의 키에 사용자의 경로가 남지 않게)
+    assert str(tmp_path) not in FfmpegOverlayRenderer(FFMPEG, str(other)).signature

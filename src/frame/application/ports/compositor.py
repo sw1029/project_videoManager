@@ -27,8 +27,14 @@ class OverlayRenderer(ABC):
     - 문구가 없으면 넘겨받은 클립을 그대로 돌려준다 (같은 바이트).
     - 문구가 있으면 그 문구의 시간(장면 안 시각)과 영역에만 그린다. 결과의 크기·fps·길이는 입력과 같다.
     - 결정적이다: 같은 클립과 같은 문구면 같은 결과다 (장면 단위 캐시의 전제).
+    - signature 는 그리는 설정의 지문이다 (글꼴·인코딩 등). 같은 클립과 같은 문구에 다른 결과를 낼 수 있는
+      설정이 바뀌면 달라진다. 합성 결과를 다시 쓸지 정하는 키에 들어간다: 글꼴을 바꾸면 다시 그린다.
     - 그리지 못하면 CompositionError (글꼴 없음 등은 기동 시점의 ConfigurationError).
     """
+
+    @property
+    @abstractmethod
+    def signature(self) -> str: ...
 
     @abstractmethod
     def render(self, clip: bytes, overlays: Sequence[OverlayItem]) -> bytes: ...
