@@ -12,7 +12,8 @@
 
 모듈 지도
 - lines           SpokenLine · SpokenScript · SoundSpan · LineKind · SoundKind · SceneSpan
-- segmentation    build_script (받아쓰기 -> 대본) · classify_kinds · ScriptPolicy
+- segmentation    build_script (받아쓰기 -> 대본: 줄 나누기 · 잰 무음에 맞추기 · 지어낸 문장 거르기) ·
+                  classify_kinds · audible_spans · ScriptPolicy
 - korean_numbers  한국어의 수 읽기: read_number · parse_number (오천 = 5,000 · 스물한 = 21)
 - quantities      수량 (값 + 단위): quantities · quantity_conflicts · shared_quantities · mentions · canonical_text
 """
@@ -38,6 +39,7 @@ from frame.domain.script.quantities import (
 from frame.domain.script.segmentation import (
     DEFAULT_SCRIPT_POLICY,
     ScriptPolicy,
+    audible_spans,
     build_script,
     classify_kinds,
 )
@@ -53,6 +55,7 @@ __all__ = [
     "SoundSpan",
     "SpokenLine",
     "SpokenScript",
+    "audible_spans",
     "build_script",
     "canonical_text",
     "classify_kinds",
