@@ -146,7 +146,12 @@ class IntermediateRepresentation:
         return replace(self, scenes=scenes)
 
     # ---- 무결성 규칙 (ERD 규칙 2·3·4 의 도메인 측 검증 + 타임라인·관계 규칙) ----------
-    def validate(self) -> None:
+    def validate_keys(self) -> None:
+        """객체 · 장면 키의 형식과 유일성 (validate 의 첫 단계). 어긋나면 ValidationError.
+
+        키는 저장 경로와 DB id 에 그대로 들어간다. 이 부분만 따로 부를 수 있게 둔다: 생성 접수가 이 규칙이
+        생기기 전에 저장된 행을, 다른 규칙으로는 막지 않으면서 저장소에 닿기 전에 막는다 (감사 P-20).
+        """
         # 키 형식을 먼저 본다. 요구조건의 객체·상대 키는 '장면에 연결된 객체' 검사가 이 키들로 덮는다
         for e in self.entities:
             _check_key("객체", e.entity_key)
@@ -165,6 +170,9 @@ class IntermediateRepresentation:
             raise ValidationError(
                 "scene_key 는 버전 내에서 유일해야 합니다 (대소문자만 다른 키도 같은 키로 본다)"
             )
+
+    def validate(self) -> None:
+        self.validate_keys()
         if not self.scenes:
             raise ValidationError("장면이 하나 이상 있어야 합니다")
         self._validate_timeline()

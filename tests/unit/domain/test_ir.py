@@ -7,6 +7,7 @@ import pytest
 from frame.domain.enums import EntityKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
+from tests.support.factories import with_scene_key
 
 
 def test_valid_ir_passes_validation(ir):
@@ -373,3 +374,24 @@ def test_keys_that_differ_only_in_case_count_as_the_same_key(kind):
         ir.validate()
 
     assert "대소문자" in excinfo.value.message
+
+
+def test_validate_keys_checks_the_keys_and_nothing_else(ir):
+    """validate_keys 는 키의 형식과 유일성만 본다 (validate 의 첫 단계).
+
+    생성 접수가 따로 부른다: 키 규칙이 생기기 전에 저장된 행을 저장소에 닿기 전에 막되, 다른 규칙으로는
+    옛 행을 막지 않는다 (감사 P-20 · 델타 B10-D06).
+    """
+    ir.validate_keys()
+    first = ir.scenes[0]
+    shifted = replace(ir, scenes=(replace(first, planned_start_ms=100), *ir.scenes[1:]))
+    with pytest.raises(ValidationError):
+        shifted.validate()  # 첫 장면이 0 ms 에서 시작하지 않는다
+    shifted.validate_keys()
+
+    for old, new, words in (
+        ("intro", "../ver_victim/intro", "장면 키"),
+        ("closeup", "Intro", "대소문자"),
+    ):
+        with pytest.raises(ValidationError, match=words):
+            with_scene_key(ir, old, new).validate_keys()

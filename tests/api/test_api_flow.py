@@ -4,7 +4,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frame.presentation.app import create_app
-from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container
+from tests.support.factories import (
+    CAFE_PROMPT,
+    cafe_ir,
+    dispatcher_of,
+    make_container,
+    save_unchecked_draft,
+    with_scene_key,
+)
 
 
 @pytest.fixture
@@ -144,6 +151,22 @@ def test_generation_on_non_draft_returns_409(api):
         "error_code": "VERSION_NOT_GENERATABLE",
         "error_message": response.json()["error_message"],
     }
+
+
+def test_generation_of_a_version_saved_before_the_key_rules_returns_409():
+    """키 규칙(#10)이 생기기 전에 저장된 행: 생성을 접수하지 않고, 무엇을 고칠지 알린다 (감사 P-20)."""
+    container = make_container()
+    client = TestClient(create_app(container))
+    version_id = save_unchecked_draft(container, with_scene_key(cafe_ir(), "closeup", "Intro"))
+
+    response = client.post(f"/api/versions/{version_id}/generations")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error_code"] == "VERSION_NOT_GENERATABLE"
+    assert "대소문자" in body["error_message"] and "중간표현" in body["error_message"]
+    assert client.get(f"/api/versions/{version_id}").json()["state"] == "DRAFT"
+    assert dispatcher_of(container).pending == []
 
 
 def test_failed_version_exposes_error_code_and_message(api):

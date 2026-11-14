@@ -15,11 +15,14 @@ from frame.domain.errors import InvalidStateTransition
 from frame.domain.revision import AttributeChange
 from tests.support.clock import ManualClock
 from tests.support.factories import (
+    cafe_ir,
     create_draft,
     dispatcher_of,
     generate,
     make_container,
+    save_unchecked_draft,
     version_of,
+    with_scene_key,
 )
 
 
@@ -116,6 +119,33 @@ def test_failed_tracking_of_an_entity_makes_its_requirements_undetermined():
 def test_run_requires_queued_state(container, draft):
     with pytest.raises(InvalidStateTransition):
         container.run_generation_pipeline.execute(draft.version_id)
+
+
+def test_a_queued_version_whose_scene_key_points_elsewhere_fails_at_the_store(container, draft):
+    """접수의 키 검사를 지나친 행(그 검사가 생기기 전에 접수됐다)은 저장소의 키 검사가 마지막으로 막는다.
+
+    델타 감사 B10-D06 을 병합한 트리에서 재현한 것이다: 장면 키가 '../<다른 버전>/intro' 인 옛 행을 생성하면
+    FAILED(STORAGE_ERROR)이고 그 다른 버전의 클립은 그대로다. #10 만 있는 트리에서는 COMPLETED 였고 그 클립이
+    덮어써졌다 (감사 P-20).
+    """
+    victim = generate(container, draft.version_id)
+    store = container.artifact_store
+    before = {key: store.get(clip.uri) for key, clip in victim.clips.items()}
+    bad = with_scene_key(cafe_ir(), "intro", f"../{victim.version_id}/intro")
+    version_id = save_unchecked_draft(container, bad)
+    with container.uow_factory() as uow:  # 접수가 하는 일에서 키 검사만 뺀 것
+        assert uow.versions.try_transition(version_id, VersionState.DRAFT, VersionState.QUEUED)
+        queued = uow.versions.get(version_id)
+        queued.freeze_conditions()
+        uow.versions.save(queued)
+        uow.commit()
+
+    container.run_generation_pipeline.execute(version_id)
+
+    failed = version_of(container, version_id)
+    assert (failed.state, failed.error_code) == (VersionState.FAILED, "STORAGE_ERROR")
+    assert failed.clips == {}
+    assert {key: store.get(clip.uri) for key, clip in victim.clips.items()} == before
 
 
 @pytest.mark.ac("AC-01")
