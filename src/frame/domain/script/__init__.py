@@ -13,13 +13,15 @@
 모듈 지도
 - lines           SpokenLine · SpokenScript · SoundSpan · LineKind · SoundKind · SceneSpan
 - segmentation    build_script (받아쓰기 -> 대본) · classify_kinds · ScriptPolicy
-- korean_numbers  한국어의 수 읽기와 수량: read_number · parse_number · quantities · quantity_conflicts · canonical_text
+- korean_numbers  한국어의 수 읽기와 수량: read_number · parse_number · quantities · quantity_conflicts ·
+                  mentions · canonical_text
 """
 
 from frame.domain.script.korean_numbers import (
     Quantity,
     QuantityConflict,
     canonical_text,
+    mentions,
     parse_number,
     quantities,
     quantity_conflicts,
@@ -55,6 +57,7 @@ __all__ = [
     "build_script",
     "canonical_text",
     "classify_kinds",
+    "mentions",
     "parse_number",
     "quantities",
     "quantity_conflicts",

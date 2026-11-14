@@ -16,6 +16,9 @@
 - correct_episode_screen  CorrectEpisodeScreen: 어긋난 곳을 고친다. 문구 수정은 무료, 클립 수정은 짚은 것만
 - revise_episode          ReviseEpisode: 편의 조건을 사람이 정해 고친다 (그 조건이 걸린 장면만 다시 만든다)
 - settle_episode          SettleEpisode: 만들고 있는 수정 버전의 결말을 편에 반영한다 · 만들다 만 초안 버리기
+- correct_source_script   CorrectSourceScript: 원본에서 뽑은 대본의 줄을 고치고, 그 줄에 걸린 것만 다시 맞춘다
+- revise_episode_script   ReviseEpisodeScript: 편의 녹음 대본만 고친다 (영상은 그대로, 바뀐 줄만 다시 녹음)
+- _narration_track        (안쪽) 줄마다의 맞춤으로 편 길이의 소리 트랙을 만든다
 - _pending_revision       (안쪽) 수정 버전은 끝난 뒤에만 기준 버전이 된다: settle_pending · require_episode
 
 돈이 드는 쪽은 기본이 아니다: 수정 버전의 생성 접수는 generate=True 를 줘야 하고,
@@ -41,6 +44,12 @@ from frame.application.use_cases.series.correct_episode_screen import (
     CorrectScreenCommand,
     CorrectScreenResult,
 )
+from frame.application.use_cases.series.correct_source_script import (
+    CorrectSourceScript,
+    CorrectSourceScriptCommand,
+    CorrectSourceScriptResult,
+    LineCorrection,
+)
 from frame.application.use_cases.series.create_episode import CreateEpisode, CreateEpisodeCommand
 from frame.application.use_cases.series.extract_theme import (
     ExtractTheme,
@@ -50,6 +59,11 @@ from frame.application.use_cases.series.extract_theme import (
 )
 from frame.application.use_cases.series.render_episode import RenderEpisode, RenderEpisodeResult
 from frame.application.use_cases.series.revise_episode import ReviseEpisode, ReviseEpisodeCommand
+from frame.application.use_cases.series.revise_episode_script import (
+    ReviseEpisodeScript,
+    ReviseEpisodeScriptCommand,
+    ReviseEpisodeScriptResult,
+)
 from frame.application.use_cases.series.settle_episode import SettleEpisode, SettleEpisodeCommand
 
 __all__ = [
@@ -62,17 +76,24 @@ __all__ = [
     "CorrectEpisodeScreen",
     "CorrectScreenCommand",
     "CorrectScreenResult",
+    "CorrectSourceScript",
+    "CorrectSourceScriptCommand",
+    "CorrectSourceScriptResult",
     "CreateEpisode",
     "CreateEpisodeCommand",
     "ExtractTheme",
     "ExtractThemeCommand",
     "ExtractThemeResult",
+    "LineCorrection",
     "NotShortform",
     "RecordingInput",
     "RenderEpisode",
     "RenderEpisodeResult",
     "ReviseEpisode",
     "ReviseEpisodeCommand",
+    "ReviseEpisodeScript",
+    "ReviseEpisodeScriptCommand",
+    "ReviseEpisodeScriptResult",
     "ScreenReport",
     "SettleEpisode",
     "SettleEpisodeCommand",

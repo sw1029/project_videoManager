@@ -26,9 +26,10 @@ from pathlib import PurePosixPath
 
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
-from frame.application.ports.series.audio import AudioEditor, TrackCut
+from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.repositories import EpisodeRepository
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
+from frame.application.use_cases.series._narration_track import narration_track
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.series.episode import ScriptLine
 from frame.domain.series.narration import (
@@ -36,12 +37,10 @@ from frame.domain.series.narration import (
     LineAlignment,
     LineStatus,
     NarrationPolicy,
-    PlacementStatus,
     align_script,
     check_line,
-    place_lines,
 )
-from frame.domain.series.record import Episode, NarrationResult
+from frame.domain.series.record import Episode
 from frame.domain.speech import Transcript
 
 _SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
@@ -122,8 +121,6 @@ class AttachNarration:
             )
             transcript.validate()
             transcripts.append(transcript)
-        durations = [self._duration(data) for data in sources]
-
         if whole:
             alignments = align_script(script, transcripts[0], self._policy, key_terms=key_terms)
         else:
@@ -142,25 +139,11 @@ class AttachNarration:
                 kept.get(line.line_key, LineAlignment(line.line_key, LineStatus.MISSING))
                 for line in script
             )
-        spans = {
-            scene.scene_key: (scene.planned_start_ms, scene.planned_end_ms)
-            for scene in episode.plan.ir.scenes
-        }
-        placements = place_lines(script, alignments, spans, durations, self._policy)
-        cuts = [
-            TrackCut(p.source_index, p.source_start_ms, p.source_end_ms, p.target_start_ms, p.tempo)
-            for p in placements
-            if p.status is not PlacementStatus.MISSING
-        ]
-        track = self._audio.render_track(sources, cuts, episode.plan.ir.total_duration_ms)
-        track_uri = self._store.put(
-            f"episodes/{episode.episode_id}/narration{self._audio.track_suffix}", track
+        narration = narration_track(
+            self._store, self._audio, episode, uris, sources, alignments, self._policy
         )
-        updated = replace(
-            episode,
-            narration=NarrationResult(tuple(uris), tuple(alignments), tuple(placements), track_uri),
-            render=None,  # 소리가 바뀌었으니 완성본은 다시 만들어야 한다
-        )
+        # 소리가 바뀌었으니 완성본은 다시 만들어야 한다
+        updated = replace(episode, narration=narration, render=None)
         self._episodes.save(updated)
         return updated
 
@@ -188,12 +171,6 @@ class AttachNarration:
                 f"(이 녹음이 덮는 시간은 {covered / 1000:.0f}초, 받는 상한은 {limit / 1000:.0f}초)"
             )
         return speech
-
-    def _duration(self, data: bytes) -> int:
-        info = self._audio.probe(data)
-        if info is None:
-            raise ValidationError("녹음 파일에 소리가 없습니다")
-        return info.duration_ms
 
 
 def _mode(recordings: Sequence[RecordingInput], script: Sequence[ScriptLine]) -> bool:

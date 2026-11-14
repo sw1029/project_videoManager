@@ -8,6 +8,7 @@
 - quantities("가격은 오천 원입니다")           단위가 붙은 수만 수량이다
 - quantity_conflicts(a, b)                    같은 단위인데 값이 하나도 겹치지 않는 것
 - canonical_text("오천 원") == canonical_text("5,000원") == "5000원"    견주기용 글
+- mentions("가격은 오천 원", "5,000원")       글이 그 값을 담았는가
 
 보수적으로 뽑는다. 단위가 붙지 않은 수는 수량이 아니다: '이 메뉴' 의 '이', '일을 한다' 의 '일', '오늘' 의 '오' 를
 수로 읽지 않는다. 혼자 선 '이' 는 단위 앞에서도 수로 읽지 않는다 ('이 잔' 은 대개 '이 컵' 이라는 뜻이다).
@@ -231,6 +232,22 @@ def quantity_conflicts(left: str, right: str) -> tuple[QuantityConflict, ...]:
         if others and not set(values) & set(others):
             conflicts.append(QuantityConflict(unit, tuple(values), tuple(others)))
     return tuple(conflicts)
+
+
+def mentions(text: str, value: str) -> bool:
+    """글이 그 값을 담았는가. 수량은 값으로('오천 원' = '5,000원'), 나머지는 글자로 견준다."""
+    wanted = quantities(value)
+    if not wanted:
+        needle = canonical_text(value)
+        return bool(needle) and needle in canonical_text(text)
+    found = {(q.value, q.unit) for q in quantities(text)}
+    if not all((q.value, q.unit) in found for q in wanted):
+        return False
+    rest = unicodedata.normalize("NFKC", value)
+    for quantity in reversed(wanted):
+        rest = rest[: quantity.start] + rest[quantity.end :]
+    remainder = canonical_text(rest)
+    return len(remainder) < 2 or remainder in canonical_text(text)
 
 
 def canonical_text(text: str) -> str:

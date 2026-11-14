@@ -279,6 +279,10 @@ def _overlays(
                 for key, value in by_slot[slot.slot_key].variables.items()
                 if key in slot_scoped
             }
+            spoken = " ".join(by_slot[slot.slot_key].narration.split())
+            if rule.follows_speech and spoken and len(rule.variables) == 1:
+                # 말을 받아 적는 자막 (ADR-0028): 기획이 준 값이 아니라 그 자리에서 말할 줄이 자막이다
+                own[rule.variables[0]] = spoken
             available = {**values, **own}
             if any(not available.get(name) for name in rule.variables):
                 continue  # 자리별 값이 없는 자리에는 그 문구를 넣지 않는다

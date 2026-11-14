@@ -28,6 +28,7 @@ from frame.domain.script import (
     SpokenLine,
     SpokenScript,
     canonical_text,
+    mentions,
     quantities,
     quantity_conflicts,
 )
@@ -372,22 +373,6 @@ def _shares_quantity(a: str, b: str) -> bool:
     return any((q.value, q.unit) in there for q in quantities(a))
 
 
-def _mentions(text: str, value: str) -> bool:
-    """글이 그 값을 담았는가. 수량은 값으로, 나머지는 글자로 견준다."""
-    wanted = quantities(value)
-    if wanted:
-        found = {(q.value, q.unit) for q in quantities(text)}
-        if not all((q.value, q.unit) in found for q in wanted):
-            return False
-        rest = value
-        for quantity in reversed(wanted):
-            rest = rest[: quantity.start] + rest[quantity.end :]
-        remainder = canonical_text(rest)
-        return len(remainder) < 2 or remainder in canonical_text(text)
-    needle = canonical_text(value)
-    return bool(needle) and needle in canonical_text(text)
-
-
 def _variable_slots(theme: Theme, key: str) -> set[str]:
     """그 변수를 쓰는 문구 규칙이 나오는 자리. 규칙이 없거나 모든 자리이면 빈 집합 (어느 자리든)."""
     slots: set[str] = set()
@@ -402,8 +387,8 @@ def _variable_slots(theme: Theme, key: str) -> set[str]:
 def _variable_evidence(
     theme: Theme, script: SpokenScript, screen_texts: Sequence[ScreenText], key: str, value: str
 ) -> VariableEvidence:
-    shown = any(_mentions(text.text, value) for text in screen_texts)
-    said = tuple(line.line_id for line in script.lines if _mentions(line.text, value))
+    shown = any(mentions(text.text, value) for text in screen_texts)
+    said = tuple(line.line_id for line in script.lines if mentions(line.text, value))
     if said:
         return VariableEvidence(
             key, value, Agreement.AGREE if shown else Agreement.SPEECH_ONLY, said

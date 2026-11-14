@@ -34,10 +34,12 @@ from frame.application.use_cases.series import (
     AttachNarration,
     CheckEpisodeScreen,
     CorrectEpisodeScreen,
+    CorrectSourceScript,
     CreateEpisode,
     ExtractTheme,
     RenderEpisode,
     ReviseEpisode,
+    ReviseEpisodeScript,
     SettleEpisode,
 )
 from frame.domain.series.shortform import ShortformPlatform
@@ -74,6 +76,8 @@ class ThemeServices:
     check_screen: CheckEpisodeScreen
     correct_screen: CorrectEpisodeScreen
     extract_script: ExtractScript
+    correct_source_script: CorrectSourceScript
+    revise_episode_script: ReviseEpisodeScript
     revise_episode: ReviseEpisode
     settle_episode: SettleEpisode
 
@@ -407,6 +411,8 @@ def build_theme_services(
         render_episode=RenderEpisode(episodes, uow_factory, store, renderer, assembler, audio),
         check_screen=check_screen,
         extract_script=ExtractScript(audio, recognizer),
+        correct_source_script=CorrectSourceScript(themes, episodes),
+        revise_episode_script=ReviseEpisodeScript(themes, episodes, uow_factory, store, audio),
         correct_screen=CorrectEpisodeScreen(
             episodes, check_screen, uow_factory, create_revision, accept_generation
         ),
