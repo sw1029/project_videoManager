@@ -6,17 +6,23 @@
 - region_ssim: 두 영상의 구조 유사도를 화면의 한 영역 안에서만, 또는 그 영역을 뺀 나머지에서만 잰다.
   국소 수정이 '고칠 곳만 바꾸고 나머지는 그대로 뒀는지' 를 재는 데 쓴다 (ADR-0027).
 ffprobe 없이 ffmpeg 하나로 읽는다 (imageio-ffmpeg 는 ffprobe 를 담고 있지 않다). 실패는 MediaToolError 다.
+
+실행과 출력의 끝(tail)은 공용 실행기(.ffmpeg)의 것을 쓴다. 이 모듈의 오류 문구는 어댑터의 포트 오류에 실려
+밖으로 나가므로, 실행 파일의 경로와 임시 폴더가 문구에 실리지 않아야 한다 (그 규칙이 실행기 한 곳에 있다).
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from frame.application.errors import AdapterError
+
+from . import ffmpeg as _runner
+from .ffmpeg import tail
 
 _DURATION = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_LINE = re.compile(r"Stream #\d+:\d+.*?: Video: (\w+).*")
@@ -188,26 +194,17 @@ def region_ssim(
     return max(0.0, min(1.0, value))
 
 
-def run_ffmpeg(cmd: list[str], timeout_s: float, cwd: str | Path | None = None) -> tuple[int, str]:
+def run_ffmpeg(
+    cmd: Sequence[str], timeout_s: float, cwd: str | Path | None = None
+) -> tuple[int, str]:
+    """(종료 코드, stderr 출력). 실행하지 못했거나 timeout_s 안에 끝나지 않으면 MediaToolError.
+
+    실행은 공용 실행기가 한다. 이 모듈을 쓰는 어댑터가 MediaToolError 하나만 잡으면 되도록 오류의 종류만 바꾼다.
+    """
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=timeout_s,
-            check=False,
-            cwd=str(cwd) if cwd is not None else None,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows 콘솔 창 안 띄움
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise MediaToolError(f"ffmpeg 가 {timeout_s:g}초 안에 끝나지 않았습니다") from exc
-    except OSError as exc:
-        raise MediaToolError(f"ffmpeg 를 실행하지 못했습니다: {exc}") from exc
-    return proc.returncode, proc.stderr.decode("utf-8", errors="replace")
-
-
-def tail(log: str, lines: int = 3) -> str:
-    useful = [line.strip() for line in log.replace("\r", "\n").splitlines() if line.strip()]
-    return " | ".join(useful[-lines:])[-400:] or "(출력 없음)"
+        return _runner.run_ffmpeg(cmd, timeout_s, cwd)
+    except _runner.FfmpegNotRun as exc:
+        raise MediaToolError(str(exc)) from exc
 
 
 def _duration_ms(log: str) -> int | None:
