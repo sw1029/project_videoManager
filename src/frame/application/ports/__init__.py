@@ -4,6 +4,7 @@
 """
 
 from .artifact_store import ArtifactStore
+from .assembler import VideoAssembler
 from .checker import CheckContext, Checker, CheckOutcome
 from .common import Clock, IdGenerator
 from .generator import (
@@ -11,7 +12,6 @@ from .generator import (
     ParentClip,
     SceneGenerationRequest,
     VideoArtifact,
-    VideoAssembler,
     VideoGenerator,
 )
 from .identity import IdentityExtractionRequest, IdentityImage, IdentityReferenceExtractor

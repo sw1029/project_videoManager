@@ -11,7 +11,7 @@ from frame.application.use_cases.upload_reference_image import (
     sniff_image_type,
 )
 from frame.domain.errors import NotFound, PayloadTooLarge, UnsupportedMediaType, ValidationError
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import (
     CAFE_PROMPT,
     cafe_block_document,

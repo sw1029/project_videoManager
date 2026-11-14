@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from frame.adapters.common import SystemClock, UuidIdGenerator
 from frame.adapters.generator.cache import ClipCache, build_clip_cache
 from frame.adapters.generator.decorators import (
     CachingVideoGenerator,
@@ -20,6 +19,7 @@ from frame.adapters.generator.decorators import (
     pause_before_retry,
 )
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.shared.runtime import SystemClock, UuidIdGenerator
 from frame.adapters.structurer.passthrough import PassthroughStructurer
 from frame.application.checks import CheckSuite
 from frame.application.errors import ConfigurationError
@@ -63,8 +63,8 @@ from frame.application.use_cases import (
     UploadReferenceImage,
 )
 from frame.domain.enums import EntityKind
+from frame.domain.revision import ChangePropagationPolicy, DefaultPropagationPolicy
 from frame.domain.services.identity import IdentityPolicy
-from frame.domain.services.propagation import ChangePropagationPolicy, DefaultPropagationPolicy
 
 from .registry import AdapterRegistry, BuildContext, default_registry
 from .settings import Settings

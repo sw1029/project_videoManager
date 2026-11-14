@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError
 from frame.application.ports.artifact_store import ArtifactStore
-from frame.application.ports.generator import GeneratedClip, VideoArtifact, VideoAssembler
+from frame.application.ports.assembler import VideoAssembler
+from frame.application.ports.generator import GeneratedClip, VideoArtifact
 from frame.config import Settings
 from frame.presentation.app import create_app
 from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container

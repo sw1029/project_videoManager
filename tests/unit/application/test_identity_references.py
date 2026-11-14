@@ -13,7 +13,7 @@ from frame.application.errors import ConfigurationError
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.config import Settings
 from frame.domain.enums import ChangeScope, ReferenceOrigin, VersionState
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import create_draft, generate, make_container
 
 

@@ -29,7 +29,7 @@ Mock 라이브러리는 쓰지 않는다. 포트가 작고 Fake 가 있으므로
 
 1. **테스트 리스트**: 모든 등장 장면에 반영 / 지정 장면만 반영 / 객체 없는 장면 거부 / 원본 IR 불변 / 같은 값이면 변경 없음
 2. **Red**: `tests/unit/domain/test_propagation.py` 에 `test_change_propagates_to_all_scenes_where_entity_appears` 작성 → `DefaultPropagationPolicy` 가 없어 실패
-3. **Green**: `domain/services/propagation.py` 에 최소 구현 (대상 장면 결정 + 요구조건 교체/추가)
+3. **Green**: `domain/revision/propagation.py` 에 최소 구현 (대상 장면 결정 + 요구조건 교체/추가)
 4. **Refactor**: 대상 장면 결정을 `_resolve_targets` 로 분리, 오류 메시지 정리. 테스트는 그대로 초록
 5. **바깥쪽으로**: `test_create_revision.py` (유스케이스) → `test_api_flow.py` 의 `POST /revisions` → `test_us01_selective_edit.py` 의 `@pytest.mark.ac("AC-02")`
 

@@ -6,8 +6,7 @@ from frame.application.dto import CreateProjectCommand, CreateRevisionCommand
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind, VersionState
 from frame.domain.errors import NotFound, ValidationError, VersionNotRevisable
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem
 from tests.support.factories import CAFE_PROMPT, create_draft, generate, version_of
 
 

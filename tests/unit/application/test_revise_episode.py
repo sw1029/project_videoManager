@@ -14,8 +14,7 @@ from frame.application.errors import GenerationError
 from frame.application.use_cases.series import ReviseEpisodeCommand, SettleEpisodeCommand
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind, VersionState
 from frame.domain.errors import NotFound, ValidationError
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem
 from tests.support.factories import dispatcher_of, version_of
 from tests.support.series import (
     generate_episode,

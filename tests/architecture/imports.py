@@ -100,5 +100,23 @@ def external_imports() -> list[Import]:
     return [item for item in imports() if layer_of(item.imported) == EXTERNAL]
 
 
+def imported_names(path: Path, importer: str | None = None) -> list[tuple[int, str]]:
+    """파일의 import 가 가리키는 점 이름을 (줄, 이름)으로 낸다: `import a.b` 는 a.b, `from a import b` 는 a 와 a.b.
+
+    importer(그 파일의 모듈 이름)를 주면 상대 import 를 절대 이름으로 푼다. 주지 않으면 상대 import 는 건너뛴다.
+    """
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found += [(node.lineno, alias.name) for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level and importer is None:
+                continue
+            base = _resolve(importer, node) if importer is not None else (node.module or "")
+            found.append((node.lineno, base))
+            found += [(node.lineno, f"{base}.{alias.name}") for alias in node.names]
+    return found
+
+
 def listing(items: list[Import]) -> str:
     return "\n" + "\n".join(f"  {item}" for item in items)

@@ -10,9 +10,8 @@ from frame.domain.checks import CheckResult
 from frame.domain.enums import RevisionKind, Verdict, VersionState
 from frame.domain.metrics import CheckSummary
 from frame.domain.models import Project, ReferenceImage, VideoVersion
-from frame.domain.revision import KeepItem
+from frame.domain.revision import AttributeChange, KeepItem
 from frame.domain.services.comparison import RateDelta, VersionComparison
-from frame.domain.services.propagation import AttributeChange
 from frame.domain.tracking import TrackRecord
 
 from .ports.structurer import ReferenceImageInput

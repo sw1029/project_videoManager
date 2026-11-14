@@ -19,8 +19,8 @@ from typing import Any
 
 from frame.application.errors import ConfigurationError
 from frame.application.ports.artifact_store import ArtifactStore
+from frame.application.ports.assembler import VideoAssembler
 from frame.application.ports.common import Clock, IdGenerator
-from frame.application.ports.generator import VideoAssembler
 from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.overlay import OverlayRenderer, ScreenTextReader
 from frame.application.ports.series.planning import SeriesPlanner

@@ -6,8 +6,8 @@ from collections.abc import Iterable
 from dataclasses import replace
 from typing import Any
 
-from frame.adapters.common import FixedClock, SequentialIdGenerator
 from frame.adapters.jobs import RecordingJobDispatcher
+from frame.adapters.shared.runtime import FixedClock, SequentialIdGenerator
 from frame.application.dto import CreateProjectCommand, CreateProjectResult
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.config import Container, Settings, build_container

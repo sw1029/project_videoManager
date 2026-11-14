@@ -17,13 +17,13 @@ from frame.domain.services.identity import (
 )
 
 from ..checks import CheckSuite
+from ..ports.assembler import VideoAssembler
 from ..ports.checker import CheckContext
 from ..ports.common import IdGenerator
 from ..ports.generator import (
     ParentClip,
     RevisionDirective,
     SceneGenerationRequest,
-    VideoAssembler,
     VideoGenerator,
 )
 from ..ports.identity import IdentityReferenceExtractor

@@ -21,7 +21,6 @@
     ledger         작업 원장(JobLedger): 제출한 유료 작업의 기록
     normalizer     클립 정규화(FfmpegVideoNormalizer): 모델이 돌려준 클립을 한 규격으로 맞춘다
     fake           가짜 생성기
-    ffmpeg         옛 경로의 호환 모듈 (정규화는 normalizer, ffmpeg 찾기·클립 검사는 shared/media)
     stubs          뼈대 생성기
 """
 

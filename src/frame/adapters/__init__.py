@@ -12,7 +12,6 @@
     generator/ · identity/ · checker/ · tracker/           장면 클립 생성(과 조립), 정체성 기준 이미지, 검수, 추적
     storage/ · persistence/ · jobs/                        산출물 저장소, DB 저장소, 작업 디스패처
     shared/                                                어댑터들이 함께 쓰는 것
-    common · http_transport · video_tools · vlm_answers    옛 경로의 호환 모듈 (구현은 shared/ 에 있다)
 """
 
 __all__: list[str] = []

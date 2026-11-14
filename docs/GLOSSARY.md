@@ -117,4 +117,4 @@
 | 버전 상태 | `VersionState` — `STRUCTURING` → `DRAFT` → `QUEUED` → `PROCESSING` → `COMPLETED` / `FAILED` | 구조화 중 → 초안 → 대기 → 처리 중 → 끝남 / 실행 오류. 검수 판정이 `FAIL` 이어도 버전은 `COMPLETED` 다 |
 | 조건 고정 | `frozen_fingerprint` | 생성을 접수하면 IR 을 더 고칠 수 없다 |
 | 뼈대 어댑터 | `skeleton(...)` (`config/registrations/_dependencies.py`) | 자리만 있고 구현이 없는 어댑터. 고르면 기동에서 거절한다 |
-| 호환 모듈 | 옛 경로의 모듈 | 옮긴 모듈의 이름만 다시 내보낸다 (ADR-0031 3절) |
+| 호환 모듈 | 옛 경로의 모듈 | 옮긴 모듈의 이름만 다시 내보낸다 (ADR-0031 3절). 그 경로를 쓰는 작업 중 브랜치가 있을 때만 둔다 — 2026-11-15 에 모두 걷어내 지금은 없다 |

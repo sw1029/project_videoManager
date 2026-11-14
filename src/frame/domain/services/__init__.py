@@ -5,7 +5,6 @@
 모듈 지도
     identity             정체성 기준 이미지의 규칙: 누구에게 필요한가, 아직 유효한가
     comparison           버전 비교: 장면 · 요구조건 · 지표의 전후
-    propagation · revision_planning    옛 경로의 호환 모듈. 수정 의도와 그 규칙은 domain/revision/ 에 있다
 """
 
 __all__: list[str] = []

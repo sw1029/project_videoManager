@@ -13,9 +13,6 @@
     locking     키별 잠금 (KeyedLocks): 같은 키의 일을 한 번에 하나만
     media/      영상 처리 도구: ffmpeg 찾기·실행, 프레임 뽑기, 영상·소리 정보, 유사도(SSIM), 가짜 미디어 형식
     vlm/        이미지를 읽는 모델(VLM)의 답 읽기
-
-옛 경로 (frame.adapters.common · http_transport · video_tools · vlm_answers)
-    이름만 다시 내보내는 호환 모듈이다. 작업 중인 브랜치가 쓰고 있어 남겨 두었고 새 코드는 쓰지 않는다 (ADR-0031).
 """
 
 __all__: list[str] = []

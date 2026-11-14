@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 
 from frame.application.ports.artifact_store import ArtifactStore
-from frame.application.ports.generator import VideoAssembler
+from frame.application.ports.assembler import VideoAssembler
 from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.overlay import OverlayRenderer
 from frame.application.ports.series.repositories import EpisodeRepository
