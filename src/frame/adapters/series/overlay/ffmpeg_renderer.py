@@ -96,12 +96,12 @@ def find_font(
     wanted = {name.lower(): rank for rank, name in enumerate(names)}
     best: tuple[int, str] | None = None
     for folder in system_font_dirs() if dirs is None else dirs:
-        if not Path(folder).is_dir():
-            continue
         try:
+            if not Path(folder).is_dir():
+                continue
             found = sorted(p for p in Path(folder).rglob("*") if p.name.lower() in wanted)
         except OSError:
-            continue  # 읽을 수 없는 폴더는 건너뛴다
+            continue  # 볼 수 없거나 읽을 수 없는 폴더는 건너뛴다 (홈 폴더에 권한이 없는 사용자 등)
         for path in found:
             rank = wanted[path.name.lower()]
             if path.is_file() and (best is None or rank < best[0]):

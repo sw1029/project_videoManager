@@ -117,10 +117,11 @@ jobs:
         run: python -m pytest tests/contract/test_overlay_contract.py
 
   docker:
-    # 이미지를 빌드해 띄우고 /health 가 답하는지 본다 (이슈 #6). 로컬에서 돌려 보지 못한 잡이라
+    # 이미지를 빌드해 띄우고 /health 가 답하는지 본다 (이슈 #6). 그리고 그 이미지 안에서 실제 영상 경로를 돌린다 (ADR-0034):
+    # 이미지의 ffmpeg 는 배포판의 것이라 다른 잡이 쓰는 번들과 판 · 빌드가 다르다. 로컬에서 돌려 보지 못한 잡이라
     # 처음에는 결과만 보고 머지를 막지 않는다 (ADR-0030, docs/CI.md 6절)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -134,6 +135,36 @@ jobs:
           done
           docker logs frame-api
           exit 1
+      - name: 이미지의 크기 (층마다) 와 그 안의 배포판 · ffmpeg 의 판 · drawtext 필터
+        run: |
+          docker image ls frame-api:ci
+          docker history frame-api:ci
+          docker run --rm frame-api:ci sh -ec '
+            python -c "import platform; print(platform.freedesktop_os_release())"
+            dpkg-query -W ffmpeg fonts-nanum
+            command -v ffmpeg
+            ffmpeg -hide_banner -version
+            ffmpeg -hide_banner -filters | grep " drawtext "'
+      - name: 이미지 그대로 - 화면 문구 합성 · 소리 편집 · 영상 분석을 켠 서버가 조립되는지
+        run: |
+          docker run --rm \
+            -e FRAME_OVERLAY_RENDERER=ffmpeg -e FRAME_AUDIO_EDITOR=ffmpeg -e FRAME_THEME_MEDIA=ffmpeg \
+            frame-api:ci python -c "from frame.presentation.main import create_default_app; create_default_app(); print('assembled')"
+      - name: 이미지 안에서 전체 테스트 - 배포판의 ffmpeg 와 한글 글꼴로 실제 영상 경로를 돌린다
+        # 클립 정규화(프레임 세기) · 조립 · 프레임 뽑기 · 소리 편집 · 화면 문구 합성이 이 이미지의 ffmpeg 로 되는지 본다.
+        # 저장소를 읽기 전용으로 붙여 컨테이너 안에 베끼고, 이미지의 패키지 위에 개발 도구만 더한 가상 환경에서 돌린다.
+        # 사용자는 이미지가 정한 그대로다 (서버가 도는 frame - root 로 바꾸지 않는다).
+        # ffmpeg · drawtext · 한글 글꼴이 없으면 건너뛰지 않고 실패한다. 어느 ffmpeg · 글꼴을 썼는지는 테스트의 머리 줄에 찍힌다
+        run: |
+          docker run --rm -v "$PWD":/checkout:ro frame-api:ci sh -ec '
+            work=$(mktemp -d)
+            cp -r /checkout "$work/frame"
+            cd "$work/frame"
+            python -m venv --system-site-packages "$work/venv"
+            export PATH="$work/venv/bin:$PATH"
+            python -m pip install --no-cache-dir --quiet -e ".[dev,llm]"
+            export FRAME_REQUIRE_FFMPEG=1 FRAME_REQUIRE_KOREAN_FONT=1 FRAME_REQUIRE_DRAWTEXT=1
+            python -m pytest'
 
   frontend:
     # frontend/ 가 있는 브랜치에서만 빌드한다 (없는 브랜치에서는 단계가 건너뛰어진다)
