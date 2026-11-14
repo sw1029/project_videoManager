@@ -25,7 +25,7 @@ from collections.abc import Set
 from dataclasses import dataclass
 from typing import Any
 
-from frame.application.errors import AdapterError
+from frame.application.errors import AdapterError, LLMRateLimited, LLMTimeout, LLMUnavailable
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.series.overlay import ScreenTextReader
 from frame.application.ports.series.repositories import EpisodeRepository, ThemeRepository
@@ -46,6 +46,8 @@ from frame.domain.series.screen_correction import (
 )
 
 log = logging.getLogger(__name__)
+# 읽는 서비스를 쓸 수 없다는 오류. 문구마다 다시 물어도 같은 실패다: 첫 실패에서 멈춘다 (감사 BTS-D34)
+_READER_DOWN = (LLMTimeout, LLMUnavailable, LLMRateLimited)
 
 
 @dataclass(frozen=True)
@@ -176,9 +178,19 @@ class CheckEpisodeScreen:
                 at_ms = (item.start_ms + item.end_ms) // 2
                 try:
                     seen = self._reader.read(clip, at_ms, (item.region,))[0]
+                except _READER_DOWN as exc:
+                    # 시간 초과·연결·한도: 남은 문구마다 시간 제한을 기다리지 않는다 (편의 키를 쥔 채다)
+                    log.warning("화면 글자를 읽는 서비스를 쓸 수 없습니다 (%s): %s", exc.code, exc)
+                    notes.append(
+                        f"화면 글자를 읽는 서비스를 쓸 수 없어 '{item.overlay_id}' 부터 남은 문구를 "
+                        f"화면에서 확인하지 않았습니다 ({exc.code})"
+                    )
+                    return read, issues
                 except (AdapterError, IndexError) as exc:
+                    # 메모는 검수 보고로 밖에 나간다. 오류 코드만 적고 원문(경로·공급자의 글)은 로그로 보낸다
+                    code = getattr(exc, "code", type(exc).__name__)
                     log.warning("화면 문구를 읽지 못했습니다 (%s): %s", item.overlay_id, exc)
-                    notes.append(f"화면 문구 '{item.overlay_id}' 를 읽지 못했습니다: {exc}")
+                    notes.append(f"화면 문구 '{item.overlay_id}' 를 읽지 못했습니다 ({code})")
                     continue
                 read += 1
                 if item.overlay_id in skip or screen_text_matches(item.text, seen):

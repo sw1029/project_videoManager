@@ -15,7 +15,12 @@ from frame.adapters.fake_media import fake_recording
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.series.overlay import FakeOverlayRenderer, FakeScreenTextReader
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.errors import GenerationError, LLMTimeout
+from frame.application.errors import (
+    AdapterError,
+    GenerationError,
+    LLMTimeout,
+    LLMUnavailable,
+)
 from frame.application.use_cases.series import (
     AttachNarrationCommand,
     CorrectScreenCommand,
@@ -153,11 +158,34 @@ def test_rendered_text_is_not_checked_without_a_render_or_a_reader():
 
 
 def test_unreadable_overlay_is_a_note_not_an_issue():
-    container = _container(reader=FakeScreenTextReader(error=LLMTimeout("응답 없음")))
+    """문구를 읽지 못한 것은 어긋남이 아니라 메모다. 메모에는 오류 코드만 남긴다 (감사 BTS-D34).
+
+    검수 보고는 그대로 밖으로 나간다. 오류 원문에는 서버의 임시 폴더 경로나 공급자의 글이 들 수 있다.
+    """
+    odd = AdapterError("ffmpeg: Error opening input file C:\\Temp\\frame-probe-x\\source")
+    reader = FakeScreenTextReader(error=odd)
+    container = _container(reader=reader)
     report = _check(container, _ready(container))
 
     assert report.ok and report.checked_overlays == 0
     assert len(report.notes) == 3 and all("읽지 못했습니다" in note for note in report.notes)
+    assert all("ADAPTER_ERROR" in note for note in report.notes)
+    assert not any("frame-probe" in note or "Temp" in note for note in report.to_dict()["notes"])
+
+
+@pytest.mark.parametrize("down", [LLMTimeout("응답 없음"), LLMUnavailable("연결할 수 없습니다")])
+def test_reader_that_is_down_is_asked_once_not_once_per_overlay(down):
+    """읽는 서비스가 죽었으면 첫 실패에서 멈춘다. 문구마다 시간 제한을 기다리지 않는다 (편의 키를 쥔 채다)."""
+    reader = FakeScreenTextReader(error=down)
+    container = _container(reader=reader)
+    episode = _ready(container)
+    reader.calls.clear()
+
+    report = _check(container, episode)
+
+    assert len(reader.calls) == 1 and report.checked_overlays == 0
+    assert len(report.notes) == 1 and down.code in report.notes[0]
+    assert "남은 문구" in report.notes[0] and str(down) not in report.notes[0]
 
 
 def test_failed_requirement_and_bad_narration_are_issues_too():

@@ -2,7 +2,8 @@
 
 새 경계의 설정(theme_settings)·등록을 이 기능의 모듈에 모아 Settings·registry·container 는 거의 건드리지 않는다
 (컨테이너는 build_theme_services 를 한 번 부를 뿐이다). 기본값은 모두 Fake·오프라인이라
-키·ffmpeg·글꼴이 없어도 서버가 뜬다. 실제 어댑터를 고르면 필요한 것이 없을 때 기동 시점에 실패한다.
+키·ffmpeg·글꼴이 없어도 서버가 뜬다. 실제 어댑터를 고르면 필요한 것이 없을 때 기동 시점에 실패한다
+(인식 API 의 키는 예외다: 화면에서 넣는 키가 있어 기동 때 알 수 없다. 전용 키 파일은 기동 때 확인한다).
 
 build_theme_services 가 입구다. 어댑터를 고르는 일은 theme_adapters 가 개념마다 작은 함수로 한다
 (저장 · 영상 분석 · 말소리 · 추출 · 기획 · 소리 · 화면 문구). 여기서는 고른 것으로 유스케이스를 묶는다.
@@ -125,6 +126,7 @@ def build_theme_services(
     # 환경 변수는 서버 입구에서 한 번만 읽어 넘긴다 (presentation/main.py). 여기서 읽으면 설정을 직접 넘긴
     # 테스트·도구의 컨테이너에도 셸의 FRAME_THEME_* 가 끼어든다 (감사 BTS-13)
     ts: ThemeSettings = ov.get("theme_settings") or ThemeSettings()
+    ts.validate()  # 코드에서 직접 만든 설정도 범위를 본다 (기동할 때 드러나게)
     store: ArtifactStore = _require(ctx.artifact_store, "artifact_store")
     picker = AdapterPicker(settings, registry, ctx, ts, store, ov)
     ids: IdGenerator = ctx.ids

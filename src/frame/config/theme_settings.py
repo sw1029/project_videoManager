@@ -10,6 +10,7 @@
 | FRAME_SPEECH_MODEL | whisper-1 | 인식 모델 (낱말 시각을 주는 모델이어야 줄 사이를 정확히 나눈다) |
 | FRAME_SPEECH_BASE_URL | (LLM 주소, 없으면 OpenAI) | 인식 API 주소. https 만 받는다 (로컬 서버는 예외) |
 | FRAME_SPEECH_KEY_FILE | (주소가 같으면 LLM 의 키) | 인식 전용 키 파일. 주소가 LLM 과 다르면 꼭 주고, 그 키만 싣는다 |
+| FRAME_SPEECH_TIMEOUT_S | 120 | 인식 API 호출의 시간 제한 (초) |
 | FRAME_SPEECH_LOCAL_MODEL | (없음) | 로컬 인식 모델을 받아 둔 폴더. 로컬 인식에 꼭 준다 (실행 중에는 받지 않는다) |
 | FRAME_SPEECH_LOCAL_DEVICE | auto · cpu · cuda | 로컬 인식을 돌릴 장치 (GPU 라이브러리가 없으면 CPU 로 바꾼다) |
 | FRAME_SPEECH_LOCAL_COMPUTE | default | CTranslate2 의 연산 방식 (float16 · int8 …) |
@@ -28,12 +29,14 @@
 | FRAME_THEME_MAX_SLOT_MS | (없음) | 자리 길이의 상한. 주면 더 긴 자리를 말 멈춤에서 나눈다 |
 | FRAME_SHOT_THRESHOLD | 0.3 | ffmpeg 컷 찾기의 scene 점수 하한 |
 
+숫자 설정은 범위를 본다 (validate): 어긋나면 기동할 때 변수 이름이 든 설정 오류다.
 로컬 인식(faster_whisper)은 선택 설치다: pip install -e ".[speech-local]". 모델은 미리 받아 둔다 — 받는 명령과
 잰 판(저장소·revision·sha256)은 docs/adr/0028-script-extraction-and-evidence.md 결정 9 에 있다.
 """
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -81,6 +84,36 @@ class ThemeSettings:
     max_slot_ms: int | None = None
     shot_threshold: float = 0.3
 
+    def validate(self) -> None:
+        """값의 범위를 본다. 어긋나면 변수 이름이 든 ConfigurationError 다 (감사 BTS-D41).
+
+        기동할 때 드러나게 한다: 보지 않으면 추출 도중에, 인식을 부른 뒤에 이름 없는 오류로 드러난다.
+        """
+        problems: list[str] = []
+        if self.min_slot_ms < 1:
+            problems.append(f"FRAME_THEME_MIN_SLOT_MS 는 1 이상이어야 합니다: {self.min_slot_ms}")
+        if self.max_slot_ms is not None and self.max_slot_ms < max(1, self.min_slot_ms):
+            problems.append(
+                f"FRAME_THEME_MAX_SLOT_MS({self.max_slot_ms}) 는 자리 길이의 하한"
+                f"({self.min_slot_ms}) 이상이어야 합니다"
+            )
+        if self.extractor_frames < 1:
+            problems.append(f"FRAME_THEME_FRAMES 는 1 이상이어야 합니다: {self.extractor_frames}")
+        if self.extractor_attempts < 1:
+            problems.append(
+                f"FRAME_THEME_ATTEMPTS 는 1 이상이어야 합니다: {self.extractor_attempts}"
+            )
+        if not (math.isfinite(self.speech_timeout_s) and self.speech_timeout_s > 0):
+            problems.append(
+                f"FRAME_SPEECH_TIMEOUT_S 는 0 보다 큰 수여야 합니다: {self.speech_timeout_s}"
+            )
+        if not 0 < self.shot_threshold < 1:
+            problems.append(
+                f"FRAME_SHOT_THRESHOLD 는 0 과 1 사이여야 합니다: {self.shot_threshold}"
+            )
+        if problems:
+            raise ConfigurationError("; ".join(problems))
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> ThemeSettings:
         src = os.environ if env is None else env
@@ -101,7 +134,7 @@ class ThemeSettings:
         platforms = tuple(
             p.strip().upper() for p in text("SHORTFORM_PLATFORMS", "").split(",") if p.strip()
         )
-        return replace(
+        settings = replace(
             base,
             media=text("THEME_MEDIA", base.media),
             speech=text("SPEECH_RECOGNIZER", base.speech),
@@ -127,6 +160,8 @@ class ThemeSettings:
             store=text("THEME_STORE", base.store),
             platforms=platforms or base.platforms,
             min_slot_ms=number("THEME_MIN_SLOT_MS", base.min_slot_ms, int),
-            max_slot_ms=number("THEME_MAX_SLOT_MS", 0, int) or None,
+            max_slot_ms=number("THEME_MAX_SLOT_MS", 0, int) or None,  # 0 은 '상한 없음'
             shot_threshold=number("SHOT_THRESHOLD", base.shot_threshold, float),
         )
+        settings.validate()
+        return settings

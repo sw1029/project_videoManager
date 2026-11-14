@@ -450,8 +450,15 @@ def test_container_does_not_read_theme_settings_from_the_process_environment(mon
 
 
 def test_server_entry_reads_the_theme_settings_once(monkeypatch):
+    import os
+
     from frame.presentation.main import create_default_app
 
+    # 셸의 FRAME_* · 키 변수가 이 테스트에 끼어들지 않게 한다 (감사 BTS-D11: FRAME_STRUCTURER=llm 을 둔 셸에서는
+    # 실패했고, 키가 있는 셸에서는 실제 클라이언트를 조립했다)
+    for name in list(os.environ):
+        if name.startswith("FRAME_") or name in ("OPENAI_API_KEY", "OPENAI_BASE_URL"):
+            monkeypatch.delenv(name)
     monkeypatch.setenv("FRAME_THEME_STORE", "memory")
     monkeypatch.setenv("FRAME_SPEECH_RECOGNIZER", "off")
     series = create_default_app().state.container.series
@@ -476,6 +483,49 @@ def test_setting_that_is_not_a_number_names_the_variable(name, value):
         return
     with pytest.raises(ConfigurationError, match=name):
         ThemeSettings.from_env({name: value})
+
+
+@pytest.mark.parametrize(
+    ("env", "name"),
+    [
+        ({"FRAME_THEME_MIN_SLOT_MS": "0"}, "FRAME_THEME_MIN_SLOT_MS"),
+        ({"FRAME_THEME_MAX_SLOT_MS": "1000"}, "FRAME_THEME_MAX_SLOT_MS"),  # 하한(3000)보다 작다
+        ({"FRAME_THEME_MAX_SLOT_MS": "-5"}, "FRAME_THEME_MAX_SLOT_MS"),
+        ({"FRAME_THEME_ATTEMPTS": "-3"}, "FRAME_THEME_ATTEMPTS"),
+        ({"FRAME_THEME_FRAMES": "0"}, "FRAME_THEME_FRAMES"),
+        ({"FRAME_SPEECH_TIMEOUT_S": "nan"}, "FRAME_SPEECH_TIMEOUT_S"),
+        ({"FRAME_SPEECH_TIMEOUT_S": "0"}, "FRAME_SPEECH_TIMEOUT_S"),
+        ({"FRAME_SHOT_THRESHOLD": "7"}, "FRAME_SHOT_THRESHOLD"),
+        ({"FRAME_SHOT_THRESHOLD": "0"}, "FRAME_SHOT_THRESHOLD"),
+    ],
+)
+def test_setting_out_of_its_range_is_refused_at_startup_by_name(env, name):
+    """값의 범위는 기동할 때 본다 (감사 BTS-D41).
+
+    보지 않으면 추출 도중에 — 인식을 부른 뒤에 — 이름 없는 오류로 드러난다 (상한이 하한보다 작은 경우).
+    """
+    with pytest.raises(ConfigurationError, match=name):
+        ThemeSettings.from_env(env)
+    assert ThemeSettings.from_env({"FRAME_THEME_MAX_SLOT_MS": "8000"}).max_slot_ms == 8000
+    assert (
+        ThemeSettings.from_env({"FRAME_THEME_MAX_SLOT_MS": "0"}).max_slot_ms is None
+    )  # 0 은 '없음'
+
+
+def test_settings_built_in_code_are_checked_when_the_services_are_assembled():
+    with pytest.raises(ConfigurationError, match="FRAME_THEME_ATTEMPTS"):
+        make_container(theme_settings=ThemeSettings(extractor_attempts=0))
+
+
+def test_speech_address_that_follows_the_llm_address_says_so_when_it_is_refused():
+    """인식 주소를 주지 않았으면 LLM 주소를 따른다. 그 주소가 거절될 때 사용자가 주지 않은 변수를 탓하지 않는다."""
+    remote = Settings(llm_base_url="http://10.0.0.5:8001/v1")
+    with pytest.raises(ConfigurationError, match="FRAME_LLM_BASE_URL") as caught:
+        make_container(remote, theme_settings=ThemeSettings(speech="openai"))
+    assert "https" in str(caught.value)
+    given = ThemeSettings(speech="openai", speech_base_url="http://example.com/v1")
+    with pytest.raises(ConfigurationError, match="FRAME_SPEECH_BASE_URL 은 https"):
+        make_container(theme_settings=given)
 
 
 def test_theme_store_falls_back_to_memory_when_the_artifact_store_cannot_name_uris():
