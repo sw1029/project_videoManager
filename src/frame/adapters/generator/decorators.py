@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
+from frame.adapters.shared.locking import KeyedLocks
 from frame.application.errors import GenerationError, GenerationTimeout
 from frame.application.ports.generator import (
     GeneratedClip,
@@ -21,7 +22,7 @@ from frame.application.ports.generator import (
 )
 
 from .abandonment import enter_worker, pause_unless_abandoned
-from .cache import ClipCache, InMemoryClipCache, KeyedLocks
+from .cache import ClipCache, InMemoryClipCache
 
 log = logging.getLogger(__name__)
 

@@ -17,7 +17,7 @@
     openrouter     OpenRouter 생성기: 제출 · 대기 · 원장으로 이어 받기 · 부모 클립 편집 · 미리보기 · 프롬프트
     decorators     복원력 데코레이터
     abandonment    시간 제한으로 버려진 작업 스레드가 더 제출하지 않게 하는 신호
-    cache          생성 캐시(ClipCache)와 키 잠금(KeyedLocks), 캐시·원장 키(generation_key)
+    cache          생성 캐시(ClipCache)와 캐시·원장 키(generation_key)
     ledger         작업 원장(JobLedger): 제출한 유료 작업의 기록
     normalizer     클립 정규화(FfmpegVideoNormalizer): 모델이 돌려준 클립을 한 규격으로 맞춘다
     fake           가짜 생성기

@@ -46,7 +46,7 @@
 | `src/frame/application/use_cases/` | 유스케이스 하나가 모듈 하나 | `CreateProject`, `StructureRequirements`, `AcceptGeneration`, `RunGenerationPipeline`, `CreateRevision`, `PlanRevision`, `ProjectQueries`, `RecoverPendingVersions` |
 | `src/frame/application/pipeline/` | 생성 → 추적 → 검수 단계와 실행기 | `PipelineRunner`, `GenerateStage`, `TrackStage`, `CheckStage`, `PipelineContext` |
 | `src/frame/adapters/` | 포트의 구현. 최상위 모듈 넷(`common.py`, `http_transport.py`, `video_tools.py`, `vlm_answers.py`)은 옛 경로의 호환 모듈이다 — 구현은 `shared/` 에 있고 새 코드는 쓰지 않는다 (ADR-0031) | — |
-| `src/frame/adapters/shared/` | 어댑터 패키지들이 함께 쓰는 것 (어댑터끼리는 서로 import 하지 않는다) | `api_keys` (`find_key`, `mask_key`), `http` (`HttpTransport`, `UrllibTransport`, `HttpResponse`, `TransportError`), `runtime` (ID 생성기 `UuidIdGenerator`·`SequentialIdGenerator`, 시계 `SystemClock`·`FixedClock`) |
+| `src/frame/adapters/shared/` | 어댑터 패키지들이 함께 쓰는 것 (어댑터끼리는 서로 import 하지 않는다) | `api_keys` (`find_key`, `mask_key`), `http` (`HttpTransport`, `UrllibTransport`, `HttpResponse`, `TransportError`), `runtime` (ID 생성기 `UuidIdGenerator`·`SequentialIdGenerator`, 시계 `SystemClock`·`FixedClock`), `locking` (`KeyedLocks`) |
 | `src/frame/adapters/shared/media/` | 영상 처리 도구 (ffmpeg) | `ffmpeg` (`resolve_ffmpeg`, `require_ffmpeg`, `run_ffmpeg`, `run_reading`, `tail`, `FfmpegNotRun`, `VideoToolError`), `frames` (`FrameSampler`, `midpoints`, `extract_frame`, `Box`, `Image`), `probe` (`video_size`, `probe_video`, `VideoProbe`), `similarity` (`ssim`) |
 | `src/frame/adapters/shared/vlm/` | 이미지를 읽는 모델(VLM)에 묻고 답 읽기 | `ask` (`ask_json`), `answers` (`match_answers`, `requested_key`), `wording` (`predicate_words`, `described`) |
 | `src/frame/adapters/structurer/` | 구조화 | `RuleBasedStructurer`, `LLMStructurer`, `FakeStructurer` |

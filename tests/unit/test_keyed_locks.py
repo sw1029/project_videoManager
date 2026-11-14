@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from frame.adapters.generator.cache import KeyedLocks
+from frame.adapters.shared.locking import KeyedLocks
 
 WAIT = 5.0  # 테스트가 멈춰 버리지 않게 하는 안전 상한
 

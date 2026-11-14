@@ -10,6 +10,7 @@
     api_keys    API 키 다루기: 키 파일에서 키 찾기, 화면·로그에 보일 표시
     http        외부 HTTP API 를 부르는 전송 계층 (HttpTransport, 표준 라이브러리 구현 UrllibTransport)
     runtime     ID 생성기와 시계 (운영 구현과, 테스트·재현 실행용 결정적 구현)
+    locking     키별 잠금 (KeyedLocks): 같은 키의 일을 한 번에 하나만
     media/      영상 처리 도구: ffmpeg 찾기·실행, 프레임 뽑기, 크기, 유사도(SSIM)
     vlm/        이미지를 읽는 모델(VLM)의 답 읽기
 

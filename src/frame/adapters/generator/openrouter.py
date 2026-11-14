@@ -79,6 +79,7 @@ from frame.adapters.shared.http import (
     TransportError,
     UrllibTransport,
 )
+from frame.adapters.shared.locking import KeyedLocks
 from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.application.errors import (
     ConfigurationError,
@@ -103,7 +104,7 @@ from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
 from .abandonment import stop_if_abandoned
-from .cache import KeyedLocks, generation_key
+from .cache import generation_key
 from .ledger import (
     COMPLETED,
     FAILED,
