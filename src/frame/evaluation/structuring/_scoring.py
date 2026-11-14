@@ -16,7 +16,7 @@ from typing import Any
 from frame.domain.ir import IntermediateRepresentation, RequirementSpec
 
 from ._gold import GoldRequirement, GoldSpec
-from ._matching import map_scenes, match_entities, project
+from ._matching import EXHAUSTIVE, map_scenes, match_entities, project
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,9 @@ class CaseScore:
     mismatched_requirements: tuple[ValueMismatch, ...] = ()  # 냈지만 값이 틀린 조건
     spurious_requirements: tuple[str, ...] = ()  # 골드에 없는 조건
     error: str | None = None  # 구조화 실패
+    entity_matching: str = (
+        EXHAUSTIVE  # 객체 짝을 고른 방법 (greedy 면 가장 좋은 짝을 놓쳤을 수 있다)
+    )
 
     @property
     def scene_count_match(self) -> bool:
@@ -89,7 +92,8 @@ class CaseScore:
 
 
 def score_case(case_id: str, gold: GoldSpec, predicted: IntermediateRepresentation) -> CaseScore:
-    entity_map = match_entities(gold.entities, predicted.entities)  # 모델 키 → 골드 키
+    # 모델 키 → 골드 키, 고른 방법
+    entity_map, entity_matching = match_entities(gold.entities, predicted.entities)
     scene_map = map_scenes(gold.ir, predicted)  # 모델 장면 키 → 골드 장면 키
     matched = set(entity_map.values())
     missed_entities = tuple(k for k in gold.required_entity_keys if k not in matched)
@@ -117,6 +121,7 @@ def score_case(case_id: str, gold: GoldSpec, predicted: IntermediateRepresentati
         missed_requirements=missed,
         mismatched_requirements=mismatched,
         spurious_requirements=spurious,
+        entity_matching=entity_matching,
     )
 
 

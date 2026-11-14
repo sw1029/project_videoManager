@@ -21,6 +21,7 @@ from frame.application.ports.structurer import RequirementStructurer
 from frame.domain.errors import DomainError
 
 from ._gold import GoldCase, gold_fingerprint
+from ._matching import EXHAUSTIVE
 from ._scoring import CaseScore, Tally, failed_case, score_case
 from ._summary import (
     ENTITY_RECALL_TARGET,
@@ -166,12 +167,15 @@ def _summary_block(scores: Sequence[CaseScore], runs: Sequence[CaseRun] = ()) ->
             "input": _sum_known(r.input_tokens for r in runs),
             "output": _sum_known(r.output_tokens for r in runs),
         }
+        greedy = [r.case.case_id for r in runs if r.score.entity_matching != EXHAUSTIVE]
+        if greedy:  # 보통은 없어서 칸을 두지 않는다 (옛 기록과 같은 모양)
+            summary["greedy_entity_matchings"] = greedy
     return summary
 
 
 def _case_entry(run: CaseRun) -> dict[str, Any]:
     score = run.score
-    return {
+    entry: dict[str, Any] = {
         "case_id": run.case.case_id,
         "language": run.case.language,
         "error": score.error,
@@ -185,6 +189,10 @@ def _case_entry(run: CaseRun) -> dict[str, Any]:
             "boundary_error_ms": score.boundary_error_ms,
             "duration_error_ms": score.duration_error_ms,
         },
+    }
+    if score.entity_matching != EXHAUSTIVE:  # 상한을 넘어 객체 짝을 차례로 골랐다
+        entry["entity_matching"] = score.entity_matching
+    return entry | {
         "missed_entities": list(score.missed_entities),
         "spurious_entities": list(score.spurious_entities),
         "missed_requirements": list(score.missed_requirements),

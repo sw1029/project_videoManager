@@ -30,6 +30,11 @@ def format_summary(record: Mapping[str, Any]) -> str:
         target = f" (목표 ≥ {targets[name]})" if name in targets else ""
         lines.append(f"  {label:<12} {_fmt(summary.get(name))}{target}")
     lines.append(f"  목표 충족: {'예' if summary['meets_target'] else '아니오'}")
+    if summary.get("greedy_entity_matchings"):
+        lines.append(
+            "  ※ 객체 짝을 차례로 고른 사례 (대응 수가 상한을 넘음, 가장 좋은 짝을 놓쳤을 수 있다): "
+            + _join(summary["greedy_entity_matchings"])
+        )
     lines.append("  사례 (요구조건 F1 | 놓침 | 값 틀림 | 골드에 없음 | 객체 놓침·남음):")
     for case in record["cases"]:
         if case["error"]:

@@ -3,6 +3,7 @@
 실제 모델로 돌리는 것은 tests/live/test_structuring_gold_live.py (slow, FRAME_EVAL_STRUCTURING_LIVE=1) 다.
 """
 
+import importlib
 import json
 import re
 from collections import Counter
@@ -350,3 +351,27 @@ def test_rescoring_refuses_to_drop_record_cases_missing_from_the_gold(cases):
     fewer = [c for c in cases if c.case_id != "ko-05-ramen-recipe"]
     with pytest.raises(ValueError, match="ko-05-ramen-recipe"):
         rescore_record(record, fewer, _replay_structurer, rescored_at="2026-11-15")
+
+
+def test_record_and_summary_say_when_entities_were_matched_in_order(cases, monkeypatch):
+    """짝 맞추기가 상한을 넘어 차례로 고른 사례는 기록과 요약에 드러난다 (보통 기록에는 그 칸이 없다)."""
+    case = _case(cases, "ko-01-cafe-concept")
+    usual = build_record(
+        _replay_runs([case], _perfect_responses([case])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14",
+    )
+    assert "entity_matching" not in usual["cases"][0]
+    assert "greedy_entity_matchings" not in usual["summary"]
+
+    monkeypatch.setattr(
+        importlib.import_module("frame.evaluation.structuring._matching"), "SEARCH_LIMIT", 1
+    )
+    record = build_record(
+        _replay_runs([case], _perfect_responses([case])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14",
+    )
+    assert record["cases"][0]["entity_matching"] == "greedy"
+    assert record["summary"]["greedy_entity_matchings"] == ["ko-01-cafe-concept"]
+    assert "차례로 고른 사례" in format_summary(record)

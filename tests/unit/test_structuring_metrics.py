@@ -3,7 +3,7 @@
 모델마다 키 이름이 달라지므로(red_mug / cup) 객체는 종류·설명으로, 장면은 시간으로 맞춘 뒤 비교한다.
 """
 
-import time
+import importlib
 
 import pytest
 
@@ -21,6 +21,9 @@ from frame.evaluation.structuring import (
     summarize,
     values_match,
 )
+
+# 상한을 작게 바꿔 차례로 고르는 길을 시험한다 (안쪽 모듈의 상수)
+_MATCHING = importlib.import_module("frame.evaluation.structuring._matching")
 
 
 def _entity(key, kind="PROP", description="", **extra):
@@ -242,21 +245,54 @@ def test_two_people_are_assigned_by_the_better_description():
     assert score.requirements == Tally(tp=1)
 
 
-def test_entity_matching_stays_fast_when_many_entities_match_each_other():
-    """객체·후보가 아주 많아 대응을 모두 훑을 수 없으면, 필수 객체부터 별칭이 가장 많이 맞는 짝을 차례로 고른다."""
-    n = 12  # 모두 훑으면 13^12 가지라 끝나지 않는다
+def _kitchen():
+    """두 짝 맞추기 방법의 결과가 갈리는 예: 별칭이 많이 맞는 짝을 먼저 잡으면 보조의 짝이 없어진다."""
     gold = _doc(
-        [_entity(f"person_{i}", "PERSON", "사람", aliases=["person"]) for i in range(n)],
-        [_scene("s1", 0, 4000, [f"person_{i}" for i in range(n)], [])],
+        [
+            _entity("chef", "PERSON", "셰프", aliases=["chef", "cook"]),
+            _entity("helper", "PERSON", "보조", aliases=["cook"]),
+        ],
+        [
+            _scene(
+                "s1",
+                0,
+                4000,
+                ["chef", "helper"],
+                [_req("action", "plates", "chef"), _req("action", "chops", "helper")],
+            )
+        ],
     )
     predicted = _doc(
-        [_entity(f"p{i}", "PERSON", "person") for i in range(n)],
-        [_scene("s1", 0, 4000, [f"p{i}" for i in range(n)], [])],
+        [_entity("line_cook", "PERSON", "chef cook"), _entity("head", "PERSON", "chef")],
+        [
+            _scene(
+                "s1",
+                0,
+                4000,
+                ["line_cook", "head"],
+                [_req("action", "chops", "line_cook"), _req("action", "plates", "head")],
+            )
+        ],
     )
-    started = time.perf_counter()
+    return gold, predicted
+
+
+def test_entity_matching_searches_every_pairing_within_the_limit():
+    gold, predicted = _kitchen()
     score = _score(predicted, gold)
-    assert time.perf_counter() - started < 2.0
-    assert score.entities == Tally(tp=n)
+    assert score.entity_matching == "exhaustive"
+    assert score.entities == Tally(tp=2)
+    assert score.requirements == Tally(tp=2)
+
+
+def test_entity_matching_beyond_the_limit_picks_in_order_and_says_so(monkeypatch):
+    """대응 수가 상한을 넘으면 필수 객체부터 차례로 고른다. 가장 좋은 대응을 놓칠 수 있으므로 그 사실을 남긴다."""
+    monkeypatch.setattr(_MATCHING, "SEARCH_LIMIT", 1)
+    gold, predicted = _kitchen()
+    score = _score(predicted, gold)
+    assert score.entity_matching == "greedy"
+    assert score.entities == Tally(tp=1, fp=1, fn=1)
+    assert score.requirements == Tally(fp=2, fn=2)
 
 
 # ---- 요구조건 값 ------------------------------------------------------------
