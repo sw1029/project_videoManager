@@ -664,66 +664,10 @@ class OpenRouterVideoGenerator(VideoGenerator):
         rejected: dict[str, Any] | None = None
         plan = self._edit_plan(request)
         if plan is not None:
-            source = (
-                self._parent_video_url(plan)
-                if plan.mode == EDIT_VIDEO_REFERENCE
-                else _ParentUrl(None, 0)
-            )
-            if plan.mode == EDIT_VIDEO_REFERENCE and source.url is None:
-                # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료·아직 안 나옴): 제출하지 않고 새로 만든다
-                log.warning(
-                    "부모 클립의 저장본 주소를 얻지 못해 편집하지 않고 새로 생성합니다 "
-                    "(부모 작업 %s, 장면 %s, 조회 %d회)",
-                    plan.parent_job_id,
-                    request.scene.scene_key,
-                    source.lookups,
-                )
-                rejected = {
-                    "mode": plan.mode,
-                    "model": plan.model,
-                    "applied": False,
-                    "parent_version_id": plan.parent_version_id,
-                    "parent_clip_uri": plan.parent_clip_uri,
-                    "parent_url_lookups": source.lookups,
-                    "fallback_reason": (
-                        f"부모 작업의 저장본이 없거나 만료됨 ({source.lookups}회 조회)"
-                    ),
-                }
-                if source.may_appear:
-                    # 일시적인 사정이다: 주소가 나온 뒤 같은 요청이 오면 편집할 수 있다 (ADR-0021)
-                    rejected["transient"] = True
-                    rejected["fallback_reason"] = (
-                        f"부모 작업의 저장본 주소가 아직 나오지 않음 ({source.lookups}회 조회). "
-                        "같은 수정을 다시 요청하면 편집을 다시 시도함"
-                    )
-            else:
-                body, details = self._edit_body(request, plan, source)
-                try:
-                    job = self._submit(body)
-                except _SubmitRejected as exc:
-                    if exc.status not in _EDIT_FALLBACK:
-                        raise
-                    # 접수 전 거절이라 과금되지 않았다. 편집을 포기하고 지금까지처럼 장면을 새로 만든다
-                    self._drop_held_url(plan.parent_job_id)  # 그 주소가 원인일 수 있다
-                    log.warning(
-                        "OpenRouter 가 부모 클립 편집 요청(%s, model=%s)을 거절해 새로 생성합니다: %s",
-                        plan.mode,
-                        plan.model,
-                        exc,
-                    )
-                    rejected = {
-                        **details["edit"],
-                        "applied": False,
-                        "fallback_reason": str(exc)[:300],
-                    }
-                else:
-                    try:
-                        return self._accepted(request, key, job, details)
-                    except GenerationError:
-                        # 편집 작업이 접수 뒤 실패했다. 넘긴 주소가 원인일 수 있으니 들고 있지 않는다
-                        self._drop_held_url(plan.parent_job_id)
-                        raise
-        if rejected is not None:
+            edited = self._edit(request, key, plan)
+            if isinstance(edited, GeneratedClip):
+                return edited
+            rejected = edited
             reused = self._reuse_regenerated(request, key, rejected)
             if reused is not None:
                 return reused
@@ -731,6 +675,68 @@ class OpenRouterVideoGenerator(VideoGenerator):
         if rejected is not None:
             details["edit"] = rejected
         return self._accepted(request, key, self._submit(body), details)
+
+    def _edit(
+        self, request: SceneGenerationRequest, key: str, plan: _EditPlan
+    ) -> GeneratedClip | dict[str, Any]:
+        """부모 클립 편집을 시도한다. 접수되면 그 결과 클립을, 접수 전에 막히면 그 사정을 적은 편집 기록을 돌려준다.
+
+        접수 전에 막힌 편집은 과금되지 않았다. 부르는 쪽이 그 기록을 달고 장면을 새로 생성한다.
+        """
+        source = (
+            self._parent_video_url(plan)
+            if plan.mode == EDIT_VIDEO_REFERENCE
+            else _ParentUrl(None, 0)
+        )
+        if plan.mode == EDIT_VIDEO_REFERENCE and source.url is None:
+            # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료·아직 안 나옴): 제출하지 않고 새로 만든다
+            log.warning(
+                "부모 클립의 저장본 주소를 얻지 못해 편집하지 않고 새로 생성합니다 "
+                "(부모 작업 %s, 장면 %s, 조회 %d회)",
+                plan.parent_job_id,
+                request.scene.scene_key,
+                source.lookups,
+            )
+            rejected: dict[str, Any] = {
+                "mode": plan.mode,
+                "model": plan.model,
+                "applied": False,
+                "parent_version_id": plan.parent_version_id,
+                "parent_clip_uri": plan.parent_clip_uri,
+                "parent_url_lookups": source.lookups,
+                "fallback_reason": (
+                    f"부모 작업의 저장본이 없거나 만료됨 ({source.lookups}회 조회)"
+                ),
+            }
+            if source.may_appear:
+                # 일시적인 사정이다: 주소가 나온 뒤 같은 요청이 오면 편집할 수 있다 (ADR-0021)
+                rejected["transient"] = True
+                rejected["fallback_reason"] = (
+                    f"부모 작업의 저장본 주소가 아직 나오지 않음 ({source.lookups}회 조회). "
+                    "같은 수정을 다시 요청하면 편집을 다시 시도함"
+                )
+            return rejected
+        body, details = self._edit_body(request, plan, source)
+        try:
+            job = self._submit(body)
+        except _SubmitRejected as exc:
+            if exc.status not in _EDIT_FALLBACK:
+                raise
+            # 접수 전 거절이라 과금되지 않았다. 편집을 포기하고 지금까지처럼 장면을 새로 만든다
+            self._drop_held_url(plan.parent_job_id)  # 그 주소가 원인일 수 있다
+            log.warning(
+                "OpenRouter 가 부모 클립 편집 요청(%s, model=%s)을 거절해 새로 생성합니다: %s",
+                plan.mode,
+                plan.model,
+                exc,
+            )
+            return {**details["edit"], "applied": False, "fallback_reason": str(exc)[:300]}
+        try:
+            return self._accepted(request, key, job, details)
+        except GenerationError:
+            # 편집 작업이 접수 뒤 실패했다. 넘긴 주소가 원인일 수 있으니 들고 있지 않는다
+            self._drop_held_url(plan.parent_job_id)
+            raise
 
     def _reuse_regenerated(
         self, request: SceneGenerationRequest, key: str, rejected: dict[str, Any]
