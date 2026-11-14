@@ -3449,6 +3449,16 @@
             },
             "description": "Successful Response"
           },
+          "411": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "LENGTH_REQUIRED (Content-Length 없음, chunked 업로드)"
+          },
           "413": {
             "content": {
               "application/json": {

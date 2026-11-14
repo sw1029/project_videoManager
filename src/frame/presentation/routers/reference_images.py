@@ -4,8 +4,11 @@
 버전의 참조 이미지로 남긴다 (application/use_cases/upload_reference_image.py). 형식은 파일 내용으로 판별하고
 (PNG·JPEG·WebP), 크기 상한은 FRAME_REFERENCE_IMAGE_MAX_BYTES 다.
 
-크기 상한은 두 번 본다. Content-Length 가 상한(과 multipart 머리글 여유)을 분명히 넘으면 본문을 읽기 전에 거절하고,
-그렇지 않으면 파일을 상한 + 1 바이트까지만 읽어 유스케이스가 판단한다.
+크기 상한은 두 번 본다.
+1. 본문을 받기 전에 선언된 크기(Content-Length)를 본다. 없으면 411, 상한(과 multipart 머리글 여유)을 분명히 넘으면 413.
+   FastAPI 는 의존성보다 먼저 본문을 다 받아 임시 파일에 쓰므로, 크기를 밝히지 않은(chunked) 요청을 받아 주면
+   요청 하나가 임시 디스크를 얼마든지 채울 수 있다 (감사 4). 브라우저의 FormData 업로드는 늘 Content-Length 를 보낸다.
+2. 파일을 상한 + 1 바이트까지만 읽어 유스케이스가 판단한다.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.routing import APIRoute
 
 from frame.application.use_cases.upload_reference_image import payload_too_large
@@ -36,7 +39,12 @@ class _DeclaredSizeLimitRoute(APIRoute):
             container: Container = request.app.state.container
             limit = container.upload_reference_image.max_bytes
             declared = request.headers.get("content-length", "")
-            if declared.isdigit() and int(declared) > limit + MULTIPART_OVERHEAD_BYTES:
+            if not declared.isdigit():
+                raise HTTPException(
+                    status.HTTP_411_LENGTH_REQUIRED,
+                    "참조 이미지 업로드는 크기(Content-Length)를 밝혀야 합니다",
+                )
+            if int(declared) > limit + MULTIPART_OVERHEAD_BYTES:
                 raise payload_too_large(limit)
             return await handler(request)
 
@@ -54,6 +62,10 @@ ContainerDep = Annotated[Container, Depends(get_container)]
     status_code=status.HTTP_201_CREATED,
     response_model=ReferenceImageUploadOut,
     responses={
+        411: {
+            "model": ErrorOut,
+            "description": "LENGTH_REQUIRED (Content-Length 없음, chunked 업로드)",
+        },
         413: {
             "model": ErrorOut,
             "description": "PAYLOAD_TOO_LARGE (FRAME_REFERENCE_IMAGE_MAX_BYTES, 기본 10 MiB)",

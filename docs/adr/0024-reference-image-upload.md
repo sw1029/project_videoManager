@@ -18,8 +18,10 @@
 - 형식은 **파일 내용의 첫 바이트로** 판별한다: PNG·JPEG·WebP 만 받고 그 밖은 415 `UNSUPPORTED_MEDIA_TYPE`.
   올린 쪽의 파일 이름과 형식 표기(Content-Type)는 쓰지 않는다.
 - 크기 상한은 `FRAME_REFERENCE_IMAGE_MAX_BYTES` (기본 10 MiB). 넘으면 413 `PAYLOAD_TOO_LARGE`.
-  `Content-Length` 가 상한(+ multipart 머리글 여유 64 KiB)을 분명히 넘으면 본문을 받아 임시 파일로 쓰기 전에 거절하고,
-  그렇지 않으면 파일을 상한 + 1 바이트까지만 읽어 판단한다. `file` 이 없거나 빈 파일이면 422.
+  본문을 받기 전에 선언된 크기를 본다: `Content-Length` 가 없으면(chunked) 411 `LENGTH_REQUIRED`, 상한(+ multipart 머리글
+  여유 64 KiB)을 분명히 넘으면 413. FastAPI 는 의존성보다 먼저 본문을 다 받아 임시 파일에 쓰므로, 크기를 밝히지 않은 요청을
+  받아 주면 요청 하나가 임시 디스크를 얼마든지 채울 수 있다 (감사 4). 브라우저의 `FormData` 업로드는 늘 크기를 밝힌다.
+  그다음 파일을 상한 + 1 바이트까지만 읽어 판단한다. `file` 이 없거나 빈 파일이면 422.
 - 요청 제한(`FRAME_RATE_LIMIT_PER_MINUTE`)을 다른 변경 요청처럼 받는다.
 - 의존성: FastAPI 의 파일 업로드가 쓰는 `python-multipart` 를 더한다 (사용자 승인). 0.0.18 미만은 잘못된 경계로 서비스를
   멈추게 하는 취약점이 있어 `>=0.0.18,<0.1` 로 둔다.

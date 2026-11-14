@@ -54,6 +54,7 @@ CODE_BY_HTTP_STATUS: dict[int, str] = {
     403: "FORBIDDEN",
     404: "NOT_FOUND",
     405: "METHOD_NOT_ALLOWED",
+    411: "LENGTH_REQUIRED",  # 크기를 밝히지 않은 업로드 (#12)
     413: "PAYLOAD_TOO_LARGE",
     415: "UNSUPPORTED_MEDIA_TYPE",
     429: "RATE_LIMITED",

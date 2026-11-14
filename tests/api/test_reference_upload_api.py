@@ -217,3 +217,22 @@ def test_addresses_outside_the_store_are_still_not_served(tmp_path):
     for reference in version["reference_images"]:
         path = f"/api/versions/{version['version_id']}/reference-images/{reference['reference_image_id']}"
         assert client.get(path).status_code == 404
+
+
+def test_uploads_without_a_declared_size_are_refused_before_reading():
+    """감사 4: 크기를 밝히지 않은(chunked) 업로드는 본문을 임시 파일에 받기 전에 411 로 거절한다."""
+    client, container = _client()
+
+    def body():  # 제너레이터 본문은 Content-Length 없이 chunked 로 간다
+        yield b'--x\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n'
+        yield b"Content-Type: image/png\r\n\r\n" + png_bytes() + b"\r\n--x--\r\n"
+
+    response = client.post(
+        "/api/reference-images",
+        content=body(),
+        headers={"Content-Type": "multipart/form-data; boundary=x"},
+    )
+
+    assert response.status_code == 411
+    assert response.json()["error_code"] == "LENGTH_REQUIRED"
+    assert not container.artifact_store.exists("mem://refs/uploads/upl_0001.png")
