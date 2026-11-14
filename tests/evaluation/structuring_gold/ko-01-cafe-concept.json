@@ -1,0 +1,75 @@
+{
+  "case_id": "ko-01-cafe-concept",
+  "language": "ko",
+  "target_duration_ms": 16000,
+  "brief": "카페 신제품 홍보 숏폼 영상. 장면 1 (4초): 바리스타가 카페 카운터 뒤에서 카메라를 보며 미소 짓는다. 장면 2 (4초): 바리스타가 카운터에서 빨간 머그컵을 들어 보인다. 장면 3 (4초): 카운터 위에 놓인 빨간 머그컵 클로즈업. 장면 4 (4초): 바리스타가 카메라를 향해 손을 흔든다. 바리스타는 흰 셔츠에 갈색 앞치마를 입고 있고, 카페 조명은 따뜻하게 유지한다.",
+  "covers": ["relation", "action", "camera", "outfit", "color", "scene_level"],
+  "notes": "컨셉 화면의 예시 데이터 (docs/research/concept-ux-review.md §5.3). 컵은 장면 2·3 에만 나온다. 카운터는 카페라는 장소의 일부로도 볼 수 있어 선택 객체로 두고, 장소는 카페(카운터도 받음)로 적는다. 장면 4 의 장소는 브리프에 없지만 '카페 조명 유지' 로 짐작되므로 선택이다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "barista", "kind": "PERSON", "description": "바리스타", "aliases": ["바리스타", "barista"]},
+      {"entity_key": "cup", "kind": "PROP", "description": "빨간 머그컵", "aliases": ["컵", "머그잔", "cup", "mug"]},
+      {"entity_key": "counter", "kind": "PROP", "description": "카페 카운터", "aliases": ["카운터", "counter"], "optional": true},
+      {"entity_key": "cafe", "kind": "BACKGROUND", "description": "카페", "aliases": ["카페", "cafe", "coffee shop"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "smile",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "바리스타가 카운터 뒤에서 카메라를 보며 미소 짓는다",
+        "entity_keys": ["barista", "counter", "cafe"],
+        "requirements": [
+          {"entity_key": "barista", "predicate": "expression", "expected_value": "smile", "accept": ["grin"]},
+          {"entity_key": "barista", "predicate": "action", "expected_value": "looking at camera", "accept_predicates": ["pose"], "accept": ["facing camera", "eye contact"]},
+          {"entity_key": "barista", "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+          {"predicate": "location", "expected_value": "cafe", "accept": ["counter", "coffee shop"]},
+          {"predicate": "lighting", "expected_value": "warm"}
+        ]
+      },
+      {
+        "scene_key": "show_cup",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "바리스타가 카운터에서 빨간 머그컵을 들어 보인다",
+        "entity_keys": ["barista", "cup", "counter", "cafe"],
+        "requirements": [
+          {"entity_key": "barista", "predicate": "holds", "related_entity_key": "cup", "expected_value": "cup"},
+          {"entity_key": "barista", "predicate": "action", "expected_value": "shows", "accept": ["holds up", "raises", "lifts", "presents"]},
+          {"entity_key": "cup", "predicate": "color", "expected_value": "red"},
+          {"entity_key": "barista", "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+          {"predicate": "location", "expected_value": "cafe", "accept": ["counter", "coffee shop"]},
+          {"predicate": "lighting", "expected_value": "warm"}
+        ]
+      },
+      {
+        "scene_key": "cup_closeup",
+        "planned_start_ms": 8000,
+        "planned_end_ms": 12000,
+        "description": "카운터 위에 놓인 빨간 머그컵 클로즈업",
+        "entity_keys": ["cup", "counter", "cafe"],
+        "requirements": [
+          {"entity_key": "cup", "predicate": "color", "expected_value": "red"},
+          {"entity_key": "cup", "predicate": "on", "related_entity_key": "counter", "expected_value": "counter"},
+          {"predicate": "camera", "expected_value": "close up"},
+          {"predicate": "location", "expected_value": "cafe", "accept": ["counter", "coffee shop"]},
+          {"predicate": "lighting", "expected_value": "warm"}
+        ]
+      },
+      {
+        "scene_key": "wave",
+        "planned_start_ms": 12000,
+        "planned_end_ms": 16000,
+        "description": "바리스타가 카메라를 향해 손을 흔든다",
+        "entity_keys": ["barista", "cafe"],
+        "requirements": [
+          {"entity_key": "barista", "predicate": "action", "expected_value": "waves"},
+          {"entity_key": "barista", "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+          {"predicate": "location", "expected_value": "cafe", "optional": true, "accept": ["counter", "coffee shop"]},
+          {"predicate": "lighting", "expected_value": "warm"}
+        ]
+      }
+    ]
+  }
+}

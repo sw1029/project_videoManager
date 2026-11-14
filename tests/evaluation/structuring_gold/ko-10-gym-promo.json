@@ -1,0 +1,68 @@
+{
+  "case_id": "ko-10-gym-promo",
+  "language": "ko",
+  "target_duration_ms": 12000,
+  "brief": "헬스장 홍보 영상 12초. 장면 1 (4초): 검은 민소매 티를 입은 트레이너가 덤벨을 들고 미소 짓는다. 장면 2 (4초): 회원이 러닝머신 위에서 달린다. 장면 3 (4초): 트레이너와 회원이 하이파이브를 한다. 영상 내내 화면 오른쪽 아래에 'FIT ZONE' 로고가 보이고, 조명은 밝다.",
+  "covers": ["relation", "position", "literal_text", "action", "multi_person", "scene_level", "prop_not_location"],
+  "notes": "로고는 PROP(TEXT 도 받음)이고 '영상 내내' 라 모든 장면에 문구·위치가 필수. 러닝머신은 장소가 아니라 소품 객체다. 하이파이브는 두 사람 모두의 동작이다. 장소(헬스장)는 '헬스장 홍보 영상' 으로 모든 장면에 필수.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "trainer", "kind": "PERSON", "description": "검은 민소매 티를 입은 트레이너", "aliases": ["트레이너", "코치", "trainer", "coach", "instructor"]},
+      {"entity_key": "dumbbell", "kind": "PROP", "description": "덤벨", "aliases": ["덤벨", "아령", "dumbbell", "weight"]},
+      {"entity_key": "member", "kind": "PERSON", "description": "회원", "aliases": ["회원", "member", "client", "customer"]},
+      {"entity_key": "treadmill", "kind": "PROP", "description": "러닝머신", "aliases": ["러닝머신", "트레드밀", "treadmill", "running machine"]},
+      {"entity_key": "logo", "kind": "PROP", "description": "'FIT ZONE' 로고", "aliases": ["로고", "FIT ZONE", "logo"], "accept_kinds": ["TEXT"]},
+      {"entity_key": "gym", "kind": "BACKGROUND", "description": "헬스장", "aliases": ["헬스장", "체육관", "gym", "fitness"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "trainer",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "트레이너가 덤벨을 들고 미소 짓는다",
+        "entity_keys": ["trainer", "dumbbell", "logo", "gym"],
+        "requirements": [
+          {"entity_key": "trainer", "predicate": "outfit", "expected_value": "black sleeveless", "accept": ["black tank top"]},
+          {"entity_key": "trainer", "predicate": "holds", "related_entity_key": "dumbbell", "expected_value": "dumbbell"},
+          {"entity_key": "trainer", "predicate": "expression", "expected_value": "smile"},
+          {"entity_key": "logo", "predicate": "text", "expected_value": "FIT ZONE", "accept_predicates": ["brand"]},
+          {"entity_key": "logo", "predicate": "position", "expected_value": "bottom right"},
+          {"predicate": "location", "expected_value": "gym", "accept": ["fitness center", "fitness"]},
+          {"predicate": "lighting", "expected_value": "bright"}
+        ]
+      },
+      {
+        "scene_key": "treadmill",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "회원이 러닝머신 위에서 달린다",
+        "entity_keys": ["member", "treadmill", "logo", "gym"],
+        "requirements": [
+          {"entity_key": "member", "predicate": "action", "expected_value": "runs", "accept": ["jogs"]},
+          {"entity_key": "member", "predicate": "on", "related_entity_key": "treadmill", "expected_value": "treadmill", "optional": true},
+          {"entity_key": "logo", "predicate": "text", "expected_value": "FIT ZONE", "accept_predicates": ["brand"]},
+          {"entity_key": "logo", "predicate": "position", "expected_value": "bottom right"},
+          {"predicate": "location", "expected_value": "gym", "accept": ["fitness center", "fitness"]},
+          {"predicate": "lighting", "expected_value": "bright"}
+        ]
+      },
+      {
+        "scene_key": "high_five",
+        "planned_start_ms": 8000,
+        "planned_end_ms": 12000,
+        "description": "트레이너와 회원이 하이파이브를 한다",
+        "entity_keys": ["trainer", "member", "logo", "gym"],
+        "requirements": [
+          {"entity_key": "trainer", "predicate": "action", "expected_value": "high five"},
+          {"entity_key": "member", "predicate": "action", "expected_value": "high five"},
+          {"entity_key": "trainer", "predicate": "outfit", "expected_value": "black sleeveless", "accept": ["black tank top"]},
+          {"entity_key": "logo", "predicate": "text", "expected_value": "FIT ZONE", "accept_predicates": ["brand"]},
+          {"entity_key": "logo", "predicate": "position", "expected_value": "bottom right"},
+          {"predicate": "location", "expected_value": "gym", "accept": ["fitness center", "fitness"]},
+          {"predicate": "lighting", "expected_value": "bright"}
+        ]
+      }
+    ]
+  }
+}

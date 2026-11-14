@@ -1,0 +1,51 @@
+{
+  "case_id": "en-03-cat-food",
+  "language": "en",
+  "target_duration_ms": 8000,
+  "brief": "An 8-second pet food ad in two equal shots. First, a gray cat sits next to a blue food bowl in a bright kitchen. Then the cat eats from the bowl while the text 'PURR PLUS' appears at the top of the screen.",
+  "covers": ["animal", "relation", "literal_text", "position", "implicit_timing"],
+  "notes": "No per-shot seconds: 'two equal shots' means 4 s each. Kitchen and light are stated for the first shot only.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "cat", "kind": "ANIMAL", "description": "gray cat", "aliases": ["cat", "kitten"]},
+      {"entity_key": "bowl", "kind": "PROP", "description": "blue food bowl", "aliases": ["bowl", "dish"]},
+      {"entity_key": "caption", "kind": "TEXT", "description": "text 'PURR PLUS'", "aliases": ["PURR PLUS", "text", "caption", "title", "slogan", "tagline"]},
+      {"entity_key": "kitchen", "kind": "BACKGROUND", "description": "bright kitchen", "aliases": ["kitchen"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "sit",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "a gray cat sits next to a blue food bowl in a bright kitchen",
+        "entity_keys": ["cat", "bowl", "kitchen"],
+        "requirements": [
+          {"entity_key": "cat", "predicate": "color", "expected_value": "gray"},
+          {"entity_key": "cat", "predicate": "pose", "expected_value": "sitting", "accept_predicates": ["action"]},
+          {"entity_key": "cat", "predicate": "near", "related_entity_key": "bowl", "expected_value": "bowl"},
+          {"entity_key": "bowl", "predicate": "color", "expected_value": "blue"},
+          {"predicate": "location", "expected_value": "kitchen"},
+          {"predicate": "lighting", "expected_value": "bright"}
+        ]
+      },
+      {
+        "scene_key": "eat",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "the cat eats from the bowl while 'PURR PLUS' appears at the top",
+        "entity_keys": ["cat", "bowl", "caption", "kitchen"],
+        "requirements": [
+          {"entity_key": "cat", "predicate": "action", "expected_value": "eats"},
+          {"entity_key": "cat", "predicate": "color", "expected_value": "gray"},
+          {"entity_key": "bowl", "predicate": "color", "expected_value": "blue"},
+          {"entity_key": "caption", "predicate": "text", "expected_value": "PURR PLUS"},
+          {"entity_key": "caption", "predicate": "position", "expected_value": "top"},
+          {"entity_key": "cat", "predicate": "near", "related_entity_key": "bowl", "expected_value": "bowl", "optional": true},
+          {"predicate": "location", "expected_value": "kitchen", "optional": true},
+          {"predicate": "lighting", "expected_value": "bright", "optional": true}
+        ]
+      }
+    ]
+  }
+}
