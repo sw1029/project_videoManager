@@ -16,6 +16,10 @@
    - 말 빠르기·자리별 말의 예는 모델이 아니라 받아 적은 말소리에서 계산한다.
    - 기준 이미지는 붙이지 않는다 (외부 영상의 화면을 잘라 두지 않는다. 필요하면 AdoptAnchors 로 붙인다).
 5. 다듬은 결과가 테마·IR 의 규칙을 통과하지 못하면 오류를 되돌려 보내 다시 묻는다 (max_attempts).
+6. 얹은 문구의 영역을 다시 묻는다 (refine_text_regions). 3번의 호출이 준 상자는 어긋난다: 프레임 여러 장에
+   문구 여러 개를 한 번에 물은 것이라 위·아래 구분만 맞는 정도다. 문구마다 그 자리의 가운데 프레임 한 장을
+   보여 주고 그 문구의 영역만 묻는다 (adapters/text_locator.py). 다시 물은 영역은 화면 문구와, 그 문구에서 나온
+   문구 규칙에 함께 넣는다. 문구 규칙의 영역은 새 편의 문구가 놓일 자리다. 찾지 못하면 처음 받은 영역을 둔다.
 
 한계
 - 프레임만 보므로 움직임·음악은 알 수 없다 (음악은 '알 수 없음' 으로 둔다). 작은 글자는 놓칠 수 있다.
@@ -30,7 +34,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from frame.adapters.text_locator import locate_text
 from frame.adapters.video_tools import extract_frame, require_ffmpeg
+from frame.application.errors import LLMError
 from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient
 from frame.application.ports.video_analysis import (
     ThemeExtraction,
@@ -63,7 +69,7 @@ from frame.domain.theme import (
 from frame.domain.video_analysis import ScreenText
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
-PROMPT_VERSION = "2026-11-14.5"
+PROMPT_VERSION = "2026-11-14.6"
 SCHEMA_NAME = "theme_observation"
 _CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
@@ -286,6 +292,8 @@ class VlmThemeExtractor(ThemeExtractor):
         language: str = "Korean",
         timeout_s: float | None = 240.0,
         vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY,
+        refine_text_regions: bool = True,
+        max_refined_texts: int = 8,
     ) -> None:
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self._llm = llm
@@ -296,6 +304,8 @@ class VlmThemeExtractor(ThemeExtractor):
         self.language = language  # 설명·구실·메모를 적을 언어
         self.timeout_s = timeout_s
         self._vocabulary = vocabulary
+        self.refine_text_regions = refine_text_regions  # 얹은 문구의 영역을 문구마다 다시 묻는다
+        self.max_refined_texts = max(0, int(max_refined_texts))  # 다시 묻는 호출 수의 상한
         self.last_completion: JsonCompletion | None = None  # 디버깅·기록용 원본 응답
 
     def extract(self, request: ThemeExtractionRequest) -> ThemeExtraction:
@@ -333,7 +343,15 @@ class VlmThemeExtractor(ThemeExtractor):
                     f"Previous answer:\n{completion.text[:4000]}\nReturn the corrected JSON only."
                 )
                 continue
-            detail = {
+            refined: int | None = None
+            if self.refine_text_regions:
+                refined, refine_notes = self._refine_text_boxes(
+                    document, request.video, spans, frames, usage
+                )
+                if refined:
+                    theme, source_ir, texts, notes = build_theme(request, spans, document)
+                notes = [*notes, *refine_notes]
+            detail: dict[str, Any] = {
                 "method": "vlm_frames",
                 "model": completion.model,
                 "prompt_version": PROMPT_VERSION,
@@ -341,10 +359,69 @@ class VlmThemeExtractor(ThemeExtractor):
                 "attempts": attempt,
                 "usage": usage,
             }
+            if refined is not None:
+                detail["refined_text_regions"] = refined
             return ThemeExtraction(theme, source_ir, texts, tuple(notes), detail)
         raise ThemeExtractionError(
             f"테마 추출이 {self.max_attempts}회 시도 후 실패했습니다: {last_error}"
         )
+
+    # ---- 얹은 문구의 영역 다시 묻기 ----
+    def _refine_text_boxes(
+        self,
+        document: dict[str, Any],
+        video: bytes,
+        spans: Sequence[tuple[int, int]],
+        frames: Sequence[_Frame],
+        usage: dict[str, int],
+    ) -> tuple[int, list[str]]:
+        """document 의 얹은 문구와 그 문구 규칙의 box 를 다시 물은 영역으로 바꾼다. (바꾼 수, 메모)"""
+        notes: list[str] = []
+        refined = 0
+        asked = 0
+        for item in document.get("screen_texts") or ():
+            if not isinstance(item, dict) or str(item.get("source") or "").upper() == "IN_SCENE":
+                continue
+            text = " ".join(str(item.get("text") or "").split())
+            index = _slot_index(item.get("slot"), len(spans))
+            if not text or index is None:
+                continue
+            if asked >= self.max_refined_texts:
+                notes.append(f"화면 문구가 많아 '{text}' 부터는 영역을 다시 묻지 않았습니다")
+                break
+            shown = [f.at_ms for f in frames if f.slot_index == index]
+            at_ms = shown[len(shown) // 2] if shown else sum(spans[index]) // 2
+            image = extract_frame(
+                self._ffmpeg, video, at_ms, max_side=1280, min_side=720, image_format="png"
+            )
+            asked += 1
+            try:
+                region, completion = locate_text(
+                    self._llm,
+                    ImageInput(image.data, image.media_type, "frame"),
+                    f'caption "{text}"',
+                    timeout_s=self.timeout_s,
+                )
+            except LLMError as exc:
+                notes.append(
+                    f"화면 문구의 영역을 다시 묻지 못했습니다 ({exc.code}). 처음 받은 영역을 둡니다"
+                )
+                break  # 한 번 실패하면 나머지도 묻지 않는다 (같은 실패를 되풀이하지 않는다)
+            usage["input_tokens"] += completion.input_tokens or 0
+            usage["output_tokens"] += completion.output_tokens or 0
+            if region is None:
+                notes.append(f"화면 문구 '{text}' 의 영역을 다시 찾지 못해 처음 받은 영역을 둡니다")
+                continue
+            box = region.to_dict()
+            item["box"] = box
+            refined += 1
+            for rule in document.get("text_rules") or ():
+                if not isinstance(rule, dict) or _squash(rule.get("example")) != _squash(text):
+                    continue
+                slots = {_slot_index(s, len(spans)) for s in rule.get("slots") or ()} - {None}
+                if not slots or index in slots:
+                    rule["box"] = dict(box)
+        return refined, notes
 
     # ---- 프레임 ----
     def _frames(self, video: bytes, spans: Sequence[tuple[int, int]]) -> list[_Frame]:
@@ -561,6 +638,14 @@ def build_theme(
     theme.validate()
     texts = _screen_texts(document.get("screen_texts"), spans)
     return theme, source_ir, texts, notes
+
+
+def _slot_index(raw: Any, count: int) -> int | None:
+    """모델이 가리킨 자리('S3', 'slot 3')의 0 기반 번호. 범위 밖이면 None."""
+    match = re.search(r"(\d+)", str(raw or ""))
+    if not match or not 0 < int(match.group(1)) <= count:
+        return None
+    return int(match.group(1)) - 1
 
 
 def _squash(raw: Any) -> str:

@@ -521,3 +521,65 @@ def test_camera_is_never_a_style_condition():
         for s in ir.scenes
     }
     assert cameras == {"slot_1": [], "slot_2": [], "slot_3": ["close up"], "slot_4": []}
+
+
+# ---- 화면 문구의 영역을 다시 묻기 ----
+TITLE_BOX = {"found": True, "top": 0.07, "bottom": 0.15, "left": 0.1, "right": 0.9}
+PRICE_BOX = {"found": True, "top": 0.72, "bottom": 0.8, "left": 0.08, "right": 0.92}
+
+
+@needs_ffmpeg
+def test_overlay_text_regions_are_asked_again_one_text_on_one_frame(video):
+    """여러 프레임·여러 문구를 한 번에 물은 상자는 어긋난다. 얹은 문구마다 프레임 한 장으로 다시 묻는다.
+
+    다시 물은 영역은 화면 문구와, 그 문구에서 나온 문구 규칙에 함께 들어간다 (새 편의 문구가 놓일 자리다).
+    """
+    extractor, llm = _extractor(cafe_observation(), TITLE_BOX, PRICE_BOX)
+    extraction = extractor.extract(_request(video=video))
+
+    assert len(llm.calls) == 3
+    first, second = llm.calls[1], llm.calls[2]
+    assert first["schema_name"] == "text_box" and len(first["images"]) == 1
+    assert '"오늘의 메뉴"' in first["user"] and '"바닐라 라떼 4,500원"' in second["user"]
+    assert first["images"][0].media_type == "image/png"  # 글자 가장자리가 뭉개지지 않게
+    title, price, in_scene = extraction.screen_texts
+    assert _box(title.region) == (0.1, 0.07, 0.8, 0.08)
+    assert _box(price.region) == (0.08, 0.72, 0.84, 0.08)
+    assert (
+        in_scene.source is TextSource.IN_SCENE and in_scene.region is None
+    )  # 장면 속 글자는 묻지 않는다
+    rules = {r.rule_key: r for r in extraction.theme.text_rules}
+    assert _box(rules["title"].region) == (0.1, 0.07, 0.8, 0.08)
+    assert _box(rules["price_tag"].region) == (0.08, 0.72, 0.84, 0.08)
+    assert extraction.detail["refined_text_regions"] == 2
+
+
+@needs_ffmpeg
+def test_text_region_is_kept_when_it_cannot_be_asked_again(video):
+    """찾지 못했거나 답이 이상하거나 호출이 실패하면 처음 받은 영역을 둔다. 추출은 실패하지 않는다."""
+    odd = {"found": True, "top": 0.5, "bottom": 0.5, "left": 0.2, "right": 0.1}
+    extractor, llm = _extractor(cafe_observation(), {**TITLE_BOX, "found": False}, odd)
+    extraction = extractor.extract(_request(video=video))
+
+    title, price, _ = extraction.screen_texts
+    assert _box(title.region) == (0.1, 0.08, 0.8, 0.08) and price.region is not None
+    assert extraction.detail["refined_text_regions"] == 0
+    assert sum("영역을 다시 찾지 못해" in note for note in extraction.notes) == 2
+
+    failing, llm = _extractor(cafe_observation(), LLMTimeout("응답 없음"))
+    extraction = failing.extract(_request(video=video))
+    assert len(llm.calls) == 2  # 한 번 실패하면 나머지는 묻지 않는다
+    assert any("영역을 다시 묻지 못했습니다" in note for note in extraction.notes)
+    assert _box(extraction.screen_texts[0].region) == (0.1, 0.08, 0.8, 0.08)
+
+
+@needs_ffmpeg
+def test_regions_are_not_asked_again_when_turned_off(video):
+    extractor, llm = _extractor(cafe_observation(), refine_text_regions=False)
+    extraction = extractor.extract(_request(video=video))
+
+    assert len(llm.calls) == 1 and "refined_text_regions" not in extraction.detail
+
+
+def _box(region):
+    return tuple(round(v, 3) for v in (region.x, region.y, region.w, region.h))
