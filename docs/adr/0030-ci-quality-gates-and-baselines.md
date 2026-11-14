@@ -51,6 +51,11 @@
 | 의존성 취약점 | `pip-audit` (CI 잡 안에서만 설치) | 처음에는 실패해도 머지를 막지 않는다 |
 | 릴리스 | `bundle.yml` 의 release 가 같은 커밋의 `ci` 를 요구한다. 태그는 패키지 버전으로 시작해야 한다 | 아직 태그가 없어 돌아 본 적이 없다 |
 
+보완 (2026-11-15, 감사 보고서 §12.3 결정 11): 화면 문구 합성 테스트를 도는 `overlay-font` 잡이 막는 검사가 됐다 (처음에는 결과만 봤다 — 다섯 번 이어
+통과한 뒤 `continue-on-error` 를 뺐다). 실패해도 워크플로가 통과로 끝나는 잡은 `audit` 와 `docker` 둘이고, 그 목록은
+`tests/unit/test_ci_workflow.py` 가 지킨다. 그 잡을 test 잡에 합치지 않는 까닭도 그 테스트에 적었다: 시스템 ffmpeg 를 깔면 PATH 의 것이
+번들보다 먼저 쓰여, 번들 ffmpeg 를 보는 잡이 없어진다.
+
 ### 3. 계층 규칙
 `docs/ARCHITECTURE.md` §3.1 의 표를 실제 코드에 맞춰 다시 적는다. 테스트(`tests/architecture/test_layer_rules.py`)가 이 표를 지킨다.
 
