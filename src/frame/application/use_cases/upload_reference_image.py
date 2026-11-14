@@ -24,11 +24,15 @@ from ..ports.artifact_store import ArtifactStore
 from ..ports.common import IdGenerator
 
 UPLOAD_PREFIX = "refs/uploads/"
-DEFAULT_MAX_BYTES = (
-    10 * 1024 * 1024
-)  # 10 MiB. 생성기는 참조 이미지를 data URI 로 보내므로 작을수록 좋다
+# 10 MiB. 생성기는 참조 이미지를 data URI 로 보내므로 작을수록 좋다
+DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 EXTENSIONS: dict[str, str] = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 _UPLOAD_NAME = re.compile(r"[A-Za-z0-9_-]{1,100}\.(?:png|jpg|webp)")
+
+
+def payload_too_large(max_bytes: int) -> PayloadTooLarge:
+    """크기 상한을 넘은 업로드의 오류 (본문을 다 읽기 전에 거절하는 HTTP 경로도 같은 문구를 쓴다)."""
+    return PayloadTooLarge(f"참조 이미지는 {max_bytes:,} 바이트까지 올릴 수 있습니다")
 
 
 def sniff_image_type(data: bytes) -> str | None:
@@ -61,9 +65,7 @@ class UploadReferenceImage:
         if not data:
             raise ValidationError("빈 파일입니다")
         if len(data) > self.max_bytes:
-            raise PayloadTooLarge(
-                f"참조 이미지는 {self.max_bytes:,} 바이트까지 올릴 수 있습니다 ({len(data):,} 바이트)"
-            )
+            raise payload_too_large(self.max_bytes)
         media_type = sniff_image_type(data)
         if media_type is None:
             raise UnsupportedMediaType("참조 이미지는 PNG·JPEG·WebP 만 올릴 수 있습니다")

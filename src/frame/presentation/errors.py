@@ -1,6 +1,7 @@
 """오류 응답 형식 통일: 모든 오류 본문은 {error_code, error_message[, details]} 이다.
 
-- 도메인 오류: 코드별 상태 (404 / 409 / 422 / 400). code 는 도메인 오류의 code 그대로.
+- 도메인 오류: 코드별 상태 (404 / 409 / 413 / 415 / 422 / 400). code 는 도메인 오류의 code 그대로.
+  413 PAYLOAD_TOO_LARGE·415 UNSUPPORTED_MEDIA_TYPE 는 참조 이미지 업로드(#12)의 크기·형식 검사다.
 - 요청 스키마 검증 오류(FastAPI): 422 VALIDATION_ERROR + details[{loc, message}]
 - 라우팅 오류(없는 경로 404, 허용되지 않은 메서드 405 등): 상태별 코드, 원래 헤더(Allow 등) 유지
 - 요청 제한: 429 RATE_LIMITED + Retry-After
@@ -26,17 +27,23 @@ from frame.domain.errors import (
     IntegrityViolation,
     InvalidStateTransition,
     NotFound,
+    PayloadTooLarge,
     PermissionDenied,
+    UnsupportedMediaType,
     ValidationError,
 )
 
 log = logging.getLogger(__name__)
 
+# 처리기는 예외 클래스의 MRO 에서 가장 가까운 것이 고른다 (PayloadTooLarge 는 ValidationError 보다 먼저 맞는다)
 STATUS_BY_ERROR: tuple[tuple[type[DomainError], int], ...] = (
     (NotFound, 404),  # MEDIA_NOT_AVAILABLE 포함
     (PermissionDenied, 403),
-    (InvalidStateTransition, 409),  # VERSION_NOT_GENERATABLE / VERSION_NOT_REVISABLE 포함
+    # VERSION_NOT_GENERATABLE / VERSION_NOT_REVISABLE / VERSION_NOT_EDITABLE 포함
+    (InvalidStateTransition, 409),
     (IntegrityViolation, 409),
+    (PayloadTooLarge, 413),
+    (UnsupportedMediaType, 415),
     (ValidationError, 422),
     (DomainError, 400),
 )

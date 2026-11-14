@@ -221,6 +221,18 @@ class VocabularyOut(BaseModel):
     predicates: list[PredicateOut]
 
 
+class ReferenceImageUploadOut(BaseModel):
+    """POST /api/reference-images — 올린 참조 이미지 (#12).
+
+    image_uri 를 POST /api/projects 의 reference_images[].image_uri 에 그대로 쓴다. 프로젝트를 만들 때 서버가
+    refs/{project_id}/ 로 옮기므로, 버전의 참조 이미지(reference_images[].image_uri·image_url)는 그 주소로 나온다.
+    """
+
+    image_uri: str
+    media_type: str  # image/png | image/jpeg | image/webp (파일 내용으로 판별)
+    size_bytes: int
+
+
 class CreateProjectOut(BaseModel):
     project_id: str
     version_id: str

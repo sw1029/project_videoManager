@@ -26,7 +26,7 @@ from . import mappers
 from .errors import register_error_handlers
 from .rate_limit import SlidingWindowRateLimiter
 from .recovery import RecoveryLoop
-from .routers import projects, versions, vocabulary
+from .routers import projects, reference_images, versions, vocabulary
 from .routers import settings as settings_router
 from .schemas import HealthAdaptersOut, HealthOut
 
@@ -60,6 +60,7 @@ def create_app(container: Container) -> FastAPI:
 
     prefix = settings.api_prefix
     app.include_router(projects.router, prefix=prefix)
+    app.include_router(reference_images.router, prefix=prefix)
     app.include_router(versions.router, prefix=prefix)
     app.include_router(vocabulary.router, prefix=prefix)
     app.include_router(settings_router.router, prefix=prefix)

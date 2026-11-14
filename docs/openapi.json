@@ -19,6 +19,21 @@
         "title": "AcceptGenerationOut",
         "type": "object"
       },
+      "Body_upload_reference_image_api_reference_images_post": {
+        "properties": {
+          "file": {
+            "description": "PNG·JPEG·WebP 이미지. 형식은 파일 내용으로 판별한다",
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_reference_image_api_reference_images_post",
+        "type": "object"
+      },
       "BoxOut": {
         "properties": {
           "h": {
@@ -1902,6 +1917,30 @@
         "title": "ReferenceImageOut",
         "type": "object"
       },
+      "ReferenceImageUploadOut": {
+        "description": "POST /api/reference-images — 올린 참조 이미지 (#12).\n\nimage_uri 를 POST /api/projects 의 reference_images[].image_uri 에 그대로 쓴다. 프로젝트를 만들 때 서버가\nrefs/{project_id}/ 로 옮기므로, 버전의 참조 이미지(reference_images[].image_uri·image_url)는 그 주소로 나온다.",
+        "properties": {
+          "image_uri": {
+            "title": "Image Uri",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "image_uri",
+          "media_type",
+          "size_bytes"
+        ],
+        "title": "ReferenceImageUploadOut",
+        "type": "object"
+      },
       "RequirementComparisonOut": {
         "properties": {
           "after_requirement_key": {
@@ -3372,6 +3411,77 @@
         "summary": "버전 트리와 버전별 상태·검수 요약·바뀐 장면 수, 프로젝트 집계를 한 번에 조회한다",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/reference-images": {
+      "post": {
+        "operationId": "upload_reference_image_api_reference_images_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_reference_image_api_reference_images_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceImageUploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "PAYLOAD_TOO_LARGE (FRAME_REFERENCE_IMAGE_MAX_BYTES, 기본 10 MiB)"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "UNSUPPORTED_MEDIA_TYPE (PNG·JPEG·WebP 만)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR (file 필드 없음·빈 파일)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "참조 이미지를 올린다 (multipart/form-data 의 file). 돌려준 image_uri 를 POST /api/projects 의 reference_images 에 쓴다",
+        "tags": [
+          "reference-images"
         ]
       }
     },
