@@ -215,9 +215,10 @@
 - 제안: 세 겹으로 막는다. LLM 클라이언트는 응답 모양 접근과 SDK 의 나머지 오류를 `LLMBadResponse`·`LLMUnavailable` 로 바꾼다.
   검수기 골격(M-04)은 단위마다 예상 밖 예외도 미판정으로 남긴다 (`log.exception`). `CheckSuite` 는 마지막 방어선으로
   한 검수기의 실패를 기록하고 나머지를 계속한다.
-- 담당·시점: **감사 · 지금** (테스트 먼저) · 상태: **일부 해결** — 세 겹 가운데 둘: `a833d6d` (`CheckSuite` 가 예외로 끝난 검수기의 자리에 미판정을 남기고 나머지를 계속한다.
+- 담당·시점: **감사 · 지금** (테스트 먼저) · 상태: **해결** — 세 겹 모두: `a833d6d` (`CheckSuite` 가 예외로 끝난 검수기의 자리에 미판정을 남기고 나머지를 계속한다.
   기존 테스트 둘의 기대를 바꿨다 — 검수기 예외로 버전이 실패하지 않는다. ADR-0006 에 보완 줄), `85a8322` (LLM 클라이언트가 SDK 의 나머지 오류와
-  choices·message 없는 응답·글이 아닌 본문을 `LLMError` 로 바꾼다). 검수기 골격의 단위별 방어는 M-04 와 함께 한다
+  choices·message 없는 응답·글이 아닌 본문을 `LLMError` 로 바꾼다), `4511ad2` (VLM 검수기 셋의 단위별 방어 `adapters/checker/_guard.py` —
+  한 단위의 예상 밖 예외는 그 단위만 미판정이고 다른 단위의 판정은 남는다. 일관성 검수의 집계도 그 안에 든다. ADR-0018 에 보완 줄)
 
 ### A-14 · 낮음 · SQLite 를 여러 스레드가 쓸 때의 설정이 없다
 - 어디: `src/frame/adapters/persistence/sqlalchemy/engine.py:18-33` — `PRAGMA foreign_keys=ON` 만 건다.
@@ -308,8 +309,10 @@
   리스(A-06)와 시연 런처의 기동 대기(O-05)가 이 시간에 걸린다.
 - 제안: `max_retries` 를 명시한다 (0 또는 1). 검수 실행 한 번 안에서 시간 초과·연결 실패가 나면 남은 단위는 부르지 않고 미판정으로 둔다.
   VLM 시간 제한과 출력 상한의 설정 연결은 A-03 과 함께.
-- 담당·시점: **감사 · 지금** (`openai_client.py`·검수기) / 머지 뒤 (설정) · 상태: **일부 해결** (`f421f28` — `OpenAIJsonClient(max_retries=1)` 을 SDK 에 명시한다. 호출 하나의 상한이 시간 제한의 세 배에서 두 배가 됐다.
-  남은 것: 검수 실행 한 번 안에서 시간 초과·연결 실패가 나면 남은 단위를 부르지 않기 (M-04 와 함께), 시간 제한·재시도·출력 상한의 설정 연결 (A-03, 머지 뒤))
+- 담당·시점: **감사 · 지금** (`openai_client.py`·검수기) / 머지 뒤 (설정) · 상태: **해결** (설정 연결만 머지 뒤) — `f421f28` (`OpenAIJsonClient(max_retries=1)` 을 SDK 에 명시한다. 호출 하나의 상한이 시간 제한의 세 배에서 두 배가 됐다),
+  `4511ad2` (모델이 시간 안에 답하지 않았거나 닿지 않으면 — `LLM_TIMEOUT`·`LLM_UNAVAILABLE` — 그 검수 실행의 남은 단위는 묻지 않고 미판정으로 둔다.
+  기존 테스트 하나의 기대를 바꿨다: 시간 초과 뒤의 장면을 더는 판정하지 않는다. ADR-0018 에 보완 줄).
+  남은 것: 시간 제한·재시도·출력 상한의 설정 연결 (A-03, 머지 뒤)
 
 ### A-25 · 중간 · LLM 키 파일 파서가 변수 이름과 공급자를 가리지 않는다
 - 어디: `src/frame/adapters/llm/keys.py:8,20-27`, 같은 규칙의 `src/frame/tools/demo.py:100-103`.
@@ -715,7 +718,7 @@ src/frame/
   점수 규칙 셋, 정체성 추출의 실패 정책과 박스 기하, SSIM 검수기(보존 검수기와 가드 둘만 나눈다).
   옛 모듈(`checker/vlm_requirement.py` 등)은 새 모듈을 다시 내보내는 얇은 모듈로 남긴다. 순서는 순수 도우미 → `ask_json` →
   `FrameSampler`(시각·라벨을 바이트까지 같게) → 골격 → 패키지 이동. 동작을 바꾸는 수정(A-13·A-21~23)은 그 뒤에 테스트와 함께 따로 한다.
-- 담당·시점: **감사 · 지금** · 상태: 열림
+- 담당·시점: **감사 · 지금** · 상태: **일부 해결** (`c20e1f4` · `4511ad2` · `5fc95b6`) — 글자까지 같던 조각을 공용으로 모았다: 프레임 표본기 `FrameSampler`·표본 시각 `midpoints` (`adapters/shared/media/frames.py`), 질의 함수 `ask_json` (`shared/vlm/ask.py`, `_BadAnswer` 세 벌을 없앴다), 질의 글의 조각 (`shared/vlm/wording.py`), 단위별 방어 `UnitGuard` (`adapters/checker/_guard.py`, try/except 세 벌을 없앴다). 정체성 추출기의 질의 글·응답 읽기는 `identity/_crop_question.py` 로 뗐다. **하지 않은 것**: 공통 골격(base 클래스 `VlmChecker`)과 `adapters/checker/vlm/` 하위 패키지, 결과 도우미(`outcomes.py`). 남은 중복은 생성자 인자와 `check` → `_check_*` → `_judge_*` 의 뼈대뿐이고, 검수기마다 진짜로 다른 것(질의 글 · 응답 형식 · 판정 규칙)이 본문의 대부분이라 base 클래스로 얻는 것이 작다고 보았다. 필요해지면 (네 번째 VLM 검수기) 그때 뽑는다
 
 ### M-05 · 낮음 · `tools/demo.py`(815줄)·`tools/bundle.py`(565줄)
 - 어디: `src/frame/tools/demo.py` — 순수 함수, HTTP, 프로세스·신호, Windows 작업 개체(ctypes), 명령 4개, 점검 시나리오, 인자 처리가 한 파일에 있다.
@@ -760,7 +763,7 @@ src/frame/
 | R-07 | 낮음 | 정규화 좌표 사각형이 둘 (theme-series 가 셋째 `Region` 을 더했다) | `adapters/video_tools.py:35-51` `Box`, `domain/tracking.py:12-17` `BoundingBox` | `Region` 하나로 | 머지 뒤 (P-07) |
 | R-08 | 낮음 | 타임라인 연속성(0 ms 시작·빈틈·겹침 없음) 검사가 IR 에 있고, theme-series 의 샷 검사가 같은 규칙이다 | `domain/ir.py:142-159` | `domain/timeline.py` `ensure_contiguous` | 머지 뒤 (P-08) |
 | R-09 | 낮음 | 예외 → (오류 코드, 메시지) 정규화가 파이프라인과 구조화에서 다르게 구현돼 있다 | `application/pipeline/runner.py:36-48`, `use_cases/structure_requirements.py:53-54` | 함수 하나 (`normalize_failure(exc)`) | 머지 뒤 (A-05 와 함께) |
-| R-10 | 중간 | 검수기마다 같은 클립에서 같은 시각의 프레임을 다시 뽑는다. `extract_frame` 은 부를 때마다 클립 전체를 임시 파일에 쓰고 ffmpeg 를 띄운다 | `adapters/video_tools.py:100-112`; 요구 반영·일관성 검수가 둘 다 `(index + 0.5) / 3` 시각을 쓴다 | 프레임 표본 객체(시각 계산 + 실행 한 번 안의 캐시). 검수 시간(14~16초)의 일부가 여기서 나온다 | 지금 (M-04 와 함께) |
+| R-10 | 중간 | 검수기마다 같은 클립에서 같은 시각의 프레임을 다시 뽑는다. `extract_frame` 은 부를 때마다 클립 전체를 임시 파일에 쓰고 ffmpeg 를 띄운다 | `adapters/video_tools.py:100-112`; 요구 반영·일관성 검수가 둘 다 `(index + 0.5) / 3` 시각을 쓴다 | 프레임 표본 객체(시각 계산 + 실행 한 번 안의 캐시). 검수 시간(14~16초)의 일부가 여기서 나온다 | **해결** (`c20e1f4`) — 프레임 표본기 `FrameSampler` (`adapters/shared/media/frames.py`): 같은 클립(내용의 해시)의 같은 시각·같은 모양의 프레임은 다시 뽑지 않는다. 최근 128장을 들고 있고, 같은 ffmpeg 를 쓰는 어댑터는 표본기 하나를 함께 쓴다 (`FrameSampler.shared`). 검수기 셋과 정체성 추출기 둘이 쓴다. 표본 시각은 `midpoints` 한 곳 |
 
 ## 7. 클린코드
 
@@ -867,7 +870,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
 | ID | 무엇 | 어디 | 제안 | 시점 |
 |---|---|---|---|---|
 | T-09 | OpenAPI 계약 테스트가 이름의 집합만 비교한다 (경로·메서드·상태 코드·필드 이름). 필드 타입, `required`, enum 값, 파라미터 위치가 바뀌어도 통과한다. 저장된 `docs/openapi.json` 은 지금 코드로 만든 것과 바이트까지 같다 | `tests/api/test_openapi_contract.py:12-33`, `tools/export_openapi.py:32-85` | 서명에 타입·null 허용·`required`·enum 을 넣는다 | 머지 뒤 (#10 이 `openapi.json` 을 고친다) |
-| T-10 | 느린 테스트. 전체 65.8초 가운데 검수기·정체성 계약 파일 둘이 19.5초 (프레임 추출을 테스트마다 다시 한다, 회당 48ms × 14회), `test_http_transport.py` 5.1초 (닫힌 루프백 포트 연결이 Windows 에서 2초, `serve_forever()` 기본 poll 0.5초 × 서버 2개), `test_consistency_api_flow.py` 10초 (테스트 3개가 각각 원본 3장면을 만든다). `docs/TDD_WORKFLOW.md:56` 은 "약 1초" 라고 적는다 | `tests/contract/test_checker_contract.py`, `tests/unit/test_http_transport.py:55-69`, `tests/support/openrouter_server.py:117` | `poll_interval=0.01` (약 3초), 프레임 추출 주입·메모이즈 (19.5초 → 3초 안팎, R-10 의 `FrameSampler`), 원본 생성을 모듈 fixture 로 | 지금 |
+| T-10 | 느린 테스트. 전체 65.8초 가운데 검수기·정체성 계약 파일 둘이 19.5초 (프레임 추출을 테스트마다 다시 한다, 회당 48ms × 14회), `test_http_transport.py` 5.1초 (닫힌 루프백 포트 연결이 Windows 에서 2초, `serve_forever()` 기본 poll 0.5초 × 서버 2개), `test_consistency_api_flow.py` 10초 (테스트 3개가 각각 원본 3장면을 만든다). `docs/TDD_WORKFLOW.md:56` 은 "약 1초" 라고 적는다 | `tests/contract/test_checker_contract.py`, `tests/unit/test_http_transport.py:55-69`, `tests/support/openrouter_server.py:117` | `poll_interval=0.01` (약 3초), 프레임 추출 주입·메모이즈 (19.5초 → 3초 안팎, R-10 의 `FrameSampler`), 원본 생성을 모듈 fixture 로 | **일부 해결** (`c20e1f4`) — 프레임 표본기로 같은 합성 클립의 프레임을 다시 뽑지 않아 전체 테스트가 58초에서 38초가 됐다 (이 기기). 남은 것: `test_http_transport.py` 의 poll 간격(약 5초), `test_consistency_api_flow.py` 의 원본 생성을 모듈 fixture 로 (약 10초), `docs/TDD_WORKFLOW.md` 의 "약 1초" 문장 (그 문서는 #21·#10 이 고쳐 머지 뒤) |
 | T-11 | 테스트 구조. 큰 파일 셋 (`test_openrouter_edit.py` 1,126줄, `test_openrouter_generator.py` 703줄, `test_identity_extractor_contract.py` 578줄 — 계약은 그중 5개뿐). 도우미 중복 (`_request` 가 9개 파일, `store` fixture 가 11개 파일, 가짜 객체 `ProcessDied` 4곳). 계약 폴더에 구현별 테스트가, unit 폴더에 실제 ffmpeg 테스트가 섞여 있다. 프롬프트 문구를 단언하는 파일 13개, 대기 수열 단언 15곳. 비공개 속성 접근 (`store._blobs`, `generator._inner`). 인수 테스트 14개 중 1개에 AC 마커가 없고 마커 값은 검증하지 않는다. 복구의 경쟁 분기와 요청 제한의 창 만료가 미검증이다 (`recover_pending_versions.py:109-111,123,133`, `rate_limit.py:34-35`) | `tests/` 전반 | 파일 하나는 ADR 하나 또는 공개 함수 하나. `tests/support/{requests,api,vlm,doubles}.py` 로 모으기. 문구 단언은 프롬프트 단위 테스트에만 | 3단계 (M-01·M-04 와 같은 순서로) |
 
 ## 9. CI·운영 — 지금 검사하는 것과 더할 것
@@ -1057,7 +1060,9 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | 가 5 키와 밖으로 나가는 글 | 끝 (구조화 프롬프트의 참조 이미지 URI 는 #17 머지 뒤, 원격 저장소의 서명 주소는 저장소를 붙일 때) | `caf0b77` · `1f622ed` · `7e3a513` · `a5f87e3` · `436f5b8` · `69bcf95` · `40d15ea` | A-25, A-29(키 표시·임시 경로), A-38(a~d), T-08, R-03(실행기) |
 | 가 6 실행 환경 | 끝 (서버 종료 때의 `shutdown()` 은 #10 머지 뒤) | `d6ce4d7` · `19ff722` · `8470dbd` · `d4602cb` | T-02(높음), A-41, A-07(일부), A-14, A-31 |
 | 가 7 운영 | 끝 (이미지 빌드는 미확인. 기동 복구를 옮기는 일은 #10 머지 뒤, POSIX 의 남는 서버는 M-05 때, 키 위치는 결정 8) | `0f1ff16` · `f5b3a10` · `e2da3f4` · `8b1dfd0` · `cb6a368` · `0f03cb2` · `cc6b270` · `ec5bdf0` | O-03, O-04, O-08, O-11, O-09(안내), O-05(런처 쪽), O-12(POSIX 제외) |
-| 가 3 검수 | 골격과 무관한 것은 끝. 나머지(A-13 의 단위별 방어, A-22, A-24 의 '남은 단위 건너뛰기')는 검수기 골격(M-04) 뒤 | `a833d6d` · `85a8322` · `f421f28` · `12df838` · `26692fd` · `fdb9e88` | A-23, A-16, A-28, A-13(두 겹), A-24(재시도 상한) |
+| 나 8 배치 규칙 · 공용 모듈 · 패키지 입구 · 조립기 | 끝 (호환 모듈 걷어내기와 생성기 패키지의 남은 이름은 머지 뒤, P-17) | `5fc95b6` · `36209a9` · `b91f4fe` · `23a008f` · `bde28ff` | L-03, R-03, K-02, K-03, K-01(표) · K-04(조립기) · K-05(어댑터 쪽) |
+| 나 9 VLM 검수기의 공용 조각 | 공용 조각과 단위별 방어는 끝. base 클래스는 뽑지 않았다 (M-04 의 상태 참고) | `c20e1f4` · `4511ad2` | R-10, M-04(일부), T-10(일부), A-13, A-24 |
+| 가 3 검수 | 끝 (A-22 는 비율 결정을 기다린다 — §12.3 결정 4) | `a833d6d` · `85a8322` · `f421f28` · `12df838` · `26692fd` · `fdb9e88` · `4511ad2` | A-23, A-16, A-28, A-13, A-24(설정 연결만 머지 뒤) |
 
 ### 12.2 머지 뒤로 미루는 것
 
