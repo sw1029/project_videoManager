@@ -53,7 +53,8 @@ class LLMStructurer(RequirementStructurer):
             self.last_completion = completion
             try:
                 return self._parse(completion.text)
-            except (ValueError, KeyError, TypeError, DomainError) as exc:
+            # AttributeError: strict 가 아닌 서버가 스키마와 형이 다른 값을 줄 때 (글 자리에 숫자 등)
+            except (ValueError, KeyError, TypeError, AttributeError, DomainError) as exc:
                 last_error = _describe(exc)
                 user = feedback_prompt(user, last_error, completion.text)
         raise StructuringError(f"LLM 구조화가 {self.attempts}회 시도 후 실패했습니다: {last_error}")
