@@ -16,8 +16,8 @@ from frame.adapters.series.audio import FakeAudioEditor
 from frame.adapters.series.audio.ffmpeg import FfmpegAudioEditor
 from frame.adapters.series.source_analysis import FakeMediaProber
 from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
+from frame.adapters.shared.media.detection import detect_silences
 from frame.adapters.shared.media.fake_media import fake_recording, fake_video
-from frame.adapters.shared.media.media_tools import detect_silences
 from frame.adapters.speech import FakeSpeechRecognizer
 from frame.application.ports.series.audio import AudioEditor, AudioError, TrackCut
 from frame.application.ports.series.source_analysis import MediaProber

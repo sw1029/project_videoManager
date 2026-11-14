@@ -10,14 +10,14 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from frame.adapters.shared.media.ffmpeg import require_ffmpeg
-from frame.adapters.shared.media.media_tools import (
+from frame.adapters.shared.media.detection import detect_cuts
+from frame.adapters.shared.media.ffmpeg import (
     READ_TIMEOUT_S,
     WORK_TIMEOUT_S,
-    MediaToolError,
-    detect_cuts,
-    probe_media,
+    VideoToolError,
+    require_ffmpeg,
 )
+from frame.adapters.shared.media.probe import probe_media
 from frame.application.ports.series.source_analysis import (
     MediaProber,
     ShotDetector,
@@ -27,7 +27,7 @@ from frame.domain.media import MediaInfo
 from frame.domain.series.source_analysis import Shot, shots_from_cuts
 
 # 받는 영상 코덱. ffmpeg 는 글 파일도 '영상'(bintext·ansi …)으로 읽을 수 있다. 계약은 "영상이 아니면 오류" 다.
-# MJPEG 는 없다: 영상 정보를 읽는 쪽(media_tools)이 그림 한 장(음악 파일의 표지)으로 본다 (감사 BTS-D36)
+# MJPEG 는 없다: 영상 정보를 읽는 쪽(shared/media/probe)이 그림 한 장(음악 파일의 표지)으로 본다 (감사 BTS-D36)
 VIDEO_CODECS = frozenset(
     {"h264", "hevc", "vp8", "vp9", "av1", "mpeg4", "mpeg2video", "theora", "prores"}
 )
@@ -44,7 +44,7 @@ class FfmpegMediaProber(MediaProber):
             path.write_bytes(video)
             try:
                 found = probe_media(self._ffmpeg, path, self.timeout_s)
-            except MediaToolError as exc:
+            except VideoToolError as exc:
                 raise VideoAnalysisError(f"영상을 읽지 못했습니다: {exc}") from exc
         if not found.has_video or not found.width or not found.height or not found.duration_ms:
             raise VideoAnalysisError(
@@ -85,6 +85,6 @@ class FfmpegShotDetector(ShotDetector):
                 cuts = detect_cuts(
                     self._ffmpeg, path, threshold=self.threshold, timeout_s=self.timeout_s
                 )
-            except MediaToolError as exc:
+            except VideoToolError as exc:
                 raise VideoAnalysisError(f"영상을 읽지 못했습니다: {exc}") from exc
         return shots_from_cuts(cuts, media.duration_ms, min_shot_ms=self.min_shot_ms)

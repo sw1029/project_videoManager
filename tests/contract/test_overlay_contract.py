@@ -25,7 +25,8 @@ from frame.adapters.series.overlay.ffmpeg_renderer import (
     system_font_dirs,
 )
 from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
-from frame.adapters.shared.media.media_tools import probe_media, region_ssim
+from frame.adapters.shared.media.probe import probe_media
+from frame.adapters.shared.media.similarity import region_ssim
 from frame.application.errors import AdapterError, ConfigurationError, LLMTimeout
 from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
 from frame.domain.screen import Region, TextRole

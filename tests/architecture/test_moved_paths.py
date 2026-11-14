@@ -61,6 +61,13 @@ MOVED = {
     # 커밋되는 글의 경로 가리기는 두 평가 도구가 한 벌을 쓴다 (P-20)
     "frame.evaluation.structuring._public": "frame.evaluation._public",
     "frame.evaluation.edits.LOCAL_PATH_MASK": "frame.evaluation._public.PATH_MASK",
+    # 영상 · 소리 읽기는 한 벌이다 (P-15). 오류는 VideoToolError 하나, 실행은 run_reading
+    "frame.adapters.shared.media.media_tools": (
+        "겉모습 읽기 frame.adapters.shared.media.probe (probe_media), "
+        "영역 유사도 frame.adapters.shared.media.similarity (region_ssim), "
+        "컷 · 무음 찾기 frame.adapters.shared.media.detection, "
+        "실행과 시간 제한 frame.adapters.shared.media.ffmpeg (run_reading)"
+    ),
 }
 
 # src 밖에서 frame 을 import 하는 곳
