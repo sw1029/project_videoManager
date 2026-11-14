@@ -192,6 +192,36 @@ def test_the_rest_of_the_sdk_errors_are_llm_errors_too(error, code):
     assert excinfo.value.code == code
 
 
+# ---- 재시도 상한 (감사 A-24) --------------------------------------------------------------
+
+
+def _record_sdk_clients(monkeypatch):
+    made = []
+    monkeypatch.setattr(openai, "OpenAI", lambda **kwargs: made.append(kwargs) or SimpleNamespace())
+    return made
+
+
+def test_the_sdk_retries_are_limited_explicitly(monkeypatch):
+    """SDK 의 기본 재시도(2회)에 기대지 않는다. 응답하지 않는 서버에서 호출 하나가 시간 제한의 세 배까지 걸린다."""
+    made = _record_sdk_clients(monkeypatch)
+
+    client = OpenAIJsonClient(
+        model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, timeout_s=30
+    )
+
+    assert client.max_retries == 1
+    assert (made[0]["max_retries"], made[0]["timeout"]) == (1, 30)
+
+
+@pytest.mark.parametrize(("given", "used"), [(0, 0), (3, 3), (-1, 0)])
+def test_the_retry_limit_can_be_set(monkeypatch, given, used):
+    made = _record_sdk_clients(monkeypatch)
+
+    OpenAIJsonClient(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, max_retries=given)
+
+    assert made[0]["max_retries"] == used
+
+
 # ---- 호출 시점 키 해석 (화면 입력 키 지원) -------------------------------------------------
 
 

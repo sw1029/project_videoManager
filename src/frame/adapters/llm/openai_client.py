@@ -8,6 +8,8 @@
   로컬 서버가 strict json_schema 를 지원하지 않으면 strict=False 로 두고 호출자(LLMStructurer)의 검증·재시도에 맡긴다.
 - 추론 모델(o*, gpt-5*)은 temperature 를 받지 않으므로 보내지 않는다.
 - images 를 주면 user 메시지를 글 + 이미지(data URI) 조각으로 보낸다 (이미지를 읽는 모델이어야 한다).
+- SDK 의 자동 재시도는 max_retries(기본 1)로 명시한다. 호출 하나는 시간 제한 x (max_retries + 1) 까지 걸릴 수 있다.
+  SDK 기본값(2)에 맡기면 응답하지 않는 서버에서 VLM 호출 하나(180초)가 9분까지 걸린다.
 - 실패는 모두 LLMError 로 알린다: SDK 가 내는 오류 전부와, 응답에 choices·message 가 없거나 본문이 글이 아닌 경우까지.
   다른 예외가 새면 부르는 쪽(검수기·구조화기)이 '판정 불가·구조화 실패' 로 다루지 못한다.
 """
@@ -83,8 +85,11 @@ class OpenAIJsonClient(LLMClient):
         sdk_factory: Callable[[str], Any] | None = None,
         require_key_at_start: bool = True,
         image_detail: str = "high",
+        max_retries: int = 1,
     ) -> None:
         self.model = model
+        # SDK 가 연결 실패·시간 초과·429·5xx 에서 스스로 다시 보내는 횟수 (0 이면 다시 보내지 않는다)
+        self.max_retries = max(0, int(max_retries))
         self.image_detail = image_detail  # 이미지 해상도 수준 (high: 얼굴·문구 같은 세부를 본다)
         self.base_url = base_url
         self.timeout_s = timeout_s
@@ -100,7 +105,9 @@ class OpenAIJsonClient(LLMClient):
 
         self.key_source = key_source or LLMKeyStore(key_file=key_file, env=env, explicit=api_key)
         self._sdk_factory = sdk_factory or (
-            lambda key: openai.OpenAI(api_key=key, base_url=base_url, timeout=timeout_s)
+            lambda key: openai.OpenAI(
+                api_key=key, base_url=base_url, timeout=timeout_s, max_retries=self.max_retries
+            )
         )
         if require_key_at_start:
             self._sdk()
