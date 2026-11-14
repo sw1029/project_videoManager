@@ -293,10 +293,16 @@ def test_entity_matching_stays_fast_when_many_entities_match_each_other():
         ("expression", "smiling", "not smiling", False),
         ("action", "waves", "doesn't wave", False),
         ("expression", "웃는다", "안 웃는다", False),
-        ("expression", "웃는다", "웃지 않는다", False),
+        ("action", "보다", "못 보다", False),
+        ("expression", "웃지", "웃지 않는다", False),  # 않 으로 시작하는 낱말
+        ("action", "보지", "보지 못한다", False),  # 못 으로 시작하는 낱말
         ("mood", "not scary", "not scary at all", True),
         # 명사를 부정하는 말(without·no)은 조건을 뒤집지 않는다: 걷는 것은 맞다
         ("action", "walks", "walks without umbrella", True),
+        # 뒤에 낱말이 없는 '안'·'못' 은 자리·물건을 뜻한다 (카페 안, 나무 못)
+        ("location", "카페", "카페 안", True),
+        ("location", "방", "방 안", True),
+        ("material", "나무", "나무 못", True),
     ],
 )
 def test_values_are_compared_after_normalization(predicate, expected, actual, matched):

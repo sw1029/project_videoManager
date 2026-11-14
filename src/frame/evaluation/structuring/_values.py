@@ -21,9 +21,12 @@ _STOPWORDS = frozenset({
     "s",  # 소유격(bird's)이 쪼개져 남은 것
 })  # fmt: skip
 _VOWELS = frozenset("aeiouy")
-# 동사를 부정하는 말 (not smiling · doesn't wave · 안 웃는다 · 웃지 않는다 · 못 본다)
-_NEGATION_WORDS = frozenset({"not", "never", "neither", "nor", "안", "못"})
-_NEGATION_PREFIXES = ("않", "못")
+# 동사를 부정하는 말 (not smiling · doesn't wave · 안 웃는다 · 못 본다 · 웃지 않는다 · 보지 못한다)
+_NEGATION_WORDS = frozenset({"not", "never", "neither", "nor"})
+_NEGATION_ADVERBS = frozenset(
+    {"안", "못"}
+)  # 뒤에 낱말이 올 때만 부정이다 ('카페 안'·'벽의 못' 은 자리·물건)
+_NEGATION_PREFIXES = ("않", "못")  # 않는다·못한다 처럼 낱말 앞에 붙은 것
 # (어미, 그 어미를 걷어낼 최소 낱말 길이). 앞에서부터 하나만 걷어낸다
 _SUFFIXES = (("ing", 6), ("ied", 5), ("ies", 5), ("es", 5), ("ed", 5), ("ly", 6), ("s", 4))
 _COLOR_WORDS = {
@@ -64,7 +67,8 @@ def values_match(predicate: str, expected: str, actual: str) -> bool:
 
     알려진 한계 (지표를 읽을 때 감안한다)
     - 명사를 부정하는 말(no·without·없)은 보지 않는다. 'walks without umbrella' 는 걷기로 맞고,
-      'no smile' 은 smile 과 맞춤이 된다
+      'no smile' 은 smile 과 맞춤이 된다. 접두 부정(non-smiling)도 보지 않는다
+    - 부정은 값 전체로 본다. 다른 절의 부정도 불일치가 된다: standing / 'standing, not moving'
     - 여러 값이 섞여도 맞춤이다: 골드 red, 모델 'red and blue'
     - 낱말 단위 비교라 동의어(cozy / comfortable)는 골드의 accept 로만 받는다
     """
@@ -88,7 +92,16 @@ def _negated(text: str) -> bool:
     lowered = text.lower()
     if "n't" in lowered or "n’t" in lowered:
         return True
-    return any(w in _NEGATION_WORDS or w.startswith(_NEGATION_PREFIXES) for w in words(text))
+    found = words(text)
+    for index, word in enumerate(found):
+        if word in _NEGATION_WORDS:
+            return True
+        if word in _NEGATION_ADVERBS:
+            if index + 1 < len(found):  # 안 웃는다 (부정) / 카페 안 (자리)
+                return True
+        elif word.startswith(_NEGATION_PREFIXES):
+            return True
+    return False
 
 
 def _phrase_match(expected: str, actual: str) -> bool:
