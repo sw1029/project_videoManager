@@ -1,4 +1,8 @@
-"""구체 단계: GenerateStage(선택적 재생성) -> TrackStage -> CheckStage."""
+"""구체 단계: GenerateStage(선택적 재생성) -> TrackStage -> CheckStage.
+
+생성 단계는 '재사용할 것 고르기 -> 생성 -> 조립' 을 한다. 정체성 기준 이미지를 뽑고 고르는 일은
+identity_anchoring.py 의 IdentityAnchoring 이 맡는다.
+"""
 
 from __future__ import annotations
 
@@ -6,16 +10,10 @@ import logging
 from dataclasses import dataclass
 
 from frame.domain.artifacts import GeneratedClip
-from frame.domain.enums import ReferenceOrigin
 from frame.domain.errors import IntegrityViolation
-from frame.domain.ir import IntermediateRepresentation, SceneSpec
-from frame.domain.models import ReferenceImage
+from frame.domain.ir import SceneSpec
 from frame.domain.services.identity import (
     IdentityPolicy,
-    entities_needing_identity,
-    entity_appearance_fingerprint,
-    identity_references_for,
-    same_appearance,
 )
 
 from ..checks import CheckSuite
@@ -28,10 +26,10 @@ from ..ports.generator import (
     VideoAssembler,
     VideoGenerator,
 )
-from ..ports.identity import IdentityExtractionRequest, IdentityReferenceExtractor
-from ..ports.structurer import ReferenceImageInput
+from ..ports.identity import IdentityReferenceExtractor
 from ..ports.tracker import ObjectTracker, TrackingRequest
 from .context import PipelineContext
+from .identity_anchoring import IdentityAnchoring
 from .requests import condition_request, parent_clip_of, revision_directive
 from .stage import PipelineStage
 
@@ -51,7 +49,7 @@ class GenerateStage(PipelineStage):
 
     이것이 US-01 '비대상 장면 보존' 의 1차 보장 장치이다: 바뀌지 않은 장면은 바이트 단위로 동일하다.
 
-    정체성 기준 이미지 (ADR-0015, identity 를 줬을 때만)
+    정체성 기준 이미지 (ADR-0015, identity 를 줬을 때만. 뽑고 고르는 일은 IdentityAnchoring 이 한다)
     - 사용자 참조가 없는 객체는 그 객체가 나온 클립에서 기준 이미지를 뽑아 버전의 참조 이미지로 남기고,
       그 객체가 나오는 다른 장면을 생성할 때 identity_references 로 넘긴다.
     - 생성하기 전에 이미 손에 있는 클립에서 먼저 뽑는다: 재사용할 장면의 클립, 그리고 다시 만들 장면의 부모 클립
@@ -84,14 +82,14 @@ class GenerateStage(PipelineStage):
     ) -> None:
         self._generator = generator
         self._assembler = assembler
-        self._identity = identity
-        self._policy = identity_policy or IdentityPolicy()
-        self._ids = ids
+        self._anchoring = IdentityAnchoring(identity, identity_policy, ids)
 
     def execute(self, ctx: PipelineContext) -> None:
         ir = ctx.ir
         ready = {scene.scene_key: self._ready_clip(ctx, scene) for scene in ir.scenes}
-        self._derive_before_generation(ctx, ready)
+        self._anchoring.derive_before_generation(
+            ctx, {key: done.clip if done is not None else None for key, done in ready.items()}
+        )
         total = len(ir.scenes)
         for index, scene in enumerate(ir.scenes):
             ctx.report_progress(index, total, scene.scene_key)
@@ -105,7 +103,7 @@ class GenerateStage(PipelineStage):
             clip = self._generator.generate_scene(self._request(ctx, scene, with_extras=True))
             ctx.clips[scene.scene_key] = clip
             ctx.changed_scene_keys.add(scene.scene_key)
-            self._derive(ctx, ir, scene, clip)
+            self._anchoring.derive(ctx, ir, scene, clip)
         ctx.report_progress(total, total)  # 모든 장면 완료 -> 조립
         ordered = [ctx.clips[scene.scene_key] for scene in ir.scenes]
         ctx.video = self._assembler.assemble(ctx.version.version_id, ordered)
@@ -119,18 +117,7 @@ class GenerateStage(PipelineStage):
         request = condition_request(ctx.version, ir, scene, ctx.references)
         if not with_extras:
             return request
-        identity: tuple[ReferenceImageInput, ...] = ()
-        if self._identity is not None:
-            identity = tuple(
-                ReferenceImageInput(r.image_uri, r.entity_key, r.description)
-                for r in identity_references_for(
-                    ir,
-                    scene,
-                    ctx.references,
-                    self._policy,
-                    scene_fingerprint=request.fingerprint,
-                )
-            )
+        identity = self._anchoring.references_for(ctx, scene, request.fingerprint)
         return SceneGenerationRequest(
             version_id=request.version_id,
             scene=request.scene,
@@ -160,91 +147,6 @@ class GenerateStage(PipelineStage):
         if own is not None and own.fingerprint == fingerprint:
             return _Ready(own, from_parent=False)
         return None
-
-    # ---- 정체성 기준 이미지 ----
-    def _derive_before_generation(
-        self, ctx: PipelineContext, ready: dict[str, _Ready | None]
-    ) -> None:
-        if self._identity is None:
-            return
-        parent = ctx.parent
-        for scene in ctx.ir.scenes:
-            done = ready[scene.scene_key]
-            if done is not None:
-                self._derive(ctx, ctx.ir, scene, done.clip)
-            elif parent is not None and parent.ir is not None:
-                clip = parent.clips.get(scene.scene_key)
-                if clip is not None and parent.ir.has_scene(scene.scene_key):
-                    self._derive(ctx, parent.ir, parent.ir.scene(scene.scene_key), clip)
-
-    def _derive(
-        self,
-        ctx: PipelineContext,
-        clip_ir: IntermediateRepresentation,
-        clip_scene: SceneSpec,
-        clip: GeneratedClip,
-    ) -> None:
-        """clip(clip_ir 의 clip_scene 조건으로 만든 것)에서, 아직 쓸 기준이 없는 객체의 기준 이미지를 뽑는다."""
-        if self._identity is None or not ctx.ir.has_scene(clip_scene.scene_key):
-            return
-        ir = ctx.ir
-        scene = ir.scene(clip_scene.scene_key)
-        wanted = [
-            key
-            for key in entities_needing_identity(ir, scene, ctx.references, self._policy)
-            # 부모 클립에서 뽑을 때: 그 객체의 외형 조건이 지금과 같아야 지금 버전의 기준이 될 수 있다
-            if clip_ir is ir or same_appearance(clip_ir, ir, scene.scene_key, key)
-        ]
-        if not wanted:
-            return
-        request = IdentityExtractionRequest(
-            version_id=ctx.version.version_id,
-            scene=clip_scene,
-            clip=clip,
-            entities=tuple(ir.entity(key) for key in wanted),
-        )
-        try:
-            images = self._identity.extract(request)
-        except Exception as exc:  # noqa: BLE001 - 기준 이미지는 보조 수단: 못 뽑아도 (과금된) 생성을 멈추지 않는다
-            log.warning(
-                "정체성 기준 이미지를 뽑지 못했습니다 (version=%s scene=%s 객체=%s): %s: %s",
-                ctx.version.version_id,
-                scene.scene_key,
-                ", ".join(wanted),
-                type(exc).__name__,
-                exc,
-            )
-            return
-        for image in images:
-            if image.entity_key not in wanted:
-                continue  # 계약 밖의 결과는 버린다
-            ctx.add_reference(
-                ReferenceImage(
-                    reference_image_id=self._new_reference_id(ctx, scene, image.entity_key),
-                    version_id=ctx.version.version_id,
-                    image_uri=image.image_uri,
-                    entity_key=image.entity_key,
-                    origin=ReferenceOrigin.DERIVED,
-                    source_scene_key=scene.scene_key,
-                    source_fingerprint=clip.fingerprint,
-                    appearance_fingerprint=entity_appearance_fingerprint(
-                        ir, scene.scene_key, image.entity_key
-                    ),
-                    description=image.description,
-                )
-            )
-            log.info(
-                "정체성 기준 이미지: version=%s 객체=%s 장면=%s -> %s",
-                ctx.version.version_id,
-                image.entity_key,
-                scene.scene_key,
-                image.image_uri,
-            )
-
-    def _new_reference_id(self, ctx: PipelineContext, scene: SceneSpec, entity_key: str) -> str:
-        if self._ids is not None:
-            return self._ids.new_id("img")
-        return f"img_{len(ctx.references) + 1}_{scene.scene_key}_{entity_key}"[:64]
 
 
 class TrackStage(PipelineStage):
