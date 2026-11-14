@@ -422,7 +422,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 ### L-01 · 중간 · 계층 규칙이 문서에만 있다
 - 어디: `docs/ARCHITECTURE.md:79-87` ("의존 규칙 (import 로 강제)") — 강제하는 검사가 없다. 지금 위반이 0건인 것은 작성자들이 지켰기 때문이다.
 - 제안: pytest 아키텍처 테스트로 CI 에 건다 (새 도구 설치 없음. §9 G2).
-- 담당·시점: **감사 · 2단계** · 상태: 열림
+- 담당·시점: **감사 · 2단계** · 상태: **해결** (`681501d` — `tests/architecture/test_layer_rules.py`)
 
 ### L-02 · 낮음 · 문서의 규칙 표가 실제 허용 범위와 다르다
 - 어디: `docs/ARCHITECTURE.md:81-87`.
@@ -444,7 +444,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
 ### L-04 · 낮음 · `evaluation` 이 `application` 을 쓰기 시작했다
 - 근거: #21 `evaluation/edit_runner.py:19-22`, #17 `evaluation/structuring_gold.py:20-21`. 둘 다 유스케이스·포트만 쓰고 어댑터·컨테이너는
   쓰지 않는다. 규칙을 정해 두면 된다 (L-02 의 표).
-- 담당·시점: **감사 · 2단계** (아키텍처 테스트에 반영) · 상태: 열림
+- 담당·시점: **감사 · 2단계** (아키텍처 테스트에 반영) · 상태: **해결** (`681501d` — `evaluation` 은 `domain`·`application` 만)
 
 ## 5. 모듈 구조와 개념 경계
 
@@ -540,7 +540,7 @@ AST 로 `src/frame` 의 모든 import 를 계층으로 묶어 보았다 (함수 
      `docs/ARCHITECTURE.md` §4 는 다른 브랜치가 고치고 있어, 머지 뒤 그 절이 새 문서를 가리키게 한다 (P-11).
   3. **지키는 검사**: 아키텍처 테스트가 '패키지에 설명과 `__all__` 이 있는가', '밖에서 `_` 모듈을 import 하지 않는가', '모듈 지도의 패키지 목록이
      실제와 같은가' 를 본다 (지금 없는 곳은 기준선 목록. §9 G2·G8).
-- 담당·시점: **감사 · 2단계** (테스트) / 3단계 (모듈 지도, 설명 채우기 — 옮기는 패키지부터) · 상태: 열림
+- 담당·시점: **감사 · 2단계** (테스트) / 3단계 (설명 채우기 — 옮기는 패키지부터) · 상태: **일부 해결** (`681501d` — 검사 셋과 모듈 지도 `docs/MODULE_MAP.md`. 설명·`__all__` 은 기준선으로 남아 3단계에 채운다)
 
 #### K-04 · 중간 · [섞임] `adapters/generator/` 한 패키지에 네 개념이 섞여 있다
 - 어디: `src/frame/adapters/generator/` (7모듈 2,786줄) — 제공자 구현(`openrouter.py`·`fake.py`·`stubs.py`), 복원력 데코레이터(`decorators.py`:
@@ -762,7 +762,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
   CI 는 `-m` 을 주고 비밀이 없어 지금은 안전하지만 그 한 줄에만 기댄다.
 - 제안: `addopts` 에 `-m "not slow and not gpu"` 를 넣는다 (명령줄의 `-m slow` 가 뒤에 와서 이긴다).
   `tests/live/conftest.py` 가 `FRAME_LIVE_TESTS=1` 이 없으면 건너뛴다.
-- 담당·시점: **감사 · 2단계** (G7) · 상태: 열림
+- 담당·시점: **감사 · 2단계** (G7) · 상태: **해결** (`3293469` — 기본 실행에서 slow 를 빼고 `FRAME_LIVE_TESTS=1` 스위치를 둔다)
 
 ### T-02 · 높음 · 실제 서버 구성인 스레드 디스패처에 테스트가 없다
 - 어디: `src/frame/adapters/jobs/thread.py:13-34` (커버리지 44%, 생성자부터 미실행). `tests/` 에 `ThreadPoolJobDispatcher`·`jobs="thread"` 가 한 번도 나오지 않는다.
@@ -782,7 +782,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
   러너 이미지에 ffmpeg 가 기본으로 없다는 점은 확인하지 못했다 (추정). 맞다면 CI 는 Fake 경로만 지키고 있다.
 - 제안: CI 설치를 `.[dev,llm,video]` 로 바꾸고, CI 에서는 ffmpeg 가 없으면 건너뛰지 말고 실패하게 한다 (`FRAME_REQUIRE_FFMPEG=1`).
   보고서 머리에 ffmpeg 경로·버전과 건너뛴 수를 찍는다.
-- 담당·시점: **감사 · 2단계** (가장 먼저) · 상태: 열림
+- 담당·시점: **감사 · 2단계** (가장 먼저) · 상태: **해결** (테스트 쪽 `3293469`, 워크플로 `7eec504`. GitHub 에서의 첫 실행은 아직 보지 못했다)
 
 ### T-04 · 중간 · 과금 뒤 경로의 분기가 미검증이다
 - 어디: `src/frame/adapters/generator/openrouter.py:1558-1579` (다운로드 재시도 소진·404·그 밖의 상태), `:829` (202 인데 작업 id 없음), `:1610-1618` (JSON 아님).
@@ -822,7 +822,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
   개발자 셸에 실제 키가 있으면 테스트가 그 키를 루프백 가짜 서버에 보낸다. 지금은 외부로 나가지 않지만 주소 설정 한 줄이 빠지는 실수가 곧 유료 호출이 된다.
 - 제안: 루트 `conftest.py` 에 autouse fixture 로 `FRAME_*`·`OPENAI_API_KEY`·`OPENROUTER_API_KEY` 를 지운다 (`slow` 는 제외).
   비-live 테스트에서 루프백이 아닌 소켓 연결을 막는다.
-- 담당·시점: **감사 · 2단계** (G7 과 함께) · 상태: 열림
+- 담당·시점: **감사 · 2단계** (G7 과 함께) · 상태: **해결** (`3293469` — 환경 변수 격리와 루프백 밖 연결 차단)
 
 ### T-08 · 중간 · live 테스트의 '키가 결과에 없다' 단언은 실패하면 키를 출력한다
 - 어디: `tests/live/test_openrouter_live.py:85-86`, `tests/live/test_openai_live.py:65-66` — `assert key not in json.dumps(meta, ...)`.
@@ -860,6 +860,34 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
 | G9 | 워크플로 정리 — `permissions: contents: read`, 같은 브랜치의 앞선 실행 취소, pip 캐시, `timeout-minutes`, 커버리지 XML 산출물, Python 3.11·3.12 와 Windows 한 칸, 릴리스가 `ci` 를 요구 (O-01·O-06·O-07) | — | — | 없음 |
 | G10 | 로컬에서 같은 검사 — `scripts/check.py` 한 번에 (`PYTHONPATH=src` 를 준다, O-10), 문서 `docs/CI.md` | — | — | 없음 |
 
+### 2단계 결과 (2026-11-14)
+
+게이트를 모두 넣었다. 결정은 [ADR-0030](../adr/0030-ci-quality-gates-and-baselines.md), 쓰는 법은 [docs/CI.md](../CI.md) 에 있다.
+로컬에서는 `python scripts/check.py` 가 전부 통과한다 (테스트 1011 통과 · 3 건너뜀 · 2 제외).
+**워크플로는 push 하지 않아 GitHub 에서 돌려 보지 못했다** — 첫 push 뒤 확인할 것은 `docs/CI.md` 6절에 있다.
+
+| 게이트 | 커밋 | 한 것 | 남은 것 |
+|---|---|---|---|
+| G0 ffmpeg | `3293469`, `7eec504` | CI 가 `video` extra 를 설치하고 `FRAME_REQUIRE_FFMPEG=1` 로 돈다. 없으면 건너뛰지 않고 실패 | 실제 영상 테스트 약 94개가 CI 에서 처음 돈다 — 첫 실행 확인 |
+| G1 포맷 | `f159528` | 6파일 포맷, ruff 0.17.4 · mypy 2.4.1 고정 | `presentation/app.py`·`schemas.py` 는 기준선 (#10 머지 뒤) |
+| G2 구조 규칙 | `681501d` | 계층 방향, 어댑터 경계, 패키지 입구, 모듈 크기 (pytest 11개). 위반을 심어 잡히는 것을 확인 | 기준선: 설명 없는 패키지 10 · `__all__` 없는 패키지 8 · 500줄 넘는 모듈 4 · `adapters/shared/` 밖의 공용 모듈 4 |
+| G3 커버리지 | `a40a801` | 하한 전체 89 · 제품 코드 95 · 핵심 97 (측정 90.3 · 95.6 · 97.7) | 하한은 Windows 측정에 여유를 둔 값 — ubuntu 값을 본 뒤 맞춘다 |
+| G4 ruff 규칙 | `6bdd91c` | 15군(위반 0) + 6군(8건 수정) + S · T20 · C90 | S101 기준선 9파일, 복잡도 상한 19 |
+| G5 타입 | `fe5e1c7` | `mypy` 통과 — 24건 가운데 21건 수정, domain 은 strict 수준 | 기준선 3건 (다른 브랜치가 고치는 2모듈). strict 는 42건에서 줄여 간다 |
+| G6 취약점 | `7eec504` | pip-audit 잡 (실패해도 막지 않음) | 결과를 본 뒤 막을지 정한다 |
+| G7 유료 테스트 보호 | `3293469` | 기본 실행에서 slow 제외, `FRAME_LIVE_TESTS=1`, 환경 격리, 루프백 밖 연결 차단 | — |
+| G8 문서 | `681501d` | ADR 색인 `docs/adr/README.md` 와 모듈 지도 `docs/MODULE_MAP.md` 를 새로 쓰고 실제 파일과 견준다 | `ARCHITECTURE.md` §4·§12 가 새 문서를 가리키게 (머지 뒤 P-11) |
+| G9 워크플로 | `7eec504` | 권한 `contents: read`, 같은 ref 의 앞선 실행 취소, pip 캐시, 시간 제한, compat 잡(3.12 · Windows), release 가 `ci` 를 요구 | push·PR 이중 실행, 액션 SHA 고정은 제안으로 남김 |
+| G10 로컬 검사 | `a40a801`, `fda450c` | `scripts/check.py`, `docs/CI.md` | — |
+
+표로만 적었던 발견의 상태: C-01 6파일 해결(`f159528`) · C-02 해결(`6bdd91c`) · C-05 상한만(`6bdd91c`, 분해는 3단계) ·
+O-02 개발 도구만 고정(`f159528`) · O-06 일부(`7eec504`) · O-07 해결(`7eec504`, 첫 실행 미확인) · O-10 해결(`a40a801`) ·
+O-14 일부(`3293469` strict-config·xfail_strict, `fe5e1c7` mypy 대상, `a40a801` .gitignore. `.gitattributes` 는 남김) ·
+D-04 일부(`681501d` ADR 색인을 따로 둠. 본문은 머지 뒤).
+
+2단계에서 달라진 계획: G1 의 기준선은 2파일(`app.py`·`schemas.py`)이다. G3 는 전체 하한을 90 이 아니라 89 로 두고 제품 코드(tools 제외) 95 를 더했다 —
+tools 에 OS 별 코드가 있어 전체 값이 러너에 따라 흔들린다. G5 는 `domain`·`application` 부터가 아니라 `src` 전체를 켰다 (오류가 24건뿐이었다).
+
 ### O-01 · 높음 · 릴리스 번들이 테스트 게이트 없이, 고정되지 않은 의존성으로 만들어진다
 - 어디: `.github/workflows/bundle.yml:6-9` (`push: tags: ["v*"]`), `:57-81` (release 잡은 `needs: build` 뿐, `gh release upload … --clobber`),
   `.github/workflows/ci.yml:4-5` (브랜치 push 에만 돈다), `src/frame/tools/bundle.py:217-218` (`pip install ".[llm]"`), `pyproject.toml:11-20`.
@@ -869,7 +897,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
   `--clobber` 는 같은 태그의 자산을 조용히 바꾼다. 태그가 아직 하나도 없어 이 경로는 한 번도 돌지 않았다.
 - 제안: `ci.yml` 에 `workflow_call` 을 더하고 release 를 `needs: [ci, build]` 로 바꾼다. 잠금 파일(해시 포함)을 만들어 번들·CI·Docker 가 같은 파일로 설치한다.
   태그가 `v{__version__}` 인지 확인하고 `--clobber` 를 뺀다.
-- 담당·시점: **감사 · 2단계** (워크플로) / 잠금 파일은 결정 (§12.3 결정 7) · 상태: 열림
+- 담당·시점: **감사 · 2단계** (워크플로) / 잠금 파일은 결정 (§12.3 결정 7) · 상태: **일부 해결** (`7eec504` — release 가 같은 커밋의 `ci` 를 요구하고 태그가 패키지 버전으로 시작하는지 본다. 의존성 고정은 결정 7 을 기다리고, `--clobber` 는 그대로 두었다 — 문서의 태그 예시가 `v0.1.0-demo` 라 다시 올리는 흐름을 막지 않았다)
 
 ### 운영·CI 의 그 밖의 발견
 
