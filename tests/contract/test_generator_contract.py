@@ -355,7 +355,7 @@ def test_fake_generator_previews_generation_or_an_edit_of_the_parent(store, ir):
     assert editing.previews == [with_parent, request] and not editing.requests
 
 
-@pytest.mark.parametrize(
+DECORATORS = pytest.mark.parametrize(
     "wrap",
     [
         lambda inner: CachingVideoGenerator(inner),
@@ -364,9 +364,52 @@ def test_fake_generator_previews_generation_or_an_edit_of_the_parent(store, ir):
     ],
     ids=["caching", "retrying", "timeout"],
 )
+
+
+@DECORATORS
 def test_decorators_pass_the_preview_through(wrap, store, ir):
     inner = FakeVideoGenerator(store, edits_parent=True)
     request = _with_parent(_request(_recolored(ir)), ir, store)
 
     assert wrap(inner).preview(request) == ProductionPreview(ProductionMethod.EDIT)
     assert inner.previews == [request] and not inner.requests
+
+
+@DECORATORS
+def test_decorators_pass_the_result_key_through(wrap, store, ir):
+    """편집하는 생성기의 결과 키에는 부모 클립이 들어 있다. 데코레이터가 포트의 기본값(조건만)으로 답하면
+    부모 클립이 다른 편집 결과가 같은 키로 캐시된다 (감사 T-06).
+    """
+    inner = FakeVideoGenerator(store, edits_parent=True)
+    request = _with_parent(_request(_recolored(ir)), ir, store)
+
+    assert wrap(inner).result_key(request) == inner.result_key(request)
+    assert inner.result_key(request) != request.generation_fingerprint  # 기본값과 다른 값이다
+
+
+@DECORATORS
+def test_decorators_pass_the_profile_through(wrap, store):
+    class Profiled(FakeVideoGenerator):
+        def profile(self):
+            return {"generator": "fake", "model": "sketch-2", "fps": 12}
+
+    assert wrap(Profiled(store)).profile() == {"generator": "fake", "model": "sketch-2", "fps": 12}
+
+
+def test_a_cache_around_the_whole_chain_keeps_edits_of_different_parents_apart(store, ir):
+    """컨테이너가 조립하는 순서 (캐시 > 시간 제한 > 재시도 > 생성기). 가운데 데코레이터 하나라도 결과 키를
+    넘기지 않으면, 부모 클립이 다른 두 편집이 같은 캐시 항목이 된다.
+    """
+    inner = FakeVideoGenerator(store, edits_parent=True)
+    chain = CachingVideoGenerator(
+        TimeoutVideoGenerator(RetryingVideoGenerator(inner, retries=1), timeout_seconds=30)
+    )
+    request = _request(_recolored(ir))
+    from_a = _with_parent(request, ir, store, "mem://clips/ver_a/intro.mp4")
+    from_b = _with_parent(request, ir, store, "mem://clips/ver_b/intro.mp4")
+
+    chain.generate_scene(from_a)
+    chain.generate_scene(from_b)
+    chain.generate_scene(from_a)
+
+    assert len(inner.requests) == 2 and chain.hits == 1
