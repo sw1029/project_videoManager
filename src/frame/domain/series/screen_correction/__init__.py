@@ -4,6 +4,8 @@
 종류(IssueKind)마다 가장 좁고 싼 방법(CorrectionMethod)이 정해져 있다. 여기 있는 것은 모두 순수 함수다.
 저장·검수 결과 읽기·화면에서 글자 읽기·수정 버전 만들기는 유스케이스(CheckEpisodeScreen · CorrectEpisodeScreen)가 한다.
 
+밖에서 쓰는 이름: 아래 모듈 지도에 적은 타입과 함수 (이 입구의 __all__). 안쪽 모듈을 직접 import 하지 않는다.
+
 기존 검수와의 관계: Checker 는 생성한 버전을 보고 CheckResult 를 저장한다 (요구 반영·일관성·보존).
 여기서는 그 결과와 편의 계획·녹음을 읽어 '고칠 곳의 목록' 을 그때그때 만든다. ScreenIssue 는 저장하지 않는다.
 

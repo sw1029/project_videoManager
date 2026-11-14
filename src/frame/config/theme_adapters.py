@@ -5,7 +5,8 @@
 기획(pick_planner) · 소리(pick_audio) · 화면 문구(pick_overlay) · 숏폼 플랫폼(shortform_platforms).
 - 바꿔 끼운 어댑터(overrides)가 있으면 그것을 쓴다 (테스트·도구).
 - 실제 구현은 고를 때 import 한다. 고르지 않은 어댑터의 의존성(ffmpeg·키·선택 설치)이 없어도 서버가 뜬다.
-- 설정에 없는 이름이면 ConfigurationError 로 쓸 수 있는 이름을 알린다. 필요한 것이 없으면 기동 시점에 실패한다.
+- 설정에 없는 이름이면 ConfigurationError 로 쓸 수 있는 이름을 알린다. 필요한 것이 없으면 기동 시점에 실패한다
+  (인식 API 의 키는 예외다: 화면에서 넣는 키가 있어 기동 때 알 수 없다).
 """
 
 from __future__ import annotations
