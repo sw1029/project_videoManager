@@ -39,6 +39,10 @@ _CHANNELS = {"mono": 1, "stereo": 2}
 # 겉으로는 영상 스트림이지만 그림 한 장인 것 (음악 파일의 표지 등)
 _STILL_CODECS = frozenset({"mjpeg", "png", "bmp", "gif", "webp"})
 
+# ffmpeg 한 번에 주는 시간 (초). 이 모듈을 쓰는 어댑터의 기본값도 이 둘이다
+READ_TIMEOUT_S = 120.0  # 정보를 읽는 일
+WORK_TIMEOUT_S = 300.0  # 끝까지 읽어 찾거나 재는 일, 새 파일을 만드는 일
+
 
 class MediaToolError(AdapterError):
     """ffmpeg 로 영상·소리를 읽거나 바꾸지 못했다."""
@@ -67,7 +71,7 @@ class MediaProbe:
         return self.audio_codec is not None
 
 
-def probe_media(ffmpeg: str, path: str | Path, timeout_s: float = 120.0) -> MediaProbe:
+def probe_media(ffmpeg: str, path: str | Path, timeout_s: float = READ_TIMEOUT_S) -> MediaProbe:
     """파일의 겉모습. 영상 스트림이 있으면 끝까지 읽어 프레임을 세고, 길이를 프레임 수로 다시 잰다."""
     _, header = run_ffmpeg([ffmpeg, "-hide_banner", "-nostdin", "-i", str(path)], timeout_s)
     video = _VIDEO_LINE.search(header)
@@ -108,9 +112,12 @@ def probe_media(ffmpeg: str, path: str | Path, timeout_s: float = 120.0) -> Medi
 
 
 def detect_cuts(
-    ffmpeg: str, path: str | Path, *, threshold: float = 0.3, timeout_s: float = 300.0
+    ffmpeg: str, path: str | Path, *, threshold: float, timeout_s: float = WORK_TIMEOUT_S
 ) -> list[int]:
-    """화면이 앞 프레임과 크게 달라지는 시각(ms). threshold 는 ffmpeg 의 scene 점수(0..1) 하한이다."""
+    """화면이 앞 프레임과 크게 달라지는 시각(ms). threshold 는 ffmpeg 의 scene 점수(0..1) 하한이다.
+
+    threshold 의 기본값은 설정(FRAME_SHOT_THRESHOLD)에만 있다. 여기에 다시 적지 않는다.
+    """
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path), "-an"]
     cmd += ["-vf", f"select='gt(scene,{threshold:g})',showinfo", "-f", "null", "-"]
     code, log = run_ffmpeg(cmd, timeout_s)
@@ -125,7 +132,7 @@ def detect_silences(
     *,
     noise_db: float = -45.0,
     min_ms: int = 300,
-    timeout_s: float = 300.0,
+    timeout_s: float = WORK_TIMEOUT_S,
 ) -> list[tuple[int, int | None]]:
     """소리가 noise_db 보다 작은 구간 (시작, 끝). 파일 끝까지 조용하면 끝이 None 이다."""
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path), "-vn"]
@@ -146,7 +153,7 @@ def region_ssim(
     *,
     inside: bool,
     span_ms: tuple[int, int] | None = None,
-    timeout_s: float = 300.0,
+    timeout_s: float = WORK_TIMEOUT_S,
 ) -> float:
     """두 영상의 SSIM 평균 (0..1) 을 화면의 일부에서만 잰다.
 

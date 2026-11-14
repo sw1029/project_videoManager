@@ -14,9 +14,10 @@ import pytest
 
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.structurer import FakeStructurer, LLMStructurer
-from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
+from frame.adapters.structurer.llm_prompt import max_scenes_for
 from frame.application.errors import LLMUnavailable
 from frame.domain.enums import EntityKind
+from frame.domain.ir import MIN_PLANNED_SCENE_MS
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 from frame.evaluation.structuring import (
     GoldCase,
@@ -79,7 +80,7 @@ def test_gold_irs_follow_the_structuring_prompt_rules(cases):
         ir = case.spec.ir  # 불러올 때 IR.validate() 를 통과했다
         assert ir.total_duration_ms == case.target_duration_ms, case.case_id
         assert len(ir.scenes) <= max_scenes_for(case.request()), case.case_id
-        assert all(s.duration_ms >= MIN_SCENE_MS for s in ir.scenes), case.case_id
+        assert all(s.duration_ms >= MIN_PLANNED_SCENE_MS for s in ir.scenes), case.case_id
         keys = [e.entity_key for e in ir.entities] + [s.scene_key for s in ir.scenes]
         assert all(_SNAKE.match(k) for k in keys), case.case_id
         appearing = {k for s in ir.scenes for k in s.entity_keys}

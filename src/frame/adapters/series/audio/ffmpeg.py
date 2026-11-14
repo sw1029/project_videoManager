@@ -15,6 +15,7 @@ from pathlib import Path
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg, tail
 from frame.adapters.shared.media.media_tools import (
+    WORK_TIMEOUT_S,
     MediaToolError,
     detect_silences,
     probe_media,
@@ -37,7 +38,7 @@ class FfmpegAudioEditor(AudioEditor):
         sample_rate: int = 44100,
         normalize: bool = False,
         audio_bitrate: str = "128k",
-        timeout_s: float = 300.0,
+        timeout_s: float = WORK_TIMEOUT_S,
     ) -> None:
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.sample_rate = sample_rate

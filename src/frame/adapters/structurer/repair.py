@@ -11,8 +11,7 @@ import copy
 from typing import Any
 
 from frame.domain.enums import EntityKind
-
-MIN_SCENE_MS = 500
+from frame.domain.ir import MIN_SCENE_MS
 
 _KIND_ALIASES: dict[str, EntityKind] = {
     "person": EntityKind.PERSON,

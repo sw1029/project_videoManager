@@ -15,6 +15,8 @@ _WORD = re.compile(r"[^\W_]+")
 _NUMERIC = re.compile(r"[+-]?\d+(?:\.\d+)?")
 _LEADING_DIGITS = re.compile(r"\d+")
 _QUOTES = "'\"‘’“”「」『』`"
+# 아래 표들(불용어 · 부정어 · 어미 · 색 이름 · 수사)은 값을 견주기 전의 일반 정규화다.
+# 골드 사례 하나의 답을 맞추려고 낱말을 더하지 않는다 — 표에 없는 낱말은 값 불일치로 집계되는 것이 맞다
 _STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with",
     "to", "at", "in", "on", "into", "onto", "for", "from", "by", "while",

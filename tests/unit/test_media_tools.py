@@ -54,7 +54,7 @@ def test_a_missing_executable_is_a_media_tool_error_that_does_not_show_its_path(
 @pytest.mark.parametrize(
     "read",
     [
-        lambda path: media_tools.detect_cuts("ffmpeg", path),
+        lambda path: media_tools.detect_cuts("ffmpeg", path, threshold=0.3),
         lambda path: media_tools.detect_silences("ffmpeg", path),
         lambda path: media_tools.probe_media("ffmpeg", path),
     ],

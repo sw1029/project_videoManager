@@ -33,7 +33,10 @@ UPLOAD_PREFIX = "refs/uploads/"
 EXTENSIONS: dict[str, str] = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 # WebP 를 알아보는 데 필요한 머리의 길이: "RIFF" + 크기 4바이트 + "WEBP"
 _WEBP_HEADER_BYTES = 12
-_UPLOAD_NAME = re.compile(r"[A-Za-z0-9_-]{1,100}\.(?:png|jpg|webp)")
+# 올린 파일의 이름. 확장자는 위 EXTENSIONS 의 것만 받는다 (형식을 더하면 한 곳만 고친다)
+_UPLOAD_NAME = re.compile(
+    r"[A-Za-z0-9_-]{1,100}(?:" + "|".join(map(re.escape, sorted(set(EXTENSIONS.values())))) + ")"
+)
 EXTERNAL_SCHEMES = frozenset(
     {"http", "https"}
 )  # 업로드가 아닌 참조 이미지가 쓸 수 있는 주소 (델타 D05)

@@ -35,8 +35,13 @@ from frame.domain.models import VideoVersion
 from frame.domain.state_machine import TERMINAL_STATES
 
 from .edit_cases import EditCaseSpec
+from .edit_metrics import SECONDS_DIGITS
 
 log = logging.getLogger(__name__)
+
+# 케이스 하나가 끝나기를 기다리는 시간과 다시 읽는 간격 (초). CLI(tools/evaluate_edits)의 기본값도 이 둘이다
+DEFAULT_CASE_TIMEOUT_S = 3600.0  # 장면 여러 개의 생성 · 검수가 한 시간을 넘으면 멈춘 것으로 본다
+DEFAULT_POLL_S = 5.0
 
 
 class EditApp(Protocol):
@@ -113,8 +118,8 @@ def run_case(
     spec: EditCaseSpec,
     *,
     plan_only: bool = False,
-    timeout_s: float = 3600.0,
-    poll_s: float = 5.0,
+    timeout_s: float = DEFAULT_CASE_TIMEOUT_S,
+    poll_s: float = DEFAULT_POLL_S,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> CaseRun:
@@ -168,7 +173,7 @@ def run_case(
     finally:
         if run.revision_version_id is not None and run.version is None:
             run.version = _read_again(app.queries, run.revision_version_id)
-        run.elapsed_s = round(monotonic() - started, 3)
+        run.elapsed_s = round(monotonic() - started, SECONDS_DIGITS)
     return run
 
 

@@ -25,6 +25,8 @@ from frame.domain.state_machine import TERMINAL_STATES
 from .edit_metrics import (
     NON_TARGET_CHANGE_TARGET,
     PRESERVATION_BASES,
+    RATE_DIGITS,
+    SECONDS_DIGITS,
     SUCCESS_RATE_TARGET,
     EditCase,
     EditCaseOutcome,
@@ -183,15 +185,15 @@ def _summary(
         ],
         "recorded_cost_usd": _sum(_recorded_cost(r) for r in runs),
         "vlm_tokens": _add_tokens(_tokens(r.results) for r in runs),
-        "elapsed_s": round(sum(r.elapsed_s for r in runs), 3),
+        "elapsed_s": round(sum(r.elapsed_s for r in runs), SECONDS_DIGITS),
     }
 
 
 def _evaluation(evaluation: EditEvaluation, measured: int) -> dict[str, Any]:
     rate = evaluation.mean_non_target_change_rate
     return {
-        "success_rate": round(evaluation.success_rate, 6),
-        "mean_non_target_change_rate": None if rate is None else round(rate, 6),
+        "success_rate": round(evaluation.success_rate, RATE_DIGITS),
+        "mean_non_target_change_rate": None if rate is None else round(rate, RATE_DIGITS),
         "meets_target": evaluation.meets_target,
         "measured_cases": measured,  # 비대상 변경률을 잴 수 있었던 케이스 (나머지는 미판정)
     }
@@ -367,7 +369,7 @@ def _recorded_cost(run: CaseRun) -> float | None:
         and clip["production"] is not None
         and clip["production"]["cost_usd"] is not None
     ]
-    return round(sum(costs), 6) if costs else None
+    return round(sum(costs), RATE_DIGITS) if costs else None
 
 
 def _check(result: CheckResult) -> dict[str, Any]:
@@ -422,7 +424,7 @@ def _number(value: object) -> float | None:
 
 def _sum(values: Iterable[float | None]) -> float | None:
     known = [v for v in values if v is not None]
-    return round(sum(known), 6) if known else None
+    return round(sum(known), RATE_DIGITS) if known else None
 
 
 # ---- 이 컴퓨터의 경로 가리기 ----

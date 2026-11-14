@@ -37,6 +37,7 @@ from typing import Any
 
 from frame.application.errors import AdapterError, ConfigurationError
 from frame.config import Container, Settings, build_container
+from frame.domain.checks import PRESERVATION_BY_KEEP, PRESERVATION_BY_SSIM
 from frame.domain.enums import VersionState
 from frame.evaluation.edit_cases import CaseFileError, EditCaseSpec, load_cases
 from frame.evaluation.edit_metrics import (
@@ -45,10 +46,27 @@ from frame.evaluation.edit_metrics import (
     SUCCESS_RATE_TARGET,
 )
 from frame.evaluation.edit_report import build_report, judge, left_unfinished
-from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, run_case
+from frame.evaluation.edit_runner import (
+    DEFAULT_CASE_TIMEOUT_S,
+    DEFAULT_POLL_S,
+    CaseInterrupted,
+    CaseRun,
+    run_case,
+)
 
 # 측정 기준(detail.method)을 내는 보존 검수기 (FRAME_CHECKERS 의 키)
-_BASIS_CHECKERS = {"vlm_keep": "vlm_preservation", "ssim": "ssim_preservation"}
+_BASIS_CHECKERS = {
+    PRESERVATION_BY_KEEP: "vlm_preservation",
+    PRESERVATION_BY_SSIM: "ssim_preservation",
+}
+
+# 종료 코드 (머리말의 설명과 같다)
+EXIT_DONE = 0
+EXIT_NOTHING_RUN = (
+    2  # 케이스 파일 · 설정 오류이거나 결과 파일이 이미 있다: 아무것도 실행하지 않았다
+)
+EXIT_NOT_WRITTEN = 3  # 결과를 --out 에 쓰지 못해 다른 이름으로 썼다
+EXIT_INTERRUPTED = 130  # Ctrl+C 로 멈췄다 (셸의 관례: 128 + SIGINT 의 번호 2)
 
 # 결과에 남기는 설정 (재현용). 결과 파일은 저장소에 기록하므로(TDD_WORKFLOW §7) DB 주소(계정이 들어갈 수 있음)·
 # 키 파일 경로·이 컴퓨터의 폴더(산출물 폴더는 종류 artifact_store 만, 케이스 파일은 이름만)는 남기지 않는다
@@ -97,16 +115,16 @@ def main(
             "--overwrite, 멈춘 실행을 이어 돌리려면 <이름>.remaining.json 을 --cases 로, 다른 파일을 --out 으로 주세요",
             file=sys.stderr,
         )
-        return 2
+        return EXIT_NOTHING_RUN
     try:
         specs = load_cases(args.cases)
     except CaseFileError as exc:
         print(f"케이스 파일 오류: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_NOTHING_RUN
     if container is None:
         container = _build(env)
         if container is None:
-            return 2
+            return EXIT_NOTHING_RUN
 
     clock = container.clock
     meta: dict[str, Any] = {
@@ -153,12 +171,12 @@ def main(
             _interrupted_text(len(runs), len(specs), interrupted, written, remaining),
             file=sys.stderr,
         )
-        return 130
+        return EXIT_INTERRUPTED
 
     final = report(complete=True)
     written = _save_final(out, final)
     print(_summary_text(final, written))
-    return 0 if written == out else 3
+    return EXIT_DONE if written == out else EXIT_NOT_WRITTEN
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -179,7 +197,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--preservation",
         choices=PRESERVATION_BASES,
-        default="vlm_keep",
+        default=PRESERVATION_BY_KEEP,
         help="목표 판정에 쓰는 비대상 변경률의 기준 (두 기준 모두 결과에 남는다). "
         "vlm_keep: vlm_preservation 의 유지 요소 판정, ssim: ssim_preservation 의 부모 클립 대비 SSIM",
     )
@@ -194,9 +212,14 @@ def _parser() -> argparse.ArgumentParser:
         help="결과 파일이 이미 있어도 덮어쓴다 (없으면 앞 결과를 지키려고 아무것도 돌리지 않는다)",
     )
     parser.add_argument(
-        "--timeout-s", type=float, default=3600.0, help="케이스 하나가 끝나기를 기다리는 시간 (초)"
+        "--timeout-s",
+        type=float,
+        default=DEFAULT_CASE_TIMEOUT_S,
+        help="케이스 하나가 끝나기를 기다리는 시간 (초)",
     )
-    parser.add_argument("--poll-s", type=float, default=5.0, help="끝났는지 다시 읽는 간격 (초)")
+    parser.add_argument(
+        "--poll-s", type=float, default=DEFAULT_POLL_S, help="끝났는지 다시 읽는 간격 (초)"
+    )
     return parser
 
 

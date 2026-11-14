@@ -11,7 +11,13 @@ import tempfile
 from pathlib import Path
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg
-from frame.adapters.shared.media.media_tools import MediaToolError, detect_cuts, probe_media
+from frame.adapters.shared.media.media_tools import (
+    READ_TIMEOUT_S,
+    WORK_TIMEOUT_S,
+    MediaToolError,
+    detect_cuts,
+    probe_media,
+)
 from frame.application.ports.series.source_analysis import (
     MediaProber,
     ShotDetector,
@@ -28,7 +34,7 @@ VIDEO_CODECS = frozenset(
 
 
 class FfmpegMediaProber(MediaProber):
-    def __init__(self, ffmpeg: str | None, *, timeout_s: float = 120.0) -> None:
+    def __init__(self, ffmpeg: str | None, *, timeout_s: float = READ_TIMEOUT_S) -> None:
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.timeout_s = timeout_s
 
@@ -64,7 +70,7 @@ class FfmpegShotDetector(ShotDetector):
         *,
         threshold: float,  # 설정이 정한다 (FRAME_SHOT_THRESHOLD)
         min_shot_ms: int = 500,
-        timeout_s: float = 300.0,
+        timeout_s: float = WORK_TIMEOUT_S,
     ) -> None:
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.threshold = threshold  # scene 점수 하한 (낮출수록 컷을 더 많이 찾는다)

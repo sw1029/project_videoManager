@@ -21,7 +21,12 @@ from pathlib import Path
 from typing import NamedTuple
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg, tail
-from frame.adapters.shared.media.media_tools import MediaToolError, probe_media, run_ffmpeg
+from frame.adapters.shared.media.media_tools import (
+    WORK_TIMEOUT_S,
+    MediaToolError,
+    probe_media,
+    run_ffmpeg,
+)
 from frame.application.errors import ConfigurationError
 from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
 from frame.domain.series.episode import OverlayItem
@@ -161,7 +166,7 @@ class FfmpegOverlayRenderer(OverlayRenderer):
         regular_font_file: str | None = None,
         crf: int = 18,
         preset: str = "medium",
-        timeout_s: float = 300.0,
+        timeout_s: float = WORK_TIMEOUT_S,
     ) -> None:
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.font_file = _checked_font(font_file)  # 굵은 문구에 쓴다

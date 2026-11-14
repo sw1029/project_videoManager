@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.domain.errors import NotFound, ValidationError
+from frame.domain.ir import MIN_PLANNED_SCENE_MS
 from frame.domain.series.source_analysis import Shot
 
 from .conditions import Condition, _conditions
 
-DEFAULT_MIN_SLOT_MS = 3000  # 장면 자리의 길이 하한 (구조화 프롬프트의 장면 하한과 같다)
+# 장면 자리의 길이 하한. 구조화 프롬프트의 장면 하한과 같은 값을 쓴다 (domain/ir.py)
+DEFAULT_MIN_SLOT_MS = MIN_PLANNED_SCENE_MS
 
 
 SLOT_GRID_MS = 100  # 자리 길이의 단위 (30 fps 에서 프레임 수가 정확히 맞는 길이)

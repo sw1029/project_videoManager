@@ -36,7 +36,7 @@ from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
 from frame.application.ports.llm import ImageInput, LLMClient
 from frame.domain.artifacts import GeneratedClip
-from frame.domain.checks import WarningInterval
+from frame.domain.checks import PRESERVATION_BY_KEEP, PRESERVATION_REUSED, WarningInterval
 from frame.domain.enums import CheckType, EntityKind, KeepAspect, Verdict
 from frame.domain.ir import SceneSpec
 from frame.domain.revision import KeepItem
@@ -157,7 +157,7 @@ class VlmPreservationChecker(Checker):
                         Verdict.PASS,
                         score=1.0,
                         scene_key=scene.scene_key,
-                        detail={"reason": "clip_reused", "method": "identical"},
+                        detail={"reason": "clip_reused", "method": PRESERVATION_REUSED},
                     )
                 )
             else:
@@ -195,7 +195,7 @@ class VlmPreservationChecker(Checker):
         answer = self._ask(scene, ids, changes, images)
         outcomes = []
         for index, (eid, element) in enumerate(ids.items()):
-            shared: dict[str, Any] = {"method": "vlm_keep", "model": answer["model"]}
+            shared: dict[str, Any] = {"method": PRESERVATION_BY_KEEP, "model": answer["model"]}
             if index == 0:
                 shared["usage"] = answer["usage"]  # 장면당 한 번 부른 호출의 토큰 수
             outcomes.append(self._outcome(scene, element, answer["elements"].get(eid), shared))
@@ -343,7 +343,7 @@ class VlmPreservationChecker(Checker):
             self.check_type,
             Verdict.UNDETERMINED,
             scene_key=scene_key,
-            detail={"reason": reason[:400], "method": "vlm_keep"},
+            detail={"reason": reason[:400], "method": PRESERVATION_BY_KEEP},
         )
 
 

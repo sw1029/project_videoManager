@@ -36,6 +36,14 @@ IR_SCHEMA_VERSION = 1
 # 그래서 '/'·'..'·':'·'-' 를 받지 않는다
 KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,63}")
 
+# 장면 길이의 하한 둘 (ms). 쓰는 곳마다 다시 적지 않고 여기서 가져간다
+# - MIN_SCENE_MS: 어떤 장면도 이보다 짧게 두지 않는다. 구조화의 보정이 이 값까지 늘리고,
+#   IR 을 직접 받는 스키마도 길이의 합을 어림할 때 이 값을 쓴다
+# - MIN_PLANNED_SCENE_MS: 장면을 나눌 때의 길이 하한. 구조화 프롬프트(장면 수의 상한)와
+#   테마의 장면 자리(DEFAULT_MIN_SLOT_MS)가 같은 값이다
+MIN_SCENE_MS = 500
+MIN_PLANNED_SCENE_MS = 3000
+
 
 def _check_key(kind: str, key: object) -> None:
     if not isinstance(key, str) or KEY_PATTERN.fullmatch(key) is None:
