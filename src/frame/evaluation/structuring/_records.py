@@ -266,9 +266,18 @@ def rescore_record(
     structurer_for(응답) 은 그 응답 하나만 재생하는 구조화기를 만든다
     (예: LLMStructurer(ReplayLLMClient([응답]), max_attempts=1)).
     실행 시각·구조화기·모델·시도 횟수·토큰·시간·보정 메모는 원래 기록의 것을 그대로 둔다.
-    기록에 없는 골드 사례는 건너뛰고, 응답 없이 실패했던 사례는 원래 오류로 다시 실패 처리한다.
+    기록에 없는 골드 사례(나중에 더한 사례)는 건너뛰고, 응답 없이 실패했던 사례는 원래 오류로 다시 실패 처리한다.
+    기록에는 있는데 골드에 없는 사례가 있으면 ValueError 다. 돈 들여 받은 응답을 조용히 지우지 않으려는 것이다.
     """
+    cases = tuple(cases)
     entries = {c["case_id"]: c for c in record["cases"]}
+    known = {case.case_id for case in cases}
+    missing = [case_id for case_id in entries if case_id not in known]
+    if missing:
+        raise ValueError(
+            "골드에 없는 사례가 기록에 있어 다시 채점하지 않는다 (기록의 사례를 지우지 않으려고): "
+            + ", ".join(missing)
+        )
     runs: list[CaseRun] = []
     for case in cases:
         entry = entries.get(case.case_id)

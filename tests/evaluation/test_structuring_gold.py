@@ -330,3 +330,23 @@ def test_interrupt_still_stops_the_run(cases):
 
     with pytest.raises(KeyboardInterrupt):
         run_gold_set(Interrupted(), cases[:1])
+
+
+# ---- 다시 채점이 기록을 지우지 않게 ----------------------------------------------------
+def test_loading_a_missing_or_empty_gold_folder_is_an_error(tmp_path):
+    with pytest.raises(FileNotFoundError, match="골드 폴더가 없"):
+        load_gold_cases(tmp_path / "missing")
+    with pytest.raises(ValueError, match="골드 사례가 없"):
+        load_gold_cases(tmp_path)
+
+
+def test_rescoring_refuses_to_drop_record_cases_missing_from_the_gold(cases):
+    """골드에서 사례가 빠졌다고 기록의 사례(돈 들여 받은 응답)를 조용히 지우지 않는다."""
+    record = build_record(
+        _replay_runs(cases, _perfect_responses(cases)),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    fewer = [c for c in cases if c.case_id != "ko-05-ramen-recipe"]
+    with pytest.raises(ValueError, match="ko-05-ramen-recipe"):
+        rescore_record(record, fewer, _replay_structurer, rescored_at="2026-11-15")

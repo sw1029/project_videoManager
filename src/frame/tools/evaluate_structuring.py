@@ -6,12 +6,15 @@
 - compare: 대표 지표와 사례별 변화를 표로 낸다. 지표가 하나라도 나빠지면 종료 코드 1.
 - rescore: 기록에 남은 원본 응답을 지금 골드로 다시 채점한다 (모델을 부르지 않는다).
   --write 를 주면 그 기록 파일을 다시 채점한 내용으로 고쳐 쓴다 (실행 정보는 그대로).
+  골드 폴더가 없거나 비었거나, 기록의 사례가 골드에 없으면 아무것도 쓰지 않고 종료 코드 2 로 멈춘다.
+  골드 폴더의 기본값은 지금 폴더 기준이라 저장소 루트에서 실행하거나 --gold 를 준다.
 기록을 새로 만드는 실제 모델 실행은 tests/live/test_structuring_gold_live.py (FRAME_EVAL_STRUCTURING_LIVE=1) 다.
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -52,13 +55,21 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if comparison.regressed else 0
 
     path = Path(args.record)
-    record = read_record(path)
-    rescored = rescore_record(
-        record,
-        load_gold_cases(args.gold),
-        _replay,
-        rescored_at=datetime.now().astimezone().isoformat(timespec="seconds"),
-    )
+    try:
+        record = read_record(path)
+        rescored = rescore_record(
+            record,
+            load_gold_cases(args.gold),
+            _replay,
+            rescored_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        print(
+            f"[rescore] 멈춤 (아무것도 쓰지 않았다): {exc}\n"
+            "  저장소 루트에서 실행하거나 --gold 로 골드 폴더를 주세요.",
+            file=sys.stderr,
+        )
+        return 2
     print(format_summary(rescored))
     print(format_comparison(compare_records(record, rescored)))
     if args.write:

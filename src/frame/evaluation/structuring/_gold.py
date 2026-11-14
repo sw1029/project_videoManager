@@ -166,8 +166,17 @@ class GoldCase:
 
 
 def load_gold_cases(directory: Path | str) -> tuple[GoldCase, ...]:
-    """폴더의 *.json 을 파일 이름 순서로 읽는다. 기대 IR 이 IR 규칙을 어기면 ValidationError."""
-    paths = sorted(Path(directory).glob("*.json"))
+    """폴더의 *.json 을 파일 이름 순서로 읽는다.
+
+    폴더가 없으면 FileNotFoundError, 사례가 하나도 없으면 ValueError 다 (빈 골드로 조용히 채점하지 않게).
+    기대 IR 이 IR 규칙을 어기면 ValidationError.
+    """
+    folder = Path(directory)
+    if not folder.is_dir():
+        raise FileNotFoundError(f"골드 폴더가 없습니다: {folder}")
+    paths = sorted(folder.glob("*.json"))
+    if not paths:
+        raise ValueError(f"골드 사례가 없습니다: {folder}")
     return tuple(GoldCase.from_dict(json.loads(p.read_text(encoding="utf-8"))) for p in paths)
 
 

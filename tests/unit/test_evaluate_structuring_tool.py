@@ -1,6 +1,7 @@
 """구조화 골드셋 기록을 견주고 다시 채점하는 도구 (frame.tools.evaluate_structuring). 모델은 부르지 않는다."""
 
 import json
+import shutil
 from pathlib import Path
 
 from frame.adapters.llm import ReplayLLMClient
@@ -66,3 +67,30 @@ def test_rescore_shows_and_with_write_rewrites_the_record(tmp_path, capsys):
     assert rewritten["rescored"]["gold_fingerprint_before"] == "옛 골드"
     assert [c["case_id"] for c in rewritten["cases"]] == [c.case_id for c in cases]
     assert list(tmp_path.iterdir()) == [path]  # 받은 파일을 그 자리에서 고쳐 쓴다
+
+
+def test_rescore_stops_without_writing_when_the_gold_folder_is_missing(tmp_path, capsys):
+    cases, perfect = _cases_and_responses()
+    path = write_record(_record(cases, perfect, "v1", "2026-11-14T10:00:00+09:00"), tmp_path)
+    before = path.read_bytes()
+
+    code = evaluate_structuring.main(
+        ["rescore", str(path), "--gold", str(tmp_path / "missing"), "--write"]
+    )
+    assert code == 2
+    assert path.read_bytes() == before
+    assert "--gold" in capsys.readouterr().err
+
+
+def test_rescore_refuses_to_drop_record_cases_missing_from_the_gold(tmp_path, capsys):
+    cases, perfect = _cases_and_responses()
+    path = write_record(_record(cases, perfect, "v1", "2026-11-14T10:00:00+09:00"), tmp_path)
+    gold = tmp_path / "gold"
+    gold.mkdir()
+    shutil.copy(GOLD_DIR / f"{cases[0].case_id}.json", gold)  # 둘째 사례가 골드에서 빠졌다
+    before = path.read_bytes()
+
+    code = evaluate_structuring.main(["rescore", str(path), "--gold", str(gold), "--write"])
+    assert code == 2
+    assert path.read_bytes() == before
+    assert cases[1].case_id in capsys.readouterr().err
