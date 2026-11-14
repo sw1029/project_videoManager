@@ -8,7 +8,7 @@
   보고서에는 두 기준을 모두 남긴다 (연구 문서 §7 결정 2 가 정해지지 않았다).
 - 케이스 하나의 실패(부모 없음, 검증 오류, 생성 실패, 시간 초과, 예상 밖 오류)는 그 케이스에 기록하고
   다음 케이스로 간다. 예상 밖 오류(DB 잠금 등)는 UNEXPECTED_ERROR 로 남기고 트레이스백은 로그로 낸다.
-  Ctrl+C(KeyboardInterrupt)는 막지 않는다.
+  Ctrl+C 는 막지 않는다. 그때까지의 기록을 담은 CaseInterrupted(KeyboardInterrupt 하위)로 올려 보낸다.
 """
 
 from __future__ import annotations
@@ -81,6 +81,17 @@ class CaseRun:
     error_code: str | None = None
     error_message: str | None = None
     elapsed_s: float = 0.0
+
+
+class CaseInterrupted(KeyboardInterrupt):
+    """케이스를 실행하던 중의 Ctrl+C. 그때까지의 기록(이미 만든 수정 버전 ID 등)을 run 에 담아 올라간다.
+
+    KeyboardInterrupt 의 하위 클래스라, 이것을 모르는 쪽에서도 그대로 Ctrl+C 로 잡힌다.
+    """
+
+    def __init__(self, run: CaseRun) -> None:
+        super().__init__(run.spec.case_id)
+        self.run = run
 
 
 @dataclass(frozen=True)
@@ -158,6 +169,8 @@ def run_case(
                 monotonic=monotonic,
             )
             run.results = tuple(app.queries.get_checks(revision.version_id).results)
+    except KeyboardInterrupt as exc:
+        raise CaseInterrupted(run) from exc
     except WaitTimeout as exc:
         run.version = exc.version
         run.error_code, run.error_message = exc.code, str(exc)
@@ -218,8 +231,12 @@ def build_report(
     plan_only: bool,
     meta: Mapping[str, Any],
     complete: bool,
+    interrupted: CaseRun | None = None,
 ) -> dict[str, Any]:
-    """결과 파일의 내용. 케이스마다 입력·계획·수정 버전·클립 URI·검수 결과(detail 포함)와 판정을 남긴다."""
+    """결과 파일의 내용. 케이스마다 입력·계획·수정 버전·클립 URI·검수 결과(detail 포함)와 판정을 남긴다.
+
+    interrupted: Ctrl+C 로 끊긴 케이스. 판정·집계에는 넣지 않고 무엇을 하던 중이었는지만 남긴다.
+    """
     if basis not in PRESERVATION_BASES:
         raise ValueError(f"알 수 없는 측정 기준: {basis}")
     if plan_only:
@@ -237,8 +254,20 @@ def build_report(
         "basis": basis,
         "targets": dict(TARGETS),
         "complete": complete,
+        "interrupted": _interrupted(interrupted),
         "summary": summary,
         "cases": cases,
+    }
+
+
+def _interrupted(run: CaseRun | None) -> dict[str, Any] | None:
+    """이미 만든 수정 버전(생성 접수까지 갔다면 과금됐을 수 있다)을 찾을 수 있게 남긴다."""
+    if run is None:
+        return None
+    return {
+        "case_id": run.spec.case_id,
+        "revision_version_id": run.revision_version_id,
+        "elapsed_s": run.elapsed_s,
     }
 
 

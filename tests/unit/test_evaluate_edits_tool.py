@@ -13,7 +13,7 @@ from frame.application.dto import CreateProjectCommand
 from frame.config import Settings
 from frame.domain.enums import RevisionKind, VersionState
 from frame.evaluation.edit_cases import parse_cases
-from frame.evaluation.edit_runner import run_case
+from frame.evaluation.edit_runner import CaseInterrupted, run_case
 from frame.tools import evaluate_edits
 from tests.support.checkers import MethodPreservationChecker
 from tests.support.factories import (
@@ -93,7 +93,7 @@ def test_runs_each_case_and_judges_the_target(tmp_path):
     )
 
     assert code == 0
-    assert report["complete"] is True
+    assert report["complete"] is True and report["interrupted"] is None
     summary = report["summary"]
     assert (summary["cases"], summary["completed"], summary["errors"]) == (3, 3, 0)
     assert summary["basis"] == report["basis"] == "vlm_keep"
@@ -265,27 +265,65 @@ def test_plan_only_reports_the_plan_without_creating_revisions(tmp_path):
     assert summary["regenerate_scenes"] == 2
 
 
-def test_report_is_saved_after_each_case(tmp_path):
-    """비용이 드는 실행이 중간에 끊겨도(Ctrl+C) 끝난 케이스의 결과는 남는다."""
+class _InterruptingAccept:
+    """n 번째 생성 접수에서 Ctrl+C. 그 케이스의 수정 버전은 이미 만들어져 있다."""
 
-    class Interrupting:
-        def __init__(self, inner):
-            self.inner = inner
+    def __init__(self, inner, *, on_call):
+        self.inner, self.on_call, self.calls = inner, on_call, 0
 
-        def execute(self, command):
-            if command.change.new_value == "black":
-                raise KeyboardInterrupt
-            return self.inner.execute(command)
+    def execute(self, version_id):
+        self.calls += 1
+        if self.calls == self.on_call:
+            raise KeyboardInterrupt
+        return self.inner.execute(version_id)
 
+
+def test_ctrl_c_saves_finished_cases_and_the_interrupted_revision_then_exits_130(tmp_path, capsys):
+    """비용이 드는 실행을 중간에 멈춰도 끝난 케이스와, 하던 케이스에서 만든 수정 버전이 결과에 남는다."""
     container = _container()
     parent = _parent(container)
-    broken = dataclasses.replace(container, create_revision=Interrupting(container.create_revision))
-    with pytest.raises(KeyboardInterrupt):  # 예상 밖 오류와 달리 케이스에 묻지 않고 올라간다
-        _run(tmp_path, broken, [_cup(parent), _cup(parent, case_id="second", new_value="black")])
+    broken = dataclasses.replace(
+        container, accept_generation=_InterruptingAccept(container.accept_generation, on_call=2)
+    )
+    code, report = _run(
+        tmp_path,
+        broken,
+        [
+            _cup(parent),
+            _cup(parent, case_id="second", new_value="black"),
+            _cup(parent, case_id="third", new_value="white"),
+        ],
+    )
 
-    report = json.loads((tmp_path / "out" / "result.json").read_text("utf-8"))
+    assert code == 130
     assert report["complete"] is False
-    assert [c["case_id"] for c in report["cases"]] == ["cup"]
+    assert [c["case_id"] for c in report["cases"]] == ["cup"]  # third 는 시작하지 않았다
+    assert report["summary"]["cases"] == 1
+    interrupted = report["interrupted"]
+    assert interrupted["case_id"] == "second"
+    revision = interrupted["revision_version_id"]
+    assert container.queries.get_version(revision).version.state is VersionState.DRAFT
+    err = capsys.readouterr().err
+    assert "중단" in err and revision in err
+
+
+def test_ctrl_c_inside_a_case_carries_what_was_done():
+    container = _container()
+    parent = _parent(container)
+    (spec,) = parse_cases([_cup(parent)])
+    broken = dataclasses.replace(
+        container, accept_generation=_InterruptingAccept(container.accept_generation, on_call=1)
+    )
+
+    with pytest.raises(
+        KeyboardInterrupt
+    ) as info:  # 예상 밖 오류와 달리 케이스에 묻지 않고 올라간다
+        run_case(broken, spec)
+
+    assert isinstance(info.value, CaseInterrupted)
+    run = info.value.run
+    assert run.spec is spec and run.plan is not None
+    assert run.revision_version_id is not None and run.error_code is None
 
 
 def test_example_case_file_runs_on_the_cafe_example(tmp_path):

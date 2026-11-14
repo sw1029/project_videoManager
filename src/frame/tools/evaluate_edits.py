@@ -9,10 +9,13 @@
   같은 DB 를 쓰는 서버는 끄고 돌린다 (SQLite 쓰기 잠금, 서버의 재시작 복구가 처리 중인 버전을 건드리지 않게).
 - 작업은 인라인으로 돈다 (FRAME_JOBS 는 무시한다). 케이스 하나가 끝나야 다음 케이스를 시작한다.
 - 결과 파일은 케이스가 끝날 때마다 다시 쓴다. 중간에 끊겨도 끝난 케이스는 남고 complete 가 false 다.
+  Ctrl+C 로 멈추면 하던 케이스와 그 케이스에서 이미 만든 수정 버전 ID 를 interrupted 에 남긴다.
+- 케이스 하나의 오류(예상 밖 오류 포함)는 그 케이스에 기록하고 다음 케이스로 간다.
 - --plan-only 는 변경 계획(다시 만들 장면, 편집 여부, 어림 비용)만 보고 수정 버전을 만들지 않는다.
   실제 실행 전에 비용을 확인하는 용도다.
 
-종료 코드: 0 = 끝까지 돌고 결과를 남김 (목표 달성 여부는 결과에), 2 = 케이스 파일·설정 오류 (아무것도 실행하지 않음).
+종료 코드: 0 = 끝까지 돌고 결과를 남김 (목표 달성 여부는 결과에), 2 = 케이스 파일·설정 오류 (아무것도 실행하지 않음),
+130 = Ctrl+C 로 멈춤 (그때까지의 결과를 complete: false 로 남김).
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from frame.application.errors import AdapterError, ConfigurationError
 from frame.config import Container, Settings, build_container
 from frame.evaluation.edit_cases import CaseFileError, load_cases
 from frame.evaluation.edit_metrics import PRESERVATION_BASES
-from frame.evaluation.edit_runner import CaseRun, build_report, judge, run_case
+from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, build_report, judge, run_case
 
 # 측정 기준(detail.method)을 내는 보존 검수기 (FRAME_CHECKERS 의 키)
 _BASIS_CHECKERS = {"vlm_keep": "vlm_preservation", "ssim": "ssim_preservation"}
@@ -87,34 +90,47 @@ def main(
             return 2
 
     out = Path(args.out)
+    clock = container.clock
     meta: dict[str, Any] = {
         "cases_file": str(args.cases),
-        "started_at": _iso(container.clock.now()),
+        "started_at": _iso(clock.now()),
         "settings": _settings(container.settings),
         "checkers": [type(checker).__name__ for checker in container.checkers],
     }
     mode = "변경 계획만" if args.plan_only else f"측정 기준 {args.preservation}"
     print(f"[evaluate_edits] 케이스 {len(specs)}건, {mode}", file=sys.stderr)
     runs: list[CaseRun] = []
-    for index, spec in enumerate(specs, start=1):
-        print(f"[{index}/{len(specs)}] {spec.case_id}: 실행 중 …", file=sys.stderr)
-        run = run_case(
-            container,
-            spec,
-            plan_only=args.plan_only,
-            timeout_s=args.timeout_s,
-            poll_s=args.poll_s,
-        )
-        runs.append(run)
+
+    def save(*, complete: bool, interrupted: CaseRun | None = None) -> dict[str, Any]:
         report = build_report(
             runs,
             basis=args.preservation,
             plan_only=args.plan_only,
-            meta={**meta, "updated_at": _iso(container.clock.now())},
-            complete=index == len(specs),
+            meta={**meta, "updated_at": _iso(clock.now())},
+            complete=complete,
+            interrupted=interrupted,
         )
         _write(out, report)
-        print(f"[{index}/{len(specs)}] {_progress(run, args.plan_only)}", file=sys.stderr)
+        return report
+
+    try:
+        for index, spec in enumerate(specs, start=1):
+            print(f"[{index}/{len(specs)}] {spec.case_id}: 실행 중 …", file=sys.stderr)
+            run = run_case(
+                container,
+                spec,
+                plan_only=args.plan_only,
+                timeout_s=args.timeout_s,
+                poll_s=args.poll_s,
+            )
+            runs.append(run)
+            report = save(complete=index == len(specs))
+            print(f"[{index}/{len(specs)}] {_progress(run, args.plan_only)}", file=sys.stderr)
+    except KeyboardInterrupt as exc:
+        interrupted = exc.run if isinstance(exc, CaseInterrupted) else None
+        save(complete=False, interrupted=interrupted)
+        print(_interrupted_text(len(runs), len(specs), interrupted, out), file=sys.stderr)
+        return 130
 
     print(_summary_text(report, out))
     return 0
@@ -218,6 +234,22 @@ def _progress(run: CaseRun, plan_only: bool) -> str:
     )
     met = "대상 반영" if any(o.target_met for o in judgement.outcomes.values()) else "대상 미반영"
     return f"{head} {state} · {met} · 비대상 변경률 {rates} ({run.elapsed_s:.1f}s)"
+
+
+def _interrupted_text(finished: int, total: int, interrupted: CaseRun | None, out: Path) -> str:
+    lines = [
+        f"중단: 끝난 케이스 {finished}/{total}건을 결과에 남겼습니다 (complete: false) — {out}"
+    ]
+    if interrupted is not None:
+        case_id, revision = interrupted.spec.case_id, interrupted.revision_version_id
+        if revision is None:
+            lines.append(f"케이스 {case_id} 는 수정 버전을 만들기 전에 멈췄습니다")
+        else:
+            lines.append(
+                f"케이스 {case_id} 의 수정 버전 {revision} 이 끝나지 않았을 수 있습니다. 생성 접수까지 갔다면 "
+                "같은 DB 로 서버를 켤 때 재시작 복구가 이어서 실행합니다 (이미 과금된 작업은 다시 제출하지 않습니다)"
+            )
+    return "\n".join(lines)
 
 
 def _summary_text(report: Mapping[str, Any], out: Path) -> str:
