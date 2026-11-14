@@ -27,6 +27,8 @@ MOVED = {
     ),
     # 조립기 포트는 생성기 포트와 다른 모듈이다 (K-04)
     "frame.application.ports.generator.VideoAssembler": "frame.application.ports.assembler.VideoAssembler",
+    # 키를 실어 보낼 주소의 판정은 어댑터들이 함께 쓴다 (빌려 쓰던 안쪽 이름)
+    "frame.adapters.generator.openrouter._checked_base_url": "frame.adapters.shared.http.secure_base_url",
     # 수정 의도와 그 규칙 (M-07)
     "frame.domain.services.propagation": "frame.domain.revision",
     "frame.domain.services.revision_planning": "frame.domain.revision.resolution",

@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from frame.adapters.shared.http import TransportError, UrllibTransport
+from frame.adapters.shared.http import TransportError, UrllibTransport, secure_base_url
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -177,6 +177,37 @@ def test_only_http_addresses_are_requested(url):
     """urllib 은 file:·ftp: 도 연다. 주소가 설정이나 응답에서 올 수 있으므로 여기서 한 번 더 막는다."""
     with pytest.raises(TransportError, match="http"):
         UrllibTransport().request("GET", url, timeout=5)
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1"),
+        ("  https://api.example.com/v1/  ", "https://api.example.com/v1"),
+        ("http://localhost:8001/v1/", "http://localhost:8001/v1"),
+        ("http://127.0.0.1:9000/v1", "http://127.0.0.1:9000/v1"),
+        ("http://[::1]:9000/v1", "http://[::1]:9000/v1"),
+    ],
+)
+def test_an_address_a_key_may_be_sent_to_comes_back_trimmed(given, expected):
+    """https 주소와 로컬 시험 서버의 http 주소는 받는다. 앞뒤 공백과 끝의 / 를 뗀다."""
+    assert secure_base_url(given) == expected
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "http://example.com/v1",
+        "http://10.0.0.5:8001/v1",
+        "ftp://example.com",
+        "example.com/v1",
+        "https://",
+        "",
+    ],
+)
+def test_an_address_that_would_send_the_key_in_the_clear_is_refused(given):
+    """다른 컴퓨터로 가는 http 는 키가 평문으로 나간다. 형식이 없는 주소도 받지 않는다."""
+    assert secure_base_url(given) is None
 
 
 def test_a_response_larger_than_the_limit_is_refused(servers):

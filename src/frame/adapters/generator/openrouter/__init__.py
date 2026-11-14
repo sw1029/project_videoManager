@@ -42,9 +42,6 @@ from .generator import (
     LEDGER_TTL_SECONDS,
     OpenRouterVideoGenerator,
 )
-from .generator import (
-    _checked_base_url as _checked_base_url,  # 작업 중인 브랜치(theme-series)가 이 이름을 가져다 쓴다
-)
 
 __all__ = [
     "CONSISTENCY_LINE",

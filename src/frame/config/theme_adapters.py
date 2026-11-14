@@ -395,20 +395,19 @@ def _speech_base_url(url: str, *, given: bool = True) -> str:
     given 이 거짓이면 인식 주소를 주지 않아 LLM 주소를 따른 것이다. 거절할 때 그렇게 알린다
     (사용자가 주지 않은 변수의 이름만 대면 무엇을 고칠지 알 수 없다 — 감사 BTS-D13).
 
-    판정은 OpenRouter 어댑터의 것을 그대로 쓴다. 감사 세션이 그 함수를 adapters/shared 로 옮길 때 이 import 도 옮긴다
-    (복사하지 않는다, 감사 BTS-11).
+    판정은 OpenRouter 어댑터와 같은 것을 쓴다 (adapters/shared/http 의 secure_base_url. 감사 BTS-11).
     """
-    from frame.adapters.generator.openrouter import _checked_base_url
+    from frame.adapters.shared.http import secure_base_url
 
-    try:
-        return _checked_base_url(url)
-    except ConfigurationError:
-        if given:
-            raise ConfigurationError(
-                f"FRAME_SPEECH_BASE_URL 은 https 여야 합니다 (키를 평문으로 보내지 않도록): {url}"
-            ) from None
+    checked = secure_base_url(url)
+    if checked is not None:
+        return checked
+    if given:
         raise ConfigurationError(
-            f"음성 인식 주소가 https 가 아닙니다: {url}. FRAME_SPEECH_BASE_URL 을 주지 않아 LLM 주소"
-            "(FRAME_LLM_BASE_URL)를 따랐습니다. 인식 API 는 https 만 받습니다 (키를 평문으로 보내지 "
-            "않도록): FRAME_SPEECH_BASE_URL 로 https 주소를 주거나 다른 인식기를 고르세요"
-        ) from None
+            f"FRAME_SPEECH_BASE_URL 은 https 여야 합니다 (키를 평문으로 보내지 않도록): {url}"
+        )
+    raise ConfigurationError(
+        f"음성 인식 주소가 https 가 아닙니다: {url}. FRAME_SPEECH_BASE_URL 을 주지 않아 LLM 주소"
+        "(FRAME_LLM_BASE_URL)를 따랐습니다. 인식 API 는 https 만 받습니다 (키를 평문으로 보내지 "
+        "않도록): FRAME_SPEECH_BASE_URL 로 https 주소를 주거나 다른 인식기를 고르세요"
+    )
