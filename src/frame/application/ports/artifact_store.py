@@ -68,10 +68,13 @@ class ArtifactStore(ABC):
 
     @abstractmethod
     def get(self, uri: str) -> bytes:
-        """없으면 StorageError."""
+        """없거나 이 저장소의 주소가 아니면 StorageError."""
 
     @abstractmethod
-    def exists(self, uri: str) -> bool: ...
+    def exists(self, uri: str) -> bool:
+        """이 저장소에 있으면 참. 다른 곳의 주소(외부 URL, 다른 저장소의 URI)와 규칙에 맞지 않는 URI 는
+        예외가 아니라 거짓이다 — 부르는 쪽이 저장소 종류에 따라 다르게 동작하지 않게 한다.
+        """
 
     def content_type(self, uri: str) -> str:
         """저장된 산출물의 미디어 형식. 기본 구현은 확장자로 추정한다."""

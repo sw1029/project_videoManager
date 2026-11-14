@@ -19,7 +19,7 @@ from frame.adapters.checker import (
     VlmConsistencyChecker,
 )
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.adapters.tracker import FakeObjectTracker
 from frame.application.errors import LLMTimeout
 from frame.application.ports.checker import CheckContext
@@ -275,6 +275,25 @@ def test_vlm_compares_against_a_user_reference_image_when_there_is_one(store, ir
     barista_call = next(c for c in llm.calls if "- barista (person)" in c["user"])
     assert barista_call["images"][0].label.startswith("REF")
     assert len(barista_call["images"]) == 1 + 2 * FRAMES
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("kind", ["memory", "local_fs"])
+def test_vlm_judges_an_entity_whose_user_reference_is_an_external_address(
+    kind, ir, videos, tmp_path
+):
+    """사용자 참조가 외부 주소면 그 이미지를 읽지 못할 뿐, 객체는 판정한다 (감사 A-21).
+
+    로컬 저장소가 다른 곳의 주소에 예외를 내던 때에는 그 저장소에서만 이 객체가 늘 미판정이었다.
+    """
+    store = InMemoryArtifactStore() if kind == "memory" else LocalFileArtifactStore(tmp_path)
+    reference = ReferenceImage("img_1", "ver_1", "https://example.com/barista.png", "barista")
+    checker, _ = _vlm_checker(store, ir)
+
+    outcomes = checker.check(_context(store, ir, videos, references=(reference,)))
+
+    barista = next(o for o in outcomes if o.entity_key == "barista")
+    assert barista.verdict is Verdict.PASS, barista.detail
 
 
 @needs_ffmpeg

@@ -31,7 +31,10 @@ class LocalFileArtifactStore(ArtifactStore):
         return path.read_bytes()
 
     def exists(self, uri: str) -> bool:
-        return self._path_for(self._key_of(uri)).is_file()
+        try:
+            return self._path_for(self._key_of(uri)).is_file()
+        except StorageError:  # 다른 곳의 주소나 규칙에 맞지 않는 URI: 이 저장소에는 없다
+            return False
 
     def uri_for(self, key: str) -> str:
         self._path_for(key)  # 규칙에 맞지 않거나 저장 루트를 벗어나는 키는 StorageError

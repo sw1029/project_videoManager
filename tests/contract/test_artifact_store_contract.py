@@ -115,6 +115,31 @@ def test_keys_may_use_other_scripts_and_nested_folders(store):
         assert store.exists(uri) and store.uri_for(key) == uri
 
 
+def _foreign_uris(store) -> list[str]:
+    other_scheme = "local://" if isinstance(store, InMemoryArtifactStore) else "mem://"
+    own_scheme = "mem://" if isinstance(store, InMemoryArtifactStore) else "local://"
+    return [
+        "https://example.com/reference.png",  # 사용자 참조 이미지의 외부 주소
+        "data:image/png;base64,AAAA",
+        f"{other_scheme}clips/v1/intro.mp4",
+        f"{own_scheme}../outside.json",
+        f"{own_scheme}clips/../../outside.mp4",
+        "clips/v1/intro.mp4",  # 스킴이 없다
+        "",
+    ]
+
+
+def test_exists_is_false_for_addresses_the_store_does_not_hold(store):
+    """다른 곳의 주소를 물어도 예외가 아니라 '없음' 이다. 구현마다 답이 달라 로컬 저장소에서만
+    일관성 검수가 미판정이 되던 것을 막는다 (감사 A-21, T-05)."""
+    store.put("clips/v1/intro.mp4", b"x")
+
+    for uri in _foreign_uris(store):
+        assert store.exists(uri) is False, uri
+        with pytest.raises(StorageError):
+            store.get(uri)
+
+
 def test_guess_media_type_defaults_to_octet_stream():
     assert guess_media_type("blob/without-extension") == "application/octet-stream"
     assert guess_media_type("mem://videos/v.webm") == "video/webm"
