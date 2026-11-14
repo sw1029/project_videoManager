@@ -52,7 +52,8 @@
   어긋나 있다(M-04). `default_registry()` 는 250줄이다(M-02). 계층 방향 위반은 0건이지만 규칙을 지키는 검사가 없다(L-01).
 
 계획은 §12 에 있다. 2단계(CI 게이트)를 먼저 하고, 3단계에서 다른 브랜치가 건드리지 않은 파일의 발견을 고친다.
-다른 브랜치가 고치고 있는 파일의 발견 16묶음은 그 브랜치가 dev 에 들어간 뒤로 미룬다 (§12.2). 결정이 필요한 것은 일곱 가지다 (§12.3).
+다른 브랜치가 고치고 있는 파일의 발견 16묶음은 그 브랜치가 dev 에 들어간 뒤로 미룬다 (§12.2). 결정이 필요한 것은 일곱 가지였고,
+그중 개발 도구 설치(mypy)는 승인을 받아 설치했다. 여섯 가지가 남았다 (§12.3).
 
 ## 2. 기준선 (감사 시점의 측정값)
 
@@ -67,7 +68,8 @@
 | 바로 켤 수 있는 ruff 규칙군 (src·tests 위반 0) | PIE · RET · DTZ · A · ERA · PGH · PERF · LOG · G · ASYNC · EXE · ICN · INP · RSE · SLOT (15개) | `ruff check --select <군>` |
 | 몇 건 고치면 켤 수 있는 규칙군 | BLE 1 · SIM 3 · C4 1 · PTH 1 · FURB 1 · ISC 1 (모두 8건) | 같음 |
 | 기준선이 필요한 규칙군 | S: src 32 (그중 `assert` 11), tests 2,203 (그중 `assert` 2,196 — 파일별 예외) · C90: src 12 (최대 복잡도 19) · T20: src 15 (도구), tests 7 (live) | 같음 |
-| 로컬 실행 환경 | Python 3.11.0rc2, ruff 0.17.4, pytest 9.2.0, mypy 없음 | 공유 `.venv` |
+| 로컬 실행 환경 | Python 3.11.0rc2, ruff 0.17.4, pytest 9.2.0, mypy 없음 (감사 시점) | 공유 `.venv` |
+| 타입 검사 (감사 뒤 측정. mypy 2.4.1 을 사용자 승인으로 설치, 2026-11-14) | 지금 설정(`strict = false`): 오류 24건 · 10파일 (137파일 검사) — adapters 15 · tools 6 · config 2 · application 1, domain·presentation·evaluation 0. `--strict`: 42건 · 16파일 (domain 0) | `mypy src`, `mypy src --strict` |
 
 코드의 바탕은 좋다. 계층 방향 위반이 없고, `TODO`·`FIXME` 가 없고, 넓은 `except` 20곳에는 모두 이유가 적혀 있고,
 외부 호출 어댑터는 가짜 전송으로 테스트된다. 아래 발견은 그 위에서 남은 것이다.
@@ -851,7 +853,7 @@ Fake 를 1급 어댑터로 쓰는 방침은 잘 지켜지고 있다. 빈 곳은 
 | G2 | 구조 규칙 — pytest 아키텍처 테스트 (`tests/architecture/`): 계층 방향, 어댑터끼리는 `adapters.shared` 만, 패키지 설명과 `__all__`, 패키지 밖에서 `_` 모듈을 import 하지 않기, 모듈 크기 | 계층 0건. 설명 없는 패키지 10 · `__all__` 없는 패키지 8 · 500줄 넘는 모듈 4 | 계층은 예외 없음 (규칙은 §4 L-02 의 표). 나머지는 기준선 목록, 새 모듈은 500줄 이하 | 없음 |
 | G3 | 커버리지 하한 | 전체 90.28%, domain+application 97% 대 | 전체 ≥ 90, 핵심(domain·application) ≥ 97. 내려가면 실패, 올라가면 하한을 올린다 | 없음 |
 | G4 | ruff 규칙 확대 | 위반 0인 규칙군 15개는 바로. `BLE`·`SIM`·`C4`·`PTH`·`FURB`·`ISC` 는 모두 8건을 고치고. `S`(보안)는 src 32건, `T20` 은 도구 15건·live 테스트 7건, `C90` 은 상한 19 | 파일별 예외(`tools/*` 의 print·subprocess, 테스트의 assert)와 줄 단위 `# noqa: Sxxx - 이유` | 없음 |
-| G5 | 타입 검사 (mypy) | 미측정 (로컬에 mypy 가 없다) | `domain`·`application` 부터 켜고 나머지는 모듈별 예외 목록 | **mypy** (dev extra 에 이미 선언. 로컬 설치 승인 필요) |
+| G5 | 타입 검사 (mypy) | 지금 설정으로 24건 (`arg-type` 13 · `index` 4 · `union-attr` 3 · `assignment` 2 · `import-untyped` 1 · `attr-defined` 1). 읽어 보니 모두 형 좁히기·시그니처 표기이고 실행 결함은 없다. `--strict` 는 42건 | 전체(`src`)를 지금 설정으로 켠다. 24건 가운데 다른 브랜치가 고친 파일의 3건(`config/container.py` 2 · `persistence/sqlalchemy/repositories.py` 1)은 파일별 예외로 두고 나머지는 고친다. `domain` 은 `--strict` 로 켠다 (0건). 나머지 패키지의 strict 는 기준선 42건에서 줄여 간다 | **mypy 2.4.1** (설치함. dev extra 에 버전을 고정한다) |
 | G6 | 의존성 취약점 (`pip-audit`) | 미측정 | 별도 잡, 처음에는 실패해도 막지 않음 | CI 에서만 설치 |
 | G7 | 유료 테스트 보호와 테스트 환경 격리 | T-01, T-07 | `addopts` 에 `-m "not slow and not gpu"` 기본, `tests/live/conftest.py` 가 `FRAME_LIVE_TESTS=1` 없으면 건너뜀 | 없음 |
 | G8 | 문서 검사 — ADR 번호 중복·누락, `ARCHITECTURE.md` §12 목록, 모듈 지도(`docs/MODULE_MAP.md` 의 패키지 목록이 실제와 같은가) | ADR 목록 누락 4건(0010·0011·0012·0014), 모듈 지도 낡음 | pytest 테스트. 알려진 누락은 기준선 목록 | 없음 |
@@ -1005,7 +1007,9 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 
 ### 12.3 결정이 필요한 것
 
-1. **개발 도구 설치** — 로컬 공유 `.venv` 에 `mypy` (약 12MB, `pyproject.toml` dev extra 에 이미 있고 CI 는 이미 설치한다).
+1. **개발 도구 설치** — **결정됨 (2026-11-14 사용자 승인, 설치함).** 로컬 공유 `.venv` 에 `mypy 2.4.1` 과 그것이 요구하는 패키지 넷
+   (`ast_serialize 0.13.1` · `librt 0.16.0` · `mypy_extensions 1.2.0` · `pathspec 1.1.1`)을 설치했다. 내려받은 크기는 합쳐 약 12.7MB 이고,
+   이미 있던 패키지는 바뀌지 않았다 (`pip check` 통과). `pyproject.toml` dev extra 에 이미 있던 도구이고 CI 는 이미 설치한다.
    계층 규칙은 pytest 테스트로, 보안 정적 분석은 ruff 의 `S` 규칙으로, 복잡도는 ruff 의 `C90` 으로 하므로
    import-linter·bandit·radon 은 설치하지 않는다. `pip-audit` 은 CI 잡 안에서만 설치한다 (로컬 설치 없음).
 2. **ADR 번호** — 감사 세션은 0030(CI 품질 게이트와 기준선 방식)·0031(개념 단위 배치 규칙·용어집·호환 import)을 쓴다.
