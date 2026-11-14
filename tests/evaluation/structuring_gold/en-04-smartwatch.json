@@ -1,0 +1,60 @@
+{
+  "case_id": "en-04-smartwatch",
+  "language": "en",
+  "target_duration_ms": 12000,
+  "brief": "12 seconds, three 4-second shots: 1) a black smartwatch slowly rotates on a white pedestal, 2) a runner checks the watch on her wrist while jogging through a park in the morning, 3) close-up of the watch face showing the text '10,000 STEPS'.",
+  "covers": ["relation", "literal_text", "camera", "time_of_day", "action", "color"],
+  "notes": "The watch is the product: a PROP worn by the runner (wears). Gender from 'her' is optional. Revised after the first real run (2026-11-14): checking the watch can also be a looks_at relation to the watch, so the action only needs the jogging and runner looks_at watch is optional.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "watch", "kind": "PROP", "description": "black smartwatch", "aliases": ["watch", "smartwatch"]},
+      {"entity_key": "pedestal", "kind": "PROP", "description": "white pedestal", "aliases": ["pedestal", "stand", "platform"]},
+      {"entity_key": "runner", "kind": "PERSON", "description": "runner", "aliases": ["runner", "jogger", "woman", "athlete"]},
+      {"entity_key": "park", "kind": "BACKGROUND", "description": "park", "aliases": ["park"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "rotate",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "a black smartwatch slowly rotates on a white pedestal",
+        "entity_keys": ["watch", "pedestal"],
+        "requirements": [
+          {"entity_key": "watch", "predicate": "color", "expected_value": "black"},
+          {"entity_key": "watch", "predicate": "on", "related_entity_key": "pedestal", "expected_value": "pedestal"},
+          {"entity_key": "pedestal", "predicate": "color", "expected_value": "white"},
+          {"entity_key": "watch", "predicate": "action", "expected_value": "rotates", "accept": ["spins", "turns", "revolves"], "accept_predicates": ["motion", "movement"]}
+        ]
+      },
+      {
+        "scene_key": "jog",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "a runner checks the watch on her wrist while jogging through a park in the morning",
+        "entity_keys": ["runner", "watch", "park"],
+        "requirements": [
+          {"entity_key": "runner", "predicate": "wears", "related_entity_key": "watch", "expected_value": "watch"},
+          {"entity_key": "runner", "predicate": "action", "expected_value": "jogs", "accept": ["runs"]},
+          {"entity_key": "runner", "predicate": "looks_at", "related_entity_key": "watch", "expected_value": "watch", "optional": true},
+          {"entity_key": "watch", "predicate": "color", "expected_value": "black"},
+          {"entity_key": "runner", "predicate": "gender", "expected_value": "female", "optional": true, "accept": ["woman"]},
+          {"predicate": "location", "expected_value": "park"},
+          {"predicate": "time_of_day", "expected_value": "morning"}
+        ]
+      },
+      {
+        "scene_key": "face",
+        "planned_start_ms": 8000,
+        "planned_end_ms": 12000,
+        "description": "close-up of the watch face showing '10,000 STEPS'",
+        "entity_keys": ["watch"],
+        "requirements": [
+          {"predicate": "camera", "expected_value": "close up"},
+          {"entity_key": "watch", "predicate": "text", "expected_value": "10,000 STEPS"},
+          {"entity_key": "watch", "predicate": "color", "expected_value": "black"}
+        ]
+      }
+    ]
+  }
+}

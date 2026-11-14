@@ -221,6 +221,29 @@ def test_cors_is_off_by_default_and_on_when_configured():
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
+def test_cors_allows_every_method_the_api_uses():
+    """감사 A-04: 다른 포트에서 띄운 화면도 API 가 쓰는 모든 메서드의 사전 요청을 통과한다
+    (키 지우기 DELETE·IR 수정 PUT 등).
+
+    메서드는 앱의 라우트에서 모은다. 다른 브랜치가 새 메서드의 라우트를 더해도 목록과 어긋나지 않는다 (델타 D09).
+    """
+    from fastapi.routing import APIRoute
+
+    client, _ = _client(_settings(cors_origins=("http://localhost:5173",)))
+    paths_by_method: dict[str, str] = {}
+    for route in client.app.routes:
+        if isinstance(route, APIRoute):
+            for method in route.methods - {"HEAD", "OPTIONS"}:
+                paths_by_method.setdefault(method, route.path)
+    assert {"GET", "POST", "PUT", "DELETE"} <= set(paths_by_method)
+
+    for method, path in sorted(paths_by_method.items()):
+        preflight = {"Origin": "http://localhost:5173", "Access-Control-Request-Method": method}
+        response = client.options(path, headers=preflight)
+        assert response.status_code == 200, (method, path, response.text)
+        assert method in response.headers["access-control-allow-methods"]
+
+
 def test_built_frontend_can_be_served_from_the_same_origin(tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html><title>FRAME</title>", encoding="utf-8")
     client, _ = _client(_settings(frontend_dist=str(tmp_path)))

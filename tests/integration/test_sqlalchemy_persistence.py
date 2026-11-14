@@ -159,3 +159,51 @@ def test_existing_sqlite_database_gains_the_clip_metadata_column(tmp_path, ir):
         assert uow.versions.get("ver_1").clips["intro"] == GeneratedClip(
             "intro", "mem://clips/intro", 4000, "fp"
         )
+
+
+def test_entity_display_name_is_stored_and_old_databases_gain_the_column(tmp_path, ir):
+    """#10: 표시 이름은 entities.display_name 열에 남고, 열이 없던 예전 개발 DB 에는 기동 때 더해진다."""
+    from dataclasses import replace
+
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        conn.exec_driver_sql("ALTER TABLE entities DROP COLUMN display_name")
+    create_schema(engine)
+
+    named = replace(
+        ir,
+        entities=tuple(
+            replace(e, display_name="컵 01" if e.entity_key == "cup" else "") for e in ir.entities
+        ),
+    )
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=named))
+        uow.commit()
+
+    with make_session_factory(engine)() as session:
+        assert session.get(EntityRow, "prj_1:cup").display_name == "컵 01"
+        assert session.get(EntityRow, "prj_1:barista").display_name is None
+    with uow_factory() as uow:
+        assert uow.versions.get("ver_1").ir == named
+
+
+def test_replace_draft_ir_reports_a_version_it_cannot_read_back(engine, ir, monkeypatch):
+    """조건부 갱신이 한 행을 바꿨는데 다시 읽지 못하면 (불변식이 깨짐) 정규화 행을 만들지 않고 LookupError 로 알린다.
+
+    assert 로 두면 `python -O` 에서 검사가 사라지고 AttributeError 로 바뀐다 (감사 브랜치 ruff S101).
+    """
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.commit()
+
+    with uow_factory() as uow:
+        monkeypatch.setattr(uow.versions, "get", lambda version_id: None)
+        with pytest.raises(LookupError) as excinfo:
+            uow.versions.replace_draft_ir("ver_1", ir)
+
+    assert "ver_1" in str(excinfo.value)

@@ -29,5 +29,13 @@ def test_signature_covers_the_fields_the_frontend_reads():
         "POST /api/versions/{version_id}/revisions body:current_value",
         "GET /health -> 200:structuring_input",
         "GET /api/versions/{version_id}/scenes/{scene_key}/clip param:scene_key",
+        # 블록 입력·구조화 결과 수정·참조 이미지 업로드 (#10 #11 #12)
+        "POST /api/projects body:ir.scenes[].requirements[].predicate",
+        "POST /api/projects -> 201:repair_notes[]",
+        "PUT /api/versions/{version_id}/ir body:entities[].display_name",
+        "PUT /api/versions/{version_id}/ir -> 200:repair_notes[]",
+        "GET /api/versions/{version_id} -> 200:ir.entities[].display_name",
+        "POST /api/reference-images body:file",
+        "POST /api/reference-images -> 201:image_uri",
     ):
         assert entry in signature, entry

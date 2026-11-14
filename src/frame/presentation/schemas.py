@@ -3,15 +3,26 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, StringConstraints, model_validator
+
+from frame.domain.ir import KEY_PATTERN
 
 # ---- 입력 제한 (공개 데모에서 LLM 비용·저장 용량을 지키기 위한 상한) ----------------
 
 MAX_PROMPT_CHARS = 4000
 MAX_REFERENCE_IMAGES = 10
 MAX_TARGET_DURATION_MS = 300_000  # 5분 (숏폼 대상)
+# IR 문서 (블록 입력·DRAFT IR 수정). 장면 길이 합계도 MAX_TARGET_DURATION_MS 를 넘을 수 없다 (생성 비용 보호)
+MAX_IR_ENTITIES = 50
+MAX_IR_SCENES = 60
+MAX_SCENE_REQUIREMENTS = 50
+MIN_SCENE_MS = 500  # 보정이 장면 길이를 이 값보다 짧게 두지 않는다 (adapters/structurer/repair.py)
+# 객체·장면 키: 도메인 규칙(KEY_PATTERN)과 같은 식을 스키마에도 건다 (감사 A-01). 422 의 details 가 필드별로 나온다
+IR_KEY_PATTERN = f"^{KEY_PATTERN.pattern}$"
+# 길이(1~64자)도 식이 묶으므로 따로 적지 않는다 (규칙을 바꿀 때 한 곳만 고치게, 델타 D11)
+IRKey = Annotated[str, StringConstraints(pattern=IR_KEY_PATTERN)]
 
 # ---- 요청 ----------------------------------------------------------------
 
@@ -21,14 +32,85 @@ class ReferenceImageIn(BaseModel):
     entity_key: str | None = Field(default=None, max_length=64)
 
 
+class IREntityIn(BaseModel):
+    entity_key: IRKey = Field(
+        description="영문·숫자·밑줄로 된 64자 이하 식별자, 영문·숫자로 시작 (요구조건·추적·저장 경로의 키)"
+    )
+    kind: str = Field(
+        min_length=1,
+        max_length=32,
+        description="PERSON | ANIMAL | PROP | BACKGROUND | TEXT | OTHER (person 같은 별칭은 서버가 고친다)",
+    )
+    description: str = Field(default="", max_length=500)  # 생성 지시문에 들어가는 외형 설명
+    # 화면에 보여 줄 이름 ("컵 01", ADR-0023). 생성 조건이 아니므로 바꿔도 장면을 다시 만들지 않는다
+    display_name: str | None = Field(default=None, max_length=64)
+
+
+class IRRequirementIn(BaseModel):
+    scene_key: IRKey | None = None  # 생략하면 그 요구조건이 속한 장면
+    entity_key: IRKey | None = None  # null 이면 장면 수준 조건
+    related_entity_key: IRKey | None = None  # 관계 술어의 상대 객체
+    predicate: str = Field(min_length=1, max_length=64)  # GET /api/vocabulary/predicates
+    expected_value: str = Field(default="", max_length=300)  # 관계 술어는 비우면 상대 객체 키
+
+
+class IRSceneIn(BaseModel):
+    scene_key: IRKey  # 객체 키와 같은 형식 (클립 저장 경로에 들어간다)
+    planned_start_ms: int = Field(ge=0, le=MAX_TARGET_DURATION_MS)
+    planned_end_ms: int = Field(gt=0, le=MAX_TARGET_DURATION_MS)
+    description: str = Field(default="", max_length=1000)
+    entity_keys: list[IRKey] = Field(default_factory=list, max_length=MAX_IR_ENTITIES)
+    requirements: list[IRRequirementIn] = Field(
+        default_factory=list, max_length=MAX_SCENE_REQUIREMENTS
+    )
+
+
+class IRIn(BaseModel):
+    """IR 문서. GET /api/versions/{id} 의 ir 과 같은 모양이며,
+    읽기 전용 필드(entity_id·requirement_key·clip_url 등)는 무시한다.
+
+    서버가 결정적으로 보정한 뒤 검증한다: 장면 구간을 0 ms 부터 빈틈없이 이어 붙이고(길이는 유지),
+    요구조건이 가리키는 객체를 장면에 연결하고, 객체 종류의 별칭을 고치고,
+    정의되지 않았거나 배경을 가리키는 관계를 뺀다. 고친 것은 응답의 repair_notes 로 알려 준다.
+    고칠 수 없는 문서(키 중복·빈 값 등)는 422 VALIDATION_ERROR.
+    """
+
+    schema_version: int = 1
+    entities: list[IREntityIn] = Field(default_factory=list, max_length=MAX_IR_ENTITIES)
+    scenes: list[IRSceneIn] = Field(min_length=1, max_length=MAX_IR_SCENES)
+
+    @model_validator(mode="after")
+    def _total_duration_within_limit(self) -> IRIn:
+        total = sum(max(s.planned_end_ms - s.planned_start_ms, MIN_SCENE_MS) for s in self.scenes)
+        if total > MAX_TARGET_DURATION_MS:
+            raise ValueError(
+                f"장면 길이 합계 {total} ms 가 상한 {MAX_TARGET_DURATION_MS} ms 를 넘습니다"
+            )
+        return self
+
+
 class CreateProjectIn(BaseModel):
+    """요구사항은 글(prompt) 또는 블록으로 조립한 IR 문서(ir) 로 준다. 둘 중 하나는 있어야 한다.
+
+    - prompt 만: 구조화를 시작한다 (202, state=STRUCTURING). 끝나면 DRAFT 또는 FAILED.
+    - ir 이 있으면: LLM 없이 보정·검증만 거쳐 바로 DRAFT 를 만든다 (201, repair_notes 에 보정 내용).
+      prompt 를 함께 주면 원문(source_prompt)으로만 보관한다.
+    """
+
     title: str = Field(min_length=1, max_length=255)
-    prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
+    prompt: str | None = Field(default=None, min_length=1, max_length=MAX_PROMPT_CHARS)
+    ir: IRIn | None = None  # 블록 입력 화면이 조립한 IR 문서 (#10)
     reference_images: list[ReferenceImageIn] = Field(
         default_factory=list, max_length=MAX_REFERENCE_IMAGES
     )
     target_duration_ms: int | None = Field(default=None, gt=0, le=MAX_TARGET_DURATION_MS)
     seed: int | None = None
+
+    @model_validator(mode="after")
+    def _prompt_or_ir(self) -> CreateProjectIn:
+        if self.prompt is None and self.ir is None:
+            raise ValueError("요구사항 글(prompt)과 IR 문서(ir) 가운데 하나는 있어야 합니다")
+        return self
 
 
 KeepAspectName = Literal["APPEARANCE", "ACTION", "SHAPE", "BACKGROUND", "LIGHTING", "COMPOSITION"]
@@ -93,7 +175,8 @@ class LLMKeyStatusOut(BaseModel):
     configured: bool
     source: Literal["runtime", "config", "env", "file"] | None  # runtime = 화면 입력(메모리)
     hint: str | None  # 끝 4자리만 (예: sk-...abcd)
-    runtime_entry: bool  # 이 요청을 보낸 기기에서 키를 입력할 수 있는지 (켜져 있고 같은 기기·원격 허용)
+    # 이 요청을 보낸 기기에서 키를 입력할 수 있는지 (켜져 있고 같은 기기·원격 허용)
+    runtime_entry: bool
     runtime_entry_enabled: bool  # 서버가 화면 키 입력을 켰는지 (FRAME_LLM_RUNTIME_KEY)
 
 
@@ -145,10 +228,24 @@ class VocabularyOut(BaseModel):
     predicates: list[PredicateOut]
 
 
+class ReferenceImageUploadOut(BaseModel):
+    """POST /api/reference-images — 올린 참조 이미지 (#12).
+
+    image_uri 를 POST /api/projects 의 reference_images[].image_uri 에 그대로 쓴다. 프로젝트를 만들 때 서버가
+    refs/{project_id}/ 로 옮기므로, 버전의 참조 이미지(reference_images[].image_uri·image_url)는 그 주소로 나온다.
+    """
+
+    image_uri: str
+    media_type: str  # image/png | image/jpeg | image/webp (파일 내용으로 판별)
+    size_bytes: int
+
+
 class CreateProjectOut(BaseModel):
     project_id: str
     version_id: str
-    state: str
+    state: str  # 글: STRUCTURING (202) / IR 직접 입력: DRAFT (201)
+    # IR 직접 입력에서 서버 보정이 고친 것 (장면 구간 이동·객체 연결 등). 글로 접수하면 빈 목록
+    repair_notes: list[str] = Field(default_factory=list)
 
 
 class VersionSummaryOut(BaseModel):
@@ -208,6 +305,8 @@ class EntityOut(BaseModel):
     entity_key: str
     kind: str
     description: str
+    # 화면에 보여 줄 이름 (ADR-0023). null 이면 화면이 종류와 순번으로 라벨을 만든다 ("컵 01")
+    display_name: str | None = None
 
 
 class IROut(BaseModel):
@@ -286,11 +385,19 @@ class VersionOut(BaseModel):
     revision: RevisionIntentOut | None = None  # 수정 버전이면 무엇을 하려는 수정인지 (ADR-0017)
 
 
+class EditDraftIrOut(VersionOut):
+    """PUT /api/versions/{version_id}/ir — 고친 뒤의 버전 (GET 과 같은 모양) 과 보정 메모."""
+
+    # 서버가 고친 것 (장면 구간 이동·객체 연결·종류 별칭 등). 없으면 빈 목록. 화면은 ir 로 블록을 다시 그린다
+    repair_notes: list[str]
+
+
 class CreateRevisionOut(BaseModel):
     version_id: str
     parent_version_id: str
     state: str
-    changed_scene_keys: list[str]  # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
+    # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
+    changed_scene_keys: list[str]
     kind: str = "CHANGE"  # CHANGE | REPAIR
 
 
@@ -312,7 +419,8 @@ class RevisionPlanSceneOut(BaseModel):
     planned_end_ms: int
     will_regenerate: bool  # 이 수정으로 다시 만드는 장면인가
     current_value: str | None  # 지금 그 조건의 값 (그 장면에 조건이 없으면 null)
-    verdict: str | None  # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
+    # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
+    verdict: str | None
     recorded_cost_usd: float | None  # 이 장면을 지난번에 만들 때의 비용 (기록이 있을 때)
     recorded_seconds: float | None  # 이 장면을 지난번에 만들 때 걸린 시간
     # 다시 만들 장면을 지금 실행하면 어떻게 만들어질지. 다시 만들지 않거나 생성기가 알려 주지 않으면 null

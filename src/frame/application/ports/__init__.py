@@ -23,7 +23,13 @@ from .repositories import (
     TrackRepository,
     VersionRepository,
 )
-from .structurer import ReferenceImageInput, RequirementStructurer, StructuringRequest
+from .structurer import (
+    IrDocumentStructurer,
+    ReferenceImageInput,
+    RequirementStructurer,
+    StructuredDocument,
+    StructuringRequest,
+)
 from .tracker import ObjectTracker, TrackingRequest
 from .unit_of_work import UnitOfWork, UnitOfWorkFactory
 
@@ -39,6 +45,7 @@ __all__ = [
     "IdentityExtractionRequest",
     "IdentityImage",
     "IdentityReferenceExtractor",
+    "IrDocumentStructurer",
     "Job",
     "JobDispatcher",
     "JobHandler",
@@ -50,6 +57,7 @@ __all__ = [
     "ReferenceImageRepository",
     "RequirementStructurer",
     "SceneGenerationRequest",
+    "StructuredDocument",
     "StructuringRequest",
     "TrackRepository",
     "TrackingRequest",

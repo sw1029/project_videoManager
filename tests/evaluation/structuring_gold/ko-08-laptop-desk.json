@@ -1,0 +1,52 @@
+{
+  "case_id": "ko-08-laptop-desk",
+  "language": "ko",
+  "target_duration_ms": 8000,
+  "brief": "노트북 광고 8초. 장면 1 (4초): 햇살이 드는 거실, 나무 책상 위에 은색 노트북이 놓여 있고 화면에 'FRAME OS' 문구가 떠 있다. 장면 2 (4초): 카메라가 노트북 주위를 천천히 돈다.",
+  "covers": ["relation", "literal_text", "material", "camera", "prop_not_location"],
+  "notes": "이슈 #17 배경의 실호출 관찰(소품을 장소로 씀: location = wooden table)을 재는 사례. 책상은 소품 객체이고 노트북과 on 관계로 잇는다. 장소는 거실이다. 화면의 문구는 노트북의 text. 첫 실제 실행(2026-11-14) 뒤 보완: '화면' 을 영상 화면으로도 읽을 수 있어, 문구를 TEXT 객체로 낸 것은 선택으로 받는다 (노트북의 text 는 그대로 필수).",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "laptop", "kind": "PROP", "description": "은색 노트북", "aliases": ["노트북", "랩톱", "laptop", "notebook", "computer"]},
+      {"entity_key": "desk", "kind": "PROP", "description": "나무 책상", "aliases": ["책상", "테이블", "desk", "table"]},
+      {"entity_key": "living_room", "kind": "BACKGROUND", "description": "햇살이 드는 거실", "aliases": ["거실", "living room"], "optional": true},
+      {"entity_key": "screen_text", "kind": "TEXT", "description": "화면의 'FRAME OS' 문구", "aliases": ["FRAME OS", "문구", "text", "caption"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "product",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "햇살이 드는 거실, 나무 책상 위의 은색 노트북",
+        "entity_keys": ["laptop", "desk", "living_room", "screen_text"],
+        "requirements": [
+          {"entity_key": "laptop", "predicate": "color", "expected_value": "silver"},
+          {"entity_key": "laptop", "predicate": "on", "related_entity_key": "desk", "expected_value": "desk"},
+          {"entity_key": "desk", "predicate": "material", "expected_value": "wood", "accept": ["wooden"]},
+          {"entity_key": "laptop", "predicate": "text", "expected_value": "FRAME OS", "accept_predicates": ["brand"]},
+          {"entity_key": "screen_text", "predicate": "text", "expected_value": "FRAME OS"},
+          {"predicate": "location", "expected_value": "living room"},
+          {"predicate": "lighting", "expected_value": "sunlight", "accept": ["sunny", "sunlit", "natural", "daylight"]}
+        ]
+      },
+      {
+        "scene_key": "orbit",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "카메라가 노트북 주위를 천천히 돈다",
+        "entity_keys": ["laptop", "desk", "living_room"],
+        "optional_entities": ["desk"],
+        "requirements": [
+          {"predicate": "camera", "expected_value": "slow orbit", "accept": ["slow circle", "slow rotate around", "slow pan around", "slow 360"]},
+          {"entity_key": "laptop", "predicate": "color", "expected_value": "silver"},
+          {"entity_key": "laptop", "predicate": "text", "expected_value": "FRAME OS", "optional": true, "accept_predicates": ["brand"]},
+          {"entity_key": "laptop", "predicate": "on", "related_entity_key": "desk", "expected_value": "desk"},
+          {"entity_key": "desk", "predicate": "material", "expected_value": "wood", "accept": ["wooden"]},
+          {"predicate": "location", "expected_value": "living room", "optional": true},
+          {"predicate": "lighting", "expected_value": "sunlight", "optional": true, "accept": ["sunny", "sunlit", "natural", "daylight"]}
+        ]
+      }
+    ]
+  }
+}
