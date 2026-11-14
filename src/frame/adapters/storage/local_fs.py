@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from frame.application.errors import StorageError
-from frame.application.ports.artifact_store import ArtifactStore
+from frame.application.ports.artifact_store import ArtifactStore, check_artifact_key
 
 
 class LocalFileArtifactStore(ArtifactStore):
@@ -34,7 +34,7 @@ class LocalFileArtifactStore(ArtifactStore):
         return self._path_for(self._key_of(uri)).is_file()
 
     def uri_for(self, key: str) -> str:
-        self._path_for(key)  # 저장 루트를 벗어나는 키는 StorageError
+        self._path_for(key)  # 규칙에 맞지 않거나 저장 루트를 벗어나는 키는 StorageError
         return f"{self.SCHEME}{key}"
 
     def local_path(self, uri: str) -> Path | None:
@@ -50,6 +50,7 @@ class LocalFileArtifactStore(ArtifactStore):
         return uri[len(self.SCHEME) :]
 
     def _path_for(self, key: str) -> Path:
+        check_artifact_key(key)  # `..` 로 저장 루트 안의 다른 폴더를 가리키는 키도 여기서 막힌다
         path = (self._root / key).resolve()
         if self._root not in path.parents and path != self._root:
             raise StorageError(f"저장 루트를 벗어난 키: {key}")

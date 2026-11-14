@@ -66,6 +66,55 @@ def test_local_store_refuses_keys_outside_its_root(tmp_path):
         LocalFileArtifactStore(tmp_path / "root").uri_for("../outside.json")
 
 
+# 키는 `/` 로 나눈 상대 경로다. 다른 자리를 가리키거나 OS 에 따라 다른 파일이 되는 키는 받지 않는다
+UNSAFE_KEYS = [
+    "",
+    "../outside.json",
+    "clips/../../outside.mp4",
+    "clips/ver_attacker/../ver_victim/intro.mp4",  # 저장 루트 안의 다른 버전 (감사 A-01)
+    "clips/./intro.mp4",
+    "clips//intro.mp4",
+    "/clips/intro.mp4",
+    "clips/intro.mp4/",
+    "clips\\ver\\intro.mp4",
+    "C:/clips/intro.mp4",
+    "clips/intro:stream.mp4",
+    "clips/intro.mp4\n",
+    "clips/intro\x00.mp4",
+    "clips/intro.",
+    "clips/intro ",
+]
+
+
+@pytest.mark.parametrize("key", UNSAFE_KEYS)
+def test_unsafe_keys_are_refused(store, key):
+    with pytest.raises(StorageError):
+        store.put(key, b"x")
+    with pytest.raises(StorageError):
+        store.uri_for(key)
+
+
+def test_a_key_cannot_overwrite_another_versions_clip(store):
+    """장면 키에 `../` 가 들어와도 다른 버전의 클립을 덮어쓰지 못한다 (감사 A-01)."""
+    victim = store.put("clips/ver_victim/intro.mp4", b"victim")
+
+    with pytest.raises(StorageError):
+        store.put("clips/ver_attacker/../ver_victim/intro.mp4", b"attacker")
+
+    assert store.get(victim) == b"victim"
+
+
+def test_keys_may_use_other_scripts_and_nested_folders(store):
+    """형식은 도메인이 정한다. 저장소는 다른 자리를 가리키는 키만 막는다."""
+    for key in (
+        "clips/ver_1/장면 하나.mp4",
+        "references/identity/ab12/cup-1a2b3c.png",
+        "a/b/c/d.json",
+    ):
+        uri = store.put(key, b"x")
+        assert store.exists(uri) and store.uri_for(key) == uri
+
+
 def test_guess_media_type_defaults_to_octet_stream():
     assert guess_media_type("blob/without-extension") == "application/octet-stream"
     assert guess_media_type("mem://videos/v.webm") == "video/webm"
