@@ -174,16 +174,21 @@ FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_AR
 ```
 
 - 케이스마다 진행이 표준 오류로, 끝나면 요약이 표준 출력으로 나온다. 결과 파일은 케이스가 끝날 때마다 다시 쓰므로 중간에 끊겨도
-  끝난 케이스가 남는다 (`complete: false`).
+  끝난 케이스가 남는다 (`complete: false`). Ctrl+C 로 멈추면 하던 케이스와 그 케이스에서 이미 만든 수정 버전 ID 가 `interrupted` 에
+  남는다 (생성 접수까지 갔다면 과금됐을 수 있고, 같은 DB 로 서버를 켜면 재시작 복구가 이어서 실행한다).
+- 케이스 하나의 오류(부모 없음, 생성 실패, DB 잠금 같은 예상 밖 오류 등)는 그 케이스의 `error` 에 남기고 다음 케이스로 간다.
 - 결과 JSON: `summary`(성공률·평균 비대상 변경률·`meets_target`, 기준별 `by_basis`, 기록된 영상 비용, 검수 VLM 토큰)와
   `cases[]`(입력, 계획, 수정 버전 ID·상태·오류, 대상 요구조건 키, 판정 `outcome`·`by_basis`, 장면별 클립 URI 와 부모 클립 URI,
-  검수 결과 전부와 그 `detail`).
+  검수 결과 전부와 그 `detail`). 저장소에 기록할 수 있게 DB 주소·키 파일·이 컴퓨터의 폴더 경로는 남기지 않는다 (케이스 파일은 이름만).
 - 수정 성공 = 다시 만든 장면의 (대상 객체, 술어) 요구조건이 모두 PASS 이고 비대상 변경률이 10% 이하. 미판정·실패한 케이스는 성공으로 세지 않는다.
 - `--preservation vlm_keep|ssim`: 목표 판정에 쓸 비대상 변경률의 기준. 두 기준 모두 결과에 남는다. `vlm_keep` 은 `vlm_preservation` 의
   유지 요소 판정(기본), `ssim` 은 `ssim_preservation` 의 부모 클립 대비 SSIM 이다. 어느 쪽으로 잴지는 아직 정하지 않았다
   ([연구 문서 §7 결정 2](docs/research/concept-ux-review.md)).
 - `--plan-only`: 변경 계획만 보고 수정 버전을 만들지 않는다. 다시 만들 장면 수·편집 여부·어림 비용으로 실험 전에 비용을 적는다.
-- 종료 코드: 0 = 끝까지 돌고 결과를 남김, 2 = 케이스 파일·설정 오류 (`FRAME_PERSISTENCE=memory` 포함, 아무것도 실행하지 않음).
+- 종료 코드: 0 = 끝까지 돌고 결과를 남김, 2 = 케이스 파일·설정 오류 (`FRAME_PERSISTENCE=memory` 포함, 아무것도 실행하지 않음),
+  130 = Ctrl+C 로 멈춤 (그때까지의 결과를 남김).
+- git worktree 처럼 가상환경을 다른 체크아웃과 함께 쓰면 명령 앞에 `PYTHONPATH=src` 를 둔다. 편집 설치(`pip install -e`)가
+  가리키는 다른 체크아웃의 코드가 돌 수 있다 (pytest 는 `pythonpath = ["src"]` 라 괜찮다).
 
 ### 실제 모델로 돌리기 (비용 발생, 승인 뒤에)
 

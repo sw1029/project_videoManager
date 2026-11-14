@@ -25,6 +25,9 @@
   편집한다 (ADR-0020). kind 를 생략한 케이스는 계획이 정한다 (지금 값과 같으면 REPAIR).
 - 디스패처는 인라인으로 바꾼다 (`FRAME_JOBS` 무시). 완료 대기는 상태를 다시 읽는 루프라(`--timeout-s`, `--poll-s`)
   디스패처가 달라져도 동작한다.
+- 모듈 (개념 하나에 모듈 하나): 케이스 파일 읽기 `evaluation/edit_cases.py` → 케이스 실행 `edit_runner.py`(실행 기록 `CaseRun`)
+  → 판정·결과 파일 내용 `edit_report.py` → 지표 식·목표값 `edit_metrics.py`. 명령과 컨테이너 조립은 `tools/evaluate_edits.py` 가
+  한다. `evaluation` 은 `domain`·`application` 만 import 하고, 실행기는 유스케이스 네 개를 `EditApp` 프로토콜로 받는다.
 - 근거
   - 화면·API 가 부르는 것과 같은 유스케이스다. presentation 은 스키마 변환만 하므로 재는 동작이 같다.
   - 검수 결과를 도메인 객체(`CheckResult`)로 받아 `evaluate_cases` 에 바로 넣는다. HTTP 응답을 되돌리는 변환이 없다.
@@ -64,15 +67,21 @@
   모르는 필드를 포함해 형식 오류는 실행 전에 모두 거른다 (오타 난 keep 이 조용히 빠지면 다른 조건으로 돈 실험이 된다).
   예시: [docs/evaluation/edit_cases.example.json](../evaluation/edit_cases.example.json).
 - 결과 파일(JSON)
-  - 실행 설정 (DB 주소·키 파일 경로는 남기지 않는다), 실제로 꽂힌 검수기 클래스, 목표값.
+  - 실행 설정, 실제로 꽂힌 검수기 클래스, 목표값(`edit_metrics` 의 상수). 결과 파일은 저장소에 기록하므로(TDD_WORKFLOW §7)
+    DB 주소·키 파일 경로·이 컴퓨터의 폴더는 남기지 않는다 (산출물 폴더는 종류 `artifact_store` 만, 케이스 파일은 이름만).
   - `summary`: 건수(완료·실행 실패·오류), 머리 기준의 성공률·평균 비대상 변경률·목표 달성, 기준별 값(`by_basis`),
     생성기가 기록한 영상 비용, 검수 VLM 호출 수·토큰.
   - `cases[]`: 입력, 계획(다시 만들 장면마다 편집 여부·어림값·편집하지 못하는 사유), 수정 버전 ID·상태·오류,
     대상 요구조건 키, 판정(머리 기준 `outcome`, 기준별 `by_basis`), 장면별 클립 URI(부모 클립 URI·재사용 여부·생성 기록),
     검수 결과 전부(detail·경고 구간).
 - 케이스가 끝날 때마다 결과 파일을 다시 쓴다 (임시 파일에 쓰고 바꿔 끼운다). 중간에 끊기면 `complete: false`.
-- 케이스 하나의 실패(부모 없음·검증 오류·생성 실패·시간 초과)는 그 케이스에 적고 다음 케이스로 간다.
-  실패한 케이스도 분모에 든다 (성공으로 세지 않는다). 예상하지 못한 예외는 그대로 올리되 앞 케이스의 결과는 남는다.
+- 케이스 하나의 실패(부모 없음·검증 오류·생성 실패·시간 초과·예상하지 못한 예외)는 그 케이스에 적고 다음 케이스로 간다.
+  실패한 케이스도 분모에 든다 (성공으로 세지 않는다). 예상하지 못한 예외(서버를 켠 채 돌렸을 때의 SQLite 잠금 등)는
+  `UNEXPECTED_ERROR`(생성 파이프라인과 같은 코드 이름)와 `예외 이름: 메시지` 로 적고 트레이스백은 로그로 낸다.
+  한 케이스의 예상 밖 오류가 남은 유료 케이스를 막지 않게 하려는 것이다.
+- Ctrl+C 로 멈추면 그때까지의 결과를 `complete: false` 로 다시 쓰고, 하던 케이스와 그 케이스에서 이미 만든 수정 버전 ID 를
+  `interrupted` 에 남긴 뒤 종료 코드 130 으로 끝난다 (끝까지 돌면 `interrupted: null`). 끊긴 케이스는 판정·집계에 넣지 않는다.
+  그 수정 버전은 생성 접수까지 갔다면 과금됐을 수 있고, 같은 DB 로 서버를 켜면 재시작 복구(ADR-0013)가 이어서 실행한다.
 - `--plan-only`: 계획만 보고 수정 버전을 만들지 않는다. 다시 만들 장면 수·편집 여부·어림 비용으로, 실험을 승인받기 전에
   비용을 적는다 (구조화된 변경이라 해석 LLM 을 부르지 않는다. 편집 모드면 부모 작업의 상태를 조회한다).
 
@@ -114,6 +123,6 @@
 ## 검증
 - 단위: `tests/unit/test_edit_metrics.py`(키로 찾기·기준별 나누기), `tests/unit/test_edit_cases.py`(케이스 파일),
   `tests/unit/test_evaluate_edits_tool.py`(Fake 컨테이너로 CLI: 판정·근거·기준 옵션·REPAIR 와 keep·실패한 케이스·
-  계획만·중간 저장·완료 대기와 시간 초과).
+  예상 밖 오류·Ctrl+C 와 종료 코드 130·계획만·로컬 폴더 경로 없음·완료 대기와 시간 초과).
 - 통합: `tests/integration/test_evaluate_edits_cli.py` (환경 변수로 SQLite 파일 DB·local_fs 를 가리켜 서버가 만든 원본을 평가).
 - 실제 모델: `tests/live/test_evaluate_edits_live.py` (`slow`, `FRAME_EVAL_CASES` 를 줄 때만). 비용 승인 전이라 아직 돌리지 않았다.

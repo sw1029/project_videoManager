@@ -70,4 +70,5 @@ Mock 라이브러리는 쓰지 않는다. 포트가 작고 Fake 가 있으므로
    검수 결과를 `EditCase`(대상 요구조건 키 포함)로 묶어 `evaluate_cases()` 에 넣는다
 4. `success_rate ≥ 0.8`, `mean_non_target_change_rate ≤ 0.1` 이면 `meets_target` 이 참이다. 미판정(`UNDETERMINED`)과 결과가 없는
    대상 요구조건은 성공으로 세지 않는다. 비대상 변경률은 측정 기준(`vlm_keep`·`ssim`)마다 따로 남는다
-5. 결과 JSON 에 판정 근거(클립 URI·검수 detail)가 함께 남는다. 저장소에 기록한다 (Sprint Backlog 평가 계획)
+5. 결과 JSON 에 판정 근거(클립 URI·검수 detail)가 함께 남는다. 저장소에 기록한다 (Sprint Backlog 평가 계획).
+   DB 주소·키 파일·이 컴퓨터의 폴더 경로는 결과에 남지 않는다
