@@ -18,6 +18,9 @@ _STOPWORDS = frozenset(
     "a an the and or of with to at in on into onto for from by while its his her their is are s".split()
 )  # s: 소유격(bird's)이 쪼개져 남은 것
 _VOWELS = frozenset("aeiouy")
+# 동사를 부정하는 말 (not smiling · doesn't wave · 안 웃는다 · 웃지 않는다 · 못 본다)
+_NEGATION_WORDS = frozenset({"not", "never", "neither", "nor", "안", "못"})
+_NEGATION_PREFIXES = ("않", "못")
 # (어미, 그 어미를 걷어낼 최소 낱말 길이). 앞에서부터 하나만 걷어낸다
 _SUFFIXES = (("ing", 6), ("ied", 5), ("ies", 5), ("es", 5), ("ed", 5), ("ly", 6), ("s", 4))
 _COLOR_WORDS = {
@@ -53,7 +56,14 @@ def values_match(predicate: str, expected: str, actual: str) -> bool:
     - LITERAL(문구·브랜드): 따옴표·공백만 정리하고 철자·대소문자까지 같아야 한다
     - NUMBER: 숫자로 (three / 세 마리 → 3)
     - 그 밖(COLOR·TEXT·POSITION): 골드 값의 내용어가 모델 값에 모두 있으면 맞춤 (warm ⊂ warm cafe lighting).
-      영어 어미(smiling/smiles → smile), 한국어 색 이름(빨간색 → red), 붙여 쓰기(close up / closeup)를 맞춘다
+      영어 어미(smiling/smiles → smile), 한국어 색 이름(빨간색 → red), 붙여 쓰기(close up / closeup)를 맞춘다.
+      동사를 부정하는 말(not·never·n't·안·않·못)이 모델 값에만 있으면 다른 조건이다 (smiling ≠ not smiling)
+
+    알려진 한계 (지표를 읽을 때 감안한다)
+    - 명사를 부정하는 말(no·without·없)은 보지 않는다. 'walks without umbrella' 는 걷기로 맞고,
+      'no smile' 은 smile 과 맞춤이 된다
+    - 여러 값이 섞여도 맞춤이다: 골드 red, 모델 'red and blue'
+    - 낱말 단위 비교라 동의어(cozy / comfortable)는 골드의 accept 로만 받는다
     """
     predicate = DEFAULT_VOCABULARY.normalize(predicate)
     kind = DEFAULT_VOCABULARY.value_kind(predicate)
@@ -65,7 +75,17 @@ def values_match(predicate: str, expected: str, actual: str) -> bool:
         return _literal(expected) == _literal(actual)
     if kind is ValueKind.NUMBER:
         return _number(expected) == _number(actual)
+    if _negated(actual) and not _negated(expected):
+        return False
     return _phrase_match(expected, actual)
+
+
+def _negated(text: str) -> bool:
+    """동사를 부정하는 말이 있는가 (not smiling · doesn't wave · 안 웃는다 · 웃지 않는다)."""
+    lowered = text.lower()
+    if "n't" in lowered or "n’t" in lowered:
+        return True
+    return any(w in _NEGATION_WORDS or w.startswith(_NEGATION_PREFIXES) for w in words(text))
 
 
 def _phrase_match(expected: str, actual: str) -> bool:

@@ -21,7 +21,11 @@ from ._matching import map_scenes, match_entities, project
 
 @dataclass(frozen=True)
 class Tally:
-    """맞춤(tp)·오탐(fp)·놓침(fn) 개수. 분모가 0 인 비율은 0.0 이다."""
+    """맞춤(tp)·오탐(fp)·놓침(fn) 개수.
+
+    분모가 0 인 비율은 0.0 이다. 그래서 필수 항목이 없는 사례들만으로는 재현율이 0 이 되어 목표를 넘을 수 없다
+    (골드에는 사례마다 필수 객체·요구조건이 있어야 한다).
+    """
 
     tp: int = 0
     fp: int = 0

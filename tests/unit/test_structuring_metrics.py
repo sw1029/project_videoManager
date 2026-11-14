@@ -269,6 +269,14 @@ def test_two_people_are_assigned_by_the_better_description():
         ("count", "2", "두 개", True),
         ("count", "3", "2", False),
         ("holds", "cup", "mug", True),  # 관계는 상대 객체를 맞춘 것으로 비교가 끝난다
+        # 동사를 부정하는 말이 모델 값에만 있으면 다른 조건이다
+        ("expression", "smiling", "not smiling", False),
+        ("action", "waves", "doesn't wave", False),
+        ("expression", "웃는다", "안 웃는다", False),
+        ("expression", "웃는다", "웃지 않는다", False),
+        ("mood", "not scary", "not scary at all", True),
+        # 명사를 부정하는 말(without·no)은 조건을 뒤집지 않는다: 걷는 것은 맞다
+        ("action", "walks", "walks without umbrella", True),
     ],
 )
 def test_values_are_compared_after_normalization(predicate, expected, actual, matched):

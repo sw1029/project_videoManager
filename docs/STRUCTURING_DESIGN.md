@@ -284,6 +284,10 @@ StructuringReport
   - 수량: 숫자로 견준다 (three / 세 마리 → 3).
   - 그 밖의 값: 골드 값의 내용어가 모델 값에 모두 들어 있으면 맞춤이다 (`warm` ⊂ `warm cafe lighting`).
     영어 어미(smiling/smiles → smile), 한국어 색 이름(빨간색 → red), 붙여 쓰기(close up / closeup)는 같은 말로 본다.
+    동사를 부정하는 말(not·never·n't·안·않·못)이 모델 값에만 있으면 다른 조건으로 본다 (smiling ≠ not smiling).
+  - 알려진 한계: 명사를 부정하는 말(no·without·없)은 보지 않는다 (`walks without umbrella` 는 걷기로 맞다).
+    여러 값이 섞여도 맞춤이다 (골드 red, 모델 `red and blue`). 동의어는 `accept` 로만 받는다.
+    필수 항목이 없는 사례만으로는 재현율의 분모가 0 이라 목표를 넘을 수 없다.
 - 세는 법
   - 값이 틀린 조건은 오탐 1·놓침 1, 골드에 없는 조건은 오탐 1이다. 정밀도가 근거 없는 조건을 잡아 AC-14 의 분모를 지킨다.
   - 선택 항목은 맞으면 세지 않고(중립), 틀리면 오탐으로 센다.
