@@ -29,19 +29,10 @@ from frame.application.ports.series.overlay import CompositionError, OverlayRend
 from frame.domain.screen import Region, TextRole
 from frame.domain.series.episode import OverlayItem, OverlayKind
 from frame.domain.series.theme import TextStyle
-from tests.support.video import find_ffmpeg, make_clip
+from tests.support.video import find_ffmpeg, find_korean_font, make_clip
 
 FFMPEG = find_ffmpeg()
-
-
-def _font() -> str | None:
-    try:
-        return resolve_font()
-    except ConfigurationError:
-        return None
-
-
-FONT = _font()
+FONT = find_korean_font()
 needs_ffmpeg = pytest.mark.skipif(
     FFMPEG is None or FONT is None, reason="ffmpeg 또는 한글 글꼴 없음"
 )

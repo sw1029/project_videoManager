@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from frame.adapters.series.overlay.ffmpeg_renderer import resolve_font
 from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.application.errors import ConfigurationError
 
@@ -12,6 +13,14 @@ from frame.application.errors import ConfigurationError
 def find_ffmpeg() -> str | None:
     try:
         return resolve_ffmpeg()
+    except ConfigurationError:
+        return None
+
+
+def find_korean_font() -> str | None:
+    """화면 문구 합성이 쓸 한글 글꼴 파일. 없으면 None 이고, 그 테스트들은 건너뛴다."""
+    try:
+        return resolve_font()
     except ConfigurationError:
         return None
 

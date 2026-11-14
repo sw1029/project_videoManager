@@ -16,8 +16,10 @@ from tests.support.switches import (
     API_KEY_VARIABLES,
     ffmpeg_required,
     is_loopback,
+    korean_font_required,
     live_tests_enabled,
     missing_ffmpeg_message,
+    missing_korean_font_message,
     shell_leak_names,
 )
 
@@ -95,6 +97,21 @@ def test_a_missing_ffmpeg_fails_the_run_only_when_required():
     assert "ffmpeg 를 찾지 못했습니다" in (missing_ffmpeg_message(required, None) or "")
     assert missing_ffmpeg_message(required, "bin/ffmpeg") is None
     assert missing_ffmpeg_message({}, None) is None  # 로컬에서는 지금처럼 건너뛴다
+
+
+def test_a_korean_font_is_required_only_when_asked():
+    assert korean_font_required({"FRAME_REQUIRE_KOREAN_FONT": "1"})
+    assert not korean_font_required({})
+    assert not korean_font_required({"FRAME_REQUIRE_FFMPEG": "1"})  # ffmpeg 의 스위치와는 따로다
+
+
+def test_a_missing_korean_font_fails_the_run_only_when_required():
+    """한글 글꼴을 깐 CI 잡은 화면 문구 합성 테스트를 건너뛴 채 통과로 보이지 않게, 글꼴이 없으면 실패한다."""
+    required = {"FRAME_REQUIRE_KOREAN_FONT": "1"}
+
+    assert "한글 글꼴을 찾지 못했습니다" in (missing_korean_font_message(required, None) or "")
+    assert missing_korean_font_message(required, "fonts/korean.ttc") is None
+    assert missing_korean_font_message({}, None) is None  # 로컬과 다른 잡에서는 지금처럼 건너뛴다
 
 
 def test_pytest_leaves_paid_tests_out_by_default():
