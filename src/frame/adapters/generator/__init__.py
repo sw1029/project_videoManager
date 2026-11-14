@@ -14,7 +14,7 @@
     DelegatingVideoGenerator    데코레이터의 바탕 (profile · result_key · preview 를 감싼 생성기에 넘긴다)
 
 모듈 지도
-    openrouter     OpenRouter 생성기: 제출 · 대기 · 원장으로 이어 받기 · 부모 클립 편집 · 미리보기 · 프롬프트
+    openrouter/    OpenRouter 생성기 (하위 패키지): 생성기 클래스, 프롬프트, 모델 정보, 키, 출력 크기
     decorators     복원력 데코레이터
     abandonment    시간 제한으로 버려진 작업 스레드가 더 제출하지 않게 하는 신호
     cache          생성 캐시(ClipCache)와 캐시·원장 키(generation_key)

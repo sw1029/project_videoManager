@@ -41,6 +41,38 @@ MOVED = [
     ("frame.adapters.generator.ffmpeg", "VideoNormalizer", "frame.adapters.generator.normalizer"),
     ("frame.application.ports.generator", "VideoAssembler", "frame.application.ports.assembler"),
     ("frame.application.ports", "VideoAssembler", "frame.application.ports.assembler"),
+    # OpenRouter 모듈은 하위 패키지가 됐다. 예전 모듈 경로가 패키지의 입구다
+    # (theme-series 는 _checked_base_url 을 가져다 쓴다)
+    (
+        "frame.adapters.generator.openrouter",
+        "_checked_base_url",
+        "frame.adapters.generator.openrouter.generator",
+    ),
+    (
+        "frame.adapters.generator.openrouter",
+        "OpenRouterVideoGenerator",
+        "frame.adapters.generator.openrouter.generator",
+    ),
+    (
+        "frame.adapters.generator.openrouter",
+        "resolve_openrouter_key",
+        "frame.adapters.generator.openrouter._api_key",
+    ),
+    (
+        "frame.adapters.generator.openrouter",
+        "output_size",
+        "frame.adapters.generator.openrouter._output_size",
+    ),
+    (
+        "frame.adapters.generator.openrouter",
+        "compile_video_prompt",
+        "frame.adapters.generator.openrouter._prompts",
+    ),
+    (
+        "frame.adapters.generator.openrouter",
+        "VideoModelInfo",
+        "frame.adapters.generator.openrouter._model_catalog",
+    ),
 ]
 
 

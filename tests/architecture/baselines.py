@@ -21,7 +21,7 @@ PACKAGES_WITHOUT_ALL: frozenset[str] = frozenset()
 # 500줄을 넘는 모듈 — M-01 (openrouter), M-05 (demo·bundle), M-03 (schemas)
 LARGE_MODULES = frozenset(
     {
-        "frame.adapters.generator.openrouter",
+        "frame.adapters.generator.openrouter.generator",  # 순수한 부분은 뗐다. 클래스를 나누는 일이 남았다
         "frame.tools.demo",
         "frame.tools.bundle",
         "frame.presentation.schemas",

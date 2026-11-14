@@ -17,7 +17,7 @@
 | 버전과 상태 | `models.py` `VideoVersion`, `state_machine.py`, `progress.py` | `use_cases/accept_generation.py`, `queries.py` | `adapters/persistence/` |
 | 생성 (장면 클립 만들기) | `artifacts.py` `GeneratedClip` | `ports/generator.py` `VideoGenerator` · `pipeline/stages.py` `GenerateStage`, `pipeline/requests.py` | `adapters/generator/` |
 | 최종 영상 조립 | `artifacts.py` `VideoArtifact` | `ports/assembler.py` `VideoAssembler` | `adapters/assembler/` `FfmpegVideoAssembler` |
-| 부모 클립 편집 | — | `ports/generator.py` `ParentClip`·`RevisionDirective` | `adapters/generator/openrouter.py` |
+| 부모 클립 편집 | — | `ports/generator.py` `ParentClip`·`RevisionDirective` | `adapters/generator/openrouter/` (흐름 `generator.py`, 편집 지시문 `_prompts.py`) |
 | 재사용 판단 (해시·키) | `ir.py` 의 fingerprint, `hashing.py` | `ports/generator.py` `generation_fingerprint`·`result_key` | `adapters/generator/cache.py`, `ledger.py` |
 | 정체성 기준 이미지 | `services/identity.py`, `models.py` `ReferenceImage` | `ports/identity.py` `IdentityReferenceExtractor` · `pipeline/stages.py` | `adapters/identity/` |
 | 검수 (요구 반영 · 유지 요소 · 일관성 · 보존) | `checks.py` `CheckResult`, `metrics.py`, `services/comparison.py` | `ports/checker.py` `Checker`, `checks.py` `CheckSuite` · `pipeline/stages.py` `CheckStage` | `adapters/checker/` |
@@ -51,6 +51,7 @@
 | `src/frame/adapters/shared/vlm/` | 이미지를 읽는 모델(VLM)에 묻고 답 읽기 | `ask` (`ask_json`), `answers` (`match_answers`, `requested_key`), `wording` (`predicate_words`, `described`) |
 | `src/frame/adapters/structurer/` | 구조화 | `RuleBasedStructurer`, `LLMStructurer`, `FakeStructurer` |
 | `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `DelegatingVideoGenerator` (데코레이터의 바탕), `normalizer` 의 `FfmpegVideoNormalizer` |
+| `src/frame/adapters/generator/openrouter/` | 제공자 OpenRouter 의 생성기: 제출 · 대기 · 원장으로 이어 받기 · 부모 클립 편집 · 미리보기 | `OpenRouterVideoGenerator`, `resolve_openrouter_key`, `output_size`, `compile_video_prompt`·`compile_edit_prompt`, `VideoModelInfo` |
 | `src/frame/adapters/assembler/` | 최종 영상 조립 — 장면 클립을 이어 영상 하나로 | `FfmpegVideoAssembler`, `FakeVideoAssembler` |
 | `src/frame/adapters/identity/` | 정체성 기준 이미지 뽑기 | `VlmCropIdentityExtractor`, `FrameIdentityExtractor`, `FakeIdentityExtractor` |
 | `src/frame/adapters/checker/` | 검수 | `VlmRequirementChecker`, `VlmConsistencyChecker`, `VlmPreservationChecker`, `SsimPreservationChecker`, 가짜 검수기 셋 |
