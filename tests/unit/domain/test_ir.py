@@ -251,3 +251,125 @@ def test_background_cannot_be_relation_subject(ir):
     )
     with pytest.raises(ValidationError, match="배경"):
         bad.validate()
+
+
+# ---- 표시 이름 (#10, ADR-0023) ---------------------------------------------------------
+
+
+def _named(ir, **names):
+    """객체에 표시 이름을 붙인 IR."""
+    return replace(
+        ir,
+        entities=tuple(replace(e, display_name=names.get(e.entity_key, "")) for e in ir.entities),
+    )
+
+
+def test_display_name_defaults_to_empty_and_is_left_out_of_the_document(ir):
+    assert EntitySpec("cup").display_name == ""
+    assert all("display_name" not in e for e in ir.to_dict()["entities"])  # 예전 문서·해시 그대로
+
+
+def test_display_name_round_trips_and_is_trimmed(ir):
+    named = _named(ir, cup="컵 01", barista="바리스타")
+    document = named.to_dict()
+    assert [e.get("display_name") for e in document["entities"]] == ["바리스타", "컵 01", None]
+    assert IntermediateRepresentation.from_dict(document) == named
+
+    document["entities"][1]["display_name"] = "  머그  "
+    assert IntermediateRepresentation.from_dict(document).entity("cup").display_name == "머그"
+
+
+def test_display_name_is_not_a_generation_condition(ir):
+    """표시 이름만 바뀐 장면은 조건이 같다 → 다시 생성하지 않고 부모 클립을 쓴다."""
+    named = _named(ir, cup="컵 01")
+    for scene in ir.scenes:
+        assert named.scene_fingerprint(scene.scene_key) == ir.scene_fingerprint(scene.scene_key)
+
+
+def test_display_name_that_is_not_text_is_read_as_text(ir):
+    """구조화 출력(엄격하지 않은 스키마)에 숫자가 와도 오류 대신 글자로 읽는다."""
+    document = ir.to_dict()
+    document["entities"][1]["display_name"] = 1
+    assert IntermediateRepresentation.from_dict(document).entity("cup").display_name == "1"
+
+
+# ---- 키 형식 (감사 A-01) -----------------------------------------------------------------
+# 키는 저장 경로(clips/{version_id}/{scene_key}.mp4)·요구조건 키(장면:객체:술어)·URL 경로·DB id 에 그대로 들어간다
+
+
+BAD_KEYS = [
+    "../ver_victim/intro",
+    "a/b",
+    "a\\b",  # Windows 경로 구분자
+    "a:b",
+    "-",
+    "컵",
+    "a-b",
+    "a b",
+    "_a",
+    "",
+    "a" * 65,
+    "cup\n",  # 끝 줄바꿈: match(...$) 로는 통과하므로 fullmatch 여야 한다 (델타 D09)
+]
+
+
+@pytest.mark.parametrize("key", BAD_KEYS)
+def test_scene_keys_must_be_ascii_letters_digits_and_underscores(ir, key):
+    renamed = replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s,
+                scene_key=key,
+                requirements=tuple(replace(r, scene_key=key) for r in s.requirements),
+            )
+            if s.scene_key == "intro"
+            else s
+            for s in ir.scenes
+        ),
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        renamed.validate()
+    assert "장면 키" in excinfo.value.message
+
+
+@pytest.mark.parametrize("key", BAD_KEYS)
+def test_entity_keys_must_be_ascii_letters_digits_and_underscores(key):
+    ir = IntermediateRepresentation(
+        entities=(EntitySpec(key, EntityKind.PROP),),
+        scenes=(SceneSpec("a", 0, 1000, entity_keys=(key,)),),
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        ir.validate()
+    assert "객체 키" in excinfo.value.message
+
+
+@pytest.mark.parametrize("key", ["cup", "scene_01", "Cup2", "0intro", "a", "a" * 64, "slot_3"])
+def test_ordinary_keys_pass(key):
+    IntermediateRepresentation(
+        entities=(EntitySpec(key, EntityKind.PROP),),
+        scenes=(SceneSpec(key, 0, 1000, entity_keys=(key,)),),
+    ).validate()
+
+
+@pytest.mark.parametrize("kind", ["scene", "entity"])
+def test_keys_that_differ_only_in_case_count_as_the_same_key(kind):
+    """델타 D02: 대소문자를 가리지 않는 파일 시스템(Windows·macOS)에서는 intro 와 Intro 의 클립이 한 파일이 된다."""
+    if kind == "scene":
+        ir = IntermediateRepresentation(
+            entities=(EntitySpec("cup", EntityKind.PROP),),
+            scenes=(
+                SceneSpec("intro", 0, 1000, entity_keys=("cup",)),
+                SceneSpec("Intro", 1000, 2000, entity_keys=("cup",)),
+            ),
+        )
+    else:
+        ir = IntermediateRepresentation(
+            entities=(EntitySpec("cup", EntityKind.PROP), EntitySpec("Cup", EntityKind.PROP)),
+            scenes=(SceneSpec("a", 0, 1000, entity_keys=("cup", "Cup")),),
+        )
+
+    with pytest.raises(ValidationError) as excinfo:
+        ir.validate()
+
+    assert "대소문자" in excinfo.value.message

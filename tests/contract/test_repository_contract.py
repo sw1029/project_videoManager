@@ -359,3 +359,58 @@ def test_revision_intent_and_scene_seeds_roundtrip(seeded, ir):
     assert loaded.intent == intent and loaded.scene_seeds == {"closeup": 8}
     assert (loaded.seed_for("closeup"), loaded.seed_for("intro")) == (8, 7)
     assert original.intent is None and original.scene_seeds == {}
+
+
+def _outro_without_barista(ir):
+    """outro 에서 바리스타를 뺀 IR (DRAFT IR 수정의 예)."""
+    from dataclasses import replace
+
+    outro = ir.scene("outro")
+    return ir.with_scene(
+        replace(
+            outro,
+            entity_keys=("cafe",),
+            requirements=tuple(r for r in outro.requirements if r.entity_key == "cafe"),
+        )
+    )
+
+
+def test_replace_draft_ir_swaps_the_ir_and_its_rows(seeded, ir):
+    """#11: DRAFT 의 IR 을 바꾸면 정규화 행(장면-객체 연결·요구조건)도 새 IR 을 따른다."""
+    edited = _outro_without_barista(ir)
+    with seeded() as uow:
+        assert uow.versions.replace_draft_ir("ver_1", edited) is True
+        uow.commit()
+    with seeded() as uow:
+        assert uow.versions.get("ver_1").ir == edited
+        assert uow.versions.get("ver_1").state is VersionState.DRAFT
+        links = [(t.scene_key, t.entity_key) for t in uow.tracks.list_by_version("ver_1")]
+        assert ("outro", "barista") not in links and ("outro", "cafe") in links
+    removed = CheckResult(
+        "chk_x",
+        "ver_1",
+        CheckType.REQUIREMENT,
+        Verdict.PASS,
+        requirement_key="outro:barista:shirt_color",
+    )
+    with pytest.raises(IntegrityViolation), seeded() as uow:
+        uow.checks.add_all([removed])  # 지운 요구조건은 더 이상 이 버전에 없다
+        uow.commit()
+
+
+def test_replace_draft_ir_leaves_queued_frozen_or_missing_versions_alone(seeded, ir):
+    """#11: 생성이 접수된(QUEUED) 버전, 조건이 고정된 버전, 없는 버전의 IR 은 바꾸지 않는다 (조건부 갱신)."""
+    edited = _outro_without_barista(ir)
+    with seeded() as uow:
+        uow.versions.add(VideoVersion("ver_2", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        frozen = uow.versions.get("ver_2")
+        frozen.freeze_conditions()
+        uow.versions.save(frozen)
+        assert uow.versions.try_transition("ver_1", VersionState.DRAFT, VersionState.QUEUED)
+        assert uow.versions.replace_draft_ir("ver_1", edited) is False
+        assert uow.versions.replace_draft_ir("ver_2", edited) is False
+        assert uow.versions.replace_draft_ir("ver_missing", edited) is False
+        uow.commit()
+    with seeded() as uow:
+        assert uow.versions.get("ver_1").ir == ir
+        assert uow.versions.get("ver_2").ir == ir

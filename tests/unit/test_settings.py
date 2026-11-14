@@ -98,3 +98,15 @@ def test_recovery_settings_have_defaults_and_are_parsed_from_env():
     )
     assert (settings.worker_lease_s, settings.worker_max_attempts) == (900.0, 2)
     assert settings.recovery_interval_s == 0.0
+
+
+def test_reference_image_upload_limit_has_a_default_and_is_parsed_from_env():
+    """#12: 참조 이미지 업로드의 크기 상한 (기본 10 MiB, 빈 값이면 기본값)."""
+    assert Settings.from_env({}).reference_image_max_bytes == 10 * 1024 * 1024
+    assert Settings.from_env({"FRAME_REFERENCE_IMAGE_MAX_BYTES": ""}).reference_image_max_bytes == (
+        10 * 1024 * 1024
+    )
+    settings = Settings.from_env({"FRAME_REFERENCE_IMAGE_MAX_BYTES": "2097152"})
+    assert settings.reference_image_max_bytes == 2 * 1024 * 1024
+    container = build_container(settings)
+    assert container.upload_reference_image.max_bytes == 2 * 1024 * 1024
