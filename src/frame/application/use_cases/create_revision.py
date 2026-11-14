@@ -1,13 +1,19 @@
-"""US-01 수정 버전 생성: 원본 조건을 복제(Prototype)하고 선택 속성만 바꾼 새 DRAFT 를 만든다. 원본은 보존된다."""
+"""US-01 수정 버전 생성: 원본 조건을 복제(Prototype)하고 선택 속성만 바꾼 새 DRAFT 를 만든다. 원본은 보존된다.
+
+수정의 종류 (ADR-0017)
+- CHANGE: 요구조건의 값을 바꾼다. 조건이 바뀐 장면만 다시 만들어진다.
+- REPAIR: 요구조건은 그대로 두고, 그 요구조건이 걸린 장면을 다시 만든다 (영상이 요구와 어긋났을 때).
+  조건이 같으면 부모 클립이 재사용되므로, 대상 장면의 seed 를 다시 지정해 새로 만들어지게 한다.
+어느 쪽이든 '무엇을 하려는 수정인지' 와 '그대로 둘 요소' 를 수정 버전에 남긴다 (생성 지시문·재검수·화면이 쓴다).
+"""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
-from frame.domain.enums import VersionState
-from frame.domain.errors import NotFound, ValidationError, VersionNotRevisable
-from frame.domain.models import VideoVersion
+from frame.domain.errors import NotFound, VersionNotRevisable
 from frame.domain.services.propagation import ChangePropagationPolicy
+from frame.domain.services.revision_planning import resolve_revision, revision_draft
 from frame.domain.state_machine import REVISABLE_STATES
 
 from ..dto import CreateRevisionCommand, CreateRevisionResult
@@ -38,20 +44,17 @@ class CreateRevision:
                     f"상태 {source.state} 인 버전은 수정할 수 없습니다", state=source.state
                 )
 
-            propagated = self._policy.apply(source.ir, command.change)
-            if not propagated.changed_scene_keys:
-                raise ValidationError("변경 사항이 없습니다 (이미 같은 값입니다)")
-
-            revision = VideoVersion(
+            change = command.change
+            resolved = resolve_revision(
+                source.ir, change, self._policy, kind=command.kind, keep=command.keep
+            )
+            revision = revision_draft(
+                source,
+                resolved,
+                change,
                 version_id=self._ids.new_id("ver"),
-                project_id=source.project_id,
-                state=VersionState.DRAFT,
                 created_at=self._clock.now(),
-                parent_version_id=source.version_id,
-                source_prompt=source.source_prompt,
-                target_duration_ms=source.target_duration_ms,
-                seed=source.seed,  # 같은 seed -> 바뀌지 않은 장면은 같은 결과를 기대할 수 있다
-                ir=propagated.ir,
+                request_text=command.request_text,
             )
             uow.versions.add(revision)
             # 참조 이미지를 물려준다. 정체성 기준 이미지(ADR-0015)는 출처·기준 장면·외형 해시까지 그대로 옮겨야
@@ -70,5 +73,6 @@ class CreateRevision:
             version_id=revision.version_id,
             parent_version_id=source.version_id,
             state=revision.state,
-            changed_scene_keys=propagated.changed_scene_keys,
+            changed_scene_keys=resolved.target_scene_keys,
+            kind=resolved.kind,
         )

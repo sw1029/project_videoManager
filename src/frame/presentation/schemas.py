@@ -31,15 +31,53 @@ class CreateProjectIn(BaseModel):
     seed: int | None = None
 
 
+KeepAspectName = Literal["APPEARANCE", "ACTION", "SHAPE", "BACKGROUND", "LIGHTING", "COMPOSITION"]
+MAX_REQUEST_TEXT_CHARS = 500
+
+
+class KeepItemIn(BaseModel):
+    """다시 만드는 장면에서 그대로 둘 요소 (ADR-0017).
+
+    객체 요소(APPEARANCE 모습 · ACTION 동작 · SHAPE 형태)는 entity_key 가 필요하고,
+    장면 요소(BACKGROUND 배경 · LIGHTING 조명 · COMPOSITION 구도)는 entity_key 를 비운다.
+    """
+
+    aspect: KeepAspectName
+    entity_key: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class CreateRevisionIn(BaseModel):
     # None 이면 장면 수준 조건(장소·조명·분위기·카메라)을 바꾼다
     entity_key: str | None = Field(default=None, min_length=1, max_length=64)
     predicate: str = Field(min_length=1, max_length=64)
+    # CHANGE: 새 값 / REPAIR: 지켜져야 하는 값 (지금 요구조건의 값과 같아야 한다)
     new_value: str = Field(min_length=1, max_length=300)
     scope: Literal["SCENES", "ALL_APPEARANCES"] = "ALL_APPEARANCES"
     scene_keys: list[str] = Field(default_factory=list, max_length=50)
     # 같은 술어 조건이 여러 개(관계)일 때 바꿀 대상의 현재 값
     current_value: str | None = Field(default=None, max_length=300)
+    # CHANGE: 요구조건의 값을 바꾼다 / REPAIR: 값은 그대로 두고 그 요구조건이 걸린 장면을 다시 만든다
+    kind: Literal["CHANGE", "REPAIR"] = "CHANGE"
+    keep: list[KeepItemIn] = Field(default_factory=list, max_length=20)
+    # 사용자가 쓴 요청 원문. 기록·표시용이며 생성에는 쓰지 않는다
+    request_text: str | None = Field(default=None, max_length=MAX_REQUEST_TEXT_CHARS)
+
+
+class RevisionPlanIn(BaseModel):
+    """변경 계획 미리보기 요청 (ADR-0019). 구조화된 값(predicate + new_value)을 주거나 request_text 만 준다.
+
+    request_text 만 주면 서버가 해석한다. 화면에서 고른 객체·범위·유지 요소를 함께 주면 그 값이 우선한다.
+    """
+
+    request_text: str | None = Field(default=None, max_length=MAX_REQUEST_TEXT_CHARS)
+    entity_key: str | None = Field(default=None, min_length=1, max_length=64)
+    predicate: str | None = Field(default=None, min_length=1, max_length=64)
+    new_value: str | None = Field(default=None, min_length=1, max_length=300)
+    scope: Literal["SCENES", "ALL_APPEARANCES"] | None = None
+    scene_keys: list[str] = Field(default_factory=list, max_length=50)
+    current_value: str | None = Field(default=None, max_length=300)
+    kind: Literal["CHANGE", "REPAIR"] | None = None  # 생략하면 서버가 정한다
+    keep: list[KeepItemIn] = Field(default_factory=list, max_length=20)
 
 
 class LLMKeyIn(BaseModel):
@@ -78,6 +116,8 @@ class HealthAdaptersOut(BaseModel):
     tracker: str
     checkers: list[str]
     identity: str = "off"  # 정체성 기준 이미지 추출기 (off 면 쓰지 않음)
+    # 글로 쓴 변경 요청의 해석기: rule_based(DSL 형식만) | llm(자연어)
+    change_interpreter: str = "rule_based"
     persistence: str
     jobs: str
     llm_provider: str | None  # structurer=llm 일 때만
@@ -135,6 +175,21 @@ class RequirementOut(BaseModel):
     relational: bool
 
 
+class ClipProductionOut(BaseModel):
+    """이 장면의 클립이 어떻게 만들어졌는가 (생성기가 남긴 기록). 부모 클립을 그대로 쓴 장면은 부모 때의 기록이다."""
+
+    # GENERATED: 새로 생성 / EDITED: 부모 클립을 편집해서 만듦 (ADR-0016)
+    method: Literal["GENERATED", "EDITED"]
+    model: str | None = None
+    cost_usd: float | None = None
+    seconds: float | None = None  # 제공자 쪽에서 만드는 데 걸린 시간
+    # 편집하려 했지만 새로 생성했을 때의 사유 (예: 부모 작업의 저장본 주소를 얻지 못함). 화면이 알려 줄 수 있다
+    edit_fallback_reason: str | None = None
+    # 편집하지 못한 사정이 일시적이어서 새로 생성한 임시 결과인가 (ADR-0021).
+    # true 면 부모 버전에서 같은 수정을 다시 실행했을 때 편집으로 만들 수 있다 (계획으로 먼저 확인한다)
+    provisional: bool = False
+
+
 class SceneOut(BaseModel):
     scene_key: str
     planned_start_ms: int
@@ -145,6 +200,7 @@ class SceneOut(BaseModel):
     clip_uri: str | None  # 내부 저장소 URI (디버깅용)
     clip_url: str | None  # 브라우저가 재생·다운로드할 HTTP 경로
     clip_media_type: str | None
+    clip_production: ClipProductionOut | None = None  # 기록이 없으면 null
 
 
 class EntityOut(BaseModel):
@@ -162,11 +218,35 @@ class IROut(BaseModel):
 class ReferenceImageOut(BaseModel):
     reference_image_id: str
     image_uri: str
+    # 브라우저가 볼 수 있는 HTTP 경로. 저장소에 있는 이미지일 때만 (객체 썸네일·객체별 전후 비교에 쓴다)
+    image_url: str | None = None
     entity_key: str | None
     # USER: 사용자가 올린 참조 / DERIVED: 장면 클립에서 뽑은 객체의 정체성 기준 이미지 (ADR-0015)
     origin: Literal["USER", "DERIVED"] = "USER"
     source_scene_key: str | None = None  # 정체성 기준을 뽑은 장면
     description: str | None = None  # 기준 이미지에서 읽은 외형 설명
+    # 이 버전의 조건에 맞는 기준인가. 수정으로 외형 조건이 바뀐 객체는 예전 기준(false)과 새 기준(true)이 함께 남는다.
+    # 객체 카드의 썸네일은 true 인 것을 쓴다 (사용자 참조는 늘 true)
+    is_current: bool = True
+
+
+class KeepItemOut(BaseModel):
+    aspect: str  # APPEARANCE | ACTION | SHAPE | BACKGROUND | LIGHTING | COMPOSITION
+    entity_key: str | None  # 장면 요소면 null
+
+
+class RevisionIntentOut(BaseModel):
+    """수정 버전이 하려는 것 (ADR-0017). 원본 버전에는 없다."""
+
+    kind: str  # CHANGE | REPAIR
+    entity_key: str | None  # null 이면 장면 수준 조건
+    predicate: str
+    value: str  # CHANGE: 새 값 / REPAIR: 지켜져야 하는 값
+    previous_value: str | None  # CHANGE: 이전 값 (장면마다 다르면 null)
+    scope: str  # SCENES | ALL_APPEARANCES
+    target_scene_keys: list[str]  # 다시 만드는 장면
+    keep: list[KeepItemOut]
+    request_text: str | None
 
 
 class StageProgressOut(BaseModel):
@@ -203,13 +283,70 @@ class VersionOut(BaseModel):
     reference_images: list[ReferenceImageOut]
     created_at: datetime
     progress: ProgressOut | None  # 실패한 버전도 어느 단계·장면까지 했는지 남는다 (이슈 #3)
+    revision: RevisionIntentOut | None = None  # 수정 버전이면 무엇을 하려는 수정인지 (ADR-0017)
 
 
 class CreateRevisionOut(BaseModel):
     version_id: str
     parent_version_id: str
     state: str
-    changed_scene_keys: list[str]
+    changed_scene_keys: list[str]  # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
+    kind: str = "CHANGE"  # CHANGE | REPAIR
+
+
+class PlannedProductionOut(BaseModel):
+    """이 장면을 지금 실행하면 어떻게 만들어질지 (생성기의 미리보기, ADR-0020). 실행 뒤의 사실은 clip_production."""
+
+    method: Literal["GENERATE", "EDIT"]  # 새로 생성 | 부모 클립을 편집
+    model: str | None = None
+    cost_usd: float | None = None  # 그 방식의 어림 비용 (모르면 null)
+    seconds: float | None = None  # 그 방식으로 만든 기록이 있을 때의 어림 시간
+    # 편집하도록 설정됐지만 지금은 편집할 수 없어 새로 생성하게 되는 사유. 있으면 화면이 알려 준다
+    # (예: 부모 영상의 저장본 주소가 아직 없음 — 잠시 뒤 계획을 다시 확인하면 편집으로 바뀔 수 있다)
+    edit_unavailable_reason: str | None = None
+
+
+class RevisionPlanSceneOut(BaseModel):
+    scene_key: str
+    planned_start_ms: int
+    planned_end_ms: int
+    will_regenerate: bool  # 이 수정으로 다시 만드는 장면인가
+    current_value: str | None  # 지금 그 조건의 값 (그 장면에 조건이 없으면 null)
+    verdict: str | None  # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
+    recorded_cost_usd: float | None  # 이 장면을 지난번에 만들 때의 비용 (기록이 있을 때)
+    recorded_seconds: float | None  # 이 장면을 지난번에 만들 때 걸린 시간
+    # 다시 만들 장면을 지금 실행하면 어떻게 만들어질지. 다시 만들지 않거나 생성기가 알려 주지 않으면 null
+    production: PlannedProductionOut | None = None
+
+
+class RevisionPlanEstimateOut(BaseModel):
+    """다시 만들 장면의 어림 비용·시간의 합.
+
+    장면마다 생성기가 알려 준 값(production)을 쓰고, 없으면 그 장면을 지난번에 만들 때의 기록을 쓴다.
+    편집으로 만들 장면은 지난 기록으로 채우지 않는다 (새로 생성한 기록이라 더 크다).
+    """
+
+    regenerated_scene_count: int
+    reused_scene_count: int
+    estimated_scene_count: int  # 다시 만들 장면 가운데 어림값이 있는 장면 수
+    edit_scene_count: int = 0  # 다시 만들 장면 가운데 부모 클립 편집으로 만들어질 장면 수
+    cost_usd: float | None
+    seconds: float | None
+
+
+class RevisionPlanOut(BaseModel):
+    """POST /api/versions/{version_id}/revision-plans — 수정 버전을 만들기 전의 계획 (상태는 바뀌지 않는다)."""
+
+    version_id: str
+    kind: str  # CHANGE | REPAIR
+    interpreted: bool  # request_text 를 해석해서 만든 계획인가
+    notes: str | None  # 요청을 어떻게 읽었는지 (해석했을 때)
+    previous_value: str | None  # CHANGE: 이전 값 (장면마다 다르면 null)
+    target_scene_keys: list[str]  # 다시 만들 장면
+    scenes: list[RevisionPlanSceneOut]  # 모든 장면, 타임라인 순
+    estimate: RevisionPlanEstimateOut
+    # 이 계획대로 실행하려면 POST /api/versions/{version_id}/revisions 에 그대로 보낸다
+    revision_request: CreateRevisionIn
 
 
 class AcceptGenerationOut(BaseModel):
@@ -296,6 +433,7 @@ class VersionOverviewOut(BaseModel):
     video_url: str | None  # 결과 영상이 없으면(생성 전·실패) null
     video_media_type: str | None
     checks: CheckSummaryOut  # 검수 전이면 total=0, 지표 null
+    revision: RevisionIntentOut | None = None  # 수정 버전이면 무엇을 하려는 수정인지 (ADR-0017)
 
 
 class CheckDeltaOut(BaseModel):

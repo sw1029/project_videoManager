@@ -169,6 +169,36 @@ def test_failed_generation_is_not_cached(ir):
     assert len(inner.requests) == 2
 
 
+def test_provisional_clips_are_not_cached(ir):
+    """생성기가 '임시 결과' 로 표시한 클립(요청한 방식으로 만들지 못함)은 저장하지 않는다 (ADR-0021).
+
+    다음에 같은 요청이 오면 생성기까지 가서 다시 시도한다.
+    """
+    from dataclasses import replace
+
+    class Flaky(FakeVideoGenerator):
+        def generate_scene(self, request):
+            clip = super().generate_scene(request)
+            provisional = len(self.requests) == 1  # 첫 번째만 임시 결과
+            return (
+                replace(clip, metadata={**clip.metadata, "provisional": True})
+                if provisional
+                else clip
+            )
+
+    store = InMemoryArtifactStore()
+    inner = Flaky(store)
+    generator = CachingVideoGenerator(inner, cache=ArtifactClipCache(store, FAKE))
+
+    first = generator.generate_scene(_request(ir))
+    second = generator.generate_scene(_request(ir, version_id="ver_2"))
+    third = generator.generate_scene(_request(ir, version_id="ver_3"))
+
+    assert first.metadata["provisional"] is True and len(inner.requests) == 2
+    assert "provisional" not in second.metadata
+    assert third.metadata["cache_hit"] is True and generator.hits == 1
+
+
 def test_cache_write_failure_does_not_discard_the_generated_clip(caplog, ir):
     class FullCacheStore(InMemoryArtifactStore):
         def put(self, key, data, content_type=None):

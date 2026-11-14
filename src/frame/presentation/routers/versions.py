@@ -7,8 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from frame.application.dto import CreateRevisionCommand
+from frame.application.use_cases.plan_revision import PlanRevisionCommand
 from frame.config.container import Container
-from frame.domain.enums import ChangeScope
+from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
+from frame.domain.errors import MediaNotAvailable
+from frame.domain.revision import KeepItem
 from frame.domain.services.propagation import AttributeChange
 
 from .. import mappers
@@ -22,6 +25,8 @@ from ..schemas import (
     CreateRevisionOut,
     EntityTracksOut,
     ErrorOut,
+    RevisionPlanIn,
+    RevisionPlanOut,
     VersionComparisonOut,
     VersionOut,
 )
@@ -49,7 +54,41 @@ def get_version(version_id: str, container: ContainerDep) -> VersionOut:
         container.queries.get_version(version_id),
         api_prefix=container.settings.api_prefix,
         media_type_of=container.artifact_store.content_type,
+        is_stored=_stored_in(container),
     )
+
+
+def _stored_in(container: Container):  # type: ignore[no-untyped-def]
+    """참조 이미지 URI 가 산출물 저장소에 있는지 묻는 함수 (다른 곳의 주소·읽기 오류는 '없음')."""
+
+    def is_stored(uri: str) -> bool:
+        try:
+            return container.artifact_store.exists(uri)
+        except Exception:  # noqa: BLE001 - 저장소 밖의 주소(사용자 참조의 외부 URL 등)는 내려 줄 수 없다
+            return False
+
+    return is_stored
+
+
+@router.get(
+    "/{version_id}/reference-images/{reference_image_id}",
+    response_class=Response,
+    responses={
+        200: {"description": "이미지 (image/jpeg, image/png 등)", "content": {"image/*": {}}},
+        404: {
+            "model": ErrorOut,
+            "description": "NOT_FOUND 또는 MEDIA_NOT_AVAILABLE(저장소에 없음)",
+        },
+    },
+    summary="참조 이미지(사용자 참조·객체의 정체성 기준 이미지)를 내려준다 (ReferenceImageOut.image_url)",
+)
+def get_reference_image(
+    version_id: str, reference_image_id: str, container: ContainerDep
+) -> Response:
+    uri = container.queries.get_reference_image_uri(version_id, reference_image_id)
+    if not _stored_in(container)(uri):
+        raise MediaNotAvailable("이 참조 이미지는 서버 저장소에 없습니다")
+    return artifact_response(container.artifact_store, uri)
 
 
 @router.get(
@@ -85,7 +124,8 @@ def get_clip(version_id: str, scene_key: str, container: ContainerDep) -> Respon
         429: {"model": ErrorOut},
     },
     dependencies=[Depends(enforce_rate_limit)],
-    summary="선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾼 새 DRAFT 버전을 만든다 (원본 보존)",
+    summary="선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾸거나(CHANGE), "
+    "요구조건은 그대로 두고 그 장면을 다시 만드는(REPAIR) 새 DRAFT 버전을 만든다 (원본 보존)",
 )
 def create_revision(
     version_id: str, body: CreateRevisionIn, container: ContainerDep
@@ -101,6 +141,9 @@ def create_revision(
                 scene_keys=tuple(body.scene_keys),
                 current_value=body.current_value,
             ),
+            kind=RevisionKind(body.kind),
+            keep=tuple(KeepItem(KeepAspect(k.aspect), k.entity_key) for k in body.keep),
+            request_text=body.request_text,
         )
     )
     return CreateRevisionOut(
@@ -108,7 +151,52 @@ def create_revision(
         parent_version_id=result.parent_version_id,
         state=str(result.state),
         changed_scene_keys=list(result.changed_scene_keys),
+        kind=str(result.kind),
     )
+
+
+@router.post(
+    "/{version_id}/revision-plans",
+    response_model=RevisionPlanOut,
+    responses={
+        404: {"model": ErrorOut},
+        409: {"model": ErrorOut},
+        422: {
+            "model": ErrorOut,
+            "description": "VALIDATION_ERROR 또는 CHANGE_REQUEST_NOT_UNDERSTOOD",
+        },
+        429: {"model": ErrorOut},
+    },
+    dependencies=[Depends(enforce_rate_limit)],
+    summary="수정 버전을 만들기 전에 변경 계획을 미리 본다: 글로 쓴 요청의 해석, 수정의 종류, "
+    "다시 만들 장면, 어림 비용·시간 (상태는 바뀌지 않는다)",
+)
+def plan_revision(
+    version_id: str, body: RevisionPlanIn, container: ContainerDep
+) -> RevisionPlanOut:
+    change = None
+    if body.predicate is not None and body.new_value is not None:
+        change = AttributeChange(
+            entity_key=body.entity_key,
+            predicate=body.predicate,
+            new_value=body.new_value,
+            scope=ChangeScope(body.scope or "ALL_APPEARANCES"),
+            scene_keys=tuple(body.scene_keys),
+            current_value=body.current_value,
+        )
+    plan = container.plan_revision.execute(
+        PlanRevisionCommand(
+            version_id=version_id,
+            change=change,
+            request_text=body.request_text,
+            entity_key=body.entity_key,
+            scope=ChangeScope(body.scope) if body.scope else None,
+            scene_keys=tuple(body.scene_keys),
+            kind=RevisionKind(body.kind) if body.kind else None,
+            keep=tuple(KeepItem(KeepAspect(k.aspect), k.entity_key) for k in body.keep),
+        )
+    )
+    return mappers.revision_plan_out(plan)
 
 
 @router.post(

@@ -11,7 +11,12 @@ from dataclasses import replace
 from typing import Any
 
 from frame.application.errors import GenerationError, GenerationTimeout
-from frame.application.ports.generator import GeneratedClip, SceneGenerationRequest, VideoGenerator
+from frame.application.ports.generator import (
+    GeneratedClip,
+    ProductionPreview,
+    SceneGenerationRequest,
+    VideoGenerator,
+)
 
 from .cache import ClipCache, InMemoryClipCache, KeyedLocks
 
@@ -26,6 +31,8 @@ class CachingVideoGenerator(VideoGenerator):
     - 적중한 클립은 복사본의 메타데이터에 cache_hit·cache_key·cached_from_version_id 를 남긴다
       (GeneratedClip 은 불변). 원래 메타데이터(비용 등)는 처음 생성할 때의 값이므로 합산하지 않는다.
     - 생성 실패는 캐시하지 않는다. 캐시 기록이 실패해도 생성한 클립은 그대로 돌려준다.
+    - 생성기가 임시 결과(metadata.provisional)로 표시한 클립은 캐시하지 않는다 (ADR-0021). 요청한 방식으로 만들지 못한
+      결과라서, 다음에 같은 요청이 오면 생성기까지 가서 다시 시도해야 한다.
     """
 
     def __init__(self, inner: VideoGenerator, cache: ClipCache | None = None) -> None:
@@ -39,6 +46,10 @@ class CachingVideoGenerator(VideoGenerator):
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         return self._inner.result_key(request)
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        """감싼 생성기의 미리보기 그대로다. 캐시에 있는 결과면 실제로는 더 빨리·과금 없이 끝난다."""
+        return self._inner.preview(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         # 키의 요청 쪽 값은 생성기가 정한다: 조건 + 정체성 기준 이미지 (+ 편집하는 생성기는 부모 클립)
@@ -63,6 +74,14 @@ class CachingVideoGenerator(VideoGenerator):
                 }
                 return replace(cached.clip, metadata=metadata)
             clip = self._inner.generate_scene(request)
+            if clip.metadata.get("provisional") is True:
+                log.info(
+                    "임시 결과라 생성 캐시에 남기지 않습니다: version=%s scene=%s key=%s",
+                    request.version_id,
+                    request.scene.scene_key,
+                    key[:12],
+                )
+                return clip
             try:
                 self._cache.save(key, clip, version_id=request.version_id)
             except Exception as exc:  # noqa: BLE001 - 캐시 기록 실패가 생성(과금)한 결과를 버리게 하지 않는다
@@ -89,6 +108,9 @@ class RetryingVideoGenerator(VideoGenerator):
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         return self._inner.result_key(request)
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        return self._inner.preview(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         last: GenerationError | None = None
@@ -156,6 +178,10 @@ class TimeoutVideoGenerator(VideoGenerator):
 
     def result_key(self, request: SceneGenerationRequest) -> str:
         return self._inner.result_key(request)
+
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview | None:
+        """미리보기는 생성이 아니므로 시간 제한을 걸지 않는다 (감싼 생성기가 스스로 짧게 끝낸다)."""
+        return self._inner.preview(request)
 
     def generate_scene(self, request: SceneGenerationRequest) -> GeneratedClip:
         abandoned = threading.Event()

@@ -62,6 +62,8 @@ def test_generation_is_accepted_then_completed(api):
     body = client.get(f"/api/versions/{version_id}").json()
     assert body["state"] == "COMPLETED" and body["video_uri"]
     assert all(s["clip_uri"] for s in body["ir"]["scenes"])
+    # 장면마다 클립이 어떻게 만들어졌는지 (Fake 생성기는 늘 새로 생성)
+    assert {s["clip_production"]["method"] for s in body["ir"]["scenes"]} == {"GENERATED"}
 
 
 @pytest.mark.ac("AC-12")
@@ -249,3 +251,58 @@ def test_identity_references_are_listed_with_their_origin():
     derived = {r["entity_key"]: r for r in by_origin["DERIVED"]}
     assert set(derived) == {"barista", "cup"}
     assert all(r["source_scene_key"] == "intro" for r in derived.values())
+
+    # 저장소에 있는 기준 이미지는 HTTP 로 내려받을 수 있다 (객체 썸네일·객체별 전후 비교, ADR-0019)
+    cup = derived["cup"]
+    assert cup["image_url"] == (
+        f"/api/versions/{version_id}/reference-images/{cup['reference_image_id']}"
+    )
+    image = client.get(cup["image_url"])
+    assert image.status_code == 200 and image.headers["content-type"].startswith("image/")
+    # 저장소 밖의 주소(사용자가 준 외부 참조)는 경로를 주지 않고, 요청해도 내려 주지 않는다
+    user_ref = by_origin["USER"][0]
+    assert user_ref["image_url"] is None
+    outside = client.get(
+        f"/api/versions/{version_id}/reference-images/{user_ref['reference_image_id']}"
+    )
+    assert outside.status_code == 404 and outside.json()["error_code"] == "MEDIA_NOT_AVAILABLE"
+    missing = client.get(f"/api/versions/{version_id}/reference-images/img_missing")
+    assert missing.status_code == 404 and missing.json()["error_code"] == "NOT_FOUND"
+
+
+def test_a_reference_made_stale_by_a_revision_is_marked_not_current():
+    """2차 실호출: 컵 색을 바꾼 수정 버전의 참조 이미지에 예전(빨간) 기준과 새(청록) 기준이 함께 나왔다.
+
+    화면이 객체 카드의 썸네일과 객체별 전후 이미지를 고를 수 있게, 이 버전의 조건과 맞는 기준인지 알려 준다.
+    """
+    from frame.config import Settings
+    from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container
+
+    container = make_container(Settings(jobs="recording", identity="fake"))
+    client = TestClient(create_app(container))
+    created = client.post(
+        "/api/projects",
+        json={
+            "title": "카페",
+            "prompt": CAFE_PROMPT,
+            "reference_images": [{"image_uri": "mem://refs/style.png"}],
+        },
+    ).json()
+    dispatcher_of(container).run_all()
+    version_id = created["version_id"]
+    client.post(f"/api/versions/{version_id}/generations")
+    dispatcher_of(container).run_all()
+    original = client.get(f"/api/versions/{version_id}").json()["reference_images"]
+    assert original and all(r["is_current"] for r in original)
+
+    revised = client.post(
+        f"/api/versions/{version_id}/revisions",
+        json={"entity_key": "cup", "predicate": "color", "new_value": "teal"},
+    ).json()
+    client.post(f"/api/versions/{revised['version_id']}/generations")
+    dispatcher_of(container).run_all()
+
+    references = client.get(f"/api/versions/{revised['version_id']}").json()["reference_images"]
+    cups = [r for r in references if r["entity_key"] == "cup"]
+    assert sorted(r["is_current"] for r in cups) == [False, True]  # 빨간 컵의 기준, 청록 컵의 기준
+    assert all(r["is_current"] for r in references if r["entity_key"] != "cup")

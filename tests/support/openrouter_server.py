@@ -6,6 +6,8 @@
   (편집 모델은 화면을 거의 유지한다). 주소는 작업 상태 응답의 urls(저장본 주소)로 내준 것이어야 한다.
   data URI 는 실제 OpenRouter 처럼 400 으로 거절한다.
 - previous_job_id 가 있는 요청: 400 으로 거절한다 (연속을 지원하지 않는 모델).
+- serve_stored_urls 를 끄면 끝난 작업의 상태 응답에 저장본 주소(urls)를 싣지 않는다
+  (실제 API 는 방금 끝난 작업의 주소를 늦게 주고, 준 뒤에도 응답에서 빠뜨릴 때가 있다).
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ class FakeOpenRouterServer:
         self.folder = folder
         self.submits: list[dict[str, Any]] = []  # 받은 제출 본문 (거절한 것 포함)
         self.rejected = 0
+        self.serve_stored_urls = True  # 끄면 상태 응답에 저장본 주소가 없다
         self._jobs: dict[str, bytes] = {}
         self._lock = threading.Lock()
         outer = self
@@ -58,16 +61,15 @@ class FakeOpenRouterServer:
                     self.end_headers()
                     self.wfile.write(video)
                     return None
-                return self._json(
-                    200,
-                    {
-                        "id": job_id,
-                        "generation_id": job_id,
-                        "status": "completed",
-                        "usage": {"cost": 0.1, "is_byok": False},
-                        "urls": [outer.stored_url(job_id)],  # 저장본의 (서명) 내려받기 주소
-                    },
-                )
+                payload = {
+                    "id": job_id,
+                    "generation_id": job_id,
+                    "status": "completed",
+                    "usage": {"cost": 0.1, "is_byok": False},
+                }
+                if outer.serve_stored_urls:
+                    payload["urls"] = [outer.stored_url(job_id)]  # 저장본의 (서명) 내려받기 주소
+                return self._json(200, payload)
 
             def do_POST(self):  # noqa: N802
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))

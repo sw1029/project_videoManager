@@ -27,6 +27,7 @@ from frame.application.ports import (
     VideoAssembler,
     VideoGenerator,
 )
+from frame.application.ports.change_request import ChangeRequestInterpreter
 from frame.application.ports.llm import LLMClient, LLMKeySource
 
 from .settings import Settings
@@ -76,6 +77,8 @@ def default_registry() -> AdapterRegistry:
         FakeRequirementChecker,
         SsimPreservationChecker,
         VlmConsistencyChecker,
+        VlmPreservationChecker,
+        VlmRequirementChecker,
     )
     from frame.adapters.generator import (
         DiffusersVideoGenerator,
@@ -159,6 +162,23 @@ def default_registry() -> AdapterRegistry:
         ),
     )
 
+    # --- 변경 요청 해석 (US-01, ADR-0019) ---
+    def _llm_interpreter(ctx: BuildContext) -> ChangeRequestInterpreter:
+        from frame.adapters.change_request import LLMChangeRequestInterpreter
+
+        return LLMChangeRequestInterpreter(
+            reg.build(LLMClient, ctx.settings.llm_provider, ctx),
+            timeout_s=ctx.settings.llm_timeout_s,
+        )
+
+    def _rule_based_interpreter(ctx: BuildContext) -> ChangeRequestInterpreter:
+        from frame.adapters.change_request import RuleBasedChangeRequestInterpreter
+
+        return RuleBasedChangeRequestInterpreter()
+
+    reg.register(ChangeRequestInterpreter, "rule_based", _rule_based_interpreter)
+    reg.register(ChangeRequestInterpreter, "llm", _llm_interpreter)
+
     # --- 영상 생성 / 조립 (US-01) ---
     reg.register(VideoGenerator, "fake", lambda ctx: FakeVideoGenerator(_store(ctx)))
     reg.register(VideoGenerator, "diffusers", lambda ctx: DiffusersVideoGenerator())
@@ -185,6 +205,7 @@ def default_registry() -> AdapterRegistry:
             normalizer=FfmpegVideoNormalizer(resolve_ffmpeg(s.video_ffmpeg)),
             edit_mode=s.video_edit_mode,
             edit_model=s.video_edit_model,
+            edit_parent_wait_seconds=s.video_edit_parent_wait_s,
         )
 
     reg.register(VideoGenerator, "external_api", _external_api)
@@ -240,6 +261,29 @@ def default_registry() -> AdapterRegistry:
             _vlm(ctx),
             frames_per_scene=ctx.settings.consistency_frames,
             threshold=ctx.settings.consistency_threshold,
+        ),
+    )
+    # 요구 반영 (ADR-0018): 장면마다 VLM 이 요구조건별로 프레임을 판정한다
+    reg.register(
+        Checker,
+        "vlm_requirement",
+        lambda ctx: VlmRequirementChecker(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            frames_per_scene=ctx.settings.requirement_frames,
+            threshold=ctx.settings.requirement_threshold,
+        ),
+    )
+    # 유지 요소 (ADR-0018): 다시 만든 장면에서 그대로 두라고 한 요소를 VLM 이 부모·자식 프레임으로 판정한다
+    reg.register(
+        Checker,
+        "vlm_preservation",
+        lambda ctx: VlmPreservationChecker(
+            _store(ctx),
+            _ffmpeg(ctx),
+            _vlm(ctx),
+            frames_per_scene=ctx.settings.preservation_frames,
         ),
     )
     reg.register(

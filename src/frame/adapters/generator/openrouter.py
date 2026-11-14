@@ -19,8 +19,25 @@
 - 영상 참조는 HTTPS 주소만 받는다 (data URI 는 "Only HTTPS URLs are allowed" 로 거절된다, 2026-11-12 실호출).
   그래서 부모 클립을 만든 OpenRouter 작업의 저장본 서명 URL(urls)을 그 자리에서 받아 넘긴다. 이 주소는 요청 본문에만
   쓰고 기록하지 않는다. 저장본이 없거나 만료됐으면 편집하지 않고 새로 생성한다.
+- 끝난 작업의 상태 응답에 저장본 주소가 빠져 올 때가 있다 (2026-11-12 실호출: 같은 작업을 10번 물으면 2~3번,
+  끝난 지 몇 분 안 된 작업은 한동안 주소가 아예 없었다). 그래서 주소가 없으면
+  FRAME_VIDEO_EDIT_PARENT_WAIT_S(기본 10초) 동안 다시 묻고, 그래도 없으면 새로 생성한다.
+
+만들기 전 미리보기 (ADR-0020)
+- preview(request) 는 그 장면이 지금 편집으로 만들어질지 새로 생성될지와 어림 비용·시간을 돌려준다. 제출하지 않는다.
+- video_reference 편집이면 그때 부모 작업의 저장본 주소를 구해 **프로세스 메모리에만** 잠시 들고 있는다
+  (기본 30분, 저장본 만료 1분 전까지). 변경 계획을 확인한 사용자가 실행하면 그 주소로 편집한다.
+  서명 주소는 조회할 때마다 새로 서명돼 오고 작업이 만료될 때까지 유효하다 (2026-11-12 무료 조회로 확인).
+  원장·메타데이터·로그에는 남기지 않는다.
+- 시간 어림은 기록이 있을 때만 준다: 그 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간, 없으면 이 프로세스가
+  그 모델로 만든 작업들의 중앙값.
 - 편집 요청이 접수 전에 거절되면(400·404·413·415·422) 과금 없이 지금처럼 새로 생성한다.
 - 편집 결과는 부모 클립에 달려 있으므로 캐시·원장 키(result_key)에 부모 클립을 넣는다.
+- 편집하지 못한 사정이 일시적이면(저장본 주소가 아직 나오지 않음) 새로 생성한 결과를 편집 요청의 키에 남기지 않는다
+  (ADR-0021). 조건 키로만 남기고 편집 키는 released 로 비운다. 클립에는 provisional 표시를 해
+  생성 캐시도 남기지 않게 한다.
+  다음에 같은 요청이 오면 편집을 다시 시도하고, 그때도 못 하면 조건 키의 결과를 다시 쓴다 (또 생성하지 않는다).
+  접수된 작업은 지금까지처럼 편집 키로 이어 받는다 (끊겨도 두 번 내지 않는다).
 
 작업 원장 (ADR-0013)
 - 접수(202) 직후, 폴링 전에 작업 id 를 원장(ArtifactStore 의 ledger/openrouter/<키>.json)에 남긴다.
@@ -39,11 +56,14 @@ import logging
 import math
 import os
 import re
+import statistics
+import threading
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote, urlsplit
 
 from frame.adapters.http_transport import (
@@ -61,16 +81,30 @@ from frame.application.errors import (
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.generator import (
     GeneratedClip,
+    ProductionMethod,
+    ProductionPreview,
+    RevisionDirective,
     SceneGenerationRequest,
     VideoGenerator,
 )
 from frame.application.ports.structurer import ReferenceImageInput
+from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.hashing import canonical_hash
+from frame.domain.ir import SceneSpec
+from frame.domain.revision import KeepItem
 from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
 from .cache import KeyedLocks, generation_key
 from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer, resolve_ffmpeg
-from .ledger import COMPLETED, FAILED, SUBMITTED, JobLedger, JobRecord, build_job_ledger
+from .ledger import (
+    COMPLETED,
+    FAILED,
+    RELEASED,
+    SUBMITTED,
+    JobLedger,
+    JobRecord,
+    build_job_ledger,
+)
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +177,36 @@ class _EditPlan:
     parent_clip_uri: str
     previous_job_id: str | None = None  # previous_job: 이어 갈 작업
     parent_job_id: str | None = None  # video_reference: 저장본 주소를 받아 올 부모 작업
+
+
+class _ParentUrl(NamedTuple):
+    """영상 참조로 보낼 부모 클립 주소와, 그것을 얻으려고 부모 작업을 조회한 횟수 (주소가 None 이면 못 얻었다)."""
+
+    url: str | None
+    lookups: int
+    held: bool = False  # 앞서 구해 들고 있던 주소인가 (미리보기 때 받아 둔 것 등)
+    may_appear: bool = (
+        False  # 주소가 없을 때: 나중에는 나올 수 있는가 (끝난 작업인데 아직 주소가 없음)
+    )
+
+
+class _HeldUrl(NamedTuple):
+    """프로세스 메모리에만 들고 있는 부모 클립 주소. until(monotonic) 까지만 쓴다."""
+
+    url: str
+    until: float
+
+
+# 부모 작업의 저장본 주소를 다시 물을 때: 처음 몇 번은 촘촘히 묻고(응답마다 주소가 빠지는 것을 넘긴다),
+# 그 뒤로는 폴링 간격으로 묻는다
+_PARENT_URL_QUICK_SECONDS = 2.0
+_PARENT_URL_QUICK_LOOKUPS = 6
+# 들고 있는 주소는 저장본이 만료되기 이만큼 전까지만 쓴다 (편집 모델이 내려받을 시간)
+_HELD_URL_MARGIN_SECONDS = 60.0
+# 시간 어림에 쓰는, 모델별로 기억하는 최근 작업 수
+_SEEN_SECONDS_KEPT = 20
+# 미리보기의 조회 하나가 기다리는 시간 상한 (변경 계획 응답이 위쪽 서버 때문에 오래 멈추지 않게)
+_PREVIEW_REQUEST_TIMEOUT_SECONDS = 10.0
 
 
 # ---- 키 -------------------------------------------------------------------------------
@@ -305,7 +369,31 @@ def compile_video_prompt(
         lines.append(f"Overall look: follow {_reference_phrase(shared)}")
     if any(numbers.get(entity.entity_key) for entity in request.entities):
         lines.append(CONSISTENCY_LINE)
+    if request.directive is not None and request.directive.enforce:
+        lines.append(_must_line(request.directive))
     return "\n".join(lines)
+
+
+def _must_line(directive: RevisionDirective) -> str:
+    """수정 버전이 이 장면에서 꼭 맞춰야 하는 요구조건 한 줄 (ADR-0017).
+
+    객체 설명이나 장면 설명에 수정 전 표현이 남아 조건과 어긋날 수 있다 (실호출: '빨간 머그컵' + color: teal).
+    무엇을 고치려는 수정인지 맨 끝에 따로 적는다.
+    """
+    parts = []
+    for r in directive.enforce:
+        subject = r.entity_key or "scene"
+        if r.related_entity_key is not None:
+            parts.append(f"{subject} {_words(r.predicate)} {r.related_entity_key}")
+        else:
+            parts.append(f"{subject} {_words(r.predicate)}: {r.expected_value}")
+    if directive.kind is RevisionKind.REPAIR:
+        note = " (an earlier render got this wrong)"
+    elif directive.previous_value:
+        note = f" (changed from {directive.previous_value})"
+    else:
+        note = ""
+    return f"Must show: {'; '.join(parts)}{note}."
 
 
 # 참조 이미지가 있는 객체: 모습은 참조에서, 자세·행동·구도·배경은 이 장면의 글에서 가져오게 한다
@@ -324,10 +412,36 @@ EDIT_KEEP_LINE = (
 )
 
 
+# 그대로 둘 요소를 지시문에 적을 때 쓰는 말 (ADR-0017)
+_KEEP_WORDS = {
+    KeepAspect.APPEARANCE: "appearance",
+    KeepAspect.ACTION: "action and pose",
+    KeepAspect.SHAPE: "shape and size",
+    KeepAspect.BACKGROUND: "the background",
+    KeepAspect.LIGHTING: "the lighting",
+    KeepAspect.COMPOSITION: "the framing and camera",
+}
+
+
+def _keep_phrase(keep: Sequence[KeepItem]) -> str:
+    """'barista (action and pose, appearance); cup (shape and size); the lighting' 꼴. 객체별로 묶는다."""
+    by_entity: dict[str, list[str]] = {}
+    scene_level: list[str] = []
+    for item in keep:
+        if item.entity_key is None:
+            scene_level.append(_KEEP_WORDS[item.aspect])
+        else:
+            by_entity.setdefault(item.entity_key, []).append(_KEEP_WORDS[item.aspect])
+    parts = [f"{key} ({', '.join(words)})" for key, words in by_entity.items()]
+    return "; ".join([*parts, *scene_level])
+
+
 def compile_edit_prompt(request: SceneGenerationRequest) -> str | None:
     """부모 클립을 고칠 때의 지시문: 부모 쪽 장면 조건과 지금 조건의 차이만 적는다 (ADR-0016).
 
     부모 클립이 없거나 글로 옮길 차이가 없으면 None (편집할 것이 없다 -> 새로 생성).
+    수정 지시(ADR-0017)가 있으면 반영한다: REPAIR 는 조건의 차이가 없으므로 지켜지지 않았던 요구조건을
+    '... must be ...' 로 적고, 그대로 둘 요소가 있으면 'Do not change: ...' 한 줄을 더한다.
     """
     parent = request.parent
     if parent is None:
@@ -365,9 +479,23 @@ def compile_edit_prompt(request: SceneGenerationRequest) -> str | None:
             changes.append(f"- {entity.entity_key} is now: {text}")
     if scene.description.strip() and scene.description != before.description:
         changes.append(f"- the scene is now: {scene.description.strip()}")
+    directive = request.directive
+    if directive is not None and directive.kind is RevisionKind.REPAIR:
+        for r in directive.enforce:
+            subject = r.entity_key or "the scene"
+            if r.related_entity_key is not None:
+                changes.append(
+                    f"- {subject}: must be shown as {_words(r.predicate)} {r.related_entity_key}"
+                )
+            else:
+                changes.append(f"- {subject}: {_words(r.predicate)} must be {r.expected_value}")
     if not changes:
         return None
-    return "\n".join(["Edit the input video. Apply only these changes:", *changes, EDIT_KEEP_LINE])
+    lines = ["Edit the input video. Apply only these changes:", *changes]
+    if directive is not None and directive.keep:
+        lines.append(f"Do not change: {_keep_phrase(directive.keep)}.")
+    lines.append(EDIT_KEEP_LINE)
+    return "\n".join(lines)
 
 
 def _words(predicate: str) -> str:
@@ -454,6 +582,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         ledger_ttl_seconds: float = LEDGER_TTL_SECONDS,
         edit_mode: str = EDIT_OFF,
         edit_model: str | None = None,
+        edit_parent_wait_seconds: float = 10.0,
+        edit_preview_wait_seconds: float = 3.0,
+        parent_url_hold_seconds: float = 1800.0,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
@@ -467,9 +598,25 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 f"FRAME_VIDEO_EDIT_MODE 값이 잘못되었습니다: {edit_mode} "
                 f"(사용 가능: {', '.join(EDIT_MODES)})"
             )
+        if edit_parent_wait_seconds < 0:
+            raise ConfigurationError(
+                "FRAME_VIDEO_EDIT_PARENT_WAIT_S 는 0 이상이어야 합니다 (0 이면 한 번만 묻는다)"
+            )
+        if edit_preview_wait_seconds < 0 or parent_url_hold_seconds < 0:
+            raise ConfigurationError(
+                "미리보기에서 부모 주소를 다시 묻는 시간과 주소를 들고 있는 시간은 0 이상이어야 합니다"
+            )
         # 부모 클립 편집 (ADR-0016). edit_model 은 video_reference 에서만 쓰고, 비우면 생성 모델을 쓴다
         self.edit_mode = edit_mode
         self.edit_model = (edit_model or "").strip() or None
+        # 부모 작업의 저장본 주소가 상태 응답에 없을 때 다시 묻는 시간
+        self.edit_parent_wait_seconds = float(edit_parent_wait_seconds)
+        # 미리보기(ADR-0020): 계획 응답이 늦지 않게 짧게만 다시 묻고, 받은 주소는 메모리에 잠시 들고 있는다
+        self.edit_preview_wait_seconds = float(edit_preview_wait_seconds)
+        self.parent_url_hold_seconds = float(parent_url_hold_seconds)
+        self._held_urls: dict[str, _HeldUrl] = {}
+        self._seen_seconds: dict[str, deque[float]] = {}
+        self._memo_lock = threading.Lock()
         self._api_key = api_key.strip()
         self.key_hint = mask_key(self._api_key)
         self.base_url = _checked_base_url(base_url)
@@ -517,14 +664,19 @@ class OpenRouterVideoGenerator(VideoGenerator):
         rejected: dict[str, Any] | None = None
         plan = self._edit_plan(request)
         if plan is not None:
-            prepared = self._edit_body(request, plan)
-            if prepared is None:
-                # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료): 제출하지 않고 새로 만든다
+            source = (
+                self._parent_video_url(plan)
+                if plan.mode == EDIT_VIDEO_REFERENCE
+                else _ParentUrl(None, 0)
+            )
+            if plan.mode == EDIT_VIDEO_REFERENCE and source.url is None:
+                # 부모 클립을 영상 참조로 넘길 주소가 없다 (저장본 없음·만료·아직 안 나옴): 제출하지 않고 새로 만든다
                 log.warning(
                     "부모 클립의 저장본 주소를 얻지 못해 편집하지 않고 새로 생성합니다 "
-                    "(부모 작업 %s, 장면 %s)",
+                    "(부모 작업 %s, 장면 %s, 조회 %d회)",
                     plan.parent_job_id,
                     request.scene.scene_key,
+                    source.lookups,
                 )
                 rejected = {
                     "mode": plan.mode,
@@ -532,16 +684,27 @@ class OpenRouterVideoGenerator(VideoGenerator):
                     "applied": False,
                     "parent_version_id": plan.parent_version_id,
                     "parent_clip_uri": plan.parent_clip_uri,
-                    "fallback_reason": "부모 작업의 저장본 주소를 얻지 못함 (없거나 만료됨)",
+                    "parent_url_lookups": source.lookups,
+                    "fallback_reason": (
+                        f"부모 작업의 저장본이 없거나 만료됨 ({source.lookups}회 조회)"
+                    ),
                 }
+                if source.may_appear:
+                    # 일시적인 사정이다: 주소가 나온 뒤 같은 요청이 오면 편집할 수 있다 (ADR-0021)
+                    rejected["transient"] = True
+                    rejected["fallback_reason"] = (
+                        f"부모 작업의 저장본 주소가 아직 나오지 않음 ({source.lookups}회 조회). "
+                        "같은 수정을 다시 요청하면 편집을 다시 시도함"
+                    )
             else:
-                body, details = prepared
+                body, details = self._edit_body(request, plan, source)
                 try:
                     job = self._submit(body)
                 except _SubmitRejected as exc:
                     if exc.status not in _EDIT_FALLBACK:
                         raise
                     # 접수 전 거절이라 과금되지 않았다. 편집을 포기하고 지금까지처럼 장면을 새로 만든다
+                    self._drop_held_url(plan.parent_job_id)  # 그 주소가 원인일 수 있다
                     log.warning(
                         "OpenRouter 가 부모 클립 편집 요청(%s, model=%s)을 거절해 새로 생성합니다: %s",
                         plan.mode,
@@ -554,7 +717,12 @@ class OpenRouterVideoGenerator(VideoGenerator):
                         "fallback_reason": str(exc)[:300],
                     }
                 else:
-                    return self._accepted(request, key, job, details)
+                    try:
+                        return self._accepted(request, key, job, details)
+                    except GenerationError:
+                        # 편집 작업이 접수 뒤 실패했다. 넘긴 주소가 원인일 수 있으니 들고 있지 않는다
+                        self._drop_held_url(plan.parent_job_id)
+                        raise
         if rejected is not None:
             reused = self._reuse_regenerated(request, key, rejected)
             if reused is not None:
@@ -572,24 +740,43 @@ class OpenRouterVideoGenerator(VideoGenerator):
         편집할 요청의 키(부모 클립 포함)와 새로 생성할 때의 키(조건 + 정체성 기준)가 달라서, 이 확인이 없으면
         편집 모드만 바꿔 같은 수정을 다시 돌릴 때 같은 장면을 또 생성(과금)한다. 편집을 끈 설정이 만든 결과와,
         다른 편집 설정이 거절된 뒤 새로 만든 결과(`_share_regenerated`)가 이 키로 남아 있다.
+
+        편집하지 못한 사정이 일시적이면 편집 요청의 키에는 남기지 않는다 (ADR-0021): 다음 요청이 편집을 다시 시도한다.
         """
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         record = self._resumable(plain_key)
-        if (
-            record is None
-            or record.status != COMPLETED
-            or record.clip_uri is None
-            or not self._store.exists(record.clip_uri)
-        ):
+        if record is None or record.status != COMPLETED:
             return None
+        if record.clip_uri is None or not self._store.exists(record.clip_uri):
+            if rejected.get("transient") is not True:
+                return None
+            return self._redownload_provisional(request, plain_key, rejected)
         found = replace(
             record,
             key=key,
             clip_metadata={**record.clip_metadata, "edit": rejected},
             updated_at=self._wall_clock(),
         )
-        self._remember(found)  # 다음에는 편집 키로 바로 찾는다
+        if rejected.get("transient") is True:
+            found = replace(found, clip_metadata={**found.clip_metadata, "provisional": True})
+        else:
+            self._remember(found)  # 다음에는 편집 키로 바로 찾는다
         return self._reuse(request, found)
+
+    def _redownload_provisional(
+        self, request: SceneGenerationRequest, plain_key: str, rejected: dict[str, Any]
+    ) -> GeneratedClip | None:
+        """조건 키에 남긴 임시 결과의 클립 파일이 없다: 다시 생성(과금)하지 않고 끝난 작업의 결과를 다시 내려받는다.
+
+        편집 요청의 키를 비우기 전에는 그 키의 완료 기록으로 이렇게 했다 (ADR-0013).
+        비운 뒤에는 조건 키의 기록으로 한다.
+        """
+        with self._locks.hold(plain_key):  # 같은 조건을 편집 없이 만드는 요청과 겹치지 않게
+            record = self._resumable(plain_key)
+            if record is None or record.status != COMPLETED:
+                return None
+            clip = self._collect(request, record, resumed=True)
+        return replace(clip, metadata={**clip.metadata, "edit": rejected, "provisional": True})
 
     def _generation_body(
         self, request: SceneGenerationRequest
@@ -597,7 +784,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         info = self.model_info()
         self._check_supported(info)
         scene = request.scene
-        seconds = info.pick_duration(scene.duration_ms)
+        seconds, estimated_cost = self._generation_billing(info, scene)
         # 사용자 참조 다음에 정체성 기준 이미지를 보낸다 (ADR-0015). 같은 이미지는 한 번만 보낸다
         references, numbers = self._input_references(
             (*request.references, *request.identity_references)
@@ -618,10 +805,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         if references:
             # frame_images 와 함께 보내면 참조가 무시되고 image-to-video 로 처리되므로 frame_images 는 쓰지 않는다
             body["input_references"] = references
-        price = info.price_per_second(self.resolution)
         details: dict[str, Any] = {
             "model": self.model,
-            "estimated_cost_usd": round(price * seconds, 6) if price is not None else None,
+            "estimated_cost_usd": estimated_cost,
             "billed_seconds": seconds,
             "seed": seed,
             "reference_count": len(references),
@@ -736,43 +922,206 @@ class OpenRouterVideoGenerator(VideoGenerator):
             and urlsplit(self.base_url).hostname in local
         )
 
-    def _parent_video_url(self, plan: _EditPlan) -> str | None:
-        """부모 클립을 내려받을 수 있는 주소. 못 구하면 None (편집하지 않는다). 주소는 기록하지 않는다."""
+    def _parent_video_url(
+        self,
+        plan: _EditPlan,
+        *,
+        wait_seconds: float | None = None,
+        request_timeout: float | None = None,
+    ) -> _ParentUrl:
+        """부모 클립을 내려받을 수 있는 주소. 못 구하면 주소가 None (편집하지 않는다). 주소는 기록하지 않는다.
+
+        끝난 작업의 상태 응답에 저장본 주소(urls)가 빠져 올 때가 있어, 끝났는데 주소가 없는 응답과 일시적인 조회
+        실패는 edit_parent_wait_seconds(wait_seconds 를 주면 그 시간) 동안 다시 묻는다. 없어졌거나 끝나지 않은
+        작업은 다시 묻지 않는다. 앞서 구해 들고 있는 주소가 있으면 묻지 않고 그것을 쓴다 (ADR-0020).
+        """
         if self._usable_video_url(plan.parent_clip_uri):
-            return plan.parent_clip_uri
+            return _ParentUrl(plan.parent_clip_uri, 0)
         if plan.parent_job_id is None:
-            return None
+            return _ParentUrl(None, 0)
+        held = self._held_url(plan.parent_job_id)
+        if held is not None:
+            return _ParentUrl(held, 0, held=True)
+        wait = self.edit_parent_wait_seconds if wait_seconds is None else wait_seconds
+        deadline = self._monotonic() + wait
+        lookups = 0
+        while True:
+            lookups += 1
+            url, ask_again, expires_at = self._lookup_parent_url(
+                plan.parent_job_id, request_timeout
+            )
+            if url is not None:
+                self._hold_url(plan.parent_job_id, url, expires_at)
+                return _ParentUrl(url, lookups)
+            if not ask_again:
+                return _ParentUrl(None, lookups)
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return _ParentUrl(None, lookups, may_appear=True)
+            delay = (
+                _PARENT_URL_QUICK_SECONDS
+                if lookups < _PARENT_URL_QUICK_LOOKUPS
+                else self.poll_interval_seconds
+            )
+            self._sleep(min(delay, remaining))
+
+    def _lookup_parent_url(
+        self, job_id: str, timeout: float | None = None
+    ) -> tuple[str | None, bool, float | None]:
+        """부모 작업을 한 번 조회한다: (저장본 주소, 주소가 없을 때 다시 물어볼 만한가, 저장본 만료 시각)."""
         try:
             resp = self._http.request(
                 "GET",
-                self._job_url(plan.parent_job_id),
+                self._job_url(job_id),
                 headers=self._auth_headers(),
-                timeout=self.request_timeout_seconds,
+                timeout=timeout or self.request_timeout_seconds,
             )
-            data = self._json(resp) if resp.status == 200 else {}
-        except (TransportError, GenerationError):
-            return None
+        except TransportError:
+            return None, True, None
+        if resp.status != 200:
+            return None, resp.status == 429 or resp.status >= 500, None
+        try:
+            data = self._json(resp)
+        except GenerationError:
+            return None, True, None
+        if data.get("status") != "completed":
+            return None, False, None
         urls = data.get("urls")
-        if data.get("status") != "completed" or not isinstance(urls, list) or not urls:
-            return None
+        if not isinstance(urls, list) or not urls:
+            # 끝났는데 주소가 없다: 이 응답에만 빠졌거나 아직 나오지 않았다
+            return None, True, None
         url = urls[0]
-        return url if isinstance(url, str) and self._usable_video_url(url) else None
+        if isinstance(url, str) and self._usable_video_url(url):
+            expires_at = data.get("expires_at")
+            known = isinstance(expires_at, int | float) and not isinstance(expires_at, bool)
+            return url, False, float(expires_at) if known else None
+        return None, False, None
+
+    # ---- 부모 주소 보관 (ADR-0020): 프로세스 메모리에만, 잠시 ----
+    def _hold_url(self, job_id: str, url: str, expires_at: float | None) -> None:
+        hold = self.parent_url_hold_seconds
+        if expires_at is not None:  # 저장본이 만료되기 조금 전까지만
+            hold = min(hold, expires_at - self._wall_clock() - _HELD_URL_MARGIN_SECONDS)
+        if hold <= 0:
+            return
+        now = self._monotonic()
+        with self._memo_lock:
+            stale = [key for key, item in self._held_urls.items() if item.until <= now]
+            for key in stale:
+                del self._held_urls[key]
+            self._held_urls[job_id] = _HeldUrl(url, now + hold)
+
+    def _drop_held_url(self, job_id: str | None) -> None:
+        if job_id is not None:
+            with self._memo_lock:
+                self._held_urls.pop(job_id, None)
+
+    def _held_url(self, job_id: str) -> str | None:
+        with self._memo_lock:
+            item = self._held_urls.get(job_id)
+            if item is None:
+                return None
+            if item.until <= self._monotonic():
+                del self._held_urls[job_id]
+                return None
+            return item.url
+
+    # ---- 만들기 전 미리보기 (ADR-0020) ----
+    def preview(self, request: SceneGenerationRequest) -> ProductionPreview:
+        """이 장면을 지금 만들면 편집으로 만들지 새로 생성할지와 그 어림값. 아무것도 제출하지 않는다.
+
+        video_reference 편집이면 부모 작업의 저장본 주소를 여기서 구해 들고 있는다. 계획을 확인한 사용자가 실행할 때
+        상태 응답에서 주소가 빠져도 그 주소로 편집한다. 주소가 아직 없으면 새로 생성될 것이라고 사유와 함께 알린다.
+        """
+        scene = request.scene
+        plan = self._edit_plan(request)
+        quick = min(self.request_timeout_seconds, _PREVIEW_REQUEST_TIMEOUT_SECONDS)
+        reason: str | None = None
+        if plan is not None:
+            if plan.mode == EDIT_VIDEO_REFERENCE:
+                # 미리보기는 실행할 때보다 오래 기다리지 않는다
+                wait = min(self.edit_preview_wait_seconds, self.edit_parent_wait_seconds)
+                source = self._parent_video_url(plan, wait_seconds=wait, request_timeout=quick)
+                if source.url is None:
+                    reason = (
+                        "부모 영상의 저장본 주소가 아직 나오지 않아 지금은 편집할 수 없습니다 "
+                        f"({source.lookups}회 조회). 잠시 뒤 계획을 다시 확인하면 편집으로 만들 수 있습니다"
+                        if source.may_appear
+                        else "부모 영상의 저장본이 없거나 만료돼 편집할 수 없습니다"
+                    )
+            if reason is None:
+                cost = None
+                try:
+                    info = self.model_info(plan.model, timeout=quick)
+                    cost = self._edit_billing(info, scene)[2]
+                except GenerationError as exc:
+                    log.warning("편집 모델의 가격을 읽지 못해 어림 비용을 비웁니다: %s", exc)
+                return ProductionPreview(
+                    ProductionMethod.EDIT,
+                    model=plan.model,
+                    cost_usd=cost,
+                    seconds=self._typical_seconds(plan.model, request),
+                )
+        cost = None
+        try:
+            cost = self._generation_billing(self.model_info(timeout=quick), scene)[1]
+        except GenerationError as exc:
+            log.warning("생성 모델의 가격·길이를 읽지 못해 어림 비용을 비웁니다: %s", exc)
+        return ProductionPreview(
+            ProductionMethod.GENERATE,
+            model=self.model,
+            cost_usd=cost,
+            seconds=self._typical_seconds(self.model, request),
+            edit_unavailable_reason=reason,
+        )
+
+    def _generation_billing(
+        self, info: VideoModelInfo, scene: SceneSpec
+    ) -> tuple[int, float | None]:
+        """새로 생성할 때 (보낼 길이(초), 어림 비용)."""
+        seconds = info.pick_duration(scene.duration_ms)
+        price = info.price_per_second(self.resolution)
+        return seconds, round(price * seconds, 6) if price is not None else None
+
+    def _edit_billing(
+        self, info: VideoModelInfo, scene: SceneSpec
+    ) -> tuple[int | None, int, float | None]:
+        """편집할 때 (보낼 길이(초, 모델이 받지 않으면 None), 과금되는 초, 어림 비용)."""
+        seconds = info.pick_duration(scene.duration_ms) if info.durations else None
+        billed = seconds if seconds is not None else max(1, math.ceil(scene.duration_ms / 1000))
+        price = info.price_per_second(self.resolution)
+        return seconds, billed, round(price * billed, 6) if price is not None else None
+
+    def _typical_seconds(self, model: str, request: SceneGenerationRequest) -> float | None:
+        """그 모델로 이 장면을 만드는 데 걸릴 시간의 어림. 기록이 없으면 None.
+
+        그 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간이 가장 가깝다. 없으면 이 프로세스가 그 모델로 만든
+        작업들의 중앙값을 쓴다.
+        """
+        parent = request.parent
+        if parent is not None and parent.clip.metadata.get("model") == model:
+            recorded = parent.clip.metadata.get("generation_seconds")
+            if isinstance(recorded, int | float) and not isinstance(recorded, bool):
+                return float(recorded)
+        with self._memo_lock:
+            seen = list(self._seen_seconds.get(model, ()))
+        return round(statistics.median(seen), 1) if seen else None
+
+    def _note_seconds(self, model: str, seconds: float) -> None:
+        with self._memo_lock:
+            self._seen_seconds.setdefault(model, deque(maxlen=_SEEN_SECONDS_KEPT)).append(seconds)
 
     def _edit_body(
-        self, request: SceneGenerationRequest, plan: _EditPlan
-    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        self, request: SceneGenerationRequest, plan: _EditPlan, source: _ParentUrl
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """편집 요청 본문. 모델 메타데이터에 없는 선택 값은 보내지 않는다 (목록에 없는 값은 거부된다).
 
-        영상 참조로 보낼 부모 클립 주소를 구하지 못하면 None (편집할 수 없다).
+        source 는 영상 참조로 보낼 부모 클립 주소다 (video_reference 에서만 쓴다).
         """
-        video_url: str | None = None
-        if plan.mode == EDIT_VIDEO_REFERENCE:
-            video_url = self._parent_video_url(plan)
-            if video_url is None:
-                return None
+        video_url = source.url
         info = self.model_info(plan.model)
         scene = request.scene
-        seconds = info.pick_duration(scene.duration_ms) if info.durations else None
+        seconds, billed, estimated_cost = self._edit_billing(info, scene)
         seed = request.seed % _MAX_SEED if info.seed and request.seed is not None else None
         body: dict[str, Any] = {"model": plan.model, "prompt": plan.prompt}
         if seconds is not None:
@@ -789,8 +1138,6 @@ class OpenRouterVideoGenerator(VideoGenerator):
             body["previous_job_id"] = plan.previous_job_id
         else:
             body["input_references"] = [{"type": "video_url", "video_url": {"url": video_url}}]
-        billed = seconds if seconds is not None else max(1, math.ceil(scene.duration_ms / 1000))
-        price = info.price_per_second(self.resolution)
         edit: dict[str, Any] = {
             "mode": plan.mode,
             "model": plan.model,
@@ -802,9 +1149,15 @@ class OpenRouterVideoGenerator(VideoGenerator):
             edit["previous_job_id"] = plan.previous_job_id
         if plan.parent_job_id is not None:
             edit["parent_job_id"] = plan.parent_job_id
+        if source.lookups:
+            # 저장본 주소를 얻기까지 부모 작업을 조회한 횟수
+            edit["parent_url_lookups"] = source.lookups
+        if source.held:
+            # 앞서(변경 계획을 볼 때 등) 구해 들고 있던 주소를 썼다. 주소 자체는 남기지 않는다
+            edit["parent_url_held"] = True
         details: dict[str, Any] = {
             "model": plan.model,
-            "estimated_cost_usd": round(price * billed, 6) if price is not None else None,
+            "estimated_cost_usd": estimated_cost,
             "billed_seconds": billed,
             "seed": seed,
             "reference_count": 0 if plan.mode == EDIT_PREVIOUS_JOB else 1,
@@ -879,8 +1232,24 @@ class OpenRouterVideoGenerator(VideoGenerator):
             error=None,
             updated_at=self._wall_clock(),
         )
-        self._remember(done)
-        self._share_regenerated(request, done)
+        edit = details.get("edit")
+        transient = (
+            isinstance(edit, Mapping)
+            and edit.get("applied") is False
+            and edit.get("transient") is True
+        )
+        if transient and self._share_regenerated(request, done):
+            # 일시적인 사정으로 새로 생성한 결과 (ADR-0021): 조건 키에 남겼으니 편집 요청의 키는 비운다.
+            # 다음에 같은 요청이 오면 편집을 다시 시도한다.
+            # 조건 키에 먼저 쓰고 나서 비운다 (그 사이에 끊겨도 편집 키의 접수 기록으로 이어 받는다)
+            self._remember(replace(done, status=RELEASED))
+            metadata = {**metadata, "provisional": True}
+        else:
+            self._remember(done)
+            if not transient:
+                self._share_regenerated(request, done)
+        if not resumed:  # 이어 받은 작업의 시간은 남은 대기 시간일 뿐이다
+            self._note_seconds(str(metadata["model"]), generation_seconds)
         log.info(
             "OpenRouter 영상 완료: job=%s cost=%s polls=%d %.1fs",
             job_id,
@@ -896,30 +1265,34 @@ class OpenRouterVideoGenerator(VideoGenerator):
             metadata=metadata,
         )
 
-    def _share_regenerated(self, request: SceneGenerationRequest, record: JobRecord) -> None:
-        """편집이 거절돼 새로 생성한 결과를 편집 설정과 무관한 키(조건 + 정체성 기준)로도 남긴다.
+    def _share_regenerated(self, request: SceneGenerationRequest, record: JobRecord) -> bool:
+        """편집하지 못해 새로 생성한 결과를 편집 설정과 무관한 키(조건 + 정체성 기준)로도 남긴다.
 
         그 결과는 편집을 끈 설정이 만들었을 결과와 같다. 편집 키로만 남기면 편집 모드·편집 모델을 바꾸거나 껐을 때
         같은 장면을 또 생성(과금)한다. 편집 시도 기록은 이 요청의 것이므로 함께 남기지 않는다.
+
+        돌려주는 값: 그 키에 쓸 수 있는 결과가 있는가 (지금 남겼거나 이미 있었다). 그 키로 다른 작업이 진행 중이면
+        덮어쓰지 않고 False 다.
         """
         edit = record.details.get("edit")
         if not isinstance(edit, Mapping) or edit.get("applied") is not False:
-            return
+            return False
         plain_key = generation_key(request.generation_fingerprint, self.profile())
         if plain_key == record.key:
-            return
+            return False
         existing = self._resumable(plain_key)
-        if existing is not None and (
-            existing.status != COMPLETED
-            or (existing.clip_uri is not None and self._store.exists(existing.clip_uri))
-        ):
-            return  # 그 키로 진행 중이거나 이미 쓸 수 있는 결과가 있다. 덮어쓰지 않는다
-        self._remember(
+        if existing is not None:
+            if existing.status != COMPLETED:
+                return False  # 그 키로 진행 중인 작업이 있다. 덮어쓰지 않는다 (이어 받을 수 있어야 한다)
+            if existing.clip_uri is not None and self._store.exists(existing.clip_uri):
+                return True  # 이미 쓸 수 있는 결과가 있다. 그대로 둔다
+        private = ("edit", "provisional")  # 이 요청의 것: 조건 키의 결과에는 싣지 않는다
+        return self._remember(
             replace(
                 record,
                 key=plain_key,
                 details={k: v for k, v in record.details.items() if k != "edit"},
-                clip_metadata={k: v for k, v in record.clip_metadata.items() if k != "edit"},
+                clip_metadata={k: v for k, v in record.clip_metadata.items() if k not in private},
             )
         )
 
@@ -944,7 +1317,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
 
     # ---- 작업 원장 ----
     def _resumable(self, key: str) -> JobRecord | None:
-        """이어 받을 수 있는 원장 항목. 없음·실패·만료·읽기 실패면 None (새로 제출)."""
+        """이어 받을 수 있는 원장 항목. 없음·실패·비움(released)·만료·읽기 실패면 None (새로 시도)."""
         try:
             record = self._ledger.get(key)
         except Exception as exc:  # noqa: BLE001 - 깨진 항목 때문에 생성이 막히지 않게 한다
@@ -952,7 +1325,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 "OpenRouter 작업 원장을 읽지 못해 없는 것으로 봅니다 (key=%s): %s", key[:12], exc
             )
             return None
-        if record is None or record.status == FAILED:
+        if record is None or record.status in (FAILED, RELEASED):
             return None
         age = self._wall_clock() - record.submitted_at
         if age > self.ledger_ttl_seconds:
@@ -966,9 +1339,11 @@ class OpenRouterVideoGenerator(VideoGenerator):
             return None
         return record
 
-    def _remember(self, record: JobRecord) -> None:
+    def _remember(self, record: JobRecord) -> bool:
+        """원장에 남긴다. 남기지 못하면 False (기록 실패가 과금된 작업을 버리게 하지 않는다)."""
         try:
             self._ledger.put(record)
+            return True
         except Exception as exc:  # noqa: BLE001 - 원장 기록 실패가 과금된 작업을 버리게 하지 않는다
             log.error(
                 "OpenRouter 작업 원장에 기록하지 못했습니다 (job=%s, 상태 %s): %s. "
@@ -977,6 +1352,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                 record.status,
                 exc,
             )
+            return False
 
     def profile(self) -> Mapping[str, object]:
         """생성 캐시·작업 원장 키에 fingerprint 와 함께 들어가는 설정 (ADR-0013).
@@ -994,17 +1370,19 @@ class OpenRouterVideoGenerator(VideoGenerator):
         }
 
     # ---- 모델 메타데이터 ----
-    def model_info(self, model: str | None = None) -> VideoModelInfo:
+    def model_info(
+        self, model: str | None = None, *, timeout: float | None = None
+    ) -> VideoModelInfo:
         """모델(기본: 설정한 생성 모델)의 허용 길이·화면비·해상도·seed·가격. 모델마다 한 번만 받는다 (키 불필요)."""
         model = model or self.model
         if model not in self._model_infos:
-            self._model_infos[model] = self._fetch_model_info(model)
+            self._model_infos[model] = self._fetch_model_info(model, timeout)
         return self._model_infos[model]
 
-    def _fetch_model_info(self, model: str) -> VideoModelInfo:
+    def _fetch_model_info(self, model: str, timeout: float | None = None) -> VideoModelInfo:
         url = f"{self.base_url}/videos/models"
         try:
-            resp = self._http.request("GET", url, timeout=self.request_timeout_seconds)
+            resp = self._http.request("GET", url, timeout=timeout or self.request_timeout_seconds)
         except TransportError as exc:
             raise GenerationError(f"OpenRouter 영상 모델 목록을 받지 못했습니다: {exc}") from exc
         if resp.status != 200:

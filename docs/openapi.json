@@ -276,6 +276,73 @@
         "title": "ChecksOut",
         "type": "object"
       },
+      "ClipProductionOut": {
+        "description": "이 장면의 클립이 어떻게 만들어졌는가 (생성기가 남긴 기록). 부모 클립을 그대로 쓴 장면은 부모 때의 기록이다.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "edit_fallback_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Fallback Reason"
+          },
+          "method": {
+            "enum": [
+              "GENERATED",
+              "EDITED"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provisional": {
+            "default": false,
+            "title": "Provisional",
+            "type": "boolean"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "ClipProductionOut",
+        "type": "object"
+      },
       "ComparedSceneOut": {
         "description": "비교의 한쪽 장면. 그 버전에 장면이 없으면 SceneComparisonOut.before/after 자체가 null.",
         "properties": {
@@ -462,6 +529,23 @@
             ],
             "title": "Entity Key"
           },
+          "keep": {
+            "items": {
+              "$ref": "#/components/schemas/KeepItemIn"
+            },
+            "maxItems": 20,
+            "title": "Keep",
+            "type": "array"
+          },
+          "kind": {
+            "default": "CHANGE",
+            "enum": [
+              "CHANGE",
+              "REPAIR"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "new_value": {
             "maxLength": 300,
             "minLength": 1,
@@ -473,6 +557,18 @@
             "minLength": 1,
             "title": "Predicate",
             "type": "string"
+          },
+          "request_text": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Text"
           },
           "scene_keys": {
             "items": {
@@ -507,6 +603,11 @@
             },
             "title": "Changed Scene Keys",
             "type": "array"
+          },
+          "kind": {
+            "default": "CHANGE",
+            "title": "Kind",
+            "type": "string"
           },
           "parent_version_id": {
             "title": "Parent Version Id",
@@ -639,6 +740,16 @@
               }
             ],
             "title": "Parent Version Id"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionIntentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "scene_count": {
             "anyOf": [
@@ -820,6 +931,11 @@
       },
       "HealthAdaptersOut": {
         "properties": {
+          "change_interpreter": {
+            "default": "rule_based",
+            "title": "Change Interpreter",
+            "type": "string"
+          },
           "checkers": {
             "items": {
               "type": "string"
@@ -955,6 +1071,66 @@
         "title": "IROut",
         "type": "object"
       },
+      "KeepItemIn": {
+        "description": "다시 만드는 장면에서 그대로 둘 요소 (ADR-0017).\n\n객체 요소(APPEARANCE 모습 · ACTION 동작 · SHAPE 형태)는 entity_key 가 필요하고,\n장면 요소(BACKGROUND 배경 · LIGHTING 조명 · COMPOSITION 구도)는 entity_key 를 비운다.",
+        "properties": {
+          "aspect": {
+            "enum": [
+              "APPEARANCE",
+              "ACTION",
+              "SHAPE",
+              "BACKGROUND",
+              "LIGHTING",
+              "COMPOSITION"
+            ],
+            "title": "Aspect",
+            "type": "string"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          }
+        },
+        "required": [
+          "aspect"
+        ],
+        "title": "KeepItemIn",
+        "type": "object"
+      },
+      "KeepItemOut": {
+        "properties": {
+          "aspect": {
+            "title": "Aspect",
+            "type": "string"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          }
+        },
+        "required": [
+          "aspect",
+          "entity_key"
+        ],
+        "title": "KeepItemOut",
+        "type": "object"
+      },
       "LLMKeyIn": {
         "description": "화면에서 입력한 OpenAI API 키. SecretStr 이라 repr·로그에 값이 나오지 않는다.",
         "properties": {
@@ -1022,6 +1198,68 @@
           "runtime_entry_enabled"
         ],
         "title": "LLMKeyStatusOut",
+        "type": "object"
+      },
+      "PlannedProductionOut": {
+        "description": "이 장면을 지금 실행하면 어떻게 만들어질지 (생성기의 미리보기, ADR-0020). 실행 뒤의 사실은 clip_production.",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "edit_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Unavailable Reason"
+          },
+          "method": {
+            "enum": [
+              "GENERATE",
+              "EDIT"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "PlannedProductionOut",
         "type": "object"
       },
       "PredicateOut": {
@@ -1211,6 +1449,22 @@
           "image_uri": {
             "title": "Image Uri",
             "type": "string"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "is_current": {
+            "default": true,
+            "title": "Is Current",
+            "type": "boolean"
           },
           "origin": {
             "default": "USER",
@@ -1436,6 +1690,414 @@
         "title": "RequirementOut",
         "type": "object"
       },
+      "RevisionIntentOut": {
+        "description": "수정 버전이 하려는 것 (ADR-0017). 원본 버전에는 없다.",
+        "properties": {
+          "entity_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          },
+          "keep": {
+            "items": {
+              "$ref": "#/components/schemas/KeepItemOut"
+            },
+            "title": "Keep",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "predicate": {
+            "title": "Predicate",
+            "type": "string"
+          },
+          "previous_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Value"
+          },
+          "request_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Text"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "target_scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Scene Keys",
+            "type": "array"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entity_key",
+          "predicate",
+          "value",
+          "previous_value",
+          "scope",
+          "target_scene_keys",
+          "keep",
+          "request_text"
+        ],
+        "title": "RevisionIntentOut",
+        "type": "object"
+      },
+      "RevisionPlanEstimateOut": {
+        "description": "다시 만들 장면의 어림 비용·시간의 합.\n\n장면마다 생성기가 알려 준 값(production)을 쓰고, 없으면 그 장면을 지난번에 만들 때의 기록을 쓴다.\n편집으로 만들 장면은 지난 기록으로 채우지 않는다 (새로 생성한 기록이라 더 크다).",
+        "properties": {
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "edit_scene_count": {
+            "default": 0,
+            "title": "Edit Scene Count",
+            "type": "integer"
+          },
+          "estimated_scene_count": {
+            "title": "Estimated Scene Count",
+            "type": "integer"
+          },
+          "regenerated_scene_count": {
+            "title": "Regenerated Scene Count",
+            "type": "integer"
+          },
+          "reused_scene_count": {
+            "title": "Reused Scene Count",
+            "type": "integer"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "regenerated_scene_count",
+          "reused_scene_count",
+          "estimated_scene_count",
+          "cost_usd",
+          "seconds"
+        ],
+        "title": "RevisionPlanEstimateOut",
+        "type": "object"
+      },
+      "RevisionPlanIn": {
+        "description": "변경 계획 미리보기 요청 (ADR-0019). 구조화된 값(predicate + new_value)을 주거나 request_text 만 준다.\n\nrequest_text 만 주면 서버가 해석한다. 화면에서 고른 객체·범위·유지 요소를 함께 주면 그 값이 우선한다.",
+        "properties": {
+          "current_value": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Value"
+          },
+          "entity_key": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Key"
+          },
+          "keep": {
+            "items": {
+              "$ref": "#/components/schemas/KeepItemIn"
+            },
+            "maxItems": 20,
+            "title": "Keep",
+            "type": "array"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "CHANGE",
+                  "REPAIR"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "new_value": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Value"
+          },
+          "predicate": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicate"
+          },
+          "request_text": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Text"
+          },
+          "scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Scene Keys",
+            "type": "array"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "SCENES",
+                  "ALL_APPEARANCES"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          }
+        },
+        "title": "RevisionPlanIn",
+        "type": "object"
+      },
+      "RevisionPlanOut": {
+        "description": "POST /api/versions/{version_id}/revision-plans — 수정 버전을 만들기 전의 계획 (상태는 바뀌지 않는다).",
+        "properties": {
+          "estimate": {
+            "$ref": "#/components/schemas/RevisionPlanEstimateOut"
+          },
+          "interpreted": {
+            "title": "Interpreted",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "previous_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Value"
+          },
+          "revision_request": {
+            "$ref": "#/components/schemas/CreateRevisionIn"
+          },
+          "scenes": {
+            "items": {
+              "$ref": "#/components/schemas/RevisionPlanSceneOut"
+            },
+            "title": "Scenes",
+            "type": "array"
+          },
+          "target_scene_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Scene Keys",
+            "type": "array"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "kind",
+          "interpreted",
+          "notes",
+          "previous_value",
+          "target_scene_keys",
+          "scenes",
+          "estimate",
+          "revision_request"
+        ],
+        "title": "RevisionPlanOut",
+        "type": "object"
+      },
+      "RevisionPlanSceneOut": {
+        "properties": {
+          "current_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Value"
+          },
+          "planned_end_ms": {
+            "title": "Planned End Ms",
+            "type": "integer"
+          },
+          "planned_start_ms": {
+            "title": "Planned Start Ms",
+            "type": "integer"
+          },
+          "production": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlannedProductionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recorded_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded Cost Usd"
+          },
+          "recorded_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded Seconds"
+          },
+          "scene_key": {
+            "title": "Scene Key",
+            "type": "string"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "will_regenerate": {
+            "title": "Will Regenerate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scene_key",
+          "planned_start_ms",
+          "planned_end_ms",
+          "will_regenerate",
+          "current_value",
+          "verdict",
+          "recorded_cost_usd",
+          "recorded_seconds"
+        ],
+        "title": "RevisionPlanSceneOut",
+        "type": "object"
+      },
       "SceneComparisonOut": {
         "properties": {
           "after": {
@@ -1502,6 +2164,16 @@
               }
             ],
             "title": "Clip Media Type"
+          },
+          "clip_production": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClipProductionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "clip_uri": {
             "anyOf": [
@@ -1852,6 +2524,16 @@
             "title": "Reference Images",
             "type": "array"
           },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionIntentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "seed": {
             "anyOf": [
               {
@@ -1980,6 +2662,16 @@
               }
             ],
             "title": "Parent Version Id"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RevisionIntentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "state": {
             "title": "State",
@@ -2717,6 +3409,145 @@
         ]
       }
     },
+    "/api/versions/{version_id}/reference-images/{reference_image_id}": {
+      "get": {
+        "operationId": "get_reference_image_api_versions__version_id__reference_images__reference_image_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "reference_image_id",
+            "required": true,
+            "schema": {
+              "title": "Reference Image Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/*": {}
+            },
+            "description": "이미지 (image/jpeg, image/png 등)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "NOT_FOUND 또는 MEDIA_NOT_AVAILABLE(저장소에 없음)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "참조 이미지(사용자 참조·객체의 정체성 기준 이미지)를 내려준다 (ReferenceImageOut.image_url)",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/versions/{version_id}/revision-plans": {
+      "post": {
+        "operationId": "plan_revision_api_versions__version_id__revision_plans_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionPlanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionPlanOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "VALIDATION_ERROR 또는 CHANGE_REQUEST_NOT_UNDERSTOOD"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "수정 버전을 만들기 전에 변경 계획을 미리 본다: 글로 쓴 요청의 해석, 수정의 종류, 다시 만들 장면, 어림 비용·시간 (상태는 바뀌지 않는다)",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
     "/api/versions/{version_id}/revisions": {
       "post": {
         "operationId": "create_revision_api_versions__version_id__revisions_post",
@@ -2793,7 +3624,7 @@
             "description": "Too Many Requests"
           }
         },
-        "summary": "선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾼 새 DRAFT 버전을 만든다 (원본 보존)",
+        "summary": "선택 객체(또는 entity_key 생략 시 장면 수준 조건)를 바꾸거나(CHANGE), 요구조건은 그대로 두고 그 장면을 다시 만드는(REPAIR) 새 DRAFT 버전을 만든다 (원본 보존)",
         "tags": [
           "versions"
         ]

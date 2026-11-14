@@ -2,7 +2,8 @@
 
 - 키는 생성 캐시와 같은 generation_key(fingerprint, 생성기 프로필)이다. 같은 조건·같은 설정의 장면은
   원장에 쓸 수 있는 작업이 있으면 다시 제출(과금)하지 않고 그 작업을 이어서 폴링·다운로드한다.
-- 상태: submitted(접수됨, 결과 미회수) -> completed(클립 저장) | failed(작업이 실패·만료돼 이어 받을 수 없음).
+- 상태: submitted(접수됨, 결과 미회수) -> completed(클립 저장) | failed(작업이 실패·만료돼 이어 받을 수 없음)
+  | released(끝났지만 결과를 이 키에 남기지 않기로 함: 다음 요청은 새로 시도한다, ADR-0021).
   만료 규칙(TTL)은 원장을 쓰는 어댑터가 정한다 (OpenRouter: 제출 뒤 24시간).
 - ArtifactJobLedger 는 ArtifactStore 의 ledger/<이름공간>/<키>.json 에 둔다. 클립과 같은 저장소라 함께 지워지고
   local_fs 면 재시작해도 남는다. 키·서명 URL 같은 비밀은 넣지 않는다 (작업 id·요청 정보·클립 메타데이터만).
@@ -28,7 +29,9 @@ _SCHEMA = 1
 SUBMITTED = "submitted"
 COMPLETED = "completed"
 FAILED = "failed"
-_STATUSES = frozenset({SUBMITTED, COMPLETED, FAILED})
+# 작업은 끝났지만 그 결과가 이 키의 결과가 아니다 (예: 편집하지 못해 새로 생성함). 결과는 다른 키에 남겼다
+RELEASED = "released"
+_STATUSES = frozenset({SUBMITTED, COMPLETED, FAILED, RELEASED})
 
 
 @dataclass(frozen=True)

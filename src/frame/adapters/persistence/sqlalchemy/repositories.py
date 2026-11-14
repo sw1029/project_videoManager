@@ -32,6 +32,7 @@ from frame.domain.identifiers import entity_id, requirement_id, scene_id
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import Project, ReferenceImage, VideoVersion
 from frame.domain.progress import PipelineProgress
+from frame.domain.revision import RevisionIntent
 from frame.domain.state_machine import assert_transition
 from frame.domain.tracking import TrackRecord
 
@@ -164,6 +165,16 @@ class SqlAlchemyVersionRepository(VersionRepository):
             if version.progress is not None
             else None
         )
+        row.scene_seeds_json = (
+            json.dumps(version.scene_seeds, ensure_ascii=False, sort_keys=True)
+            if version.scene_seeds
+            else None
+        )
+        row.intent_json = (
+            json.dumps(version.intent.to_dict(), ensure_ascii=False)
+            if version.intent is not None
+            else None
+        )
         return row
 
     def _to_domain(self, row: VersionRow) -> VideoVersion:
@@ -203,6 +214,14 @@ class SqlAlchemyVersionRepository(VersionRepository):
                 PipelineProgress.from_dict(json.loads(row.progress_json))
                 if row.progress_json
                 else None
+            ),
+            scene_seeds=(
+                {str(k): int(v) for k, v in json.loads(row.scene_seeds_json).items()}
+                if row.scene_seeds_json
+                else {}
+            ),
+            intent=(
+                RevisionIntent.from_dict(json.loads(row.intent_json)) if row.intent_json else None
             ),
         )
 

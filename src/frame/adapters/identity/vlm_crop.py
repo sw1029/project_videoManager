@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frame.adapters.video_tools import Box, extract_frame, require_ffmpeg, video_size
+from frame.adapters.vlm_answers import match_answers
 from frame.application.errors import AdapterError, LLMBadResponse
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.identity import (
@@ -289,7 +290,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
             items = list(data["entities"])
         except (ValueError, KeyError, TypeError) as exc:
             raise LLMBadResponse(f"객체 위치 응답을 해석하지 못했습니다: {exc}") from exc
-        return _match_answers(items, [e.entity_key for e in entities])
+        return match_answers(items, [e.entity_key for e in entities])
 
     def _crop(
         self,
@@ -447,40 +448,6 @@ def _user_prompt(
     if scene.description.strip():
         lines.append(f"Scene the frame comes from: {scene.description.strip()}")
     return "\n".join(lines)
-
-
-def _match_answers(items: Sequence[Any], wanted: Sequence[str]) -> dict[str, Mapping[str, Any]]:
-    """응답 항목을 요청한 객체에 맞춘다 (객체 키 -> 항목).
-
-    모델이 entity_key 에 객체 키 대신 질의의 한 줄('cup (prop): ...')을 통째로 돌려줄 때가 있다
-    (2026-11-12 실호출). 키가 객체 키로 시작하면 그 객체의 답으로 읽는다. 그래도 맞는 것이 없는데
-    하나만 묻고 하나만 받았으면 그 답으로 본다. 그 밖에는 누구의 답인지 알 수 없으므로 쓰지 않는다.
-    """
-    answers: dict[str, Mapping[str, Any]] = {}
-    unmatched: list[Mapping[str, Any]] = []
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        key = _requested_key(str(item.get("entity_key") or ""), wanted)
-        if key is not None and key not in answers:
-            answers[key] = item
-        else:
-            unmatched.append(item)
-    if not answers and len(wanted) == 1 and len(unmatched) == 1:
-        answers[wanted[0]] = unmatched[0]
-    return answers
-
-
-def _requested_key(raw: str, wanted: Sequence[str]) -> str | None:
-    """응답의 키가 가리키는 요청 객체. 키 그대로이거나, 키로 시작하고 바로 뒤가 키의 일부가 아닌 글자일 때."""
-    text = raw.strip().lstrip("-").strip()
-    for key in sorted(wanted, key=len, reverse=True):  # 'cup2' 를 'cup' 보다 먼저 본다
-        if not text.startswith(key):
-            continue
-        rest = text[len(key) :]
-        if not rest or not (rest[0].isalnum() or rest[0] == "_"):
-            return key
-    return None
 
 
 def _fixed_attributes(request: IdentityExtractionRequest, entity: EntitySpec) -> list[str]:

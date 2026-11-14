@@ -10,6 +10,9 @@ from dataclasses import dataclass, replace
 @dataclass(frozen=True)
 class Settings:
     structurer: str = "rule_based"
+    # 글로 쓴 변경 요청을 구조화하는 해석기 (ADR-0019): auto | rule_based | llm
+    # auto 는 구조화기를 따른다 (FRAME_STRUCTURER=llm 이면 llm, 아니면 rule_based)
+    change_interpreter: str = "auto"
     generator: str = "fake"
     assembler: str = "fake"
     tracker: str = "fake"
@@ -39,6 +42,11 @@ class Settings:
     consistency_frames: int = 3  # 일관성 검수가 장면마다 뽑는 표본 프레임 수
     consistency_threshold: float = 0.9  # 고정 속성 유지율 목표 (지표 3)
     preservation_threshold: float = 0.9  # 부모 클립 대비 SSIM 하한 (비대상 변경률 10% 이하)
+    # 요구 반영 검수 (vlm_requirement, ADR-0018)
+    requirement_frames: int = 3  # 장면마다 뽑는 표본 프레임 수
+    requirement_threshold: float = 0.5  # 고정 속성·장면 조건: 판정된 프레임 가운데 지킨 비율의 하한
+    # 유지 요소 검수 (vlm_preservation, ADR-0018): 다시 만든 장면마다 부모·자식에서 뽑는 프레임 쌍의 수
+    preservation_frames: int = 2
     # --- 재시작 복구 (ADR-0013) ---
     # 기동 때 QUEUED·STRUCTURING 은 다시 디스패치하고 PROCESSING 은 워커 유실로 본다 (서버 프로세스 하나 전제).
     # 실행 중에는 recovery_interval_s 마다 worker_lease_s 를 넘긴 PROCESSING 을 워커 유실로 본다.
@@ -62,6 +70,9 @@ class Settings:
     # off | previous_job(부모 작업을 previous_job_id 로 이어서 편집) | video_reference(부모 클립을 영상 참조로 보냄)
     video_edit_mode: str = "off"
     video_edit_model: str | None = None  # video_reference 의 편집 모델. 비우면 FRAME_VIDEO_MODEL
+    # video_reference: 부모 작업의 저장본 주소가 상태 응답에 없을 때 다시 묻는 시간(초). 넘기면 새로 생성한다.
+    # 끝난 지 몇 분 안 된 작업은 주소가 늦게 나온다 (2차 실호출). 늘리면 편집을 더 자주 쓰지만 그만큼 기다린다
+    video_edit_parent_wait_s: float = 10.0
     # --- LLM (FRAME_STRUCTURER=llm 일 때) ---
     # openai(기본, OpenAI 호환 로컬 서버도 base_url 로) | fake(테스트용 재생 클라이언트).
     # 키나 패키지가 없으면 서버 기동 시점에 실패한다 (요청마다 조용히 실패하지 않도록).
@@ -100,6 +111,7 @@ class Settings:
         return replace(
             base,
             structurer=text("STRUCTURER", base.structurer),
+            change_interpreter=text("CHANGE_INTERPRETER", "") or base.change_interpreter,
             generator=text("GENERATOR", base.generator),
             assembler=text("ASSEMBLER", base.assembler),
             tracker=text("TRACKER", base.tracker),
@@ -129,6 +141,11 @@ class Settings:
             consistency_threshold=float(
                 text("CONSISTENCY_THRESHOLD", "") or base.consistency_threshold
             ),
+            requirement_frames=int(text("REQUIREMENT_FRAMES", "") or base.requirement_frames),
+            requirement_threshold=float(
+                text("REQUIREMENT_THRESHOLD", "") or base.requirement_threshold
+            ),
+            preservation_frames=int(text("PRESERVATION_FRAMES", "") or base.preservation_frames),
             preservation_threshold=float(
                 text("PRESERVATION_THRESHOLD", "") or base.preservation_threshold
             ),
@@ -149,6 +166,9 @@ class Settings:
             video_ffmpeg=text("VIDEO_FFMPEG", "") or None,
             video_edit_mode=text("VIDEO_EDIT_MODE", "") or base.video_edit_mode,
             video_edit_model=text("VIDEO_EDIT_MODEL", "") or None,
+            video_edit_parent_wait_s=float(
+                text("VIDEO_EDIT_PARENT_WAIT_S", "") or base.video_edit_parent_wait_s
+            ),
             llm_provider=text("LLM_PROVIDER", base.llm_provider),
             llm_model=text("LLM_MODEL", base.llm_model),
             llm_key_file=text("LLM_KEY_FILE", "") or None,

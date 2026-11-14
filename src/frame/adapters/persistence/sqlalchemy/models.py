@@ -58,6 +58,9 @@ class VersionRow(Base):
     frozen_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확장
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 확장 (단계·장면 진행)
+    # 확장 (ADR-0017): 장면별 seed 재지정과, 수정 버전의 의도(종류·대상·유지할 요소·요청 원문)
+    scene_seeds_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intent_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class EntityRow(Base):

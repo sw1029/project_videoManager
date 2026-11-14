@@ -18,13 +18,16 @@ from frame.application.dto import (
 )
 from frame.application.ports.artifact_store import guess_media_type
 from frame.application.ports.llm import LLMKeyStatus
+from frame.application.use_cases.plan_revision import RevisionPlan
 from frame.config.settings import Settings
 from frame.domain.artifacts import GeneratedClip
-from frame.domain.enums import Verdict
+from frame.domain.enums import ReferenceOrigin, Verdict
 from frame.domain.identifiers import entity_id
 from frame.domain.ir import RequirementSpec, SceneSpec
 from frame.domain.progress import PipelineProgress
+from frame.domain.revision import RevisionIntent
 from frame.domain.services.comparison import RequirementComparison
+from frame.domain.services.identity import is_valid_identity
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s
@@ -88,17 +91,125 @@ def progress_out(progress: PipelineProgress | None) -> s.ProgressOut | None:
     )
 
 
+def revision_out(intent: RevisionIntent | None) -> s.RevisionIntentOut | None:
+    if intent is None:
+        return None
+    return s.RevisionIntentOut(
+        kind=str(intent.kind),
+        entity_key=intent.entity_key,
+        predicate=intent.predicate,
+        value=intent.value,
+        previous_value=intent.previous_value,
+        scope=str(intent.scope),
+        target_scene_keys=list(intent.target_scene_keys),
+        keep=[
+            s.KeepItemOut(aspect=str(item.aspect), entity_key=item.entity_key)
+            for item in intent.keep
+        ],
+        request_text=intent.request_text,
+    )
+
+
+def revision_plan_out(plan: RevisionPlan) -> s.RevisionPlanOut:
+    change = plan.change
+    regenerated = len(plan.target_scene_keys)
+    return s.RevisionPlanOut(
+        version_id=plan.version_id,
+        kind=str(plan.kind),
+        interpreted=plan.interpreted,
+        notes=plan.notes,
+        previous_value=plan.previous_value,
+        target_scene_keys=list(plan.target_scene_keys),
+        scenes=[
+            s.RevisionPlanSceneOut(
+                scene_key=scene.scene_key,
+                planned_start_ms=scene.planned_start_ms,
+                planned_end_ms=scene.planned_end_ms,
+                will_regenerate=scene.will_regenerate,
+                current_value=scene.current_value,
+                verdict=str(scene.verdict) if scene.verdict is not None else None,
+                recorded_cost_usd=scene.recorded_cost_usd,
+                recorded_seconds=scene.recorded_seconds,
+                production=(
+                    s.PlannedProductionOut(
+                        method=str(scene.production.method),  # type: ignore[arg-type]
+                        model=scene.production.model,
+                        cost_usd=scene.production.cost_usd,
+                        seconds=scene.production.seconds,
+                        edit_unavailable_reason=scene.production.edit_unavailable_reason,
+                    )
+                    if scene.production is not None
+                    else None
+                ),
+            )
+            for scene in plan.scenes
+        ],
+        estimate=s.RevisionPlanEstimateOut(
+            regenerated_scene_count=regenerated,
+            reused_scene_count=len(plan.scenes) - regenerated,
+            estimated_scene_count=plan.estimated_scene_count,
+            edit_scene_count=plan.edit_scene_count,
+            cost_usd=plan.estimated_cost_usd,
+            seconds=plan.estimated_seconds,
+        ),
+        revision_request=s.CreateRevisionIn(
+            entity_key=change.entity_key,
+            predicate=change.predicate,
+            new_value=change.new_value,
+            scope=str(change.scope),  # type: ignore[arg-type]
+            scene_keys=list(change.scene_keys),
+            current_value=change.current_value,
+            kind=str(plan.kind),  # type: ignore[arg-type]
+            keep=[
+                s.KeepItemIn(aspect=str(item.aspect), entity_key=item.entity_key)  # type: ignore[arg-type]
+                for item in plan.keep
+            ],
+            request_text=plan.request_text,
+        ),
+    )
+
+
+def clip_production_out(clip: GeneratedClip) -> s.ClipProductionOut | None:
+    """클립 메타데이터의 공통 기록(model·cost_usd·generation_seconds·edit)을 화면용으로 옮긴다. 기록이 없으면 None."""
+    metadata = clip.metadata
+    if not metadata:
+        return None
+    edit = metadata.get("edit")
+    edit = edit if isinstance(edit, Mapping) else {}
+    applied = edit.get("applied") is True
+    model = metadata.get("model")
+    reason = edit.get("fallback_reason")
+    return s.ClipProductionOut(
+        method="EDITED" if applied else "GENERATED",
+        model=model if isinstance(model, str) else None,
+        cost_usd=_number(metadata.get("cost_usd")),
+        seconds=_number(metadata.get("generation_seconds")),
+        edit_fallback_reason=reason if isinstance(reason, str) and not applied else None,
+        provisional=metadata.get("provisional") is True,
+    )
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 def version_out(
     detail: VersionDetail,
     *,
     api_prefix: str = "/api",
     media_type_of: Callable[[str], str] = guess_media_type,
+    is_stored: Callable[[str], bool] = lambda uri: False,
 ) -> s.VersionOut:
-    """api_prefix·media_type_of 로 내부 URI 대신 재생 가능한 HTTP 경로와 미디어 형식을 채운다."""
+    """api_prefix·media_type_of 로 내부 URI 대신 재생 가능한 HTTP 경로와 미디어 형식을 채운다.
+
+    is_stored: 참조 이미지가 산출물 저장소에 있는지. 있으면 image_url 로 내려받을 경로를 준다.
+    """
     v = detail.version
     base = f"{api_prefix}/versions/{quote(v.version_id, safe='')}"
 
-    def clip_fields(scene_key: str) -> dict[str, str | None]:
+    def clip_fields(scene_key: str) -> dict[str, Any]:
         clip = v.clips.get(scene_key)
         if clip is None:
             return {"clip_uri": None, "clip_url": None, "clip_media_type": None}
@@ -106,6 +217,7 @@ def version_out(
             "clip_uri": clip.uri,
             "clip_url": f"{base}/scenes/{quote(scene_key, safe='')}/clip",
             "clip_media_type": media_type_of(clip.uri),
+            "clip_production": clip_production_out(clip),
         }
 
     ir_out = None
@@ -163,15 +275,26 @@ def version_out(
             s.ReferenceImageOut(
                 reference_image_id=r.reference_image_id,
                 image_uri=r.image_uri,
+                image_url=(
+                    f"{base}/reference-images/{quote(r.reference_image_id, safe='')}"
+                    if is_stored(r.image_uri)
+                    else None
+                ),
                 entity_key=r.entity_key,
                 origin=str(r.origin),  # type: ignore[arg-type]
                 source_scene_key=r.source_scene_key,
                 description=r.description or None,
+                is_current=(
+                    r.origin is not ReferenceOrigin.DERIVED
+                    or v.ir is None
+                    or is_valid_identity(v.ir, r)
+                ),
             )
             for r in detail.reference_images
         ],
         created_at=v.created_at,
         progress=progress_out(v.progress),
+        revision=revision_out(v.intent),
     )
 
 
@@ -244,6 +367,7 @@ def _overview_fields(
         "video_url": f"{_version_path(api_prefix, v.version_id)}/video" if v.video_uri else None,
         "video_media_type": media_type_of(v.video_uri) if v.video_uri else None,
         "checks": s.CheckSummaryOut(**asdict(overview.summary)),
+        "revision": revision_out(v.intent),
     }
 
 

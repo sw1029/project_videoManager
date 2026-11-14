@@ -4,6 +4,9 @@
 - 요청 스키마 검증 오류(FastAPI): 422 VALIDATION_ERROR + details[{loc, message}]
 - 라우팅 오류(없는 경로 404, 허용되지 않은 메서드 405 등): 상태별 코드, 원래 헤더(Allow 등) 유지
 - 요청 제한: 429 RATE_LIMITED + Retry-After
+- 요청을 처리하다 부른 LLM 의 오류(변경 계획 미리보기의 요청 해석): 연결·인증·시간 초과·요청 제한은 503,
+  응답 형식 위반은 502. code 는 LLM 오류의 code 그대로다
+  (LLM_UNAVAILABLE · LLM_TIMEOUT · LLM_RATE_LIMITED · LLM_BAD_RESPONSE).
 - 처리되지 않은 예외: 500 INTERNAL_ERROR. 내부 메시지는 로그에만 남기고 응답에는 넣지 않는다.
 """
 
@@ -17,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from frame.application.errors import LLMBadResponse, LLMError
 from frame.domain.errors import (
     DomainError,
     IntegrityViolation,
@@ -110,6 +114,11 @@ def register_error_handlers(app: FastAPI) -> None:
             headers={"Retry-After": str(exc.retry_after_s)},
         )
 
+    async def _llm(_: Request, exc: LLMError) -> JSONResponse:
+        status = 502 if isinstance(exc, LLMBadResponse) else 503
+        log.warning("요청 처리 중 LLM 호출 실패: %s: %s", exc.code, exc)
+        return JSONResponse(status_code=status, content=error_body(exc.code, str(exc)[:400]))
+
     async def _unexpected(_: Request, exc: Exception) -> JSONResponse:
         log.error("처리되지 않은 예외", exc_info=exc)
         return JSONResponse(
@@ -122,4 +131,5 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _request_validation)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, _http)  # type: ignore[arg-type]
     app.add_exception_handler(RateLimitExceeded, _rate_limited)  # type: ignore[arg-type]
+    app.add_exception_handler(LLMError, _llm)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, _unexpected)

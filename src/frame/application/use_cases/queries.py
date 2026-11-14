@@ -86,6 +86,18 @@ class ProjectQueries:
                 )
             return clip.uri
 
+    def get_reference_image_uri(self, version_id: str, reference_image_id: str) -> str:
+        """버전에 딸린 참조 이미지(사용자 참조·정체성 기준)의 저장소 URI. 그 버전의 것이 아니면 NotFound."""
+        with self._uow_factory() as uow:
+            self._require_version(uow, version_id)
+            for image in uow.reference_images.list_by_version(version_id):
+                if image.reference_image_id == reference_image_id:
+                    return image.image_uri
+        raise NotFound(
+            f"참조 이미지 {reference_image_id} 을 찾을 수 없습니다",
+            reference_image_id=reference_image_id,
+        )
+
     def compare_versions(
         self, version_id: str, against: str | None = None
     ) -> VersionComparisonView:

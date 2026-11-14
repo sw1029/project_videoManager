@@ -13,22 +13,35 @@ from dataclasses import replace
 
 import pytest
 
+from frame.adapters.generator import CachingVideoGenerator
+from frame.adapters.generator.cache import generation_key
+from frame.adapters.generator.ledger import ArtifactJobLedger
 from frame.adapters.generator.openrouter import (
     EDIT_KEEP_LINE,
     VideoModelInfo,
     compile_edit_prompt,
 )
-from frame.adapters.storage import InMemoryArtifactStore
+from frame.adapters.http_transport import TransportError
+from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
-from frame.application.ports.generator import GeneratedClip, ParentClip, SceneGenerationRequest
+from frame.application.ports.generator import (
+    GeneratedClip,
+    ParentClip,
+    ProductionMethod,
+    RevisionDirective,
+    SceneGenerationRequest,
+)
 from frame.config import Settings, build_container
+from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.ir import RequirementSpec
+from frame.domain.revision import KeepItem
 from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
 from tests.support.openrouter import (
     JOB_ID,
     SIGNED_URL,
     WAN_30,
     FakeOpenRouterApi,
+    FakeTime,
     accepted,
     completed,
     error_response,
@@ -260,24 +273,121 @@ def test_signed_parent_url_is_never_recorded(ir, store):
     assert ledger and all(b"SIGNED-SECRET" not in blob for blob in ledger)
 
 
+NO_URLS = status("completed", PARENT_JOB, usage={"cost": 0.2})  # 끝났지만 응답에 저장본 주소가 없다
+
+
 @pytest.mark.parametrize(
-    "parent_status",
+    ("parent_status", "lookups"),
     [
-        status("completed", PARENT_JOB, usage={"cost": 0.2}),  # 저장본이 없다 (urls 없음)
-        status("expired", PARENT_JOB),
-        error_response(404, "Resource not found"),
+        (NO_URLS, 6),  # 주소가 끝내 오지 않는다: 기본 10초 동안 0·2·4·6·8·10초에 묻는다
+        (status("expired", PARENT_JOB), 1),  # 없어진 작업은 다시 묻지 않는다
+        (error_response(404, "Resource not found"), 1),
     ],
 )
-def test_parent_job_without_a_stored_copy_means_regeneration(ir, store, parent_status):
+def test_parent_job_without_a_stored_copy_means_regeneration(ir, store, parent_status, lookups):
     api = _api(parent_status=parent_status)
     generator = make_openrouter_generator(store, api, edit_mode="video_reference")
 
     clip = generator.generate_scene(_request(ir, store))
 
-    (submit,) = api.submits  # 편집 요청은 보내지 않고 바로 새로 만든다
+    (submit,) = api.submits  # 편집 요청은 보내지 않고 새로 만든다
     assert "input_references" not in submit.json() and submit.json()["prompt"].startswith("Scene:")
+    edit = clip.metadata["edit"]
+    assert edit["applied"] is False
+    assert "저장본" in edit["fallback_reason"] and f"{lookups}회" in edit["fallback_reason"]
+    assert edit["parent_url_lookups"] == lookups
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == lookups
+
+
+def test_parent_url_missing_from_a_response_is_asked_again(ir, store):
+    """끝난 작업의 상태 응답에 저장본 주소가 빠져 올 때가 있다 (2차 실호출: 같은 작업을 10번 물으면 2~3번)."""
+    api = _api()
+    api.on("GET", f"/api/v1/videos/{PARENT_JOB}", NO_URLS, NO_URLS, completed(PARENT_JOB))
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store,
+        api,
+        clock=clock,
+        edit_mode="video_reference",
+        edit_model="black-forest-labs/flux-video-edit",
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == 3
+    reference = api.submits[0].json()["input_references"][0]
+    assert reference["video_url"]["url"] == SIGNED_URL
+    assert clip.metadata["edit"]["applied"] is True
+    assert clip.metadata["edit"]["parent_url_lookups"] == 3
+    assert clock.sleeps[:2] == [2.0, 2.0]  # 그 뒤의 sleep 은 편집 작업의 폴링이다
+
+
+def test_lookup_failures_that_may_pass_are_asked_again(ir, store):
+    api = _api()
+    api.on(
+        "GET",
+        f"/api/v1/videos/{PARENT_JOB}",
+        TransportError("connection reset"),
+        error_response(503, "upstream busy"),
+        error_response(429, "slow down"),
+        completed(PARENT_JOB),
+    )
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is True
+    assert clip.metadata["edit"]["parent_url_lookups"] == 4
+
+
+def test_a_longer_wait_slows_down_to_the_polling_interval(ir, store):
+    """오래 기다리게 설정하면 처음 여섯 번만 촘촘히 묻고 그 뒤로는 폴링 간격으로 묻는다."""
+    api = _api(parent_status=NO_URLS)
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store, api, clock=clock, edit_mode="video_reference", edit_parent_wait_seconds=60
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clock.sleeps[:8] == [2.0, 2.0, 2.0, 2.0, 2.0, 20.0, 20.0, 10.0]
+    assert clip.metadata["edit"]["parent_url_lookups"] == 9
     assert clip.metadata["edit"]["applied"] is False
-    assert "저장본" in clip.metadata["edit"]["fallback_reason"]
+
+
+def test_a_wait_of_zero_asks_once(ir, store):
+    api = _api(parent_status=NO_URLS)
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_parent_wait_seconds=0
+    )
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == 1
+    assert clip.metadata["edit"]["parent_url_lookups"] == 1
+
+
+def test_a_parent_clip_with_its_own_address_needs_no_lookup(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+    request = _request(ir, store)
+    remote = replace(
+        request,
+        parent=replace(
+            request.parent,
+            clip=replace(request.parent.clip, uri="https://cdn.example/clips/intro.mp4"),
+        ),
+    )
+
+    clip = generator.generate_scene(remote)
+
+    assert not api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")
+    assert "parent_url_lookups" not in clip.metadata["edit"]
+
+
+def test_a_negative_wait_is_a_configuration_error(store):
+    with pytest.raises(ConfigurationError, match="FRAME_VIDEO_EDIT_PARENT_WAIT_S"):
+        make_openrouter_generator(store, edit_parent_wait_seconds=-1)
 
 
 def test_parent_clip_that_is_not_an_openrouter_job_is_regenerated(ir, store):
@@ -487,5 +597,530 @@ def test_edit_settings_reach_the_adapter(tmp_path):
         "video_reference",
         "black-forest-labs/flux-video-edit",
     )
+    assert generator.edit_parent_wait_seconds == 10.0
     defaults = Settings.from_env({})
     assert (defaults.video_edit_mode, defaults.video_edit_model) == ("off", None)
+    assert defaults.video_edit_parent_wait_s == 10.0
+
+    waiting = Settings.from_env({**env, "FRAME_VIDEO_EDIT_PARENT_WAIT_S": "300"})
+    assert build_container(waiting).generator.edit_parent_wait_seconds == 300.0
+
+
+# ---- 수정 지시: 유지할 요소와 REPAIR (ADR-0017) ------------------------------------------
+
+
+def _cup_color(scene):
+    return tuple(r for r in scene.requirements if (r.entity_key, r.predicate) == ("cup", "color"))
+
+
+def _repair_request(ir, store, keep=(), scene_key="intro"):
+    """요구조건은 부모와 같고(차이 없음) seed 만 다른 재생성 요청: 컵 색이 요구(red)와 어긋났던 장면."""
+    scene = ir.scene(scene_key)
+    return SceneGenerationRequest(
+        version_id="ver_1",
+        scene=scene,
+        entities=tuple(ir.entity(k) for k in scene.entity_keys),
+        seed=8,
+        parent=_parent(ir, store, scene_key),
+        directive=RevisionDirective(RevisionKind.REPAIR, enforce=_cup_color(scene), keep=keep),
+    )
+
+
+def test_edit_prompt_names_what_must_not_change(ir, store):
+    """컨셉 화면의 '유지할 요소' 체크: 인물·동작 / 배경·조명 / 컵 형태."""
+    request = _request(ir, store)
+    keep = (
+        KeepItem(KeepAspect.ACTION, "barista"),
+        KeepItem(KeepAspect.APPEARANCE, "barista"),
+        KeepItem(KeepAspect.SHAPE, "cup"),
+        KeepItem(KeepAspect.LIGHTING),
+        KeepItem(KeepAspect.BACKGROUND),
+    )
+    directive = RevisionDirective(
+        RevisionKind.CHANGE, enforce=_cup_color(request.scene), previous_value="red", keep=keep
+    )
+
+    prompt = compile_edit_prompt(replace(request, directive=directive))
+
+    assert prompt.splitlines() == [
+        "Edit the input video. Apply only these changes:",
+        "- cup: color changes from red to teal",
+        "Do not change: barista (action and pose, appearance); cup (shape and size); "
+        "the lighting; the background.",
+        EDIT_KEEP_LINE,
+    ]
+
+
+def test_repair_edit_prompt_states_the_requirement_that_was_missed(ir, store):
+    """요구조건은 그대로라 부모와의 차이가 없다. 지켜지지 않았던 값을 지시문으로 적어 부모 클립을 고친다."""
+    prompt = compile_edit_prompt(_repair_request(ir, store))
+
+    assert prompt.splitlines() == [
+        "Edit the input video. Apply only these changes:",
+        "- cup: color must be red",
+        EDIT_KEEP_LINE,
+    ]
+    assert compile_edit_prompt(replace(_repair_request(ir, store), directive=None)) is None
+
+
+def test_repair_is_sent_to_the_edit_model_with_the_parent_clip(ir, store):
+    api = _api(accepted())
+    generator = make_openrouter_generator(
+        store, api, edit_mode="video_reference", edit_model=FLUX_EDIT["id"]
+    )
+    keep = (KeepItem(KeepAspect.ACTION, "barista"),)
+
+    clip = generator.generate_scene(_repair_request(ir, store, keep=keep))
+
+    (body,) = (call.json() for call in api.submits)
+    assert body["model"] == FLUX_EDIT["id"]
+    assert "- cup: color must be red" in body["prompt"]
+    assert "Do not change: barista (action and pose)." in body["prompt"]
+    assert clip.metadata["edit"]["applied"] is True
+
+
+def test_keep_items_separate_the_results_of_otherwise_equal_edits(ir, store):
+    """같은 수정이라도 그대로 둘 요소가 다르면 다른 결과다 (캐시·원장 키가 갈린다)."""
+    generator = make_openrouter_generator(store, _api(), edit_mode="video_reference")
+    request = _request(ir, store)
+    keeping = replace(
+        request,
+        directive=RevisionDirective(
+            RevisionKind.CHANGE,
+            enforce=_cup_color(request.scene),
+            keep=(KeepItem(KeepAspect.LIGHTING),),
+        ),
+    )
+
+    assert generator.result_key(keeping) != generator.result_key(request)
+
+
+# ---- 만들기 전 미리보기와 부모 주소 보관 (ADR-0020) ---------------------------------------
+
+EDITING = {"edit_mode": "video_reference", "edit_model": "black-forest-labs/flux-video-edit"}
+PARENT_STATUS = f"/api/v1/videos/{PARENT_JOB}"
+
+
+def test_preview_says_the_scene_will_be_edited_and_what_it_costs(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.model) == (
+        ProductionMethod.EDIT,
+        "black-forest-labs/flux-video-edit",
+    )
+    assert preview.cost_usd == pytest.approx(0.12)  # 4초 x $0.03
+    assert preview.edit_unavailable_reason is None
+    assert not api.submits  # 아무것도 제출하지 않는다
+    assert not [uri for uri in store._blobs if "/ledger/" in uri]
+
+
+def test_the_address_found_by_the_preview_is_used_when_the_scene_is_made(ir, store):
+    """계획을 확인하는 사이에 상태 응답에서 주소가 빠져도, 미리 받아 둔 주소로 편집한다.
+
+    2차 실호출: 주소는 보인 뒤에도 몇 분씩 응답에서 빠졌다. 주소 자체는 작업이 만료될 때까지 유효하다.
+    """
+    api = _api()
+    api.on("GET", PARENT_STATUS, completed(PARENT_JOB), NO_URLS)  # 처음 한 번만 주소가 있다
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    generator.preview(_request(ir, store))
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 1  # 만들 때 다시 묻지 않았다
+    reference = api.submits[0].json()["input_references"][0]
+    assert reference["video_url"]["url"] == SIGNED_URL
+    edit = clip.metadata["edit"]
+    assert edit["applied"] is True and edit["parent_url_held"] is True
+    assert "parent_url_lookups" not in edit
+    # 들고 있던 주소도 기록하지 않는다
+    assert "SIGNED-SECRET" not in json.dumps(clip.metadata, default=str)
+    ledger = [store.get(uri) for uri in store._blobs if "/ledger/" in uri]
+    assert ledger and all(b"SIGNED-SECRET" not in blob for blob in ledger)
+
+
+def test_a_held_address_is_dropped_after_a_while(ir, store):
+    api = _api()
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store, api, clock=clock, parent_url_hold_seconds=600, **EDITING
+    )
+
+    generator.preview(_request(ir, store))
+    clock.sleep(601)
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 2  # 다시 물었다
+    assert clip.metadata["edit"]["parent_url_lookups"] == 1
+    assert "parent_url_held" not in clip.metadata["edit"]
+
+
+def test_a_held_address_is_not_used_once_the_stored_copy_is_about_to_expire(ir, store):
+    clock = FakeTime()
+    expiring = status(
+        "completed",
+        PARENT_JOB,
+        urls=[SIGNED_URL],
+        expires_at=int(clock.time()) + 100,  # 100초 뒤 만료: 여유 60초를 빼고 40초만 들고 있는다
+    )
+    api = _api(parent_status=expiring)
+    generator = make_openrouter_generator(store, api, clock=clock, **EDITING)
+
+    generator.preview(_request(ir, store))
+    clock.sleep(41)
+    generator.generate_scene(_request(ir, store))
+
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 2
+
+
+def test_preview_says_why_the_scene_cannot_be_edited_right_now(ir, store):
+    """방금 만든 영상: 끝난 작업인데 저장본 주소가 아직 없다. 새로 생성될 것이고, 잠시 뒤에는 편집할 수 있다."""
+    api = _api(parent_status=NO_URLS)
+    clock = FakeTime()
+    generator = make_openrouter_generator(store, api, clock=clock, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.model) == (ProductionMethod.GENERATE, "alibaba/wan-3.0")
+    assert preview.cost_usd == pytest.approx(0.2)  # 4초 x $0.05
+    assert "저장본" in preview.edit_unavailable_reason
+    assert "다시" in preview.edit_unavailable_reason  # 잠시 뒤 다시 확인하라고 알려 준다
+    assert clock.sleeps == [2.0, 1.0]  # 미리보기는 3초만 다시 묻는다 (0·2·3초)
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 3 and not api.submits
+
+
+@pytest.mark.parametrize(
+    "parent_status",
+    [status("expired", PARENT_JOB), error_response(404, "Resource not found")],
+)
+def test_preview_does_not_suggest_waiting_for_a_copy_that_is_gone(ir, store, parent_status):
+    api = _api(parent_status=parent_status)
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert preview.method is ProductionMethod.GENERATE
+    assert "만료" in preview.edit_unavailable_reason
+    assert "다시 확인" not in preview.edit_unavailable_reason
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 1
+
+
+def test_preview_does_not_wait_longer_than_making_the_scene_would(ir, store):
+    api = _api(parent_status=NO_URLS)
+    clock = FakeTime()
+    generator = make_openrouter_generator(
+        store, api, clock=clock, edit_parent_wait_seconds=0, **EDITING
+    )
+
+    preview = generator.preview(_request(ir, store))
+
+    assert preview.method is ProductionMethod.GENERATE
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 1 and clock.sleeps == []
+
+
+def test_preview_without_editing_is_plain_generation(ir, store):
+    api = _api()
+    generator = make_openrouter_generator(store, api)  # 편집을 켜지 않았다
+    recorded = _request(ir, store, generation_seconds=163.7)
+
+    preview = generator.preview(recorded)
+
+    assert (preview.method, preview.model, preview.edit_unavailable_reason) == (
+        ProductionMethod.GENERATE,
+        "alibaba/wan-3.0",
+        None,
+    )
+    assert preview.cost_usd == pytest.approx(0.2)
+    assert preview.seconds == 163.7  # 이 장면의 부모 클립을 같은 모델로 만들 때 걸린 시간
+    assert not api.calls_to("GET", PARENT_STATUS) and not api.submits
+
+
+def test_preview_estimates_the_edit_time_from_edits_this_process_has_made(ir, store):
+    """편집에 걸리는 시간은 그 모델로 만든 기록이 있을 때만 어림한다 (부모 클립은 생성 모델로 만든 것이다)."""
+    api = _api()
+    generator = make_openrouter_generator(store, api, **EDITING)
+    assert generator.preview(_request(ir, store)).seconds is None
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    preview = generator.preview(_request(ir, store, scene_key="closeup"))
+    assert preview.method is ProductionMethod.EDIT
+    assert preview.seconds == pytest.approx(clip.metadata["generation_seconds"], abs=0.1)
+
+
+def test_preview_still_answers_when_the_price_list_cannot_be_read(ir, store):
+    api = _api()
+    api.on("GET", "/api/v1/videos/models", error_response(503, "upstream busy"))
+    generator = make_openrouter_generator(store, api)
+
+    preview = generator.preview(_request(ir, store))
+
+    assert (preview.method, preview.cost_usd) == (ProductionMethod.GENERATE, None)
+
+
+def test_negative_preview_settings_are_configuration_errors(store):
+    with pytest.raises(ConfigurationError, match="0 이상"):
+        make_openrouter_generator(store, edit_preview_wait_seconds=-1)
+    with pytest.raises(ConfigurationError, match="0 이상"):
+        make_openrouter_generator(store, parent_url_hold_seconds=-1)
+
+
+def test_a_held_address_is_dropped_when_the_edit_made_with_it_fails(ir, store):
+    """들고 있던 주소로 접수된 편집 작업이 실패하면 그 주소를 버린다. 다음에는 부모 작업을 다시 조회한다."""
+    api = _api()
+    api.on(
+        "GET",
+        f"/api/v1/videos/{JOB_ID}",
+        status("failed", JOB_ID, error="could not fetch the input video"),
+    )
+    generator = make_openrouter_generator(store, api, **EDITING)
+    generator.preview(_request(ir, store))
+
+    with pytest.raises(GenerationError):
+        generator.generate_scene(_request(ir, store))
+    again = generator.preview(_request(ir, store))
+
+    assert again.method is ProductionMethod.EDIT
+    assert (
+        len(api.calls_to("GET", PARENT_STATUS)) == 2
+    )  # 미리보기 -> (들고 있던 주소로 편집) -> 다시 조회
+
+
+def test_a_held_address_is_dropped_when_the_edit_request_is_rejected(ir, store):
+    api = _api(
+        error_response(400, "Invalid reference URL: input_references[0].video_url.url"), accepted()
+    )
+    generator = make_openrouter_generator(store, api, **EDITING)
+    generator.preview(_request(ir, store))
+
+    clip = generator.generate_scene(_request(ir, store))  # 거절 -> 새로 생성
+    generator.preview(_request(ir, store, scene_key="closeup"))
+
+    assert clip.metadata["edit"]["applied"] is False
+    assert len(api.calls_to("GET", PARENT_STATUS)) == 2  # 버린 주소를 다시 쓰지 않고 조회했다
+
+
+def test_preview_requests_give_up_sooner_than_generation_requests(ir, store):
+    """변경 계획 응답이 위쪽 서버 때문에 몇 분씩 멈추지 않게, 미리보기의 조회는 10초 안에 포기한다."""
+    api = _api()
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    generator.preview(_request(ir, store))
+
+    assert api.calls and all(call.timeout <= 10 for call in api.calls)
+    api.calls.clear()
+    generator.generate_scene(_request(ir, store, job_id="gen-vid-1794447999-zYxWvUtSrQpOnMlKjIhG"))
+    lookups = api.calls_to("GET", "/api/v1/videos/gen-vid-1794447999-zYxWvUtSrQpOnMlKjIhG")
+    assert not lookups or all(call.timeout == 60 for call in lookups)
+
+
+# ---- 일시적인 사정으로 새로 생성한 결과는 편집 요청의 키에 남기지 않는다 (ADR-0021) ---------------
+
+EDIT_JOB = "gen-vid-1794448000-eDiTeDiTeDiTeDiTeDiT"
+
+
+def _ledger_status(store, generator, result_key):
+    record = ArtifactJobLedger(store, "openrouter").get(
+        generation_key(result_key, generator.profile())
+    )
+    return record.status if record is not None else None
+
+
+def _not_yet_then_available(*post_responses):
+    """부모 작업의 저장본 주소가 처음 한 번은 없고, 그 뒤로는 있다."""
+    api = _api(*post_responses)
+    api.on("GET", PARENT_STATUS, NO_URLS, completed(PARENT_JOB))
+    api.add_job(EDIT_JOB)
+    return api
+
+
+def test_a_scene_regenerated_because_the_address_was_not_there_yet_is_edited_next_time(ir, store):
+    """2차 실호출: 방금 만든 영상을 바로 수정하면 주소가 없어 새로 생성된다. 그 결과가 편집 요청의 키에 남으면,
+    나중에 계획이 '편집' 이라고 답해도 같은 요청은 그 결과를 다시 쓴다. 조건 키로만 남기고 편집 키는 비운다.
+    """
+    api = _not_yet_then_available(accepted(), accepted(EDIT_JOB))
+    generator = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    request = _request(ir, store)
+
+    first = generator.generate_scene(request)
+    second = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    generated, edited = (call.json() for call in api.submits)
+    assert generated["prompt"].startswith("Scene:") and "input_references" not in generated
+    assert edited["input_references"][0]["video_url"]["url"] == SIGNED_URL
+    assert first.metadata["edit"]["applied"] is False and first.metadata["provisional"] is True
+    assert "다시 요청" in first.metadata["edit"]["fallback_reason"]
+    assert second.metadata["edit"]["applied"] is True and "provisional" not in second.metadata
+    assert second.metadata["model"] == "black-forest-labs/flux-video-edit"
+    # 원장: 새로 생성한 결과는 조건 키에, 편집한 결과는 편집 요청의 키에 있다
+    assert _ledger_status(store, generator, request.generation_fingerprint) == "completed"
+    assert _ledger_status(store, generator, generator.result_key(request)) == "completed"
+
+
+def test_the_edit_key_is_released_after_a_provisional_regeneration(ir, store):
+    api = _api(parent_status=NO_URLS)
+    generator = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    request = _request(ir, store)
+
+    generator.generate_scene(request)
+
+    assert _ledger_status(store, generator, generator.result_key(request)) == "released"
+    assert _ledger_status(store, generator, request.generation_fingerprint) == "completed"
+
+
+def test_a_provisional_regeneration_is_reused_while_the_address_is_still_missing(ir, store):
+    """주소가 계속 없으면 또 생성(과금)하지 않고 조건 키의 결과를 다시 쓴다. 그때도 편집 키에는 남기지 않는다."""
+    api = _api(parent_status=NO_URLS)
+    generator = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    request = _request(ir, store)
+    first = generator.generate_scene(request)
+
+    again = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1
+    assert again.uri == first.uri and again.metadata["ledger"] == "reused"
+    assert again.metadata["edit"]["applied"] is False and again.metadata["provisional"] is True
+    assert _ledger_status(store, generator, generator.result_key(request)) == "released"
+
+
+def test_a_provisional_regeneration_serves_requests_that_do_not_edit(ir, store):
+    """편집을 끈 설정이 같은 조건을 요청하면 그 결과를 쓴다. 남의 편집 시도 기록과 임시 표시는 따라오지 않는다."""
+    api = _api(parent_status=NO_URLS)
+    request = _request(ir, store)
+    editing = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    regenerated = editing.generate_scene(request)
+
+    plain = make_openrouter_generator(store, api)
+    clip = plain.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1 and clip.uri == regenerated.uri
+    assert "edit" not in clip.metadata and "provisional" not in clip.metadata
+
+
+def test_an_interrupted_provisional_regeneration_is_resumed_not_submitted_again(ir, store):
+    """새로 생성하는 작업이 접수된 뒤 끊겼다. 다음 요청은 주소가 나와 있어도 그 작업을 이어 받는다.
+
+    두 번 내지 않는다 (편집을 새로 제출하지 않는다).
+    """
+    api = _not_yet_then_available(accepted(), accepted(EDIT_JOB))
+    api.on("GET", f"/api/v1/videos/{JOB_ID}", status("in_progress", JOB_ID))
+    request = _request(ir, store)
+    with pytest.raises(GenerationError):
+        make_openrouter_generator(
+            store,
+            api,
+            edit_parent_wait_seconds=0,
+            timeout_seconds=1,
+            poll_interval_seconds=1,
+            **EDITING,
+        ).generate_scene(request)
+    api.on("GET", f"/api/v1/videos/{JOB_ID}", completed(JOB_ID))  # 그 사이 작업이 끝났다
+
+    generator = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    resumed = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1  # 다시 제출하지 않았다
+    assert resumed.metadata["job_id"] == JOB_ID and resumed.metadata["ledger"] == "resumed"
+    assert resumed.metadata["edit"]["applied"] is False and resumed.metadata["provisional"] is True
+    # 그 뒤의 같은 요청은 편집을 시도한다
+    edited = generator.generate_scene(replace(request, version_id="ver_3"))
+    assert len(api.submits) == 2 and edited.metadata["edit"]["applied"] is True
+
+
+@pytest.mark.parametrize(
+    "parent_status",
+    [status("expired", PARENT_JOB), error_response(404, "Resource not found")],
+)
+def test_a_scene_regenerated_because_the_copy_is_gone_keeps_the_edit_key(ir, store, parent_status):
+    """저장본이 없거나 만료된 것은 나아지지 않는다. 지금까지처럼 편집 요청의 키에 남겨 다시 시도하지 않는다."""
+    api = _api(parent_status=parent_status)
+    generator = make_openrouter_generator(store, api, **EDITING)
+    request = _request(ir, store)
+
+    first = generator.generate_scene(request)
+    again = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1 and again.metadata["ledger"] == "reused"
+    assert "provisional" not in first.metadata and "provisional" not in again.metadata
+    assert "다시 요청" not in first.metadata["edit"]["fallback_reason"]
+    assert (
+        len(api.calls_to("GET", PARENT_STATUS)) == 1
+    )  # 두 번째 요청은 부모 작업을 조회하지도 않는다
+    assert _ledger_status(store, generator, generator.result_key(request)) == "completed"
+
+
+def test_rejected_edits_still_keep_the_edit_key(ir, store):
+    """접수 전에 거절된 편집(모델이 받지 않음)도 나아지지 않는다: 임시 결과가 아니다."""
+    api = _api(error_response(400, "video input is not supported"), accepted())
+    generator = make_openrouter_generator(store, api, **EDITING)
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is False and "provisional" not in clip.metadata
+
+
+def test_a_provisional_regeneration_does_not_displace_another_job_for_the_same_conditions(
+    ir, store
+):
+    """같은 조건을 편집 없이 만드는 작업이 진행 중이면 그 원장 항목을 덮어쓰지 않는다.
+
+    그때는 이 결과를 가리키는 곳이 편집 요청의 키뿐이므로 비우지 않는다 (비우면 다음 요청이 또 생성한다).
+    """
+    in_flight = "gen-vid-1794450000-" + "P" * 20
+    api = _api(accepted(in_flight), accepted(), parent_status=NO_URLS)
+    api.add_job(in_flight, status("in_progress", in_flight))
+    request = _request(ir, store)
+    plain = make_openrouter_generator(store, api, timeout_seconds=1, poll_interval_seconds=1)
+    with pytest.raises(GenerationError):
+        plain.generate_scene(replace(request, parent=None))  # 기다리다 시간 초과. 원장에는 남는다
+
+    editing = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    clip = editing.generate_scene(request)
+    again = editing.generate_scene(replace(request, version_id="ver_2"))
+
+    assert clip.metadata["job_id"] == JOB_ID and len(api.submits) == 2
+    assert "provisional" not in clip.metadata
+    assert again.uri == clip.uri and len(api.submits) == 2
+    assert _ledger_status(store, editing, editing.result_key(request)) == "completed"
+    assert _ledger_status(store, plain, request.generation_fingerprint) == "submitted"
+
+
+def test_the_cache_does_not_keep_a_provisional_regeneration(ir, store):
+    """생성 캐시를 켠 구성: 임시 결과는 캐시에 남지 않아, 다음 요청이 생성기까지 가서 편집된다."""
+    api = _not_yet_then_available(accepted(), accepted(EDIT_JOB))
+    cached = CachingVideoGenerator(
+        make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    )
+    request = _request(ir, store)
+
+    first = cached.generate_scene(request)
+    second = cached.generate_scene(replace(request, version_id="ver_2"))
+    third = cached.generate_scene(replace(request, version_id="ver_3"))
+
+    assert first.metadata["provisional"] is True
+    assert second.metadata["edit"]["applied"] is True and len(api.submits) == 2
+    assert third.metadata["cache_hit"] is True and third.uri == second.uri  # 편집 결과는 캐시된다
+    assert cached.hits == 1
+
+
+def test_a_provisional_result_whose_clip_was_deleted_is_downloaded_again(tmp_path, ir):
+    """조건 키로 옮긴 결과의 클립 파일이 지워졌어도 다시 생성(과금)하지 않는다: 끝난 작업의 결과를 다시 내려받는다.
+
+    편집 요청의 키를 비우기 전에는 그 키의 완료 기록으로 다시 내려받았다. 비운 뒤에도 그래야 한다.
+    """
+    store = LocalFileArtifactStore(tmp_path)
+    api = _api(parent_status=NO_URLS)
+    generator = make_openrouter_generator(store, api, edit_parent_wait_seconds=0, **EDITING)
+    request = _request(ir, store)
+    first = generator.generate_scene(request)
+    store.local_path(first.uri).unlink()
+
+    again = generator.generate_scene(replace(request, version_id="ver_2"))
+
+    assert len(api.submits) == 1  # 다시 제출하지 않았다
+    assert len(api.calls_to("GET", f"/api/v1/videos/{JOB_ID}/content")) == 2
+    assert store.exists(again.uri) and again.metadata["job_id"] == JOB_ID
+    assert again.metadata["edit"]["applied"] is False and again.metadata["provisional"] is True
+    assert _ledger_status(store, generator, generator.result_key(request)) == "released"

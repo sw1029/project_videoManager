@@ -75,9 +75,14 @@ class RunGenerationPipeline:
                 uow.versions.get(version.parent_version_id) if version.parent_version_id else None
             )
             references = tuple(uow.reference_images.list_by_version(version_id))
+            parent_checks = (
+                tuple(uow.checks.list_by_version(parent.version_id)) if parent is not None else ()
+            )
             uow.commit()
 
-        ctx = PipelineContext(version=version, references=references, parent=parent)
+        ctx = PipelineContext(
+            version=version, references=references, parent=parent, parent_checks=parent_checks
+        )
         progress_writer = _ProgressWriter(self._uow_factory, version_id)
         try:
             self._runner.run(self._stages, ctx, observers=(progress_writer,))

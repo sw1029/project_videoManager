@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from frame.domain.artifacts import GeneratedClip, VideoArtifact
+from frame.domain.checks import CheckResult
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import ReferenceImage, VideoVersion
 from frame.domain.progress import PipelineProgress
@@ -24,6 +25,8 @@ class PipelineContext:
     # 이 버전의 참조 이미지 (사용자 참조 + 정체성 기준). 생성 단계가 새 기준을 뽑으면 여기에 더한다
     references: tuple[ReferenceImage, ...] = ()
     parent: VideoVersion | None = None
+    # 부모 버전의 검수 결과 (다시 만들지 않은 장면의 판정을 물려받는 데 쓴다, ADR-0018)
+    parent_checks: tuple[CheckResult, ...] = ()
     clips: dict[str, GeneratedClip] = field(default_factory=dict)
     video: VideoArtifact | None = None
     tracks: list[TrackRecord] = field(default_factory=list)
