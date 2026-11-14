@@ -148,11 +148,12 @@ FRAME_LIVE_TESTS=1 FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=path/to/openai.key py
 
 구조화 품질은 골드셋 15건(브리프 → 기대 IR)으로 잰다. 객체 재현율·요구조건 F1·장면 수 일치를 내고,
 `docs/evaluation/structuring/` 의 가장 최근 기록과 견준다 ([STRUCTURING_DESIGN §10](docs/STRUCTURING_DESIGN.md)).
-이 실제 실행 테스트는 서버 설정이 아니라 전용 스위치 `FRAME_EVAL_STRUCTURING_LIVE=1` 로만 켜진다 (1회 약 $0.03~0.04, 어림).
+이 실제 실행 테스트는 서버 설정이 아니라 스위치 둘로 켠다 — 실제 호출 테스트 공통의 `FRAME_LIVE_TESTS=1` 과 이 테스트만의
+`FRAME_EVAL_STRUCTURING_LIVE=1` (1회 약 $0.03~0.04, 어림).
 기록을 저장소에 남길 때는 `FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring` 을 더한다.
 
 ```bash
-FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live/test_structuring_gold_live.py -m slow -s
+FRAME_LIVE_TESTS=1 FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live/test_structuring_gold_live.py -m slow -s
 ```
 
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,
@@ -172,7 +173,7 @@ pip install -e ".[dev,video]"
 ```
 
 ```bash
-FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
+FRAME_LIVE_TESTS=1 FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
 ```
 
 카페 예시의 4초 장면 하나를 만들고(Wan 3.0 480p 약 $0.20, 720p 약 $0.40) 비용(`usage.cost`)·소요 시간·출력 규격을 출력한다.
@@ -249,4 +250,4 @@ python -m frame.tools.evaluate_edits --cases eval/cases.json --out eval/plan.jso
 
 20건이면 장면 2개씩 기준으로 편집 약 $5.8 ~ 새로 생성 약 $9.5 (장면 1~3개가 섞이면 약 $3.4~$13.8), 시간은 약 40~110분이다.
 원본이 없으면 4장면 원본 하나에 약 $0.90 이 더 든다. 20건은 예를 들어 원본 4개 × 속성 5종(색·의상·재질·조명·장소 등)으로 짠다.
-`tests/live/test_evaluate_edits_live.py` 는 같은 설정에 `FRAME_EVAL_CASES=<케이스 파일>` 을 줄 때만 돈다 (`-m slow`).
+`tests/live/test_evaluate_edits_live.py` 는 같은 설정에 `FRAME_LIVE_TESTS=1` 과 `FRAME_EVAL_CASES=<케이스 파일>` 을 줄 때만 돈다 (`-m slow`).

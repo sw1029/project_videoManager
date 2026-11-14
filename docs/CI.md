@@ -102,6 +102,8 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
 | `test_modules_stay_small_enough_to_read` | 새 모듈이 500줄을 넘는다 | 개념 단위로 나눈다 (줄 수는 신호이고, 나누는 기준은 개념이다) |
 | `test_the_adr_index_lists_every_adr` | ADR 을 더했는데 색인에 없다 | `docs/adr/README.md` 의 표에 한 줄 |
 | `test_the_module_map_lists_every_package` | 패키지를 더하거나 옮겼는데 모듈 지도에 없다 | `docs/MODULE_MAP.md` §2 의 표를 고친다 |
+| `test_documented_live_test_commands_carry_the_switch` | README · `docs/` 바로 아래의 문서 · `tests/live` 와 `src` 의 머리말에 적은 실제 호출 테스트의 실행 명령에 `FRAME_LIVE_TESTS=1` 이 없다 | 그 명령 앞에 `FRAME_LIVE_TESTS=1` 을 붙인다. 없으면 그대로 친 사람은 '모두 건너뜀' 을 통과로 본다 (3절) |
+| `test_the_example_environment_lists_every_setting_the_server_reads` | `Settings` · `ThemeSettings` 가 읽는 `FRAME_*` 설정이 `.env.example` 에 없다. 또는 예시에만 있고 서버가 읽지 않는 이름이 있다 | `.env.example` 에 그 설정의 줄(기본값과 한 줄 설명)을 더한다. 없앤 설정이면 그 줄을 지운다 |
 | `test_no_machine_bound_paths_are_committed` | 커밋되는 글에 드라이브 문자 경로나 홈 · 설치 · 임시 폴더에서 시작하는 경로가 있다 | 설정 · 상대 경로 · `tmp_path` · 자리표시(`path/to/…`)로 바꾼다. 경로를 거절 · 변환 · 가리는지 시험하는 입력처럼 꼭 있어야 하면 `tests/architecture/test_machine_paths.py` 의 `ALLOWED` 에 이유와 함께 적는다 (ADR-0032) |
 | `test_every_allowed_path_is_still_there` | 허용 목록에 적은 줄이 없어졌다 | `ALLOWED` 에서 그 항목을 지운다 |
 | `test_arguments_that_come_from_settings_have_no_default_of_their_own` | 조립이 설정에서 넘기는 인자에 생성자가 기본값을 또 갖고 있다 | 생성자의 기본값을 지운다. 값은 설정에만 두고 조립이 넘긴다. 그 클래스를 직접 만드는 테스트는 값을 직접 준다 (ADR-0032) |

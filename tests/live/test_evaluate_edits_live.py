@@ -1,6 +1,7 @@
-"""지표 1 평가 CLI 를 실제 생성·검수 모델로 (slow, 비용 발생). FRAME_EVAL_CASES 로 케이스 파일을 줄 때만 실행된다.
+"""지표 1 평가 CLI 를 실제 생성·검수 모델로 (slow, 비용 발생). FRAME_EVAL_CASES 로 케이스 파일을 줄 때만 실행된다
+(이 폴더 공통의 FRAME_LIVE_TESTS=1 도 있어야 한다 - tests/live/conftest.py).
 
-    FRAME_EVAL_CASES=<cases.json> [FRAME_EVAL_OUT=<result.json>] \
+    FRAME_LIVE_TESTS=1 FRAME_EVAL_CASES=<cases.json> [FRAME_EVAL_OUT=<result.json>] \
     FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=<원본이 있는 DB> \
     FRAME_ARTIFACT_STORE=local_fs FRAME_ARTIFACT_DIR=<산출물 폴더> \
     FRAME_GENERATOR=external_api FRAME_ASSEMBLER=ffmpeg \

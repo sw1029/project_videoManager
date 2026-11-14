@@ -313,7 +313,7 @@ StructuringReport
 | 무엇 | 명령 | 모델 호출 |
 |---|---|---|
 | CI | `pytest -m "not slow and not gpu"` (`tests/unit/test_structuring_metrics.py`, `tests/evaluation/test_structuring_gold.py`) | 없음 (`ReplayLLMClient`) |
-| 실제 모델 | `FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> pytest -m slow tests/live/test_structuring_gold_live.py -s` | 15건. 첫 실행은 104초, 호출 22회(재시도 7회), 약 $0.03~0.04 (어림, 10.6) |
+| 실제 모델 | `FRAME_LIVE_TESTS=1 FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> pytest -m slow tests/live/test_structuring_gold_live.py -s` | 15건. 첫 실행은 104초, 호출 22회(재시도 7회), 약 $0.03~0.04 (어림, 10.6) |
 | 기록 비교 | `python -m frame.tools.evaluate_structuring compare <기준.json> <비교.json>` | 없음. 회귀가 있으면 종료 코드 1, 기록을 읽지 못하면 2 |
 | 다시 채점 | `python -m frame.tools.evaluate_structuring rescore <기록.json> [--write]` | 없음. 기록의 원본 응답을 지금 골드로 채점. 골드 폴더가 없거나 비었거나, 골드에 없는 사례가 기록에 있으면 쓰지 않고 종료 코드 2 |
 
@@ -325,7 +325,8 @@ CI 는 세 가지를 확인한다.
 - 골드 자체를 재생하면 모든 지표가 1 이 되는가
 - 컨셉 카페 브리프에 대한 gpt-4.1-mini 실호출 결과 3건(`tests/evaluation/replay/`)을 채점한 결과가 기대와 같은가
 
-실제 모델 테스트(`tests/live/`)는 전용 스위치 `FRAME_EVAL_STRUCTURING_LIVE=1` 일 때만 돈다.
+실제 모델 테스트(`tests/live/`)는 스위치 둘을 함께 줄 때만 돈다: 실제 호출 테스트 공통의 `FRAME_LIVE_TESTS=1` (`tests/live/conftest.py`,
+ADR-0030) 과 이 테스트만의 `FRAME_EVAL_STRUCTURING_LIVE=1`.
 - 서버 설정(`FRAME_STRUCTURER`)은 보지 않고 LLM 구조화기로 돈다. 서버를 띄우던 셸에서 실수로 켜지지 않게 하려는 것이다 (감사 B17-01).
 - 스위치를 켰는데 키·패키지가 없으면 건너뛰지 않고 설정 오류로 실패한다.
 - 구조화기가 원본 응답·시도 횟수를 내주지 않으면(`StructuringRunDetails` 가 아니면) 모델을 부르기 전에 실패한다.
@@ -459,7 +460,7 @@ tests/unit/structurer/test_repair_rules.py         규칙별 단위 테스트 (�
 tests/unit/structurer/test_schema.py               스키마가 IR.to_dict 와 일치하는지 (왕복)
 tests/contract/test_structurer_contract.py         LLMStructurer(ReplayLLMClient) 를 params 에 추가
 tests/evaluation/test_structuring_gold.py          골드 규칙·리플레이 채점 (CI)
-tests/live/test_structuring_gold_live.py           slow, 실제 모델 (FRAME_EVAL_STRUCTURING_LIVE=1 로만 켜짐)
+tests/live/test_structuring_gold_live.py           slow, 실제 모델 (FRAME_LIVE_TESTS=1 + FRAME_EVAL_STRUCTURING_LIVE=1)
 ```
 
 | 순서 | 작업 | 공수(h) | 비고 |
