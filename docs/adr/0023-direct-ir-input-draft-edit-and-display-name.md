@@ -42,6 +42,9 @@
   유일성은 대소문자를 가리지 않고 본다: 대소문자를 가리지 않는 파일 시스템(Windows·macOS)에서 `intro`·`Intro` 의 클립이
   한 파일이 되기 때문이다 (델타 D02).
   DSL·LLM 구조화도 같은 검증을 거친다 (한글 이름은 `display_name` 에 둔다).
+  보완 (2026-11-15, 감사 P-20 · 델타 D06): 이 규칙은 IR 이 들어올 때 본다. 규칙이 생기기 전에 저장된 버전은 **생성을 접수할 때** 키만 다시 본다
+  (`IR.validate_keys()`, 어긋나면 409 `VERSION_NOT_GENERATABLE`). 접수한 뒤에는 저장소가 막아도 이미 생성기를 부른 뒤이고, 대소문자만 다른 키는
+  저장소가 막지 못한다. 키가 아닌 규칙으로는 옛 버전을 막지 않는다.
 
 ### 3. DRAFT IR 수정 — `PUT /api/versions/{version_id}/ir` (#11)
 - 본문은 IR 문서다. GET 의 `ir` 과 같은 모양이며 읽기 전용 필드(`entity_id`·`requirement_key`·`clip_url` 등)는 무시하므로,

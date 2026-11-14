@@ -157,7 +157,8 @@ FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest t
 
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,
 `FRAME_LLM_MODEL=<서빙 모델명>`, `FRAME_LLM_STRICT_SCHEMA=false` 를 더한다. 모델 호출은 `LLMClient` 포트 뒤에 있어
-유스케이스·API·테스트는 바뀌지 않는다.
+유스케이스·API·테스트는 바뀌지 않는다. 요청이 가는 주소는 `FRAME_LLM_BASE_URL` 로만 바꾼다 — 비워 두면 OpenAI 이고,
+셸의 `OPENAI_BASE_URL` 은 따르지 않는다 (주소를 따로 주지 않은 음성 인식도 같은 주소로 간다).
 
 ## 영상 생성 (OpenRouter) 호출 테스트
 
