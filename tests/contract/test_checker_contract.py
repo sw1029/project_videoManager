@@ -42,7 +42,7 @@ FRAMES = 2  # 장면마다 뽑는 표본 프레임 수
 @pytest.fixture(scope="module")
 def videos(tmp_path_factory):
     if FFMPEG is None:
-        return {name: b"not-a-video" for name in ("red", "blue", "pattern")}
+        return dict.fromkeys(("red", "blue", "pattern"), b"not-a-video")
     folder = tmp_path_factory.mktemp("clips")
     return {
         "red": make_clip(FFMPEG, folder / "red.mp4", source="color=c=red"),

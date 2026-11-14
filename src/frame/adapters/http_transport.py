@@ -66,7 +66,8 @@ class UrllibTransport(HttpTransport):
         body: bytes | None = None,
         timeout: float = 60.0,
     ) -> HttpResponse:
-        req = urllib.request.Request(url, data=body, method=method)
+        # 주소는 부르는 어댑터가 검증한 것만 온다 (OpenRouter 는 https 만: _checked_base_url)
+        req = urllib.request.Request(url, data=body, method=method)  # noqa: S310
         req.add_header("User-Agent", self.user_agent)
         for name, value in (headers or {}).items():
             if name.lower() in SECRET_HEADERS:
@@ -74,7 +75,7 @@ class UrllibTransport(HttpTransport):
             else:
                 req.add_header(name, value)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
                 return HttpResponse(resp.status, resp.read(), _lower(resp.headers.items()))
         except urllib.error.HTTPError as exc:
             try:

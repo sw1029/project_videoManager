@@ -57,7 +57,7 @@ def test_terminal_states_have_no_outgoing_transitions():
 
 
 def test_only_draft_accepts_generation():
-    assert GENERATABLE_STATES == frozenset({S.DRAFT})
+    assert frozenset({S.DRAFT}) == GENERATABLE_STATES
 
 
 def _version(state: S) -> VideoVersion:

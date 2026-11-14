@@ -324,7 +324,8 @@ def _http(
 ) -> tuple[int, bytes]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers = {"Content-Type": "application/json"} if data is not None else {}
-    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    # 이 기기에서 띄운 시연 서버의 주소만 부른다
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)  # noqa: S310
     try:
         with _LOCAL_OPENER.open(request, timeout=timeout) as response:
             return response.status, response.read()
@@ -661,7 +662,7 @@ def cmd_run(
     if reset:
         reset_state(demo)
         _say("시연 DB 와 산출물을 지웠습니다 (키 파일은 그대로)")
-    host = "0.0.0.0" if lan else LOOPBACK
+    host = "0.0.0.0" if lan else LOOPBACK  # noqa: S104 - --lan 은 같은 네트워크에 여는 선택 기능이다
     if not _port_free(port, host):
         return _fail(f"포트 {port} 를 이미 쓰고 있습니다. --port 로 바꾸세요 (예: --port 8010)")
     demo.mkdir(exist_ok=True)

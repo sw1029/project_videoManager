@@ -36,7 +36,8 @@ DEFAULT_SCENE_KEY = "scene_01"
 DEFAULT_DURATION_MS = 8000
 
 
-SCENE_LEVEL_TOKEN = "scene"  # `scene.mood = calm` 처럼 객체 자리에 쓰면 장면 수준 조건
+# `scene.mood = calm` 처럼 객체 자리에 쓰면 장면 수준 조건
+SCENE_LEVEL_TOKEN = "scene"  # noqa: S105 - 비밀이 아니라 DSL 의 낱말
 
 
 @dataclass

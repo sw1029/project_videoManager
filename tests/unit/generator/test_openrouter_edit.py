@@ -645,8 +645,10 @@ def test_edit_prompt_names_what_must_not_change(ir, store):
     assert prompt.splitlines() == [
         "Edit the input video. Apply only these changes:",
         "- cup: color changes from red to teal",
-        "Do not change: barista (action and pose, appearance); cup (shape and size); "
-        "the lighting; the background.",
+        (
+            "Do not change: barista (action and pose, appearance); cup (shape and size); "
+            "the lighting; the background."
+        ),
         EDIT_KEEP_LINE,
     ]
 

@@ -85,12 +85,11 @@ class ChangePropagationPolicy(ABC):
 
 class DefaultPropagationPolicy(ChangePropagationPolicy):
     def apply(self, ir: IntermediateRepresentation, change: AttributeChange) -> PropagationResult:
-        if change.entity_key is None:
-            if DEFAULT_VOCABULARY.is_relational(change.predicate) is True:
-                raise ValidationError(
-                    f"'{change.predicate}' 는 관계 술어라 장면 수준 조건으로 바꿀 수 없습니다 "
-                    "(entity_key 를 지정하세요)"
-                )
+        if change.entity_key is None and DEFAULT_VOCABULARY.is_relational(change.predicate) is True:
+            raise ValidationError(
+                f"'{change.predicate}' 는 관계 술어라 장면 수준 조건으로 바꿀 수 없습니다 "
+                "(entity_key 를 지정하세요)"
+            )
         targets = target_scenes(ir, change)
 
         new_scenes: list[SceneSpec] = []

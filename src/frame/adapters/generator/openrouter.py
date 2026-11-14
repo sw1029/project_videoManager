@@ -1590,7 +1590,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             key = f"clips/{request.version_id}/{request.scene.scene_key}.source.mp4"
             try:
                 kept = f" 원본은 {self._store.put(key, raw, 'video/mp4')} 에 남겼습니다"
-            except Exception:  # 원본 보관 실패가 원래 오류를 가리지 않게 한다
+            except Exception:  # noqa: BLE001 - 원본 보관 실패가 원래 오류를 가리지 않게 한다
                 kept = ""
             raise GenerationError(
                 f"OpenRouter 작업 {job_id} 의 영상을 정규화하지 못했습니다: {exc}.{kept}",

@@ -179,8 +179,9 @@ def fetch_python(target: Target, cache_dir: Path, local_archive: Path | None = N
         url = asset_url(target)
         _say(f"휴대용 Python {PYTHON_VERSION} 을 받습니다: {url}")
         partial = path.with_name(path.name + ".part")
-        request = urllib.request.Request(url, headers={"User-Agent": "frame-bundle"})
-        with urllib.request.urlopen(request, timeout=300) as response, partial.open("wb") as out:
+        # 주소는 코드에 고정한 https 릴리스 주소이고, 받은 파일은 고정한 SHA-256 으로 확인한다
+        request = urllib.request.Request(url, headers={"User-Agent": "frame-bundle"})  # noqa: S310
+        with urllib.request.urlopen(request, timeout=300) as response, partial.open("wb") as out:  # noqa: S310
             shutil.copyfileobj(response, out, 1 << 20)
         partial.replace(path)
     actual = sha256_of(path)
@@ -419,14 +420,14 @@ def _frame_version(repo: Path) -> str:
 def _git_sha(repo: Path) -> str:
     try:
         sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607 - PATH 의 git 을 쓴다
             cwd=repo,
             capture_output=True,
             text=True,
             check=True,
         ).stdout.strip()
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "status", "--porcelain", "--untracked-files=no"],  # noqa: S607 - PATH 의 git
             cwd=repo,
             capture_output=True,
             text=True,
@@ -528,7 +529,7 @@ def minimal_env() -> dict[str, str]:
             "USERNAME",
         }
         env = {k: v for k, v in os.environ.items() if k.upper() in keep}
-        system_root = os.environ.get("SystemRoot", "C:\\Windows")
+        system_root = os.environ.get("SYSTEMROOT", "C:\\Windows")
         env["PATH"] = f"{system_root}\\System32;{system_root};{system_root}\\System32\\Wbem"
         return env
     env = {k: v for k, v in os.environ.items() if k in {"HOME", "USER", "TMPDIR", "LANG", "LC_ALL"}}
@@ -539,7 +540,7 @@ def minimal_env() -> dict[str, str]:
 def _extract_bundle(archive: Path, dest: Path) -> None:
     if archive.suffix == ".zip":
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(dest)
+            zf.extractall(dest)  # noqa: S202 - 방금 만든 번들을 임시 폴더에 푼다
     else:
         _require_safe_tar()
         with tarfile.open(archive, "r:gz") as tar:
@@ -610,7 +611,7 @@ def _rmtree(path: Path) -> None:
     """읽기 전용 파일(Windows)도 지운다."""
 
     def retry(func, target, _exc) -> None:  # noqa: ANN001 - shutil 콜백 형식
-        os.chmod(target, stat.S_IWRITE)
+        Path(target).chmod(stat.S_IWRITE)
         func(target)
 
     if not path.exists():
