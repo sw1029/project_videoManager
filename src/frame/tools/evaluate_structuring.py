@@ -3,8 +3,10 @@
     python -m frame.tools.evaluate_structuring compare <기준 기록.json> <비교 기록.json>
     python -m frame.tools.evaluate_structuring rescore <기록.json> [--gold tests/evaluation/structuring_gold] [--write]
 
-- compare: 대표 지표와 사례별 변화를 표로 낸다. 지표가 하나라도 나빠지면 종료 코드 1.
+- compare: 대표 지표와 사례별 변화를 표로 낸다. 지표가 하나라도 나빠지면 종료 코드 1, 기록을 읽지 못하면 2.
+  한쪽 기록에만 있는 사례가 있으면 그 사례를 밝힌다 (그때 대표 지표는 서로 다른 사례 집합의 값이다).
 - rescore: 기록에 남은 원본 응답을 지금 골드로 다시 채점한다 (모델을 부르지 않는다).
+  실행 때 실패한 사례는 재생에서도 실패하면 실행 때의 오류를 그대로 둔다.
   --write 를 주면 그 기록 파일을 다시 채점한 내용으로 고쳐 쓴다 (실행 정보는 그대로).
   골드 폴더가 없거나 비었거나, 기록의 사례가 골드에 없으면 아무것도 쓰지 않고 종료 코드 2 로 멈춘다.
   골드 폴더의 기본값은 지금 폴더 기준이라 저장소 루트에서 실행하거나 --gold 를 준다.
