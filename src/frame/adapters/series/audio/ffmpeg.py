@@ -13,14 +13,15 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from frame.adapters.shared.media.ffmpeg import require_ffmpeg, tail
-from frame.adapters.shared.media.media_tools import (
+from frame.adapters.shared.media.detection import detect_silences
+from frame.adapters.shared.media.ffmpeg import (
     WORK_TIMEOUT_S,
-    MediaToolError,
-    detect_silences,
-    probe_media,
-    run_ffmpeg,
+    VideoToolError,
+    require_ffmpeg,
+    run_reading,
+    tail,
 )
+from frame.adapters.shared.media.probe import probe_media
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
 from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio
@@ -82,7 +83,7 @@ class FfmpegAudioEditor(AudioEditor):
                 return None
             try:
                 found = detect_silences(self._ffmpeg, path, timeout_s=self.timeout_s)
-            except MediaToolError as exc:
+            except VideoToolError as exc:
                 raise AudioError(f"무음 구간을 재지 못했습니다: {exc}") from exc
         quiet: list[tuple[int, int]] = []
         for start, end in found:
@@ -153,7 +154,7 @@ class FfmpegAudioEditor(AudioEditor):
             sound.write_bytes(track)
             try:
                 found = probe_media(self._ffmpeg, picture, self.timeout_s)
-            except MediaToolError as exc:
+            except VideoToolError as exc:
                 raise AudioError(f"영상을 읽지 못했습니다: {exc}") from exc
             if not found.has_video or not found.duration_ms:
                 raise AudioError("소리를 붙일 영상에 영상 스트림이 없습니다")
@@ -174,7 +175,7 @@ class FfmpegAudioEditor(AudioEditor):
     def _info(self, path: Path) -> AudioInfo | None:
         try:
             found = probe_media(self._ffmpeg, path, self.timeout_s)
-        except MediaToolError as exc:
+        except VideoToolError as exc:
             raise AudioError(f"파일을 읽지 못했습니다: {exc}") from exc
         if not found.has_audio or not found.duration_ms:
             return None
@@ -182,8 +183,8 @@ class FfmpegAudioEditor(AudioEditor):
 
     def _run(self, cmd: list[str], target: Path, message: str) -> None:
         try:
-            code, log = run_ffmpeg(cmd, self.timeout_s)
-        except MediaToolError as exc:
+            code, log = run_reading(cmd, self.timeout_s)
+        except VideoToolError as exc:
             raise AudioError(f"{message}: {exc}") from exc
         if code != 0 or not target.is_file() or target.stat().st_size == 0:
             raise AudioError(f"{message}: {tail(log)}")

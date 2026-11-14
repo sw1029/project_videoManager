@@ -287,6 +287,30 @@ def test_lock_lets_the_same_thread_in_again_and_makes_other_threads_wait(reposit
     assert order == ["other key", "same key"]
 
 
+def test_theme_lock_makes_other_threads_wait_for_the_same_key(repositories):
+    """테마 저장소도 키 잠금을 준다: 같은 영상의 추출이 겹치지 않게 하는 데 쓴다 (감사 BTS-12 의 남은 것)."""
+    import threading
+
+    themes, _ = repositories
+    order: list[str] = []
+
+    def worker(key: str, name: str) -> None:
+        with themes.lock(key):
+            order.append(name)
+
+    with themes.lock("source:abc"):
+        with themes.lock("source:abc"):  # 같은 스레드는 다시 들어간다
+            pass
+        same = threading.Thread(target=worker, args=("source:abc", "same key"))
+        other = threading.Thread(target=worker, args=("source:def", "other key"))
+        same.start()
+        other.start()
+        other.join(5)
+        assert order == ["other key"] and same.is_alive()
+    same.join(5)
+    assert order == ["other key", "same key"]
+
+
 # ---- 만들고 있는 수정 버전 (감사 BTS-16) ----
 def test_pending_revision_becomes_the_base_only_when_it_completes():
     episode = replace(_episode(), render=RenderResult("mem://final.mp4", "ver_1", 16000))

@@ -32,7 +32,7 @@ from .text_rules import (
     render_template,
     template_variables,
 )
-from .theme import KEY_FORMAT, THEME_SCHEMA_VERSION, Theme
+from .theme import THEME_SCHEMA_VERSION, Theme
 
 __all__ = [
     "AnchorOrigin",
@@ -41,7 +41,6 @@ __all__ = [
     "Condition",
     "DEFAULT_MIN_SLOT_MS",
     "FormatSpec",
-    "KEY_FORMAT",
     "MusicSpec",
     "NarrationBeat",
     "NarrationSpec",

@@ -1,4 +1,4 @@
-"""영상 정보 읽기 (adapters/shared/media/probe · media_tools) 의 프레임 수.
+"""영상 정보 읽기 (adapters/shared/media/probe) 의 프레임 수.
 
 프레임 수는 생성 결과의 확인에 쓰인다: 클립 정규화는 만든 클립의 프레임 수가 목표와 다르면 실패하고,
 최종 영상 조립은 이은 영상의 프레임 수를 장면들의 합과 견준다. 그래서 세는 방법이 ffmpeg 의 판에 따라 달라지면 안 된다.
@@ -15,8 +15,13 @@ import subprocess
 
 import pytest
 
-from frame.adapters.shared.media import media_tools, probe
-from frame.adapters.shared.media.probe import count_packets, probe_video, read_video_packets
+from frame.adapters.shared.media import probe
+from frame.adapters.shared.media.probe import (
+    count_packets,
+    probe_media,
+    probe_video,
+    read_video_packets,
+)
 from tests.support.video import find_ffmpeg, make_clip
 
 FFMPEG = find_ffmpeg()
@@ -62,14 +67,29 @@ def test_the_frame_count_does_not_come_from_the_progress_line(clip, monkeypatch)
 
 
 @needs_ffmpeg
-def test_the_media_tools_frame_count_does_not_come_from_the_progress_line(clip, monkeypatch):
+def test_the_frame_count_of_a_whole_file_does_not_come_from_the_progress_line(clip, monkeypatch):
     """시리즈·음성 어댑터가 쓰는 probe_media 도 같은 방법으로 센다. 길이는 프레임 수로 다시 잰 값이다."""
-    monkeypatch.setattr(media_tools, "run_ffmpeg", _without_frame_field(media_tools.run_ffmpeg))
+    monkeypatch.setattr(probe, "run_reading", _without_frame_field(probe.run_reading))
 
-    found = media_tools.probe_media(FFMPEG, clip)
+    found = probe_media(FFMPEG, clip)
 
     assert found.frames == 40 and found.duration_ms == 4000
     assert (found.width, found.height, found.fps, found.video_codec) == (64, 114, 10.0, "h264")
+
+
+@needs_ffmpeg
+def test_the_two_probes_read_the_same_clip_the_same_way(clip):
+    """영상 스트림만 보는 probe_video 와 파일 전체를 보는 probe_media 가 같은 줄을 같은 식으로 읽는다 (감사 P-15)."""
+    video, media = probe_video(FFMPEG, clip), probe_media(FFMPEG, clip)
+
+    assert (video.width, video.height, video.fps, video.frames, video.codec) == (
+        media.width,
+        media.height,
+        media.fps,
+        media.frames,
+        media.video_codec,
+    )
+    assert video.duration_ms == media.duration_ms and video.has_audio == media.has_audio
 
 
 @needs_ffmpeg
@@ -85,7 +105,8 @@ def test_only_the_packets_of_the_video_stream_are_counted(tmp_path):
     found = probe_video(FFMPEG, path)
 
     assert found.frames == 20 and found.has_audio is True
-    assert media_tools.probe_media(FFMPEG, path).frames == 20
+    whole = probe_media(FFMPEG, path)
+    assert whole.frames == 20 and whole.has_audio and whole.audio_codec == "aac"
 
 
 @needs_ffmpeg

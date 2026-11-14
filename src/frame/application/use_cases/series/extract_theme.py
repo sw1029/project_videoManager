@@ -18,6 +18,9 @@
   그것을 돌려준다.
   인식도 추출도 다시 부르지 않고 테마가 둘 생기지 않는다. 다시 뽑으려면 force=True.
 - 인식 결과는 인식기 쪽에서 남긴다 (CachingSpeechRecognizer). 추출이 실패해 다시 불러도 인식은 다시 과금되지 않는다.
+- 같은 영상의 추출이 겹치면 (두 요청이 동시에 온다) 뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 그 테마를 돌려받는다.
+  그 영상의 키(source_lock_key)를 쥔 채로 '이미 뽑은 테마 찾기 → 추출 → 저장' 을 한다. 전에는 둘 다 뽑았다.
+  다른 영상의 추출은 기다리지 않는다. 한 프로세스 안에서만 지킨다.
 - 인식 서비스를 쓸 수 없으면(키 없음·인증·한도·연결) 추출로 넘어가지 않고 멈춘다. 알아듣지 못한 경우에만
   내레이션 없이 계속한다 (감사 BTS-29).
 
@@ -37,7 +40,11 @@ from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.common import Clock, IdGenerator
 from frame.application.ports.series.audio import AudioEditor
-from frame.application.ports.series.repositories import ThemeRecord, ThemeRepository
+from frame.application.ports.series.repositories import (
+    ThemeRecord,
+    ThemeRepository,
+    source_lock_key,
+)
 from frame.application.ports.series.source_analysis import MediaProber, ShotDetector
 from frame.application.ports.series.theme_extraction import (
     ThemeExtraction,
@@ -51,6 +58,7 @@ from frame.application.use_cases.script import MAX_MEDIA_BYTES, MAX_MEDIA_MS, li
 from frame.domain.enums import EntityKind
 from frame.domain.errors import DomainError, ValidationError
 from frame.domain.ir import IntermediateRepresentation
+from frame.domain.media import MediaInfo
 from frame.domain.script import SceneSpan, SpokenScript, build_script, classify_kinds
 from frame.domain.series.script_evidence import ScriptEvidence, apply_script, link_script
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms
@@ -154,6 +162,17 @@ class ExtractTheme:
                 "숏폼 규격 밖의 영상입니다: " + "; ".join(reasons), report=verdict.to_dict()
             )
         sha256 = hashlib.sha256(command.video).hexdigest()
+        with self._themes.lock(source_lock_key(sha256)):  # 같은 영상의 추출이 겹치지 않게
+            return self._extract(command, media, verdict, sha256)
+
+    def _extract(
+        self,
+        command: ExtractThemeCommand,
+        media: MediaInfo,
+        verdict: ShortformVerdict,
+        sha256: str,
+    ) -> ExtractThemeResult:
+        """그 영상의 키를 쥔 채로 한다: 이미 뽑은 테마가 있으면 그것을, 없으면 뽑아서 저장한다."""
         if not command.force:
             known = self._known(sha256, command)
             if known is not None:

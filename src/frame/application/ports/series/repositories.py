@@ -69,7 +69,17 @@ class ThemeRecord:
 
 
 class ThemeRepository(ABC):
-    """계약: save 는 같은 theme_id 의 기록을 덮어쓴다. get 은 없으면 None. list 는 만든 순서."""
+    """계약
+    - save 는 같은 theme_id 의 기록을 덮어쓴다. get 은 없으면 None. list 는 만든 순서.
+    - lock(key) 는 그 키를 쥐는 동안 같은 키의 다른 스레드를 기다리게 한다. 같은 스레드는 다시 들어갈 수 있다.
+      테마 추출이 원본 영상의 키(source_lock_key)를 쥔다: 같은 영상의 추출이 겹치면 뒤에 온 쪽은 앞선 쪽이 끝난 뒤
+      그 테마를 돌려받는다 (둘 다 과금하지 않는다 — 감사 BTS-12 의 남은 것). 한 프로세스 안의 잠금이다.
+      테마 문서를 읽고 → 고쳐 → 덮어쓰는 유스케이스가 쥐는 것은 편 저장소의 잠금이다 (theme_lock_key):
+      편의 순번을 매기는 일과 같은 키로 서로를 기다려야 해서다.
+    """
+
+    @abstractmethod
+    def lock(self, key: str) -> AbstractContextManager[None]: ...
 
     @abstractmethod
     def save(self, record: ThemeRecord) -> None: ...
@@ -79,6 +89,11 @@ class ThemeRepository(ABC):
 
     @abstractmethod
     def list(self) -> list[ThemeRecord]: ...
+
+
+def source_lock_key(sha256: str) -> str:
+    """원본 영상의 키 (ThemeRepository.lock 에 준다). 그 영상에서 테마를 뽑는 동안 쥔다."""
+    return f"source:{sha256}"
 
 
 def theme_lock_key(theme_id: str) -> str:

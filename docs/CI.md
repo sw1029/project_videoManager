@@ -104,6 +104,7 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
 | `test_every_allowed_path_is_still_there` | 허용 목록에 적은 줄이 없어졌다 | `ALLOWED` 에서 그 항목을 지운다 |
 | `test_arguments_that_come_from_settings_have_no_default_of_their_own` | 조립이 설정에서 넘기는 인자에 생성자가 기본값을 또 갖고 있다 | 생성자의 기본값을 지운다. 값은 설정에만 두고 조립이 넘긴다. 그 클래스를 직접 만드는 테스트는 값을 직접 준다 (ADR-0032) |
 | `test_address_and_model_defaults_are_written_only_in_the_config` | 설정의 주소 · 모델 기본값을 `frame/config/` 밖의 코드에 다시 적었다 | 그 값을 인자로 받아 쓴다 |
+| `test_shared_values_are_written_in_one_place` | 여러 모듈이 같은 글자로 맞추는 값(예상 밖 오류의 코드 `UNEXPECTED_ERROR`, 객체 · 장면 키의 규칙, 테마 · 편 문서 id 의 규칙)을 그 값의 집이 아닌 곳에 다시 적었다 | 실패 문구가 알려 주는 이름을 가져다 쓴다 (`frame.application.errors.UNEXPECTED_ERROR` · `frame.domain.ir.KEY_PATTERN` · `frame.domain.series.ids.DOCUMENT_ID_PATTERN`). 그런 값이 새로 생기면 `tests/architecture/test_single_source_values.py` 의 `SINGLE_SOURCE` 에 집과 함께 더한다 |
 
 "이제 … 기준선에서 지운다" 로 실패하면 고친 것이다. `tests/architecture/baselines.py` 에서 그 줄을 지운다.
 
@@ -142,8 +143,8 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
    여유를 둔 것이고, 핵심(domain·application)의 여유가 0.84 로 가장 작다. 문구 합성 테스트 9개가 빠지는 만큼 Linux 의 값은 더 낮을 수 있다.
    하한 아래면 `scripts/check.py` 의 `COVERAGE_FLOORS` 를 그 값에 맞추고, 위면 올린다.
 3. **docker 잡** (ADR-0034 · 보고서 §12.3 결정 12): 이미지를 빌드해 `/health` 를 보는 것은 첫 실행에서 통과했다. 그 뒤 이미지가 바뀌었다 —
-   배포판의 ffmpeg 와 나눔 글꼴을 넣고 video extra 를 뺐다. 잡에는 세 단계가 더해졌고, 이 단계들은 아직 한 번도 돌지 않았다
-   (로컬에서는 이미지를 만들지 못했다). 다음 실행에서 차례로 본다.
+   배포판의 ffmpeg 와 나눔 글꼴을 넣고 video extra 를 뺐다. 잡에는 세 단계가 더해졌다. 로컬에서는 돌려 보지 못했고
+   (이미지를 만들지 못했다) CI 에서 처음 돌았다. 단계마다 보는 것:
    - `docker build`: apt 층이 되는지 (`ffmpeg` · `fonts-nanum`). 여기서 실패하면 꾸러미 이름과 바탕 이미지의 태그를 본다.
    - 크기와 판: `docker image ls` · `docker history` 의 값을 보고서(§12.2 '머지 뒤 묶음 4')의 어림(약 +400MB)과 견준다.
      `ffmpeg -version` 이 7.1.x 인지, 필터 목록의 drawtext 줄이 찍히는지 본다 (없으면 이 단계가 실패한다).
@@ -152,7 +153,11 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
      배포판의 ffmpeg 가 번들과 다르게 군 것이다 (A-42 · A-43 과 같은 종류 — 제품의 결함으로 다룬다). 영상과 무관한 테스트가 실패하면
      이미지의 환경 차이다 (사용자 `frame`, 가상 환경, 이미지에 없는 도구).
 
-   통과하는 것을 몇 번 보고 `continue-on-error` 를 뺄지 정한다.
+   **첫 실행 (PR #42, 2026-11-15)에서 모두 통과했다**: Debian 13.7 (trixie) · ffmpeg `7:7.1.5-0+deb13u1` · fonts-nanum `20200506-1` · drawtext 있음,
+   이미지 그대로 조립 통과, 이미지 안 전체 테스트 2641 통과 · 1 건너뜀 · 4 제외 (105초).
+   크기: apt 층 491MB · pip 층 115MB · 소스 층 2.54MB, 이미지 전체 1.01GB (내려받는 크기 261MB).
+
+   통과하는 것을 몇 번 보고 `continue-on-error` 를 뺄지 정한다 (보고서 §12.3 결정 12 의 남은 결정).
 4. **audit 잡**: 결과만 본다 (보고서 §12.3 결정 10). 조용해지면 `continue-on-error` 를 뺀다.
    FastAPI · Starlette 를 올린 뒤(ADR-0033)의 첫 실행에서 Starlette 의 것이 없어졌는지 본다. 러너 환경의 `setuptools` 두 건은 남는다 (프로젝트의 의존성이 아니고, 손대지 않기로 했다).
 5. **overlay-font 잡** (보고서 §12.3 결정 11 · A-43): 첫 실행(PR #40)에서 실패했다. 글꼴은 깔렸는데 문구를 그리는 테스트 넷이
@@ -167,6 +172,8 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
    ffmpeg 8.0 이 `-filters` 의 줄 머리 표시를 셋에서 둘로 줄여, 세 글자만 읽던 우리 코드가 목록을 하나도 읽지 못한 것이다 (보고서 A-43 의 '둘째 실패').
    지금은 두 모양을 다 읽고, 실패 문구에 **어느 ffmpeg 를 찾았는지와 까닭**(필터가 없다 / 목록을 읽지 못했다)이 찍힌다.
    이 잡이 통과하면 ffmpeg 8 에서 문구 합성 테스트가 도는 것도 처음이다 — 실패하면 그 테스트의 문구부터 본다.
+   셋째 실행(고친 뒤, PR #41)에서 **통과했다**: ffmpeg 8.0.1-3ubuntu2 · Noto Sans CJK, 23 통과. 화면 문구 합성이 Linux 에서 도는 것을 처음 확인했다.
+   필수 잡으로 옮길지는 사용자가 정한다 (보고서 §12.3 결정 11).
 6. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
    태그는 패키지 버전으로 시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
 

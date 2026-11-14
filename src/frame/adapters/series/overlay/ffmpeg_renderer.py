@@ -25,13 +25,15 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from frame.adapters.shared.media.ffmpeg import available_filters, require_ffmpeg, tail
-from frame.adapters.shared.media.media_tools import (
+from frame.adapters.shared.media.ffmpeg import (
     WORK_TIMEOUT_S,
-    MediaToolError,
-    probe_media,
-    run_ffmpeg,
+    VideoToolError,
+    available_filters,
+    require_ffmpeg,
+    run_reading,
+    tail,
 )
+from frame.adapters.shared.media.probe import probe_media
 from frame.application.errors import AdapterError, ConfigurationError
 from frame.application.ports.series.overlay import CompositionError, OverlayRenderer
 from frame.domain.series.episode import OverlayItem
@@ -218,8 +220,8 @@ class FfmpegOverlayRenderer(OverlayRenderer):
             cmd += ["-c:v", "libx264", "-preset", self.preset, "-crf", str(self.crf)]
             cmd += ["-pix_fmt", "yuv420p", "-movflags", "+faststart", target.name]
             try:
-                code, log = run_ffmpeg(cmd, self.timeout_s, cwd=folder)  # textfile 은 상대 경로
-            except MediaToolError as exc:
+                code, log = run_reading(cmd, self.timeout_s, cwd=folder)  # textfile 은 상대 경로
+            except VideoToolError as exc:
                 raise CompositionError(f"화면 문구를 얹지 못했습니다: {exc}") from exc
             if code != 0 or not target.is_file():
                 raise CompositionError(f"화면 문구를 얹지 못했습니다: {tail(log)}")
@@ -234,7 +236,7 @@ class FfmpegOverlayRenderer(OverlayRenderer):
     def _probe(self, path: Path) -> _Canvas:
         try:
             probe = probe_media(self._ffmpeg, path, self.timeout_s)
-        except MediaToolError as exc:
+        except VideoToolError as exc:
             raise CompositionError(f"장면 클립을 읽지 못했습니다: {exc}") from exc
         if not probe.has_video or not probe.width or not probe.height or not probe.frames:
             raise CompositionError("문구를 얹을 클립이 영상이 아닙니다")

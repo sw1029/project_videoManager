@@ -15,13 +15,12 @@ import logging
 from collections.abc import Callable
 from typing import TypeVar
 
-from frame.application.errors import AdapterError, LLMTimeout, LLMUnavailable
+from frame.application.errors import UNEXPECTED_ERROR, AdapterError, LLMTimeout, LLMUnavailable
 
 log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-UNEXPECTED = "UNEXPECTED_ERROR"  # 예상하지 못한 예외로 판정하지 못한 단위의 사유 머리
 _NO_ANSWER = (LLMTimeout, LLMUnavailable)
 
 
@@ -49,7 +48,8 @@ class UnitGuard:
             return undetermined(f"{exc.code}: {exc}")
         except Exception as exc:  # noqa: BLE001 - 한 단위의 예상 밖 오류가 다른 단위의 판정을 버리지 않게 한다
             log.exception("%s 미판정 (%s): 예상하지 못한 오류", self._checker, unit)
-            return undetermined(f"{UNEXPECTED}: {type(exc).__name__}")
+            # 사유의 머리는 파이프라인 · 평가가 예상 밖 오류에 남기는 것과 같은 코드다
+            return undetermined(f"{UNEXPECTED_ERROR}: {type(exc).__name__}")
 
     def about_to_ask(self) -> None:
         """모델을 부르기 직전에 부른다. 이 실행에서 모델이 이미 답하지 않았으면 이 단위는 묻지 않는다."""

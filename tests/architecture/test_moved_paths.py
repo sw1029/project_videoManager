@@ -54,6 +54,20 @@ MOVED = {
     "frame.domain.services.identity": "frame.domain.identity",
     "frame.domain.services.comparison": "frame.domain.comparison",
     "frame.domain.services": "frame.domain.identity 와 frame.domain.comparison",
+    # 테마의 키 규칙은 IR 의 것을 베낀 사본이었다 (P-20). 규칙은 한 곳에 있다
+    "frame.domain.series.theme.KEY_FORMAT": "frame.domain.ir.KEY_PATTERN",
+    # 키별 잠금의 구현은 하나다 (P-20). 다시 들어가는 잠금은 KeyedLocks(reentrant=True)
+    "frame.adapters.series.store._key_locks": "frame.adapters.shared.locking",
+    # 커밋되는 글의 경로 가리기는 두 평가 도구가 한 벌을 쓴다 (P-20)
+    "frame.evaluation.structuring._public": "frame.evaluation._public",
+    "frame.evaluation.edits.LOCAL_PATH_MASK": "frame.evaluation._public.PATH_MASK",
+    # 영상 · 소리 읽기는 한 벌이다 (P-15). 오류는 VideoToolError 하나, 실행은 run_reading
+    "frame.adapters.shared.media.media_tools": (
+        "겉모습 읽기 frame.adapters.shared.media.probe (probe_media), "
+        "영역 유사도 frame.adapters.shared.media.similarity (region_ssim), "
+        "컷 · 무음 찾기 frame.adapters.shared.media.detection, "
+        "실행과 시간 제한 frame.adapters.shared.media.ffmpeg (run_reading)"
+    ),
 }
 
 # src 밖에서 frame 을 import 하는 곳

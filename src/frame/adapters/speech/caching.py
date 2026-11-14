@@ -10,6 +10,9 @@
 - 포트의 계약(시간 순서·겹치지 않음·소리 길이 안)을 어긴 결과도 남기지 않는다. 남기면 다시 불러도 같은 받아쓰기가
   나와 그 소리는 계속 실패한다 (감사 BTS-D61). 결과는 그대로 돌려준다 (부른 쪽이 검사한다).
 - 저장소가 키로 주소를 지을 수 없으면(uri_for 가 None) 그대로 인식기를 부른다.
+- 같은 요청(같은 키)이 겹치면 뒤에 온 쪽은 앞선 쪽이 끝나기를 기다렸다가 남긴 결과를 쓴다. 전에는 둘 다 저장된
+  결과가 없다고 보고 둘 다 과금했다 (감사 BTS-12 의 남은 것). 앞선 쪽이 실패했으면 기다린 쪽이 스스로 묻는다.
+  다른 소리의 요청은 기다리지 않는다. 한 프로세스 안에서만 지킨다 (키별 잠금).
 테마 추출이 뒤에서 실패해 다시 부르거나, 같은 녹음을 다시 붙여도 인식은 다시 과금되지 않는다.
 """
 
@@ -19,6 +22,7 @@ import hashlib
 import json
 import logging
 
+from frame.adapters.shared.locking import KeyedLocks
 from frame.application.errors import StorageError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.speech import SpeechAudio, SpeechRecognizer
@@ -40,6 +44,9 @@ class CachingSpeechRecognizer(SpeechRecognizer):
         self._store = store
         # 인식기의 정체. 바뀌면 예전 결과를 쓰지 않는다. 따로 주지 않으면 인식기가 말하는 것을 쓴다
         self._profile = profile or inner.signature
+        self._locks = (
+            KeyedLocks()
+        )  # 같은 키의 요청을 한 번에 하나만 (겹친 요청이 둘 다 과금하지 않게)
 
     @property
     def signature(self) -> str:
@@ -49,15 +56,21 @@ class CachingSpeechRecognizer(SpeechRecognizer):
         self, audio: SpeechAudio, *, language: str | None = None, hint: str = ""
     ) -> Transcript:
         key = self._key(audio, language, hint)
-        cached = self._load(key)
-        if cached is not None:
-            return cached
-        transcript = self.inner.transcribe(audio, language=language, hint=hint)
+        with self._locks.hold(key):
+            cached = self._load(key)
+            if cached is not None:
+                return cached
+            transcript = self.inner.transcribe(audio, language=language, hint=hint)
+            self._keep(key, audio, transcript)
+            return transcript
+
+    def _keep(self, key: str, audio: SpeechAudio, transcript: Transcript) -> None:
+        """계약에 맞는 받아쓰기를 남긴다. 남기지 못해도 예외를 내지 않는다 (결과는 부른 쪽이 돌려준다)."""
         try:
             transcript.validate(audio.duration_ms)
         except ValidationError as exc:
             log.warning("계약을 어긴 인식 결과는 남기지 않습니다: %s", exc.message)
-            return transcript
+            return
         document = {"profile": self._profile, "transcript": transcript.to_dict()}
         try:
             self._store.put(
@@ -65,7 +78,6 @@ class CachingSpeechRecognizer(SpeechRecognizer):
             )
         except (StorageError, OSError) as exc:  # 남기지 못해도 인식 결과는 돌려준다
             log.warning("인식 결과를 남기지 못했습니다: %s: %s", type(exc).__name__, exc)
-        return transcript
 
     def _key(self, audio: SpeechAudio, language: str | None, hint: str) -> str:
         digest = canonical_hash(

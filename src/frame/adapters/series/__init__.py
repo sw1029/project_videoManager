@@ -16,7 +16,7 @@
                      theme_extraction 과 planning 이 같이 쓴다
 
 이 패키지 밖에서 함께 쓰는 것 (adapters/shared/media/)
-- media_tools.py  영상·소리 정보 읽기 · 컷과 무음 찾기 · 영역 SSIM · ffmpeg 실행
+- probe.py · detection.py · similarity.py  영상·소리 정보 읽기 · 컷과 무음 찾기 · 영역 SSIM (실행은 ffmpeg.py)
 - fake_media.py   가짜 영상·음성 형식. 여기의 가짜 구현들과 adapters/speech 의 가짜 인식기가 함께 읽는다
 음성 인식 어댑터는 adapters/speech/ 에 있다 (이 기능 밖에서도 쓰는 개념).
 """

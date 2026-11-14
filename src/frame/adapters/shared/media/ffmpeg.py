@@ -8,8 +8,8 @@ ffprobe 없이 ffmpeg 하나로 검사한다 (imageio-ffmpeg 는 ffprobe 를 담
 
 ffmpeg 는 진행 상황과 오류를 모두 stderr 에 쓴다. 부르는 쪽이 종료 코드와 그 출력으로 성공 여부를 판단하고,
 실패하면 tail() 로 출력의 끝 몇 줄을 오류 문구에 싣는다. 실행 자체가 안 되면 FfmpegNotRun 이다:
-부르는 어댑터가 자기 오류(생성 오류)로 바꿔 올린다. 영상을 읽는 도구(프레임 · 크기 · 유사도)는
-run_reading 을 쓴다 - 실행하지 못한 것도 읽지 못한 것도 VideoToolError 다.
+부르는 어댑터가 자기 오류(생성 오류)로 바꿔 올린다. 영상 · 소리를 읽는 도구(프레임 · 겉모습 · 유사도 · 컷과 무음)는
+run_reading 을 쓴다 - 실행하지 못한 것도 읽지 못한 것도 VideoToolError 다. 읽는 도구의 오류는 그것 하나다.
 
 이 모듈이 만드는 글은 밖으로 나간다 (검수 결과의 사유, 버전의 오류 문구 → API 응답). 그래서 서버의 폴더 구조를
 싣지 않는다: 출력에 든 임시 폴더는 <tmp> 로 바꾸고, 실행 실패 문구에는 실행 파일의 경로를 넣지 않는다.
@@ -28,6 +28,8 @@ from pathlib import Path
 from frame.application.errors import AdapterError, ConfigurationError
 
 __all__ = [
+    "READ_TIMEOUT_S",
+    "WORK_TIMEOUT_S",
     "FfmpegNotRun",
     "VideoToolError",
     "available_filters",
@@ -40,6 +42,9 @@ __all__ = [
 ]
 
 
+# ffmpeg 한 번에 주는 시간 (초). 이 패키지의 읽는 도구와 그것을 쓰는 어댑터의 기본값이다
+READ_TIMEOUT_S = 120.0  # 정보를 읽는 일
+WORK_TIMEOUT_S = 300.0  # 끝까지 읽어 찾거나 재는 일, 새 파일을 만드는 일
 FILTERS_TIMEOUT_S = 30.0  # 필터 목록은 파일을 읽지 않는다. 금방 끝난다
 # `ffmpeg -filters` 의 한 줄: ' T.C drawtext          V->V       설명'. 머리의 표시 글자 수는 판마다 다르다 -
 # 7.x 까지는 셋(T · S · C), 8.0 부터는 둘이다 (명령 지원 'C' 가 빠졌다). 그래서 글자 수를 세지 않고,
@@ -57,7 +62,7 @@ class FfmpegNotRun(AdapterError):
 
 
 class VideoToolError(AdapterError):
-    """ffmpeg 로 영상을 읽거나 비교하지 못했다."""
+    """ffmpeg 로 영상 · 소리를 읽거나 비교하지 못했다. 읽는 도구(probe · frames · similarity · detection)의 오류다."""
 
     code = "VIDEO_TOOL_ERROR"
 
@@ -123,10 +128,15 @@ def _run(
         raise FfmpegNotRun(f"ffmpeg 를 실행하지 못했습니다 ({reason})") from exc
 
 
-def run_reading(cmd: Sequence[str], timeout_s: float) -> tuple[int, str]:
-    """영상을 읽는 도구의 실행. run_ffmpeg 와 같되, 실행 자체가 안 되면 VideoToolError 로 올린다."""
+def run_reading(
+    cmd: Sequence[str], timeout_s: float, cwd: str | Path | None = None
+) -> tuple[int, str]:
+    """영상 · 소리를 읽는 도구의 실행. run_ffmpeg 와 같되, 실행 자체가 안 되면 VideoToolError 로 올린다.
+
+    읽는 도구를 쓰는 어댑터가 VideoToolError 하나만 잡아 자기 포트의 오류로 바꾸면 되게 한다.
+    """
     try:
-        return run_ffmpeg(cmd, timeout_s)
+        return run_ffmpeg(cmd, timeout_s, cwd)
     except FfmpegNotRun as exc:
         raise VideoToolError(str(exc)) from exc
 

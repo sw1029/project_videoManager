@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from frame.application.dto import CreateRevisionCommand
-from frame.application.errors import AdapterError
+from frame.application.errors import UNEXPECTED_ERROR, AdapterError
 from frame.application.use_cases import (
     AcceptGeneration,
     CreateRevision,
@@ -168,8 +168,8 @@ def run_case(
         run.error_code, run.error_message = exc.code, str(exc)
     except Exception as exc:  # noqa: BLE001 - 한 케이스의 예상 밖 오류가 남은 유료 케이스를 막지 않게 한다
         log.exception("케이스 %s 실행 중 예상하지 못한 오류", spec.case_id)
-        # 코드 이름은 생성 파이프라인이 같은 경우에 남기는 것과 맞춘다 (application/pipeline/runner.py)
-        run.error_code, run.error_message = "UNEXPECTED_ERROR", f"{type(exc).__name__}: {exc}"
+        # 생성 파이프라인이 같은 경우에 남기는 것과 같은 코드다 (application/errors.py 의 이름 하나)
+        run.error_code, run.error_message = UNEXPECTED_ERROR, f"{type(exc).__name__}: {exc}"
     finally:
         if run.revision_version_id is not None and run.version is None:
             run.version = _read_again(app.queries, run.revision_version_id)

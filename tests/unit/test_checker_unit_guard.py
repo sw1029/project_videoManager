@@ -10,8 +10,14 @@ import logging
 
 import pytest
 
-from frame.adapters.checker._guard import UNEXPECTED, UnitGuard
-from frame.application.errors import LLMBadResponse, LLMTimeout, LLMUnavailable, StorageError
+from frame.adapters.checker._guard import UnitGuard
+from frame.application.errors import (
+    UNEXPECTED_ERROR,
+    LLMBadResponse,
+    LLMTimeout,
+    LLMUnavailable,
+    StorageError,
+)
 
 
 def _raising(error: Exception):
@@ -50,7 +56,7 @@ def test_an_unexpected_error_leaves_only_that_unit_undetermined(caplog):
     second = _judge(guard, "객체 barista", lambda: "판정")
 
     assert (
-        first == f"미판정<{UNEXPECTED}: KeyError>"
+        first == f"미판정<{UNEXPECTED_ERROR}: KeyError>"
     )  # 사유에는 예외의 종류만 싣는다 (문구는 로그에)
     assert second == "판정"
     record = caplog.records[-1]

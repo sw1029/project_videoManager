@@ -38,7 +38,7 @@ from frame.evaluation.structuring import (
 )
 
 # 사용자 폴더를 바꿔 보는 시험이 고치는 안쪽 모듈 (기록에 남길 값 다듬기)
-_PUBLIC = importlib.import_module("frame.evaluation.structuring._public")
+_PUBLIC = importlib.import_module("frame.evaluation._public")
 GOLD_DIR = Path(__file__).parent / "structuring_gold"
 REPLAY_DIR = Path(__file__).parent / "replay"
 _SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
