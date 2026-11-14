@@ -4,7 +4,7 @@
   "target_duration_ms": 9000,
   "brief": "라면 레시피 숏폼 9초. 장면 1 (3초): 위에서 내려다본 구도로 물이 끓는 은색 냄비. 장면 2 (3초): 손이 냄비에 계란 두 개를 넣는다. 장면 3 (3초): 완성된 라면 그릇 위에 '3분 완성' 자막이 뜬다.",
   "covers": ["count", "camera", "literal_text", "action", "korean_literal"],
-  "notes": "계란 두 개는 객체 하나와 count=2 로 적는다. 끓는 물은 냄비의 상태나 물 객체로 쓸 수 있어 선택이다. 손은 사람의 일부라 PERSON 이지만 OTHER 도 받는다. 라면과 그릇은 하나로 써도 둘로 써도 된다 (그릇은 선택).",
+  "notes": "계란 두 개는 객체 하나와 count=2 로 적는다. 끓는 물은 냄비의 상태나 물 객체로 쓸 수 있어 선택이다. 손은 사람의 일부라 PERSON 이지만 OTHER 도 받는다. 라면과 그릇은 하나로 써도 둘로 써도 된다 (그릇은 선택). 첫 실제 실행(2026-11-14) 뒤 보완: 냄비에 계란을 넣는 손은 냄비 곁에 있으므로 hand near pot 을 선택으로 받는다.",
   "expected": {
     "schema_version": 1,
     "entities": [
@@ -41,6 +41,7 @@
           {"entity_key": "eggs", "predicate": "count", "expected_value": "2"},
           {"entity_key": "pot", "predicate": "color", "expected_value": "silver"},
           {"entity_key": "hand", "predicate": "holds", "related_entity_key": "eggs", "expected_value": "eggs", "optional": true},
+          {"entity_key": "hand", "predicate": "near", "related_entity_key": "pot", "expected_value": "pot", "optional": true},
           {"predicate": "camera", "expected_value": "top down", "optional": true, "accept": ["overhead", "top view", "bird's eye", "from above", "high angle"]}
         ]
       },

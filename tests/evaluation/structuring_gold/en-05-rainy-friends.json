@@ -4,7 +4,7 @@
   "target_duration_ms": 9000,
   "brief": "A 9-second scene split into three equal shots on a rainy night street: two friends share a single orange umbrella; the taller friend hands a paper bag to the other; finally they laugh and look at each other under neon signs.",
   "covers": ["relation", "multi_person", "action", "weather", "time_of_day", "lighting", "implicit_timing"],
-  "notes": "Three equal shots of 3 s. Rain, night and the street hold for the whole scene. Who holds the umbrella is unclear, so holding it is optional; looking at each other is two looks_at relations.",
+  "notes": "Three equal shots of 3 s. Rain, night and the street hold for the whole scene. Who holds the umbrella is unclear, so holding it is optional; looking at each other is two looks_at relations. Revised after the first real run (2026-11-14): the neon signs may be an object (optional entity; the neon lighting stays required), and sharing an umbrella or handing a bag implies the friends are near each other (optional near).",
   "expected": {
     "schema_version": 1,
     "entities": [
@@ -12,7 +12,8 @@
       {"entity_key": "other_friend", "kind": "PERSON", "description": "other friend", "aliases": ["other", "shorter", "short", "friend"]},
       {"entity_key": "umbrella", "kind": "PROP", "description": "orange umbrella", "aliases": ["umbrella"]},
       {"entity_key": "bag", "kind": "PROP", "description": "paper bag", "aliases": ["bag"]},
-      {"entity_key": "street", "kind": "BACKGROUND", "description": "rainy night street", "aliases": ["street"], "optional": true}
+      {"entity_key": "street", "kind": "BACKGROUND", "description": "rainy night street", "aliases": ["street"], "optional": true},
+      {"entity_key": "neon_signs", "kind": "PROP", "description": "neon signs", "aliases": ["neon", "sign"], "accept_kinds": ["BACKGROUND"], "optional": true}
     ],
     "scenes": [
       {
@@ -27,6 +28,8 @@
           {"entity_key": "other_friend", "predicate": "holds", "related_entity_key": "umbrella", "expected_value": "umbrella", "optional": true},
           {"entity_key": "tall_friend", "predicate": "action", "expected_value": "shares umbrella", "optional": true, "accept": ["walks under umbrella", "stands under umbrella"]},
           {"entity_key": "other_friend", "predicate": "action", "expected_value": "shares umbrella", "optional": true, "accept": ["walks under umbrella", "stands under umbrella"]},
+          {"entity_key": "tall_friend", "predicate": "near", "related_entity_key": "other_friend", "expected_value": "other_friend", "optional": true},
+          {"entity_key": "other_friend", "predicate": "near", "related_entity_key": "tall_friend", "expected_value": "tall_friend", "optional": true},
           {"predicate": "weather", "expected_value": "rain"},
           {"predicate": "time_of_day", "expected_value": "night"},
           {"predicate": "location", "expected_value": "street"}
@@ -45,6 +48,8 @@
           {"entity_key": "bag", "predicate": "material", "expected_value": "paper"},
           {"entity_key": "tall_friend", "predicate": "holds", "related_entity_key": "bag", "expected_value": "bag", "optional": true},
           {"entity_key": "other_friend", "predicate": "holds", "related_entity_key": "bag", "expected_value": "bag", "optional": true},
+          {"entity_key": "tall_friend", "predicate": "near", "related_entity_key": "other_friend", "expected_value": "other_friend", "optional": true},
+          {"entity_key": "other_friend", "predicate": "near", "related_entity_key": "tall_friend", "expected_value": "tall_friend", "optional": true},
           {"entity_key": "umbrella", "predicate": "color", "expected_value": "orange"},
           {"predicate": "weather", "expected_value": "rain"},
           {"predicate": "time_of_day", "expected_value": "night"},
@@ -56,7 +61,7 @@
         "planned_start_ms": 6000,
         "planned_end_ms": 9000,
         "description": "they laugh and look at each other under neon signs",
-        "entity_keys": ["tall_friend", "other_friend", "umbrella", "bag", "street"],
+        "entity_keys": ["tall_friend", "other_friend", "umbrella", "bag", "street", "neon_signs"],
         "optional_entities": ["umbrella", "bag"],
         "requirements": [
           {"entity_key": "tall_friend", "predicate": "expression", "expected_value": "laugh", "accept": ["smile"], "accept_predicates": ["action"]},

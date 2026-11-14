@@ -4,7 +4,7 @@
   "target_duration_ms": 15000,
   "brief": "반려견 브이로그 15초. 장면 1 (5초): 맑은 날 오후, 공원 잔디밭에서 갈색 푸들이 꼬리를 흔든다. 장면 2 (5초): 회색 후드티를 입은 주인이 빨간 공을 멀리 던진다. 장면 3 (5초): 푸들이 빨간 공을 입에 물고 주인에게 달려온다.",
   "covers": ["animal", "relation", "action", "weather", "time_of_day", "scene_level"],
-  "notes": "던지기·달려오기는 동작(action)이고, 공을 문 상태는 holds 관계다. 장소·날씨·시간대는 장면 1 에서만 말했으므로 2·3 에서는 선택. 장면 3 의 주인은 화면에 없을 수도 있어 그 장면에서만 선택이다.",
+  "notes": "던지기·달려오기는 동작(action)이고, 공을 문 상태는 holds 관계다. 장소·날씨·시간대는 장면 1 에서만 말했으므로 2·3 에서는 선택. 장면 3 의 주인은 화면에 없을 수도 있어 그 장면에서만 선택이다. 첫 실제 실행(2026-11-14) 뒤 보완: 던지려면 공을 들고 있으므로 장면 2 의 owner holds ball 을 선택으로 받는다.",
   "expected": {
     "schema_version": 1,
     "entities": [
@@ -37,6 +37,7 @@
         "requirements": [
           {"entity_key": "owner", "predicate": "outfit", "expected_value": "gray hoodie"},
           {"entity_key": "owner", "predicate": "action", "expected_value": "throws", "accept": ["tosses"]},
+          {"entity_key": "owner", "predicate": "holds", "related_entity_key": "ball", "expected_value": "ball", "optional": true},
           {"entity_key": "ball", "predicate": "color", "expected_value": "red"},
           {"predicate": "location", "expected_value": "park", "optional": true, "accept": ["lawn", "grass"]},
           {"predicate": "weather", "expected_value": "sunny", "optional": true, "accept": ["clear"]},

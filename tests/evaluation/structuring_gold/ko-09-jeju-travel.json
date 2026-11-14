@@ -4,14 +4,15 @@
   "target_duration_ms": 15000,
   "brief": "제주 여행 브이로그 15초. 장면 1 (5초): 해 뜰 무렵의 해변을 드론으로 높이 내려다본다. 장면 2 (5초): 빨간 바람막이를 입은 여행자가 해안 산책로에 서서 갈매기 세 마리를 바라본다. 장면 3 (5초): 여행자가 카메라 쪽으로 걸어오고, 화면 위쪽에 'JEJU' 자막이 나타난다.",
   "covers": ["count", "animal", "relation", "camera", "time_of_day", "literal_text", "position", "scene_only_shot"],
-  "notes": "장면 1 은 객체 없이 장면 수준 조건만 있는 풍경이다 (해변 배경 객체는 선택). 갈매기 세 마리는 객체 하나와 count=3. 시간대·장소는 장면 1·2 에서 말했으므로 그 뒤 장면에서는 선택이다.",
+  "notes": "장면 1 은 객체 없이 장면 수준 조건만 있는 풍경이다 (해변 배경 객체는 선택). 갈매기 세 마리는 객체 하나와 count=3. 시간대·장소는 장면 1·2 에서 말했으므로 그 뒤 장면에서는 선택이다. 첫 실제 실행(2026-11-14) 뒤 보완: 장소는 BACKGROUND 객체로도 쓸 수 있으므로 해안 산책로 배경 객체를 선택으로 받는다.",
   "expected": {
     "schema_version": 1,
     "entities": [
       {"entity_key": "traveler", "kind": "PERSON", "description": "빨간 바람막이를 입은 여행자", "aliases": ["여행자", "관광객", "traveler", "traveller", "tourist", "hiker"]},
       {"entity_key": "seagulls", "kind": "ANIMAL", "description": "갈매기 세 마리", "aliases": ["갈매기", "seagull", "gull", "bird"]},
       {"entity_key": "caption", "kind": "TEXT", "description": "'JEJU' 자막", "aliases": ["JEJU", "자막", "문구", "caption", "subtitle", "text", "title"]},
-      {"entity_key": "beach", "kind": "BACKGROUND", "description": "해변", "aliases": ["해변", "바다", "해안", "beach", "coast", "sea"], "optional": true}
+      {"entity_key": "beach", "kind": "BACKGROUND", "description": "해변", "aliases": ["해변", "바다", "해안", "beach", "coast", "sea"], "optional": true},
+      {"entity_key": "trail", "kind": "BACKGROUND", "description": "해안 산책로", "aliases": ["산책로", "해안 산책로", "trail", "path", "walkway", "promenade"], "optional": true}
     ],
     "scenes": [
       {
@@ -31,7 +32,7 @@
         "planned_start_ms": 5000,
         "planned_end_ms": 10000,
         "description": "여행자가 해안 산책로에 서서 갈매기 세 마리를 바라본다",
-        "entity_keys": ["traveler", "seagulls", "beach"],
+        "entity_keys": ["traveler", "seagulls", "beach", "trail"],
         "requirements": [
           {"entity_key": "traveler", "predicate": "outfit", "expected_value": "red windbreaker", "accept": ["red jacket"]},
           {"entity_key": "traveler", "predicate": "pose", "expected_value": "standing", "accept_predicates": ["action"]},
@@ -46,7 +47,7 @@
         "planned_start_ms": 10000,
         "planned_end_ms": 15000,
         "description": "여행자가 카메라 쪽으로 걸어오고 화면 위쪽에 JEJU 자막",
-        "entity_keys": ["traveler", "caption", "beach"],
+        "entity_keys": ["traveler", "caption", "beach", "trail"],
         "requirements": [
           {"entity_key": "traveler", "predicate": "action", "expected_value": "walks", "accept": ["approaches"]},
           {"entity_key": "traveler", "predicate": "outfit", "expected_value": "red windbreaker", "accept": ["red jacket"]},
