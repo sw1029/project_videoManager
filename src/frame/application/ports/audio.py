@@ -45,7 +45,10 @@ class AudioEditor(ABC):
     - render_track: 길이가 total_ms 인 트랙 하나. 조각이 없는 곳은 무음이고, 조각이 없으면 전체가 무음이다.
       조각이 total_ms 를 넘으면 넘는 부분은 잘린다. 조각이 가리키는 녹음이 없으면 AudioError.
     - mux: 영상의 그림은 그대로 두고 소리만 track 으로 바꾼다. 결과의 길이는 영상의 길이다.
+    - track_suffix: render_track 이 돌려주는 트랙의 파일 확장자 (저장할 때 형식을 알 수 있게).
     """
+
+    track_suffix: str = ".wav"
 
     @abstractmethod
     def probe(self, media: bytes) -> AudioInfo | None: ...

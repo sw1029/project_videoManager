@@ -17,6 +17,8 @@ from frame.domain.video_analysis import SpeechSegment, Transcript, Word
 
 
 class FakeAudioEditor(AudioEditor):
+    track_suffix = ".json"
+
     def __init__(self, error: Exception | None = None) -> None:
         self._error = error
         self.tracks: list[tuple[TrackCut, ...]] = []  # 스파이: 만든 트랙의 조각들
