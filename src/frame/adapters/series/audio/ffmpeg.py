@@ -13,6 +13,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
 from frame.adapters.shared.media.media_tools import (
     MediaToolError,
     detect_silences,
@@ -20,7 +21,6 @@ from frame.adapters.shared.media.media_tools import (
     run_ffmpeg,
     tail,
 )
-from frame.adapters.video_tools import require_ffmpeg
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
 from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio

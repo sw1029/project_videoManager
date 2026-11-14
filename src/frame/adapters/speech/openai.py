@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from frame.adapters.http_transport import (
+from frame.adapters.shared.http import (
     HttpResponse,
     HttpTransport,
     TransportError,
