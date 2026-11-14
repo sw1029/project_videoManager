@@ -13,6 +13,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from frame.domain.enums import VersionState
 from frame.domain.errors import ValidationError
 from frame.domain.models import Project, ReferenceImage, VideoVersion
@@ -53,7 +56,9 @@ class CreateProject:
             raise ValidationError("요구사항 프롬프트가 비어 있습니다")
         if not command.title.strip():
             raise ValidationError("프로젝트 제목이 비어 있습니다")
-        structured = self._structure_document(command) if direct else None
+        structured = (
+            self._structure_document(command.ir, command) if command.ir is not None else None
+        )
 
         project = Project(
             project_id=self._ids.new_id("prj"),
@@ -109,10 +114,11 @@ class CreateProject:
             entity_key=ref.entity_key,
         )
 
-    def _structure_document(self, command: CreateProjectCommand) -> StructuredDocument:
+    def _structure_document(
+        self, document: Mapping[str, Any], command: CreateProjectCommand
+    ) -> StructuredDocument:
         """IR 직접 입력: 보정 -> 검증 -> 버전의 다른 값과 맞는지 확인 (자연어 구조화 작업과 같은 규칙)."""
-        assert command.ir is not None
-        structured = self._ir_structurer.structure_document(command.ir)
+        structured = self._ir_structurer.structure_document(document)
         check_reference_entities((r.entity_key for r in command.reference_images), structured.ir)
         check_target_duration(structured.ir.total_duration_ms, command.target_duration_ms)
         return structured
