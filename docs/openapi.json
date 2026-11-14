@@ -3457,7 +3457,7 @@
                 }
               }
             },
-            "description": "LENGTH_REQUIRED (Content-Length 없음, chunked 업로드)"
+            "description": "LENGTH_REQUIRED (Content-Length 가 없거나 Transfer-Encoding 이 있음)"
           },
           "413": {
             "content": {

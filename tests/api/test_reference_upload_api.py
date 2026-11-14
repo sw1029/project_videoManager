@@ -243,20 +243,67 @@ def test_external_addresses_are_kept_but_not_served(tmp_path):
     assert client.get(path).status_code == 404
 
 
-def test_uploads_without_a_declared_size_are_refused_before_reading():
-    """감사 4: 크기를 밝히지 않은(chunked) 업로드는 본문을 임시 파일에 받기 전에 411 로 거절한다."""
-    client, container = _client()
+def _counting_client(**overrides):
+    """앱이 실제로 받은 본문 바이트를 세는 클라이언트 (거절이 본문을 읽기 전에 일어났는지 확인용)."""
+    container = make_container(**overrides)
+    app = create_app(container)
+    received: list[int] = []
 
-    def body():  # 제너레이터 본문은 Content-Length 없이 chunked 로 간다
-        yield b'--x\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n'
-        yield b"Content-Type: image/png\r\n\r\n" + png_bytes() + b"\r\n--x--\r\n"
+    async def counted(scope, receive, send):
+        async def counting_receive():
+            message = await receive()
+            if message.get("type") == "http.request":
+                received.append(len(message.get("body", b"")))
+            return message
+
+        await app(scope, counting_receive, send)
+
+    return TestClient(counted, raise_server_exceptions=False), container, received
+
+
+def _multipart_chunks():  # 제너레이터 본문은 chunked 로 간다
+    yield b'--x\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n'
+    yield b"Content-Type: image/png\r\n\r\n" + png_bytes() + b"\r\n--x--\r\n"
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        {},  # 크기를 밝히지 않음 (감사 4)
+        {
+            "Content-Length": "5",
+            "Transfer-Encoding": "chunked",
+        },  # 작은 크기를 적고 chunked (델타 D01)
+    ],
+    ids=["no-length", "length-with-chunked"],
+)
+def test_chunked_uploads_are_refused_before_the_body_is_read(declared):
+    """서버(h11)는 Transfer-Encoding 이 있으면 Content-Length 를 무시하고 본문을 끝까지 받는다.
+    그래서 chunked 업로드는 크기를 적었든 아니든 본문을 한 바이트도 받기 전에 411 로 거절한다."""
+    client, container, received = _counting_client()
 
     response = client.post(
         "/api/reference-images",
-        content=body(),
-        headers={"Content-Type": "multipart/form-data; boundary=x"},
+        content=_multipart_chunks(),
+        headers={"Content-Type": "multipart/form-data; boundary=x", **declared},
     )
 
     assert response.status_code == 411
     assert response.json()["error_code"] == "LENGTH_REQUIRED"
+    assert sum(received) == 0  # 본문을 읽지 않았다
     assert not container.artifact_store.exists("mem://refs/uploads/upl_0001.png")
+
+
+def test_an_absurdly_long_declared_size_is_payload_too_large_not_a_server_error():
+    """델타 D11: 4,300자리를 넘는 숫자열은 int() 가 ValueError 를 낸다. 읽기 전에 413 으로 거절한다."""
+    client, _, received = _counting_client()
+
+    response = client.post(
+        "/api/reference-images",
+        content=b"x" * 10,
+        headers={"Content-Type": "multipart/form-data; boundary=x", "Content-Length": "9" * 5000},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error_code"] == "PAYLOAD_TOO_LARGE"
+    assert sum(received) == 0

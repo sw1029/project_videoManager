@@ -5,9 +5,12 @@
 (PNG·JPEG·WebP), 크기 상한은 FRAME_REFERENCE_IMAGE_MAX_BYTES 다.
 
 크기 상한은 두 번 본다.
-1. 본문을 받기 전에 선언된 크기(Content-Length)를 본다. 없으면 411, 상한(과 multipart 머리글 여유)을 분명히 넘으면 413.
-   FastAPI 는 의존성보다 먼저 본문을 다 받아 임시 파일에 쓰므로, 크기를 밝히지 않은(chunked) 요청을 받아 주면
-   요청 하나가 임시 디스크를 얼마든지 채울 수 있다 (감사 4). 브라우저의 FormData 업로드는 늘 Content-Length 를 보낸다.
+1. 본문을 받기 전에 선언된 크기를 본다. Content-Length 가 없거나 Transfer-Encoding 이 있으면 411,
+   상한(과 multipart 머리글 여유)을 분명히 넘으면 413. FastAPI 는 의존성보다 먼저 본문을 다 받아 임시 파일에 쓰므로,
+   크기를 밝히지 않은 요청을 받아 주면 요청 하나가 임시 디스크를 얼마든지 채울 수 있다 (감사 4).
+   서버(h11)는 Transfer-Encoding 이 있으면 Content-Length 를 무시하고 본문을 끝까지 받으므로, 작은 크기를 적은
+   chunked 요청도 같은 일이 된다 (델타 D01). 브라우저의 FormData 업로드는 늘 Content-Length 를 보내고
+   chunked 를 쓰지 않는다.
 2. 파일을 상한 + 1 바이트까지만 읽어 유스케이스가 판단한다.
 """
 
@@ -27,6 +30,9 @@ from ..rate_limit import enforce_rate_limit
 from ..schemas import ErrorOut, ReferenceImageUploadOut
 
 MULTIPART_OVERHEAD_BYTES = 64 * 1024  # 경계·파트 머리글에 주는 여유
+# 18자리(약 1 EB)를 넘는 선언 크기는 견줄 것도 없이 크다.
+# int() 는 4,300자리를 넘는 숫자열에서 ValueError 를 낸다 (델타 D11)
+MAX_DECLARED_DIGITS = 18
 
 
 class _DeclaredSizeLimitRoute(APIRoute):
@@ -39,12 +45,15 @@ class _DeclaredSizeLimitRoute(APIRoute):
             container: Container = request.app.state.container
             limit = container.upload_reference_image.max_bytes
             declared = request.headers.get("content-length", "")
-            if not declared.isdigit():
+            if "transfer-encoding" in request.headers or not declared.isdigit():
                 raise HTTPException(
                     status.HTTP_411_LENGTH_REQUIRED,
-                    "참조 이미지 업로드는 크기(Content-Length)를 밝혀야 합니다",
+                    "참조 이미지 업로드는 크기(Content-Length)를 밝히고 chunked 로 보내지 않아야 합니다",
                 )
-            if int(declared) > limit + MULTIPART_OVERHEAD_BYTES:
+            if (
+                len(declared) > MAX_DECLARED_DIGITS
+                or int(declared) > limit + MULTIPART_OVERHEAD_BYTES
+            ):
                 raise payload_too_large(limit)
             return await handler(request)
 
@@ -64,7 +73,7 @@ ContainerDep = Annotated[Container, Depends(get_container)]
     responses={
         411: {
             "model": ErrorOut,
-            "description": "LENGTH_REQUIRED (Content-Length 없음, chunked 업로드)",
+            "description": "LENGTH_REQUIRED (Content-Length 가 없거나 Transfer-Encoding 이 있음)",
         },
         413: {
             "model": ErrorOut,

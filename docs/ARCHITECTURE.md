@@ -365,7 +365,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | GET | `/api/versions/{version_id}` | `get_version` | 200 IR·상태·`video_url`/`clip_url`·미디어 형식 (FAILED 면 `error_code`/`error_message`) | 404 |
 | GET | `/api/versions/{version_id}/video` | `get_video_uri` | 200 결과 영상 (파일 저장소는 Range 206) | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
 | GET | `/api/versions/{version_id}/scenes/{scene_key}/clip` | `get_clip_uri` | 200 장면 클립 | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
-| POST | `/api/reference-images` | `UploadReferenceImage` | 201 `{image_uri, media_type, size_bytes}` (multipart `file`, PNG·JPEG·WebP, `refs/uploads/` 에 저장. `POST /projects` 가 `refs/{project_id}/` 로 옮긴다, ADR-0024) | 413 `PAYLOAD_TOO_LARGE` / 415 `UNSUPPORTED_MEDIA_TYPE` / 422 / 429 |
+| POST | `/api/reference-images` | `UploadReferenceImage` | 201 `{image_uri, media_type, size_bytes}` (multipart `file`, PNG·JPEG·WebP, `refs/uploads/` 에 저장. `POST /projects` 가 `refs/{project_id}/` 로 옮긴다, ADR-0024) | 411 `LENGTH_REQUIRED` / 413 `PAYLOAD_TOO_LARGE` / 415 `UNSUPPORTED_MEDIA_TYPE` / 422 / 429 |
 | PUT | `/api/versions/{version_id}/ir` | `EditDraftIr` | 200 고친 뒤의 버전 + `repair_notes` (DRAFT 의 구조화 결과 수정: 보정 → 검증 → 조건부 저장, ADR-0023) | 404 / 409 `VERSION_NOT_EDITABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/revisions` | `CreateRevision` | 201 `{version_id, parent_version_id, DRAFT, changed_scene_keys}`. `entity_key` 생략 시 장면 수준 조건 | 404 / 409 `VERSION_NOT_REVISABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
