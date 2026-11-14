@@ -12,7 +12,7 @@ from frame.adapters.checker import FakeConsistencyChecker, FakeRequirementChecke
 from frame.application.dto import CreateProjectCommand
 from frame.config import Settings
 from frame.domain.enums import RevisionKind, VersionState
-from frame.evaluation.edit_cases import parse_cases
+from frame.evaluation.edit_cases import load_cases, parse_cases
 from frame.evaluation.edit_runner import CaseInterrupted, run_case
 from frame.tools import evaluate_edits
 from tests.support.checkers import MethodPreservationChecker
@@ -389,6 +389,10 @@ def test_ctrl_c_saves_finished_cases_and_the_interrupted_revision_then_exits_130
     assert interrupted["state"] == "DRAFT"  # 접수 전에 멈췄다 → 서버가 다시 실행하지 않는다
     err = capsys.readouterr().err
     assert "중단" in err and revision in err and "접수 전" in err
+    # 이어 돌리기: 하던 케이스와 시작하지 않은 케이스만 담은 케이스 파일
+    remaining = tmp_path / "out" / "result.remaining.json"
+    assert [spec.case_id for spec in load_cases(remaining)] == ["second", "third"]
+    assert "result.remaining.json" in err
 
 
 def test_ctrl_c_inside_a_case_carries_what_was_done():
@@ -653,3 +657,25 @@ def test_results_that_cannot_be_written_go_to_a_fallback_file_with_exit_3(tmp_pa
     assert [c["case_id"] for c in fallback["cases"]] == ["cup", "second"]
     captured = capsys.readouterr()
     assert "result.fallback.json" in captured.err and "result.fallback.json" in captured.out
+
+
+def test_existing_result_file_is_kept_unless_overwrite_is_given(tmp_path, capsys):
+    """다시 돌려도 앞 결과(과금된 실행)를 덮어쓰지 않는다: 이미 있으면 아무것도 돌리지 않고 2 로 끝난다."""
+    container = _container()
+    parent = _parent(container)
+    project_id = container.queries.get_version(parent).version.project_id
+    before = len(container.queries.get_project(project_id).versions)
+    out = tmp_path / "out" / "result.json"
+    out.parent.mkdir()
+    out.write_text('{"earlier": true}', "utf-8")
+
+    code, report = _run(tmp_path, container, [_cup(parent)])
+
+    assert code == 2
+    assert report == {"earlier": True}
+    assert len(container.queries.get_project(project_id).versions) == before
+    assert "--overwrite" in capsys.readouterr().err
+
+    code, report = _run(tmp_path, container, [_cup(parent)], "--overwrite")
+
+    assert code == 0 and report["complete"] is True

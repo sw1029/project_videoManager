@@ -32,6 +32,8 @@ def test_real_models_produce_a_judged_report(tmp_path, capsys):
     if not cases:
         pytest.skip("FRAME_EVAL_CASES 로 케이스 파일을 주지 않으면 실제 실행을 건너뜀 (비용 발생)")
     out = Path(os.environ.get("FRAME_EVAL_OUT") or tmp_path / "result.json")
+    if out.exists():  # CLI 는 앞 결과(과금된 실행)를 지키려고 돌지 않고 2 로 끝난다
+        pytest.fail(f"FRAME_EVAL_OUT 이 이미 있습니다: {out}. 다른 파일을 주세요")
 
     assert evaluate_edits.main(["--cases", cases, "--out", str(out)]) == 0
 
