@@ -9,6 +9,7 @@ from .queries import ProjectQueries
 from .recover_pending_versions import RecoverPendingVersions, RecoveryReport
 from .run_generation_pipeline import RunGenerationPipeline
 from .structure_requirements import StructureRequirements
+from .upload_reference_image import UploadedReferenceImage, UploadReferenceImage
 
 __all__ = [
     "AcceptGeneration",
@@ -23,4 +24,6 @@ __all__ = [
     "RevisionPlan",
     "RunGenerationPipeline",
     "StructureRequirements",
+    "UploadReferenceImage",
+    "UploadedReferenceImage",
 ]

@@ -93,7 +93,9 @@ class Settings:
         str, ...
     ] = ()  # 비어 있으면 CORS 꺼짐 (개발은 Vite 프록시, 배포는 같은 출처 권장)
     frontend_dist: str | None = None  # 빌드된 화면 폴더. 지정하면 "/" 에서 서빙
-    rate_limit_per_minute: int = 0  # 0 이면 꺼짐. IP 별 변경 요청(POST) 수 제한
+    rate_limit_per_minute: int = 0  # 0 이면 꺼짐. IP 별 변경 요청(POST·PUT) 수 제한
+    # 참조 이미지 업로드 (#12, POST /api/reference-images) 의 크기 상한(바이트). PNG·JPEG·WebP 만 받는다
+    reference_image_max_bytes: int = 10 * 1024 * 1024
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -185,6 +187,9 @@ class Settings:
             cors_origins=tuple(o.strip() for o in text("CORS_ORIGINS", "").split(",") if o.strip()),
             frontend_dist=text("FRONTEND_DIST", "") or None,
             rate_limit_per_minute=int(text("RATE_LIMIT_PER_MINUTE", "0")),
+            reference_image_max_bytes=int(
+                text("REFERENCE_IMAGE_MAX_BYTES", "") or base.reference_image_max_bytes
+            ),
         )
 
 

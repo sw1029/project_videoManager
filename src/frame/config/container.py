@@ -60,6 +60,7 @@ from frame.application.use_cases import (
     RecoverPendingVersions,
     RunGenerationPipeline,
     StructureRequirements,
+    UploadReferenceImage,
 )
 from frame.domain.enums import EntityKind
 from frame.domain.services.identity import IdentityPolicy
@@ -96,6 +97,7 @@ class Container:
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
+    upload_reference_image: UploadReferenceImage  # 참조 이미지 업로드 (#12)
     # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
     recover_pending_versions: RecoverPendingVersions
     llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
@@ -250,7 +252,12 @@ def build_container(
         dispatcher=dispatcher,
         propagation_policy=policy,
         create_project=CreateProject(
-            uow_factory, dispatcher, ids, clock, ir_structurer=ir_structurer
+            uow_factory,
+            dispatcher,
+            ids,
+            clock,
+            ir_structurer=ir_structurer,
+            artifact_store=ctx.artifact_store,
         ),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
@@ -259,6 +266,9 @@ def build_container(
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
+        upload_reference_image=UploadReferenceImage(
+            ctx.artifact_store, ids, max_bytes=settings.reference_image_max_bytes
+        ),
         llm_keys=ctx.llm_keys,
         identity_extractor=identity_extractor,
         recover_pending_versions=RecoverPendingVersions(
