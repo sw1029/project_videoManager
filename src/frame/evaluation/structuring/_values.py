@@ -23,9 +23,8 @@ _STOPWORDS = frozenset({
 _VOWELS = frozenset("aeiouy")
 # 동사를 부정하는 말 (not smiling · doesn't wave · 안 웃는다 · 못 본다 · 웃지 않는다 · 보지 못한다)
 _NEGATION_WORDS = frozenset({"not", "never", "neither", "nor"})
-_NEGATION_ADVERBS = frozenset(
-    {"안", "못"}
-)  # 뒤에 낱말이 올 때만 부정이다 ('카페 안'·'벽의 못' 은 자리·물건)
+# 뒤에 낱말이 올 때만 부정이다 ('카페 안'·'벽의 못' 은 자리·물건)
+_NEGATION_ADVERBS = frozenset({"안", "못"})
 _NEGATION_PREFIXES = ("않", "못")  # 않는다·못한다 처럼 낱말 앞에 붙은 것
 # (어미, 그 어미를 걷어낼 최소 낱말 길이). 앞에서부터 하나만 걷어낸다
 _SUFFIXES = (("ing", 6), ("ied", 5), ("ies", 5), ("es", 5), ("ed", 5), ("ly", 6), ("s", 4))

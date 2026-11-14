@@ -5,7 +5,8 @@
 
 - 켜는 것은 FRAME_EVAL_STRUCTURING_LIVE=1 하나다. 서버 설정(FRAME_STRUCTURER)을 보지 않고 LLM 구조화기로 돈다.
   켰는데 키·패키지가 없으면 건너뛰지 않고 실패한다 (설정 오류).
-- 비용: gpt-4.1-mini 로 1회 약 $0.03 (15건, 자기수정 재시도 포함, 2026-11-14 실측).
+- 비용: gpt-4.1-mini 로 1회 약 $0.03~0.04 (15건, 2026-11-14 첫 실행).
+  기록된 토큰(사례마다 마지막 시도)으로는 $0.026 이다. 기록되지 않는 자기수정 재시도분은 어림이다.
 - 기록은 기본으로 임시 폴더에 쓴다. 저장소에 남길 때만 FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring 을 준다.
   비교 기준은 그 폴더(주지 않으면 docs/evaluation/structuring)의 가장 최근 기록이다.
 - 로컬 OpenAI 호환 서버(vLLM 등)는 FRAME_LLM_BASE_URL·FRAME_LLM_MODEL·FRAME_LLM_STRICT_SCHEMA=false 로
