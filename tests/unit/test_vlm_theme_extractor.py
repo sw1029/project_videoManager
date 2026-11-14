@@ -261,6 +261,108 @@ def test_duplicate_or_odd_keys_do_not_break_the_theme():
     theme.validate()
 
 
+def test_looks_are_stripped_from_entity_keys():
+    """모델이 키에 색을 넣어 오면(red_mug) 걷어낸다. 조건이 가리키는 키도 함께 바뀐다."""
+    document = cafe_observation()
+    document["entities"][1]["entity_key"] = "red_mug"
+    for slot in document["slots"]:
+        slot["entity_keys"] = ["red_mug" if k == "mug" else k for k in slot["entity_keys"]]
+        for requirement in slot["requirements"]:
+            for field in ("entity_key", "related_entity_key"):
+                if requirement[field] == "mug":
+                    requirement[field] = "red_mug"
+    theme, ir, _, notes = _build(document)
+
+    assert [e.entity_key for e in ir.entities] == ["barista", "mug", "cafe"]
+    assert theme.has_cast("mug") and not ir.has_entity("red_mug")
+    show = {r.key for r in ir.scene("slot_2").requirements}
+    assert {"slot_2:barista:holds:mug", "slot_2:mug:color"} <= show
+    assert any("'red_mug' 를 'mug' 로" in note for note in notes)
+
+
+def test_look_word_is_kept_when_stripping_would_collide_or_leave_nothing():
+    document = cafe_observation()
+    document["entities"].append(
+        {
+            "entity_key": "blue_mug",  # mug 가 이미 있다
+            "kind": "PROP",
+            "description": "파란 머그컵",
+            "recurring": False,
+            "role": "",
+            "fixed_attributes": [],
+        }
+    )
+    document["entities"].append(
+        {
+            "entity_key": "white",  # 걷어내면 남는 것이 없다
+            "kind": "OTHER",
+            "description": "흰 것",
+            "recurring": False,
+            "role": "",
+            "fixed_attributes": [],
+        }
+    )
+    document["slots"][2]["entity_keys"] += ["blue_mug", "white"]
+    _, ir, _, _ = _build(document)
+
+    assert [e.entity_key for e in ir.entities] == ["barista", "mug", "cafe", "blue_mug", "white"]
+
+
+def test_relation_to_something_that_is_not_an_entity_becomes_an_action():
+    """'카메라를 본다' 처럼 상대가 객체가 아닌 관계는 버리지 않고 그 객체의 행동으로 옮긴다."""
+    document = cafe_observation()
+    document["slots"][0]["requirements"].append(
+        {
+            "entity_key": "barista",
+            "related_entity_key": "camera",
+            "predicate": "looks_at",
+            "value": "",
+        }
+    )
+    document["slots"][3]["requirements"].append(  # 이미 행동이 있으면 앞의 것이 남는다
+        {
+            "entity_key": "barista",
+            "related_entity_key": None,
+            "predicate": "looks_at",
+            "value": "viewer",
+        }
+    )
+    document["slots"][1]["requirements"].append(  # 상대도 값도 없으면 버린다
+        {"entity_key": "barista", "related_entity_key": None, "predicate": "wears", "value": ""}
+    )
+    _, ir, _, notes = _build(document)
+    greeting = {r.key: r.expected_value for r in ir.scene("slot_1").requirements}
+    outro = {r.key: r.expected_value for r in ir.scene("slot_4").requirements}
+
+    assert greeting["slot_1:barista:action"] == "looks at camera"
+    assert outro["slot_4:barista:action"] == "waves hand to camera"
+    assert not any("looks_at" in key for key in (*greeting, *outro))
+    assert any("'wears'" in note and "상대 없음" in note for note in notes)
+
+
+def test_predicates_outside_the_vocabulary_are_dropped():
+    document = cafe_observation()
+    document["slots"][2]["requirements"] += [
+        {
+            "entity_key": "mug",
+            "related_entity_key": None,
+            "predicate": "close_up",
+            "value": "mug centered",
+        },
+        {
+            "entity_key": "cafe",
+            "related_entity_key": None,
+            "predicate": "blurred",
+            "value": "background blur",
+        },
+    ]
+    _, ir, _, notes = _build(document)
+    predicates = {r.predicate for r in ir.scene("slot_3").requirements}
+
+    assert not {"close_up", "blurred"} & predicates
+    assert sum("어휘에 없는 술어" in note for note in notes) == 2
+
+
 # ---- 프레임·질의·재시도 (진짜 ffmpeg, 재생 응답) ----
 @pytest.fixture(scope="module")
 def video(tmp_path_factory) -> bytes:
@@ -300,7 +402,9 @@ def test_frames_are_sampled_per_slot_and_described_in_the_prompt(video):
     user = call["user"]
     assert "S3 8.0-12.0s (frames: S3-F1 8.7s, S3-F2 10.0s, S3-F3 11.3s)" in user
     assert "[8.6-10.4] 가격은 4,500원." in user and "Transcript (language: ko)" in user
-    assert "480x854 (9:16), 16.0 s, audio: yes" in user and "in Korean" in user
+    assert "480x854 (9:16), 16.0 s, audio: yes" in user
+    # 설명은 한국어로, 조건의 값은 영어로 (첫 실호출에서 값까지 한국어로 왔다)
+    assert "narration_purpose in Korean" in user and "value in English" in user
     assert "Title given by the user: 카페 신메뉴 소개" in user
     assert call["schema_name"] == "theme_observation" and call["schema"] == RESPONSE_SCHEMA
     assert extraction.detail["frames"] == 12 and extraction.detail["method"] == "vlm_frames"
@@ -348,4 +452,5 @@ def test_system_prompt_lists_the_vocabulary_and_the_rules():
     assert "outfit" in prompt and "holds" in prompt and "close" in prompt
     assert '"mug", not "red_mug"' in prompt
     assert "{menu} {price}" in prompt  # 틀의 예는 중괄호 그대로 보인다
+    assert "ENGLISH phrase" in prompt and "Use only the predicate names" in prompt
     assert "present is null" in prompt

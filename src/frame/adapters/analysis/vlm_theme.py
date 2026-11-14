@@ -7,7 +7,10 @@
    스타일, 화면에서 읽은 문구, 문구 규칙, 편마다 바뀌는 변수를 받는다.
 4. 응답을 코드로 다듬는다. 모델이 낸 것 가운데 규칙에 맞는 것만 쓰고, 버린 것은 메모로 남긴다.
    - 자리의 키·시간은 코드가 정한다 (모델은 S1, S2 … 로만 가리킨다).
-   - 객체 키는 영문 소문자·숫자·밑줄로 맞춘다. 술어·값은 IR 의 어휘로 정규화한다.
+   - 객체 키는 영문 소문자·숫자·밑줄로 맞추고, 키에 든 겉모습 낱말은 걷어낸다 (red_mug -> mug).
+     키에 속성이 있으면 그 속성을 고친 뒤 검수가 헷갈린다 (2차 실험).
+   - 술어·값은 IR 의 어휘로 정규화한다. 어휘에 없는 술어는 버린다.
+   - 관계 술어의 상대가 객체가 아니면(카메라를 본다) 행동 조건으로 옮긴다.
    - 관계·일시적 술어는 고정 속성이 될 수 없다. 배경·문구 객체는 고정 출연이 되지 않는다.
    - 말 빠르기·자리별 말의 예는 모델이 아니라 받아 적은 말소리에서 계산한다.
    - 기준 이미지는 붙이지 않는다 (외부 영상의 화면을 잘라 두지 않는다. 필요하면 AdoptAnchors 로 붙인다).
@@ -58,12 +61,17 @@ from frame.domain.theme import (
 from frame.domain.video_analysis import ScreenText
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
-PROMPT_VERSION = "2026-11-14.1"
+PROMPT_VERSION = "2026-11-14.2"
 SCHEMA_NAME = "theme_observation"
 _CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
 _COLOR = re.compile(r"^(?:[A-Za-z]{3,20}|#[0-9A-Fa-f]{6})$")
 _NON_KEY = re.compile(r"[^a-z0-9]+")
+# 객체 키에 들어오면 걷어내는 겉모습 낱말 (색·크기·새것). 키는 '무엇인가' 만 말한다
+_LOOK_WORDS = frozenset(
+    "red blue green yellow orange purple pink brown black white gray grey teal beige cream gold "
+    "silver navy dark light bright big small large little tiny new old".split()
+)
 
 
 def build_system_prompt(vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY) -> str:
@@ -87,7 +95,8 @@ Entities
 - recurring is true when the entity would come back in other episodes of the series (the host, a
   mascot, a signature prop) and false when it belongs to this episode's topic (today's product).
 - fixed_attributes are looks that stay the same through the whole video. Predicates: {attributes}.
-  Never put actions, poses, expressions, positions or relations there.
+  Never put actions, poses, expressions, positions or relations there. Values are short lowercase
+  English phrases.
 
 Slots (one entry per slot, in order)
 - purpose: what this part does in the format, worded so that it fits any episode
@@ -99,8 +108,13 @@ Slots (one entry per slot, in order)
   related_entity_key, and never involve a BACKGROUND entity. Scene-level conditions
   ({", ".join(_SCENE_LEVEL)}) use entity_key null.
 - narration_purpose: what the speech does during the slot ("names the product"), or "" if silent.
-- Values are short lowercase English phrases ("white shirt and brown apron", "close up"), except
-  text and brand, which keep the exact spelling seen on screen.
+- State an attribute in every slot where it can be seen: a red mug is "color: red" in each slot
+  it appears in.
+- Use only the predicate names listed above. If something does not fit any of them, leave it
+  out of requirements and mention it in the description instead.
+- Every value is a short lowercase ENGLISH phrase ("white shirt and brown apron", "close up",
+  "waves hand to camera"), whatever language the video and the other fields use. The only
+  exceptions are text and brand, which keep the exact spelling seen on screen.
 
 Style: conditions that hold for the whole video (scene-level predicates only), 3 to 5 palette
 colour names, and notes on composition, texture and editing feel.
@@ -348,7 +362,9 @@ class VlmThemeExtractor(ThemeExtractor):
         lines = [
             f"Video: {media.width}x{media.height} ({media.aspect_label}), "
             f"{media.duration_ms / 1000:.1f} s, audio: {'yes' if media.has_audio else 'no'}.",
-            f"Write title, summary, description, purpose, role, notes and tone in {self.language}.",
+            "Write title, summary, description, purpose, role, notes, tone and narration_purpose in "
+            f"{self.language}. Keep every requirement value, fixed attribute value and style condition "
+            "value in English.",
         ]
         if request.title.strip():
             lines.append(f"Title given by the user: {request.title.strip()}")
@@ -554,6 +570,11 @@ def _entities(
         plain = _plain(item.get("entity_key")) or f"entity_{position}"
         if plain[0].isdigit():
             plain = f"entity_{plain}"
+        bare = "_".join(word for word in plain.split("_") if word not in _LOOK_WORDS)
+        if bare and bare != plain and bare not in originals and not bare[0].isdigit():
+            notes.append(f"객체 키 '{plain}' 를 '{bare}' 로 고쳤습니다 (키에 겉모습을 넣지 않는다)")
+            key_of[plain] = bare
+            plain = bare
         if plain in originals:
             notes.append(f"객체 키 '{plain}' 가 두 번 나와 뒤의 것을 뺐습니다")
             continue
@@ -641,7 +662,11 @@ def _requirements(
     entity_keys: list[str],
     notes: list[str],
 ) -> list[RequirementSpec]:
-    """자리의 요구조건. IR 의 규칙에 맞지 않는 것은 버리고, 조건이 가리키는 객체는 그 장면에 연결한다."""
+    """자리의 요구조건. IR 의 규칙에 맞지 않는 것은 버리고, 조건이 가리키는 객체는 그 장면에 연결한다.
+
+    - 어휘에 없는 술어는 버린다 (모델이 지어낸 visible·blurred 같은 것).
+    - 관계 술어의 상대가 객체가 아니면(카메라·시청자) 그 객체의 행동으로 옮긴다: looks_at camera -> action.
+    """
     requirements: list[RequirementSpec] = []
     seen: set[str] = set()
     for item in raw if isinstance(raw, list) else []:
@@ -649,9 +674,7 @@ def _requirements(
             continue
         subject = _lookup(item.get("entity_key"), key_of)
         related = _lookup(item.get("related_entity_key"), key_of)
-        if (item.get("entity_key") and subject is None) or (
-            item.get("related_entity_key") and related is None
-        ):
+        if item.get("entity_key") and subject is None:
             notes.append(f"장면 '{slot_key}' 의 조건이 없는 객체를 가리켜 뺐습니다: {item}")
             continue
         try:
@@ -659,7 +682,23 @@ def _requirements(
         except ValidationError:
             continue
         relational = DEFAULT_VOCABULARY.is_relational(predicate)
-        value = str(item.get("value") or "")
+        value = str(item.get("value") or "").strip()
+        if relational is None:
+            notes.append(f"장면 '{slot_key}' 의 어휘에 없는 술어 '{predicate}' 를 뺐습니다")
+            continue
+        if relational is True and related is None and subject is not None:
+            # 상대가 객체가 아니다: 상대로 적어 온 말(또는 값)을 붙여 행동으로 옮긴다
+            target = value or " ".join(str(item.get("related_entity_key") or "").split("_"))
+            if not target:
+                notes.append(
+                    f"장면 '{slot_key}' 의 관계 조건 '{predicate}' 를 뺐습니다 (상대 없음)"
+                )
+                continue
+            predicate, value, relational = (
+                "action",
+                f"{predicate.replace('_', ' ')} {target}",
+                False,
+            )
         if relational is True:
             background = EntityKind.BACKGROUND in (
                 kinds.get(subject or ""),
