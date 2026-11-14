@@ -96,17 +96,25 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 
 ## 6. 첫 push 뒤 확인할 것
 
-이 게이트들은 로컬에서만 확인했다 (워크플로를 GitHub 에서 돌려 보지 못했다). 처음 돌 때 아래를 본다.
+이 게이트들은 로컬(Windows, Python 3.11)에서만 확인했다 (워크플로를 GitHub 에서 돌려 보지 못했다). 아래 수치는 dev(#31~#35)를
+합친 뒤의 것이다 (로컬 결과: 2588 통과 · 4 건너뜀 · 4 제외). 처음 돌 때 아래를 본다.
 
-1. **test 잡의 실제 영상 테스트**: ffmpeg 를 쓰는 테스트 약 94개가 CI 에서 처음 돈다. 실행 머리말의 `ffmpeg:` 줄에 경로가 찍히는지,
-   건너뛴 수가 3 안팎인지 본다. Linux 에서만 실패하는 것이 있으면 그 테스트가 드러낸 문제다.
-2. **커버리지 하한**: 하한은 Windows 에서 잰 값(90.3 · 95.6 · 97.7)에 여유를 둔 것이다. ubuntu 의 값이 하한 아래면
-   `scripts/check.py` 의 `COVERAGE_FLOORS` 를 그 값에 맞추고, 위면 올린다.
-3. **compat 잡**: Python 3.12(ubuntu)와 Windows 러너에서 같은 테스트가 처음 돈다.
-4. **audit 잡**: 결과만 본다. 고칠 것이 있으면 이슈로 올리고, 조용해지면 `continue-on-error` 를 뺀다.
-5. **릴리스**: `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다. 태그는 패키지 버전으로
+1. **test 잡의 실제 영상 테스트**: ffmpeg 를 쓰는 테스트 약 155개가 CI 에서 처음 돈다. 지금까지의 워크플로는 `video` extra 를
+   설치하지 않아 이 테스트들을 건너뛰었다 — dev 에 들어온 시리즈·음성 어댑터의 ffmpeg 테스트(소리 편집 · 영상 분석 · 테마 추출 ·
+   문구 합성)도 Linux 에서는 한 번도 돌지 않았다. 실행 머리말의 `ffmpeg:` 줄에 경로가 찍히는지 본다. Linux 에서만 실패하는 것이
+   있으면 그 테스트가 드러낸 문제다 (imageio-ffmpeg 가 가져오는 ffmpeg 의 판이 OS 마다 다르다).
+2. **건너뛴 테스트**: ubuntu 에서는 Windows 전용 1개만 건너뛰어야 한다. 화면 문구 합성의 ffmpeg 테스트 6개
+   (`tests/contract/test_overlay_contract.py`)는 **한글 글꼴을 찾지 못하면 조용히 건너뛴다** — `FRAME_REQUIRE_FFMPEG` 는 ffmpeg 만 본다.
+   실행 요약의 `SKIPPED … ffmpeg 또는 한글 글꼴 없음` 줄로 확인한다. 러너에 글꼴이 없어 건너뛰면 test 잡에 글꼴을 설치하는 단계
+   (`fonts-noto-cjk`)를 더할지 정한다.
+3. **커버리지 하한**: 하한(89 · 95 · 97)은 Windows 에서 잰 값(94.27 · 96.60 · 97.84)에 여유를 둔 것이다. 핵심(domain·application)의
+   여유가 0.84 로 가장 작다. ubuntu 의 값이 하한 아래면 `scripts/check.py` 의 `COVERAGE_FLOORS` 를 그 값에 맞추고, 위면 올린다.
+4. **compat 잡**: Python 3.12(ubuntu)와 Windows 러너에서 같은 테스트가 처음 돈다. dev 에 들어온 코드도 3.12 에서 전체 테스트를
+   돌린 적이 없다 (지금까지 3.12 로 돈 것은 demo-smoke 뿐이다).
+5. **audit 잡**: 결과만 본다. 고칠 것이 있으면 이슈로 올리고, 조용해지면 `continue-on-error` 를 뺀다.
+6. **릴리스**: `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다. 태그는 패키지 버전으로
    시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
-6. **docker 잡**: `docker/Dockerfile` 로 이미지를 빌드해 띄우고 `/health` 가 답하는지 본다. 이미지 빌드는 로컬에서 돌려 보지 못했다
+7. **docker 잡**: `docker/Dockerfile` 로 이미지를 빌드해 띄우고 `/health` 가 답하는지 본다. 이미지 빌드는 로컬에서 돌려 보지 못했다
    (구성 파일의 내용은 `tests/unit/test_docker_files.py` 가, compose 의 문법은 `docker compose config` 로 확인했다).
    통과하면 `continue-on-error` 를 뺀다. 실패하면 로그의 `docker build` 단계부터 본다 (비 root 사용자의 쓰기 권한, extra 설치).
 

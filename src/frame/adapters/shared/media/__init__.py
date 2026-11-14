@@ -17,8 +17,8 @@
     similarity    두 영상의 구조 유사도: ssim
     media_tools   시리즈·음성 어댑터가 쓰는 읽기 (ADR-0025·0027): probe_media (영상·소리 스트림의 겉모습),
                   detect_cuts (컷의 시각), detect_silences (무음 구간), region_ssim (화면 한 영역 안팎의 유사도).
-                  오류는 MediaToolError. 실행기(run_ffmpeg · tail)와 영상 정보 읽기가 위의 것과 겹친다 —
-                  한 벌로 묶는 일이 남았다 (감사 보고서 P-15)
+                  오류는 MediaToolError (실행은 위의 실행기가 한다). 영상 정보 읽기와 오류 종류가 위의 것과
+                  겹친다 — 한 벌로 묶는 일이 남았다 (감사 보고서 P-15)
     fake_media    가짜 영상·음성 형식 (실제 미디어 대신 '무엇이 들어 있는지' 를 적은 JSON): fake_video ·
                   fake_recording · decode_fake_media. 가짜 분석기·인식기·소리 편집기·문구 합성기가 함께 읽는다
 """

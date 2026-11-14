@@ -76,6 +76,10 @@
 - 델타 감사 (2026-11-14 저녁): 작업 중인 네 브랜치가 감사 뒤에 더한 커밋(84개)을 읽기만 하고 다시 봤다. 전달한 48건은
   고침 확인 29 · 일부 고침 15 · 결정으로 남김 4 이고 높음 둘은 닫혔다. 새로 찾은 것 가운데 중간은 여덟 가지이며 각 세션에 전했다.
   이 브랜치와의 시험 병합은 글 충돌 없이 기능 테스트가 모두 통과한다. 머지 때 고칠 곳과 머지 뒤 항목은 §12.2 (머지 때 체크리스트 · P-20).
+- 병합 (2026-11-14 밤): 작업 브랜치 다섯이 dev 에 들어간 뒤(#31 ~ #35) dev(`3af0fd1`)를 이 브랜치에 합쳤다 (`b06e9b3`, 글 충돌 없음).
+  머지 때 체크리스트를 다섯 커밋으로 반영했다 (§12.2). 합친 트리에서 `python scripts/check.py` 가 전부 통과한다:
+  테스트 **2588 통과 · 4 건너뜀 · 4 제외**, 커버리지 전체 94.27 % · 제품 코드 96.60 % · 핵심 97.84 % (하한 89 · 95 · 97).
+  위 표의 건수와 발견의 상태는 병합 전 그대로다. 머지 뒤 항목(§12.2 의 P-01 ~ P-20)은 아직 하지 않았다.
 
 ## 2. 기준선 (감사 시점의 측정값)
 
@@ -778,7 +782,7 @@ src/frame/
 |---|---|---|---|---|---|
 | R-01 | 중간 | 장면 조건 해시의 내용이 두 군데서 조립된다. 장면에 필드를 더하면 둘을 같이 고쳐야 재사용 판단이 맞는다 | `domain/ir.py:284-308` `scene_fingerprint`, `application/ports/generator.py:81-104` `fingerprint` | 도메인 함수 하나(`scene_condition_payload(scene, entities)`)를 둘이 쓴다 | 머지 뒤 (`ir.py` 를 #10 이 고친다. P-08) |
 | R-02 | 중간 | 생성기 데코레이터 셋이 `profile`·`result_key`·`preview` 위임을 각각 적는다 (9개 메서드). 포트에 선택 메서드를 더할 때 하나라도 빠뜨리면 기본 구현이 조용히 답한다 | `adapters/generator/decorators.py:44-52`, `:106-113`, `:175-184` | 위임 기반 클래스 `DelegatingVideoGenerator` (Decorator) | **해결** `3a6096b` (`DelegatingVideoGenerator`. 포트의 공개 메서드가 모두 위임되는지 보는 테스트) |
-| R-03 | 중간 | ffmpeg 실행기(`_run`)와 로그 꼬리(`_tail`)가 글자까지 같은 두 벌이고, 영상 정보 해석도 두 군데다 | `adapters/generator/ffmpeg.py:308-338`, `adapters/video_tools.py:154-172`; `ffmpeg.py:40-50` `VideoProbe` vs `video_tools.py:115-124` `video_size` | `adapters/shared/media/` 한 곳: 실행·꼬리·정보 읽기·임시 파일. 임시 파일 이름에 `.bin` 을 쓰지 않는다 — ffmpeg 가 확장자로 'Binary text' 형식을 골라, `video_size` (`video_tools.py:118` 의 `media.bin`)에 줄바꿈 없는 글 800바이트를 주면 640×80 영상으로 읽힌다 (재현) | **해결** (`a5f87e3` · `36209a9` · `bde28ff`) — ffmpeg 찾기·실행은 `adapters/shared/media/ffmpeg.py` 한 곳 (`resolve_ffmpeg`·`require_ffmpeg`·`run_ffmpeg`·`run_reading`·`tail`), 영상 정보 읽기는 `shared/media/probe.py` 한 곳 (`video_size`·`probe_video`·`VideoProbe`). 생성기의 정규화와 조립기는 공용 모듈의 오류를 예전과 같은 문구의 생성 오류로 바꿔 올린다. 남은 것: theme-series 의 `adapters/media_tools.py` 실행기를 이것으로 바꾸는 일 (머지 뒤, P-15) |
+| R-03 | 중간 | ffmpeg 실행기(`_run`)와 로그 꼬리(`_tail`)가 글자까지 같은 두 벌이고, 영상 정보 해석도 두 군데다 | `adapters/generator/ffmpeg.py:308-338`, `adapters/video_tools.py:154-172`; `ffmpeg.py:40-50` `VideoProbe` vs `video_tools.py:115-124` `video_size` | `adapters/shared/media/` 한 곳: 실행·꼬리·정보 읽기·임시 파일. 임시 파일 이름에 `.bin` 을 쓰지 않는다 — ffmpeg 가 확장자로 'Binary text' 형식을 골라, `video_size` (`video_tools.py:118` 의 `media.bin`)에 줄바꿈 없는 글 800바이트를 주면 640×80 영상으로 읽힌다 (재현) | **해결** (`a5f87e3` · `36209a9` · `bde28ff`) — ffmpeg 찾기·실행은 `adapters/shared/media/ffmpeg.py` 한 곳 (`resolve_ffmpeg`·`require_ffmpeg`·`run_ffmpeg`·`run_reading`·`tail`), 영상 정보 읽기는 `shared/media/probe.py` 한 곳 (`video_size`·`probe_video`·`VideoProbe`). 생성기의 정규화와 조립기는 공용 모듈의 오류를 예전과 같은 문구의 생성 오류로 바꿔 올린다. theme-series 의 `media_tools` 는 병합 뒤 `shared/media/` 로 옮기고 실행기 · 출력 꼬리를 이것으로 바꿨다 (`a5d7956` · `e7f5bde`). 남은 것: 그 모듈의 영상 정보 읽기(`probe_media`)와 오류 종류를 한 벌로 (P-15) |
 | R-04 | 낮음 | 클립 메타데이터의 공통 기록(모델·비용·시간·편집 여부)을 읽는 코드가 두 벌 (#21 이 세 벌째), `_number` 는 세 벌 | `presentation/mappers.py:172-195`, `application/use_cases/plan_revision.py:267-268` | 값 객체 `ClipProduction.from_metadata()` | 새 모듈과 `plan_revision.py` 는 지금, 나머지는 머지 뒤 (P-04) |
 | R-05 | 낮음 | '수정할 수 있는 버전인가' 확인이 두 유스케이스에, 요청 → 명령 변환이 라우터 두 곳에 있다 | `create_revision.py:39-45`·`plan_revision.py:147-153`; `routers/versions.py:136-146`·`:179-197` | `VideoVersion.ensure_revisable()`; 변환은 `mappers` 로 | **앞의 것 해결** (`71b67c0`) — `VideoVersion.ensure_revisable()` 하나로 모았다 (두 유스케이스가 부른다). 요청 → 명령 변환을 `mappers` 로 옮기는 것은 머지 뒤 (P-09) |
 | R-06 | 낮음 | 시계 포트가 없을 때의 대체 구현(`datetime.now(UTC)` 람다)이 유스케이스 두 곳에 있다 | `accept_generation.py:26`, `run_generation_pipeline.py:56` | `Clock` 을 필수 인자로 (컨테이너는 이미 넘긴다) | **해결** (`71b67c0`) — 접수와 파이프라인 실행의 `Clock` 을 필수 인자로 했다 (대체 구현 두 벌을 없앴다) |
@@ -1117,10 +1121,10 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | P-12 | `presentation/app.py`·`schemas.py` 포맷 — **해결됨, #10 브랜치 (`8474d19`). 병합 뒤 `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 줄을 지운다.** 남은 것: `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
 | P-13 | Repository·UnitOfWork 계약 테스트 (commit·rollback·예외 종류), `save` 의 계약 | #10·#11·#12 | T-05, A-12 |
 | P-14 | OpenAPI 계약 서명 강화, 오류 응답 명세. **CORS `DELETE` (`cc54b9c`)와 저장소 URI 직접 지정 막기 (`dc2a6dd`)는 #10 브랜치가 해결했다 (델타 감사로 확인 2026-11-14).** 저장소 스킴이 아닌 참조 주소의 허용 목록은 그 세션에 전했다 (`B10-D05`) | #10·#11·#12 | T-09, D-05, A-04, A-19 |
-| P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 위로 (머지 때 체크리스트). **테마 도메인의 하위 패키지는 그 세션이 했다 (`538673f` · `0901fd3` · `8ff4c4e` · `a05f248`, 2026-11-14)** | theme-series | R-03, L-03, K-03 |
+| P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 로 — **옮겼다 (병합 뒤 `a5d7956`). ffmpeg 실행기와 출력 꼬리는 공용 것으로 바꿨다 (`e7f5bde`).** 남은 것: 영상 정보 읽기(`probe_media` 와 `probe_video`)와 오류 종류(`MediaToolError` 와 `VideoToolError`)를 한 벌로, 영역 유사도(`region_ssim`)를 `similarity` 옆으로. **테마 도메인의 하위 패키지는 그 세션이 했다 (`538673f` · `0901fd3` · `8ff4c4e` · `a05f248`, 2026-11-14)** | theme-series | R-03, L-03, K-03 |
 | P-16 | 구조화 프롬프트·보정 규칙을 바꾸는 수정 (프롬프트의 참조 이미지 URI, 빈 문자열 키 보정). 골드셋 리플레이로 점수 변화를 보고 프롬프트 버전을 올린다 | #17 | A-26(b), A-29 |
 
-| P-17 | 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
+| P-17 | 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). **dev 에서 들어온 코드의 옛 경로 import 11곳은 병합 뒤 고쳤다 (`a8bfa28`).** 남은 것: 기준선의 세 모듈(`config/container.py` · `application/dto.py` · `presentation/routers/versions.py`), 테스트 파일 10개의 옛 경로 import, 호환 모듈 지우기. 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
 | P-18 | 운영: 기동 복구를 요청 처리 뒤로 옮기기·서버 종료 때 디스패처 `shutdown()` (`presentation/app.py`), `pymysql[rsa]` 를 `pyproject.toml` 로 | #10·#11·#12 | O-05, A-07, O-03 |
 | P-19 | 사용자 기준 '절대 경로·로직 하드 코딩 지양' (2026-11-14): 완료 요소의 절대 경로와 이름 없는 값 고치기, CI 게이트 셋, ADR 에 '설정값은 출처 하나'. **사용자가 머지 뒤에 하기로 정했다.** 내용은 표 아래 | 모든 작업 중 브랜치 (사용자 결정) | 기준 추가 |
 | P-20 | 델타 감사(2026-11-14)에서 나온 머지 뒤 항목: 병합한 트리에서 확인할 것, 한 벌로 묶을 것, 이 브랜치의 파일에서 고칠 것, 문서와 설정. 내용은 표 아래 | 모든 작업 중 브랜치 | 델타 감사 |
@@ -1189,6 +1193,31 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 - 병합 자체는 안전하다: 시험 병합에서 글 충돌이 없고 기능 테스트가 모두 통과한다 (아래).
 
 #### 머지 때 체크리스트 (2026-11-14, 시험 병합으로 확인)
+
+**반영했다 (2026-11-14 밤).** 다섯 PR(#31 ~ #35)이 dev 에 들어간 뒤 dev(`3af0fd1`)를 이 브랜치에 합쳤다. 병합 커밋 `b06e9b3` 은
+합치기만 한다 — 글 충돌이 없었고, 트리는 `git merge-tree` 가 낸 것과 같다. 그 트리에서 걸린 것은 아래 표의 구조 · 문서 테스트 다섯과
+mypy 한 건뿐이었고 (기능 테스트 2577개 통과), 바로 뒤의 커밋들이 고쳤다.
+
+| 커밋 | 한 일 | 통과하게 된 것 |
+|---|---|---|
+| `a5d7956` | `adapters/media_tools.py` · `fake_media.py` 를 `adapters/shared/media/` 로 옮겼다 (내용과 이름은 그대로. 쓰는 곳은 어댑터 모듈 6개 · 테스트 파일 13개) | `test_modules_at_the_top_of_adapters_are_only_the_compat_ones` |
+| `a8bfa28` | 옛 경로 import 11곳을 새 경로로 (#21 의 1곳, theme-series 의 10곳) | `test_only_the_known_modules_still_import_the_compat_paths` |
+| `cbe23ec` | `THIRD_PARTY_HOMES` 에 `faster_whisper` → `frame.adapters.speech`, mypy 설정에 그 패키지의 `ignore_missing_imports` | `test_third_party_packages_stay_in_their_layer`, mypy |
+| `b8d99e0` | ADR 색인에 0022 ~ 0029, 모듈 지도에 새 패키지 17개 (같은 표의 낡은 줄도 맞췄다) | `test_the_adr_index_lists_every_adr`, `test_the_module_map_lists_every_package` |
+| `e7f5bde` | `media_tools` 의 ffmpeg 실행기와 출력 꼬리를 공용 실행기 것으로 바꿨다. 그 모듈의 오류 문구에 ffmpeg 가 찍은 임시 폴더 경로가 실리던 것이 함께 고쳐진다 (테스트 6개로 재현 · 확인) | 표의 'ffmpeg 실행은 공용 것을 쓴다' |
+
+- 표에 적었지만 하지 않은 것: 영상 정보 읽기(`probe_media`)를 `probe.py` 의 것으로 바꾸는 일. 두 함수가 돌려주는 값이 다르고
+  (소리 스트림 · 그림 한 장 판정 · 프레임 수로 다시 잰 길이), 한 벌로 묶으려면 오류 종류(`MediaToolError` · `VideoToolError`)와 밖으로 나가는
+  오류 코드도 함께 정해야 한다. P-15 에 남겼다.
+- 아래 '같이 볼 것' 네 가지와 P-01 ~ P-20 은 그대로 남아 있다 (사용자 결정: 머지 뒤).
+- 합친 뒤 `python scripts/check.py` 는 전부 통과한다 (수치는 §1 의 '결과').
+- 병합하며 본 것 (이 PR 에서는 고치지 않았다. P-11 · P-12 · P-20 에 속한다)
+  - `docs/ARCHITECTURE.md` §12 의 ADR 표는 0024 까지다. 0025 ~ 0031 이 없다 (전체 색인은 `docs/adr/README.md`).
+  - `presentation/routers/__init__.py` 의 설명과 `__all__` 에 `reference_images` 가 없다 (#10 이 더한 라우터. 앱은 모듈을 직접 import 해 붙인다).
+  - `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 파일은 병합한 트리에서 이미 포맷돼 있다 — 두 줄을 지우기만 하면 된다 (P-12).
+  - 화면 문구 합성의 ffmpeg 테스트 6개는 한글 글꼴을 찾지 못하면 조용히 건너뛴다. CI 러너에 글꼴이 있는지는 첫 실행에서 본다 (`docs/CI.md` 6절).
+
+아래는 병합 전에 적은 목록이다 (기록으로 남긴다. 줄 번호는 그때의 것이다).
 
 오케스트레이터가 이 브랜치(`3c2d318`)와 작업 중 브랜치 넷을 하나씩 시험 병합했다 (`git merge-tree` 로 만든 트리를 따로 풀어 `scripts/check.py` 의
 검사를 돌림. 브랜치와 worktree 는 건드리지 않았다). 결과: **글 충돌 0, 기능 테스트 실패 0**, 포맷과 커버리지 하한 통과.
@@ -1268,8 +1297,8 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
    이미 있던 패키지는 바뀌지 않았다 (`pip check` 통과). `pyproject.toml` dev extra 에 이미 있던 도구이고 CI 는 이미 설치한다.
    계층 규칙은 pytest 테스트로, 보안 정적 분석은 ruff 의 `S` 규칙으로, 복잡도는 ruff 의 `C90` 으로 하므로
    import-linter·bandit·radon 은 설치하지 않는다. `pip-audit` 은 CI 잡 안에서만 설치한다 (로컬 설치 없음).
-2. **ADR 번호** — 감사 세션은 0030(CI 품질 게이트와 기준선 방식)·0031(개념 단위 배치 규칙·용어집·호환 import)을 쓴다.
-   0028(필요하면 0029)은 theme-series 의 대본 추출에 배정됐다 (오케스트레이터, 2026-11-14). 머지 순서가 정해지면 번호를 당길지 정한다.
+2. **ADR 번호** — **끝났다 (2026-11-14 밤).** 0022 ~ 0029 를 쓴 브랜치가 모두 dev 에 들어왔고 번호는 당기지 않았다. 색인은
+   `docs/adr/README.md` 에 있고 다음 번호는 0032 다. (감사 세션은 0030(CI 품질 게이트와 기준선 방식)·0031(개념 단위 배치 규칙·용어집·호환 import)을 썼다.)
 3. **공용 파일 리팩터링의 순서** — **결정됨 (2026-11-14 사용자: 지금 분해. `5a98ae9`).** `config/registry.py` 분해(M-02)를 지금 할지. 감사 시점에 네 브랜치 모두 이 파일을 건드리지 않았다
    (theme-series 는 `config/theme_wiring.py` 를 따로 두고 `container.py` 만 고친다). 지금 하면 뒤에 등록을 더하는 브랜치가 새 구조를 따르면 된다.
 4. **지표·정책** — A-06(리스 하트비트, 스키마 변경), A-17·A-18(보존율 정의, 연구 문서 §7 결정 2), A-22(일관성 검수에서 판정된 프레임이
@@ -1282,5 +1311,6 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 8. **번들의 키 위치** (O-09, 급하지 않다) — `setup` 으로 저장한 키는 번들 폴더 안(`.demo/openai.key`)에 평문으로 있다. 지금은 안내만 한다
    (폴더를 넘기기 전에 `.demo` 를 지우라). 키를 사용자 프로필 아래로 옮기면 폴더를 넘겨도 키가 따라가지 않지만, 폴더를 지워도 키가 프로필에
    남아 공용 컴퓨터에서는 더 눈에 띄지 않는다. 시연을 주로 어디서 하는지에 달렸다 (자기 컴퓨터에서 준비해 넘긴다 → 옮긴다 / 공용 컴퓨터에서 한다 → 그대로).
-9. **theme-series PR 의 머지 방식** (P-19) — 그 브랜치의 중간 커밋에 키 파일의 위치 문자열이 남아 있다 (마지막 트리에는 없고, 키 값은 아니다).
-   스쿼시로 머지하면 dev 의 기록에 남지 않는다. 커밋을 살려 머지하면 남는다.
+9. **theme-series PR 의 머지 방식** (P-19) — **결정됨: 스쿼시로 머지했다 (#35 → `3af0fd1`, 2026-11-14 밤).** 그 브랜치의 중간 커밋에
+   키 파일의 위치 문자열이 남아 있었다 (마지막 트리에는 없고, 키 값은 아니다). dev 의 기록에는 스쿼시 커밋 하나만 있고 중간 커밋은 없다
+   (`git merge-base --is-ancestor` 로 확인).
