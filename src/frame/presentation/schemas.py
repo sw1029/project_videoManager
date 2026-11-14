@@ -174,7 +174,8 @@ class LLMKeyStatusOut(BaseModel):
     configured: bool
     source: Literal["runtime", "config", "env", "file"] | None  # runtime = 화면 입력(메모리)
     hint: str | None  # 끝 4자리만 (예: sk-...abcd)
-    runtime_entry: bool  # 이 요청을 보낸 기기에서 키를 입력할 수 있는지 (켜져 있고 같은 기기·원격 허용)
+    # 이 요청을 보낸 기기에서 키를 입력할 수 있는지 (켜져 있고 같은 기기·원격 허용)
+    runtime_entry: bool
     runtime_entry_enabled: bool  # 서버가 화면 키 입력을 켰는지 (FRAME_LLM_RUNTIME_KEY)
 
 
@@ -394,7 +395,8 @@ class CreateRevisionOut(BaseModel):
     version_id: str
     parent_version_id: str
     state: str
-    changed_scene_keys: list[str]  # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
+    # 다시 만들 장면 (CHANGE: 조건이 바뀐 장면, REPAIR: 다시 맞출 장면)
+    changed_scene_keys: list[str]
     kind: str = "CHANGE"  # CHANGE | REPAIR
 
 
@@ -416,7 +418,8 @@ class RevisionPlanSceneOut(BaseModel):
     planned_end_ms: int
     will_regenerate: bool  # 이 수정으로 다시 만드는 장면인가
     current_value: str | None  # 지금 그 조건의 값 (그 장면에 조건이 없으면 null)
-    verdict: str | None  # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
+    # 이 버전에서 그 요구조건의 검수 판정 (PASS | FAIL | UNDETERMINED, 없으면 null)
+    verdict: str | None
     recorded_cost_usd: float | None  # 이 장면을 지난번에 만들 때의 비용 (기록이 있을 때)
     recorded_seconds: float | None  # 이 장면을 지난번에 만들 때 걸린 시간
     # 다시 만들 장면을 지금 실행하면 어떻게 만들어질지. 다시 만들지 않거나 생성기가 알려 주지 않으면 null

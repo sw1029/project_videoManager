@@ -112,7 +112,8 @@ def _health(container: Container, request: Request) -> HealthOut:
     uses_llm = s.structurer == "llm"
     keys = container.llm_keys
     key_status = None
-    if keys is not None:  # 입력 가능 여부는 요청한 기기 기준 (다른 기기에는 '서버 기기에서 입력' 안내)
+    # 입력 가능 여부는 요청한 기기 기준 (다른 기기에는 '서버 기기에서 입력' 안내)
+    if keys is not None:
         allowed = settings_router.entry_allowed(request, s)
         key_status = mappers.llm_key_out(keys.status(), s, entry_allowed=allowed)
     return HealthOut(
