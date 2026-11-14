@@ -249,7 +249,9 @@ def build_container(
         handlers=handlers,
         dispatcher=dispatcher,
         propagation_policy=policy,
-        create_project=CreateProject(uow_factory, dispatcher, ids, clock),
+        create_project=CreateProject(
+            uow_factory, dispatcher, ids, clock, ir_structurer=ir_structurer
+        ),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
         edit_draft_ir=EditDraftIr(uow_factory, ir_structurer),
