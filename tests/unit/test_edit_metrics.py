@@ -4,7 +4,7 @@ import pytest
 
 from frame.domain.checks import CheckResult
 from frame.domain.enums import CheckType, Verdict
-from frame.evaluation.edit_metrics import (
+from frame.evaluation.edits import (
     NON_TARGET_CHANGE_TARGET,
     PRESERVATION_BASES,
     SUCCESS_RATE_TARGET,

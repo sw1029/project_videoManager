@@ -8,11 +8,12 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
 
-from tests.architecture.imports import ROOT, imported_names, modules
+from tests.architecture.imports import ROOT, imported_names, modules, parse
 
 # 걷어낸 옛 경로 -> 지금 쓰는 자리. 모듈이면 그 아래 이름까지, 이름 하나면 그 이름만 막는다
 MOVED = {
@@ -29,6 +30,16 @@ MOVED = {
     "frame.application.ports.generator.VideoAssembler": "frame.application.ports.assembler.VideoAssembler",
     # 키를 실어 보낼 주소의 판정은 어댑터들이 함께 쓴다 (빌려 쓰던 안쪽 이름)
     "frame.adapters.generator.openrouter._checked_base_url": "frame.adapters.shared.http.secure_base_url",
+    # 지표 1 평가는 하위 패키지 하나다 (P-06). 이름은 패키지 입구에서 가져온다
+    "frame.evaluation.edit_cases": "frame.evaluation.edits",
+    "frame.evaluation.edit_runner": "frame.evaluation.edits",
+    "frame.evaluation.edit_report": "frame.evaluation.edits",
+    "frame.evaluation.edit_metrics": "frame.evaluation.edits",
+    "frame.evaluation.EditCase": "frame.evaluation.edits.EditCase",
+    "frame.evaluation.EditCaseOutcome": "frame.evaluation.edits.EditCaseOutcome",
+    "frame.evaluation.EditEvaluation": "frame.evaluation.edits.EditEvaluation",
+    "frame.evaluation.evaluate_case": "frame.evaluation.edits.evaluate_case",
+    "frame.evaluation.evaluate_cases": "frame.evaluation.edits.evaluate_cases",
     # 수정 의도와 그 규칙 (M-07)
     "frame.domain.services.propagation": "frame.domain.revision",
     "frame.domain.services.revision_planning": "frame.domain.revision.resolution",
@@ -81,14 +92,34 @@ def test_nothing_imports_a_removed_path():
         )
 
 
+def _top_level_names(module: str) -> set[str]:
+    """모듈 맨 위에서 생기는 이름: 함수 · 클래스 · 대입 · import 한 이름."""
+    names: set[str] = set()
+    for node in parse(module).body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            names.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+    return names
+
+
+def _exists(name: str) -> bool:
+    """모듈이거나, 있는 모듈의 맨 위에 있는 이름이다."""
+    if name in modules():
+        return True
+    module, _, attribute = name.rpartition(".")
+    return module in modules() and attribute in _top_level_names(module)
+
+
 def test_the_table_points_at_places_that_exist():
-    """새 자리로 적은 모듈이 실제로 있다 (표가 낡지 않게)."""
+    """새 자리로 적은 모듈과 이름이 실제로 있다 (표가 낡지 않게)."""
     missing = []
     for old, new in MOVED.items():
         mentioned = [word.strip(",") for word in new.split() if word.startswith("frame.")]
-        for name in mentioned:
-            module = name if name in modules() else name.rpartition(".")[0]
-            if module not in modules():
-                missing.append(f"{old}  ->  {name}")
+        missing += [f"{old}  ->  {name}" for name in mentioned if not _exists(name)]
 
     assert missing == [], "표의 새 자리가 없다"

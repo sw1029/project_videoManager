@@ -42,7 +42,7 @@
 | 변경 계획 | `PlanRevision`, `RevisionPlan` | 수정을 실행하기 전에 보여 주는 미리보기 — 어느 장면을 다시 만들고, 어떻게 · 얼마에 (ADR-0019, 0020) |
 | 변경 요청 해석 | `ChangeRequestInterpreter` | 글로 쓴 변경 요청을 수정 의도로 읽는 일 (ADR-0019) |
 | 부모 클립 편집 | `ProductionMethod.EDIT`, `ParentClip` | 다시 만드는 장면을 새로 생성하지 않고 부모 버전의 클립을 고쳐 만드는 방식 (ADR-0016) |
-| 수정 실험 평가 | `evaluation/edit_metrics.py` | 수정 실험의 성공 지표 (지표 1). 여기의 `edit` 은 '수정' 이다 |
+| 수정 실험 평가 | `evaluation/edits/` | 수정 실험의 성공 지표 (지표 1). 여기의 `edit` 은 '수정' 이다 |
 
 `edit` 이라는 영어 낱말은 부모 클립 편집에만 새로 쓴다. 수정 버전은 `revision`, 값 바꾸기는 `change` 다.
 

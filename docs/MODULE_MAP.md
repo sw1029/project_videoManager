@@ -34,7 +34,7 @@
 | 작업 실행 · 복구 | `state_machine.py` | `ports/jobs.py` `JobDispatcher` · `use_cases/run_generation_pipeline.py`, `recover_pending_versions.py` · `pipeline/` | `adapters/jobs/`, `presentation/recovery.py` |
 | HTTP API | — | `dto.py`, `use_cases/queries.py` | `presentation/` |
 | 조립 (설정 → 어댑터) | — | — | `config/` — 설정 `settings.py`, 키 → 어댑터 `registrations/<포트>.py`, 엮기 `container.py`. 테마·시리즈는 `theme_settings.py` · `theme_adapters.py` · `theme_wiring.py` (`Container.series`) |
-| 성공 지표 평가 | `metrics.py` | — | `evaluation/` — 지표 1 (수정 케이스) `edit_cases.py` · `edit_runner.py` · `edit_report.py` · `edit_metrics.py`, 구조화 골드셋 `structuring/`. 실행은 `tools/evaluate_edits.py` · `evaluate_structuring.py` |
+| 성공 지표 평가 | `metrics.py` | — | `evaluation/` — 지표 1 (수정 케이스) `edits/`, 구조화 골드셋 `structuring/`. 실행은 `tools/evaluate_edits.py` · `evaluate_structuring.py` |
 | 실행 도구 (시연 런처 · 번들) | — | — | `tools/`, `scripts/` |
 
 ## 2. 패키지 목록
@@ -87,6 +87,7 @@
 | `src/frame/config/registrations/` | 기본 등록 — 설정 키가 어느 어댑터가 되는지 (모듈 하나가 포트 하나) | `register_defaults`, 포트별 `register` (`llm`, `structurer`, `change_request`, `generator`, `assembler`, `identity`, `tracker`, `checker`, `storage`, `persistence`, `jobs`) |
 | `src/frame/presentation/` | HTTP API | `create_app`, 스키마 `schemas.py`, 응답 변환 `mappers.py`, 오류 응답 `errors.py` |
 | `src/frame/presentation/routers/` | 자원별 라우터 | `projects`, `versions`, `reference_images`, `settings`, `vocabulary` |
-| `src/frame/evaluation/` | 성공 지표 평가 — 지표 1 (단일 속성 수정 케이스의 성공률 · 비대상 변경률, ADR-0022) | `evaluate_case`, `evaluate_cases`. 모듈로 import 하는 것: `edit_cases` (`EditCaseSpec`, `load_cases`), `edit_runner` (`run_case`, `CaseRun`), `edit_report` (`judge`, `build_report`) |
+| `src/frame/evaluation/` | 성공 지표 평가 — 연구 지표를 재는 도구. 모델을 직접 부르지 않는다 | — (아래 패키지를 import 한다) |
+| `src/frame/evaluation/edits/` | 지표 1 평가 — 단일 속성 수정 케이스를 실행하고 판정해 성공률 · 비대상 변경률을 낸다 (ADR-0022) | `EditCaseSpec`·`load_cases`, `run_case`·`CaseRun`, `judge`, `build_report`, `EditCase`·`evaluate_case`·`evaluate_cases`, 목표값 `SUCCESS_RATE_TARGET`·`NON_TARGET_CHANGE_TARGET` |
 | `src/frame/evaluation/structuring/` | 구조화 골드셋 평가 — 구조화 결과를 기대 IR(골드)과 견주어 채점하고, 실행을 기록·비교한다 | `GoldCase`·`load_gold_cases`, `score_case`, `summarize`, `run_gold_set`, `build_record`·`save_record`·`read_record`, `rescore_record`, `compare_records`, `format_summary`·`format_comparison` |
 | `src/frame/tools/` | 명령줄 도구 | `demo` (시연 런처), `bundle` (번들 빌드), `export_openapi`, `structure_cli`, `evaluate_edits` (지표 1 평가), `evaluate_structuring` (골드셋 기록 비교 · 다시 채점) |

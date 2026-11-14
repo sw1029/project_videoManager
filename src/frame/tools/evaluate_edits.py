@@ -39,18 +39,20 @@ from frame.application.errors import AdapterError, ConfigurationError
 from frame.config import Container, Settings, build_container
 from frame.domain.checks import PRESERVATION_BY_KEEP, PRESERVATION_BY_SSIM
 from frame.domain.enums import VersionState
-from frame.evaluation.edit_cases import CaseFileError, EditCaseSpec, load_cases
-from frame.evaluation.edit_metrics import (
+from frame.evaluation.edits import (
+    DEFAULT_CASE_TIMEOUT_S,
+    DEFAULT_POLL_S,
     NON_TARGET_CHANGE_TARGET,
     PRESERVATION_BASES,
     SUCCESS_RATE_TARGET,
-)
-from frame.evaluation.edit_report import build_report, judge, left_unfinished
-from frame.evaluation.edit_runner import (
-    DEFAULT_CASE_TIMEOUT_S,
-    DEFAULT_POLL_S,
+    CaseFileError,
     CaseInterrupted,
     CaseRun,
+    EditCaseSpec,
+    build_report,
+    judge,
+    left_unfinished,
+    load_cases,
     run_case,
 )
 

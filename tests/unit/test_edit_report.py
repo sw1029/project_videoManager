@@ -1,4 +1,4 @@
-"""지표 1 결과 파일의 내용 (evaluation/edit_report): 판정 근거는 남기고 이 컴퓨터의 경로는 남기지 않는다.
+"""지표 1 결과 파일의 내용 (evaluation/edits 의 _report): 판정 근거는 남기고 이 컴퓨터의 경로는 남기지 않는다.
 
 결과 파일은 저장소에 기록한다 (TDD_WORKFLOW §7). 예외 문구·검수 사유에는 사용자 이름이 든 절대 경로가 섞일 수 있다.
 """
@@ -11,9 +11,7 @@ from datetime import UTC, datetime
 from frame.domain.checks import CheckResult, WarningInterval
 from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.models import VideoVersion
-from frame.evaluation.edit_cases import parse_cases
-from frame.evaluation.edit_report import build_report
-from frame.evaluation.edit_runner import CaseRun
+from frame.evaluation.edits import CaseRun, build_report, parse_cases
 
 WINDOWS = "C:\\Users\\kim\\AppData\\Local\\Temp\\frame\\clip 1.mp4"
 POSIX = "/home/kim/.cache/frame/parent.mp4"
