@@ -64,11 +64,21 @@ def _run(tmp_path, container, cases, *options):
     cases_path = tmp_path / "cases.json"
     cases_path.write_text(json.dumps({"cases": cases}, ensure_ascii=False), "utf-8")
     out = tmp_path / "out" / "result.json"
+    # 기다리는 시간을 짧게: 수정 버전이 끝나지 않는 회귀가 생기면 한 시간 기다리지 않고 바로 드러난다
+    wait = ["--timeout-s", "2", "--poll-s", "0.05"]
     code = evaluate_edits.main(
-        ["--cases", str(cases_path), "--out", str(out), *options], container=container
+        ["--cases", str(cases_path), "--out", str(out), *wait, *options], container=container
     )
     report = json.loads(out.read_text("utf-8")) if out.exists() else None
     return code, report
+
+
+def _run_expecting_ctrl_c_handled(tmp_path, container, cases, *options):
+    """main 이 Ctrl+C 를 잡지 못하는 회귀는 pytest 세션 중단이 아니라 이 테스트의 실패로 드러나게 한다."""
+    try:
+        return _run(tmp_path, container, cases, *options)
+    except KeyboardInterrupt:
+        pytest.fail("main 이 Ctrl+C(KeyboardInterrupt)를 잡지 않았다")
 
 
 def test_runs_each_case_and_judges_the_target(tmp_path):
@@ -295,6 +305,36 @@ def test_plan_only_case_that_ends_without_a_plan_fails_loudly(tmp_path):
         _run(tmp_path, broken, [_cup(parent)], "--plan-only")
 
 
+def test_report_is_rewritten_after_each_case(tmp_path):
+    """창을 닫거나 프로세스가 죽어도(Ctrl+C 가 아닌 끊김) 끝난 케이스는 남는다.
+
+    다음 케이스를 시작할 때 앞 케이스가 이미 결과 파일에 쓰여 있다.
+    """
+    out = tmp_path / "out" / "result.json"
+    seen = []
+
+    class PeekingPlan:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def execute(self, command):
+            seen.append(json.loads(out.read_text("utf-8")) if out.exists() else None)
+            return self.inner.execute(command)
+
+    container = _container()
+    parent = _parent(container)
+    peeking = dataclasses.replace(container, plan_revision=PeekingPlan(container.plan_revision))
+    code, _ = _run(
+        tmp_path, peeking, [_cup(parent), _cup(parent, case_id="second", new_value="black")]
+    )
+
+    assert code == 0
+    before_first, before_second = seen
+    assert before_first is None
+    assert before_second["complete"] is False
+    assert [c["case_id"] for c in before_second["cases"]] == ["cup"]
+
+
 class _InterruptingAccept:
     """n 번째 생성 접수에서 Ctrl+C. 그 케이스의 수정 버전은 이미 만들어져 있다."""
 
@@ -315,7 +355,7 @@ def test_ctrl_c_saves_finished_cases_and_the_interrupted_revision_then_exits_130
     broken = dataclasses.replace(
         container, accept_generation=_InterruptingAccept(container.accept_generation, on_call=2)
     )
-    code, report = _run(
+    code, report = _run_expecting_ctrl_c_handled(
         tmp_path,
         broken,
         [
