@@ -5,13 +5,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, model_validator
 
 # ---- 입력 제한 (공개 데모에서 LLM 비용·저장 용량을 지키기 위한 상한) ----------------
 
 MAX_PROMPT_CHARS = 4000
 MAX_REFERENCE_IMAGES = 10
 MAX_TARGET_DURATION_MS = 300_000  # 5분 (숏폼 대상)
+# IR 문서 (블록 입력·DRAFT IR 수정). 장면 길이 합계도 MAX_TARGET_DURATION_MS 를 넘을 수 없다 (생성 비용 보호)
+MAX_IR_ENTITIES = 50
+MAX_IR_SCENES = 60
+MAX_SCENE_REQUIREMENTS = 50
+MIN_SCENE_MS = 500  # 보정이 장면 길이를 이 값보다 짧게 두지 않는다 (adapters/structurer/repair.py)
 
 # ---- 요청 ----------------------------------------------------------------
 
@@ -19,6 +24,61 @@ MAX_TARGET_DURATION_MS = 300_000  # 5분 (숏폼 대상)
 class ReferenceImageIn(BaseModel):
     image_uri: str = Field(min_length=1, max_length=1024)
     entity_key: str | None = Field(default=None, max_length=64)
+
+
+class IREntityIn(BaseModel):
+    entity_key: str = Field(
+        min_length=1, max_length=64, description="영문 snake_case 식별자 (요구조건·추적의 키)"
+    )
+    kind: str = Field(
+        min_length=1,
+        max_length=32,
+        description="PERSON | ANIMAL | PROP | BACKGROUND | TEXT | OTHER (person 같은 별칭은 서버가 고친다)",
+    )
+    description: str = Field(default="", max_length=500)  # 생성 지시문에 들어가는 외형 설명
+
+
+class IRRequirementIn(BaseModel):
+    scene_key: str | None = Field(default=None, max_length=64)  # 생략하면 그 요구조건이 속한 장면
+    entity_key: str | None = Field(default=None, max_length=64)  # null 이면 장면 수준 조건
+    related_entity_key: str | None = Field(default=None, max_length=64)  # 관계 술어의 상대 객체
+    predicate: str = Field(min_length=1, max_length=64)  # GET /api/vocabulary/predicates
+    expected_value: str = Field(default="", max_length=300)  # 관계 술어는 비우면 상대 객체 키
+
+
+class IRSceneIn(BaseModel):
+    scene_key: str = Field(min_length=1, max_length=64)
+    planned_start_ms: int = Field(ge=0, le=MAX_TARGET_DURATION_MS)
+    planned_end_ms: int = Field(gt=0, le=MAX_TARGET_DURATION_MS)
+    description: str = Field(default="", max_length=1000)
+    entity_keys: list[str] = Field(default_factory=list, max_length=MAX_IR_ENTITIES)
+    requirements: list[IRRequirementIn] = Field(
+        default_factory=list, max_length=MAX_SCENE_REQUIREMENTS
+    )
+
+
+class IRIn(BaseModel):
+    """IR 문서. GET /api/versions/{id} 의 ir 과 같은 모양이며,
+    읽기 전용 필드(entity_id·requirement_key·clip_url 등)는 무시한다.
+
+    서버가 결정적으로 보정한 뒤 검증한다: 장면 구간을 0 ms 부터 빈틈없이 이어 붙이고(길이는 유지),
+    요구조건이 가리키는 객체를 장면에 연결하고, 객체 종류의 별칭을 고치고,
+    정의되지 않았거나 배경을 가리키는 관계를 뺀다. 고친 것은 응답의 repair_notes 로 알려 준다.
+    고칠 수 없는 문서(키 중복·빈 값 등)는 422 VALIDATION_ERROR.
+    """
+
+    schema_version: int = 1
+    entities: list[IREntityIn] = Field(default_factory=list, max_length=MAX_IR_ENTITIES)
+    scenes: list[IRSceneIn] = Field(min_length=1, max_length=MAX_IR_SCENES)
+
+    @model_validator(mode="after")
+    def _total_duration_within_limit(self) -> IRIn:
+        total = sum(max(s.planned_end_ms - s.planned_start_ms, MIN_SCENE_MS) for s in self.scenes)
+        if total > MAX_TARGET_DURATION_MS:
+            raise ValueError(
+                f"장면 길이 합계 {total} ms 가 상한 {MAX_TARGET_DURATION_MS} ms 를 넘습니다"
+            )
+        return self
 
 
 class CreateProjectIn(BaseModel):
@@ -284,6 +344,13 @@ class VersionOut(BaseModel):
     created_at: datetime
     progress: ProgressOut | None  # 실패한 버전도 어느 단계·장면까지 했는지 남는다 (이슈 #3)
     revision: RevisionIntentOut | None = None  # 수정 버전이면 무엇을 하려는 수정인지 (ADR-0017)
+
+
+class EditDraftIrOut(VersionOut):
+    """PUT /api/versions/{version_id}/ir — 고친 뒤의 버전 (GET 과 같은 모양) 과 보정 메모."""
+
+    # 서버가 고친 것 (장면 구간 이동·객체 연결·종류 별칭 등). 없으면 빈 목록. 화면은 ir 로 블록을 다시 그린다
+    repair_notes: list[str]
 
 
 class CreateRevisionOut(BaseModel):

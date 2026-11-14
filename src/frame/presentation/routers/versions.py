@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from frame.application.dto import CreateRevisionCommand
+from frame.application.dto import CreateRevisionCommand, EditDraftIrCommand
 from frame.application.use_cases.plan_revision import PlanRevisionCommand
 from frame.config.container import Container
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
@@ -23,8 +23,10 @@ from ..schemas import (
     ChecksOut,
     CreateRevisionIn,
     CreateRevisionOut,
+    EditDraftIrOut,
     EntityTracksOut,
     ErrorOut,
+    IRIn,
     RevisionPlanIn,
     RevisionPlanOut,
     VersionComparisonOut,
@@ -50,12 +52,40 @@ MEDIA_RESPONSES: dict[int | str, dict[str, object]] = {
     summary="중간표현·처리 상태·결과 영상 경로(실패 시 오류 정보)를 조회한다",
 )
 def get_version(version_id: str, container: ContainerDep) -> VersionOut:
+    return _version_out(container, version_id)
+
+
+def _version_out(container: Container, version_id: str) -> VersionOut:
     return mappers.version_out(
         container.queries.get_version(version_id),
         api_prefix=container.settings.api_prefix,
         media_type_of=container.artifact_store.content_type,
         is_stored=_stored_in(container),
     )
+
+
+@router.put(
+    "/{version_id}/ir",
+    response_model=EditDraftIrOut,
+    responses={
+        404: {"model": ErrorOut},
+        409: {
+            "model": ErrorOut,
+            "description": "VERSION_NOT_EDITABLE (DRAFT 가 아니거나 생성이 접수되어 조건이 고정됨)",
+        },
+        422: {"model": ErrorOut, "description": "VALIDATION_ERROR (보정해도 규칙에 맞지 않는 IR)"},
+        429: {"model": ErrorOut},
+    },
+    dependencies=[Depends(enforce_rate_limit)],
+    summary="DRAFT 버전의 중간표현(구조화 결과)을 고친다: 보정 -> 검증 -> 저장하고 보정 메모를 돌려준다 "
+    "(생성 접수 뒤에는 409, 그때는 수정 버전을 만든다)",
+)
+def edit_draft_ir(version_id: str, body: IRIn, container: ContainerDep) -> EditDraftIrOut:
+    result = container.edit_draft_ir.execute(
+        EditDraftIrCommand(version_id=version_id, ir=body.model_dump())
+    )
+    version = _version_out(container, version_id)
+    return EditDraftIrOut(**version.model_dump(), repair_notes=list(result.repair_notes))
 
 
 def _stored_in(container: Container):  # type: ignore[no-untyped-def]
