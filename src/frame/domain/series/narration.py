@@ -27,13 +27,11 @@ from enum import StrEnum
 from typing import Any
 
 from frame.domain.errors import ValidationError
+from frame.domain.script.korean_numbers import read_number
 from frame.domain.series.episode import ScriptLine
 from frame.domain.speech import Transcript
 
 _DIGITS = re.compile(r"\d[\d,]*")
-_SINO = ("", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구")
-_SMALL_UNITS = ("", "십", "백", "천")
-_BIG_UNITS = ("", "만", "억", "조")
 
 
 class LineStatus(StrEnum):
@@ -169,31 +167,6 @@ class Placement:
 
 
 # ---- 글자 견주기 ---------------------------------------------------------------
-def read_number(digits: str) -> str:
-    """숫자를 읽는 소리로: '5,000' -> '오천', '4500' -> '사천오백', '10' -> '십'. 한자어 수로만 읽는다."""
-    value = int(digits.replace(",", "") or 0)
-    if value == 0:
-        return "영"
-    groups: list[str] = []
-    index = 0
-    while value > 0 and index < len(_BIG_UNITS):
-        value, chunk = divmod(value, 10_000)
-        if chunk:
-            text = ""
-            for position in range(3, -1, -1):
-                digit = chunk // 10**position % 10
-                if digit == 0:
-                    continue
-                # 십·백·천 앞의 '일' 은 읽지 않는다 (만 단위 이상의 묶음에서도 같다)
-                text += ("" if digit == 1 and position > 0 else _SINO[digit]) + _SMALL_UNITS[
-                    position
-                ]
-            # '일만' 은 '만' 으로 읽는다
-            groups.append(("" if text == "일" and index == 1 else text) + _BIG_UNITS[index])
-        index += 1
-    return "".join(reversed(groups))
-
-
 def normalize_speech(text: str) -> str:
     """견줄 수 있게: 숫자는 읽는 소리로, 글자·숫자만 남기고 소문자로."""
     spoken = _DIGITS.sub(

@@ -30,6 +30,10 @@ class SpeechSegment:
     end_ms: int
     text: str
     words: tuple[Word, ...] = ()  # 낱말 시각 (인식기가 줄 때만)
+    confidence: float | None = (
+        None  # 0..1. 인식기가 이 구간의 글을 얼마나 믿는가 (주지 않으면 None)
+    )
+    no_speech: float | None = None  # 0..1. 이 구간이 말소리가 아닐 가능성 (주지 않으면 None)
 
     @property
     def duration_ms(self) -> int:
@@ -41,6 +45,8 @@ class SpeechSegment:
             "end_ms": self.end_ms,
             "text": self.text,
             "words": [w.to_dict() for w in self.words],
+            "confidence": self.confidence,
+            "no_speech": self.no_speech,
         }
 
     @classmethod
@@ -53,7 +59,13 @@ class SpeechSegment:
                 Word(int(w["start_ms"]), int(w["end_ms"]), str(w.get("text", "")))
                 for w in data.get("words", ())
             ),
+            confidence=_unit_interval(data.get("confidence")),
+            no_speech=_unit_interval(data.get("no_speech")),
         )
+
+
+def _unit_interval(value: Any) -> float | None:
+    return None if value is None else min(1.0, max(0.0, float(value)))
 
 
 def spoken_characters(text: str) -> int:

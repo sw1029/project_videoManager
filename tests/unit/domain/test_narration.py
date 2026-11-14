@@ -17,7 +17,6 @@ from frame.domain.series.narration import (
     missing_key_terms,
     normalize_speech,
     place_lines,
-    read_number,
     similarity,
     speech_units,
 )
@@ -56,26 +55,6 @@ def _words(*items: tuple[int, int, str]) -> Transcript:
 
 
 # ---- 글자 견주기 ----
-@pytest.mark.parametrize(
-    ("digits", "spoken"),
-    [
-        ("5,000", "오천"),
-        ("4500", "사천오백"),
-        ("10", "십"),
-        ("11", "십일"),
-        ("100", "백"),
-        ("15000", "만오천"),
-        ("20,000", "이만"),
-        ("110000", "십일만"),
-        ("100000000", "일억"),
-        ("0", "영"),
-        ("3", "삼"),
-    ],
-)
-def test_numbers_are_read_aloud(digits, spoken):
-    assert read_number(digits) == spoken
-
-
 def test_speech_is_compared_without_spacing_punctuation_or_number_style():
     assert normalize_speech("가격은 5,000원입니다!") == "가격은오천원입니다"
     assert similarity("가격은 오천 원.", "가격은 5,000원") == 1.0
