@@ -1,18 +1,38 @@
-"""구조화 골드셋 (US-06 AC-11, T2·T6): 골드 자체가 구조화 프롬프트의 규칙을 지키는지 검사한다."""
+"""구조화 골드셋 (US-06 AC-11, T2·T6): 골드 자체의 규칙과, 리플레이로 지표 계산을 검증한다 (모델 호출 없음).
 
+실제 모델로 돌리는 것은 test_structuring_gold_live.py (slow) 다.
+"""
+
+import json
 import re
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
+from frame.adapters.llm import ReplayLLMClient
+from frame.adapters.structurer import LLMStructurer
 from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
 from frame.domain.enums import EntityKind
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
-from frame.evaluation.structuring_gold import load_gold_cases
+from frame.evaluation.structuring_gold import (
+    build_record,
+    compare_records,
+    format_comparison,
+    format_summary,
+    latest_record,
+    load_gold_cases,
+    read_record,
+    recorded_responses,
+    run_gold_set,
+    write_record,
+)
+from frame.evaluation.structuring_metrics import Tally, summarize
 
 GOLD_DIR = Path(__file__).parent / "structuring_gold"
+REPLAY_DIR = Path(__file__).parent / "replay"
 _SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
+_STRUCTURER = {"name": "LLMStructurer", "model": "replay", "prompt_version": "2026-11-12.1"}
 
 
 @pytest.fixture(scope="module")
@@ -22,6 +42,19 @@ def cases():
 
 def _case(cases, case_id):
     return next(c for c in cases if c.case_id == case_id)
+
+
+def _replay_runs(cases, responses):
+    """사례마다 응답 하나를 재생한다. 재시도가 다음 사례의 응답을 먹지 않도록 구조화기를 따로 만든다."""
+    runs = []
+    for case in cases:
+        client = ReplayLLMClient([responses[case.case_id]], model="replay-model")
+        runs.extend(run_gold_set(LLMStructurer(client, max_attempts=1), [case]))
+    return runs
+
+
+def _perfect_responses(cases):
+    return {c.case_id: json.dumps(c.document, ensure_ascii=False) for c in cases}
 
 
 # ---- 골드 자체 ----------------------------------------------------------------
@@ -68,3 +101,120 @@ def test_concept_screen_cafe_brief_is_in_the_gold_set(cases):
         (r.scene_key, r.expected_value) for r in ir.iter_requirements() if r.predicate == "color"
     }
     assert colors == {("show_cup", "red"), ("cup_closeup", "red")}
+
+
+# ---- 리플레이로 지표 계산 검증 ---------------------------------------------------------
+def test_replaying_the_gold_itself_scores_perfectly(cases):
+    runs = _replay_runs(cases, _perfect_responses(cases))
+    evaluation = summarize(r.score for r in runs)
+    assert evaluation.cases == 15 and evaluation.failures == 0
+    assert evaluation.entity_recall == evaluation.entity_precision == 1.0
+    assert evaluation.requirement_precision == evaluation.requirement_recall == 1.0
+    assert evaluation.appearances.f1 == 1.0
+    assert evaluation.scene_count_match_rate == 1.0
+    assert evaluation.mean_boundary_error_ms == 0.0 and evaluation.mean_duration_error_ms == 0.0
+    assert evaluation.meets_target
+    assert all(r.attempts == 1 and r.model == "replay-model" and r.response for r in runs)
+
+
+def test_recorded_gpt_outputs_for_the_cafe_brief_show_what_each_prompt_missed(cases):
+    """gpt-4.1-mini 실호출 결과(concept-ux 2차 e2e)를 다시 채점한다.
+
+    키는 red_mug / cup 으로 달라도 같은 객체로 맞추고, 두 프롬프트가 서로 다른 조건을 하나씩 놓친 것이 드러난다.
+    """
+    fixture = json.loads(
+        (REPLAY_DIR / "ko-01-cafe-concept.gpt-4.1-mini.json").read_text(encoding="utf-8")
+    )
+    case = _case(cases, "ko-01-cafe-concept")
+    scores = {}
+    for item in fixture["responses"]:
+        response = json.dumps(item["ir"], ensure_ascii=False)
+        scores[(item["run"], item["prompt_version"])] = _replay_runs(
+            [case], {case.case_id: response}
+        )[0].score
+
+    for score in scores.values():
+        assert score.entities == Tally(tp=2)
+        assert score.requirements == Tally(tp=17, fn=1)
+        assert score.appearances == Tally(tp=5)
+        assert score.scene_count_match and score.boundary_error_ms == 0.0
+    # 옛 프롬프트: 컵 색을 클로즈업에만 적고 들어 보이는 장면에서 뺐다
+    assert scores[("c3", "2026-11-07.2")].missed_requirements == ("show_cup:cup:color",)
+    # 고친 프롬프트: 컵 색은 두 장면에 다 적었지만 '카메라를 보며' 를 뺐다 (두 번 모두)
+    for run in ("c4", "c5"):
+        assert scores[(run, "2026-11-12.1")].missed_requirements == ("smile:barista:action",)
+
+
+def test_failed_structuring_is_recorded_as_a_failed_case(cases):
+    case = _case(cases, "ko-05-ramen-recipe")
+    runs = _replay_runs([case], {case.case_id: "not json"})
+    score = runs[0].score
+    assert score.error is not None and "STRUCTURING_ERROR" in score.error
+    assert score.requirements == Tally(fn=6)
+    assert runs[0].response == "not json"
+
+
+# ---- 결과 기록과 버전 비교 --------------------------------------------------------------
+def test_record_round_trip_replay_and_comparison(cases, tmp_path):
+    base = build_record(
+        _replay_runs(cases, _perfect_responses(cases)),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    assert base["record_version"] == 1
+    assert base["structurer"]["prompt_version"] == "2026-11-12.1"
+    assert base["structurer"]["reported_models"] == ["replay-model"]
+    assert base["summary"]["requirement_f1"] == 1.0 and base["summary"]["meets_target"]
+    assert base["by_language"]["en"]["cases"] == 5 and base["by_language"]["ko"]["cases"] == 10
+    assert len(base["cases"]) == 15 and base["cases"][0]["response"]
+
+    path = write_record(base, tmp_path)
+    assert path.name == "2026-11-12.1__replay__20261114T100000.json"
+    loaded = read_record(path)
+    assert loaded == base
+
+    # 기록에 남은 원본 응답만으로 다시 채점하면 같은 결과가 나온다 (모델을 다시 부르지 않는다)
+    again = _replay_runs(cases, recorded_responses(loaded))
+    rebuilt = build_record(again, structurer=_STRUCTURER, run_at=loaded["run_at"])
+    assert rebuilt["summary"] == loaded["summary"]
+
+    # 프롬프트를 바꾼 뒤 한 사례가 나빠진 기록과 견주면 회귀가 수치와 사례 목록으로 드러난다
+    responses = _perfect_responses(cases)
+    worse_doc = json.loads(responses["ko-01-cafe-concept"])
+    show_cup = worse_doc["scenes"][1]
+    show_cup["requirements"] = [r for r in show_cup["requirements"] if r["predicate"] != "color"]
+    responses["ko-01-cafe-concept"] = json.dumps(worse_doc, ensure_ascii=False)
+    worse = build_record(
+        _replay_runs(cases, responses),
+        structurer={**_STRUCTURER, "prompt_version": "2026-11-15.1"},
+        run_at="2026-11-15T09:30:00+09:00",
+    )
+    newer = write_record(worse, tmp_path)
+    assert latest_record(tmp_path)["run_at"] == worse["run_at"]
+    assert latest_record(tmp_path, exclude=newer)["run_at"] == base["run_at"]
+
+    comparison = compare_records(base, worse)
+    assert comparison.regressed
+    changes = {c.name: c for c in comparison.metrics}
+    assert changes["requirement_recall"].regressed and not changes["entity_recall"].regressed
+    assert [c.case_id for c in comparison.cases] == ["ko-01-cafe-concept"]
+    assert comparison.cases[0].newly_missed == ("show_cup:cup:color",)
+    assert comparison.cases[0].newly_found == ()
+    assert comparison.same_gold
+    assert not compare_records(worse, worse).regressed
+
+    text = format_comparison(comparison)
+    assert "2026-11-15.1" in text and "requirement_f1" in text and "show_cup:cup:color" in text
+    assert "골드셋이 다르다" not in text
+    summary = format_summary(worse)
+    assert "ko-01-cafe-concept" in summary and "show_cup:cup:color" in summary
+
+    # 골드셋을 고친 뒤의 기록과는 같은 잣대가 아니라고 알린다
+    edited = {**worse, "gold": {**worse["gold"], "fingerprint": "다른 골드셋"}}
+    other = compare_records(base, edited)
+    assert not other.same_gold and "골드셋이 다르다" in format_comparison(other)
+
+
+def test_latest_record_of_an_empty_folder_is_none(tmp_path):
+    assert latest_record(tmp_path) is None
+    assert latest_record(tmp_path / "missing") is None

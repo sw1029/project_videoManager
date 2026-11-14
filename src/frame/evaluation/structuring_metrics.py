@@ -174,6 +174,18 @@ def _gold_entity(raw: Mapping[str, Any], spec: EntitySpec) -> GoldEntity:
 
 # ---- 사례 점수 ---------------------------------------------------------------
 @dataclass(frozen=True)
+class ValueMismatch:
+    """같은 자리의 조건을 냈지만 값이 골드와 다른 것."""
+
+    key: str  # 골드 요구조건 키
+    expected: str
+    actual: str
+
+    def __str__(self) -> str:
+        return f"{self.key}: 기대 '{self.expected}', 결과 '{self.actual}'"
+
+
+@dataclass(frozen=True)
 class CaseScore:
     """한 브리프의 채점 결과. missed/spurious 는 회귀를 읽기 위한 목록이다 (골드 키 / 모델 키)."""
 
@@ -188,7 +200,7 @@ class CaseScore:
     missed_entities: tuple[str, ...] = ()
     spurious_entities: tuple[str, ...] = ()
     missed_requirements: tuple[str, ...] = ()  # 아예 내지 않은 필수 조건
-    mismatched_requirements: tuple[str, ...] = ()  # 냈지만 값이 틀린 조건
+    mismatched_requirements: tuple[ValueMismatch, ...] = ()  # 냈지만 값이 틀린 조건
     spurious_requirements: tuple[str, ...] = ()  # 골드에 없는 조건
     error: str | None = None  # 구조화 실패
 
@@ -356,7 +368,7 @@ def _score_requirements(
     predicted: IntermediateRepresentation,
     scene_map: Mapping[str, str],
     entity_map: Mapping[str, str],
-) -> tuple[Tally, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+) -> tuple[Tally, tuple[str, ...], tuple[ValueMismatch, ...], tuple[str, ...]]:
     by_context: dict[tuple[str, str | None, str | None], list[GoldRequirement]] = {}
     for requirement in gold.requirements:
         by_context.setdefault(requirement.context, []).append(requirement)
@@ -377,7 +389,7 @@ def _score_requirements(
 
     tp = fp = fn = 0
     missed: list[str] = []
-    mismatched: list[str] = []
+    mismatched: list[ValueMismatch] = []
     for requirement in gold.requirements:
         given = answers.get(requirement.key, [])
         if not given:
@@ -390,8 +402,9 @@ def _score_requirements(
             fp += 1
             fn += 0 if requirement.optional else 1
             mismatched.append(
-                f"{requirement.key}: 기대 '{requirement.spec.expected_value}', "
-                f"결과 '{given[0].expected_value}'"
+                ValueMismatch(
+                    requirement.key, requirement.spec.expected_value, given[0].expected_value
+                )
             )
     fp += len(spurious)
     return Tally(tp, fp, fn), tuple(missed), tuple(mismatched), tuple(spurious.values())

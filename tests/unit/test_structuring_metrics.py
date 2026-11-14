@@ -10,6 +10,7 @@ from frame.domain.ir import IntermediateRepresentation
 from frame.evaluation.structuring_metrics import (
     GoldSpec,
     Tally,
+    ValueMismatch,
     compare_headlines,
     failed_case,
     headline,
@@ -293,7 +294,8 @@ def test_wrong_value_is_one_false_positive_and_one_false_negative():
     predicted["scenes"][1]["requirements"][0]["expected_value"] = "blue"
     score = _score(predicted)
     assert score.requirements == Tally(tp=6, fp=1, fn=1)
-    assert score.mismatched_requirements == ("closeup:cup:color: 기대 'red', 결과 'blue'",)
+    assert score.mismatched_requirements == (ValueMismatch("closeup:cup:color", "red", "blue"),)
+    assert str(score.mismatched_requirements[0]) == "closeup:cup:color: 기대 'red', 결과 'blue'"
     assert score.missed_requirements == ()
 
 
