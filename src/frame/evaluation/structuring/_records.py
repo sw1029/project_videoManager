@@ -13,9 +13,10 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from frame.application.errors import AdapterError
+from frame.application.ports.llm import JsonCompletion
 from frame.application.ports.structurer import RequirementStructurer
 from frame.domain.errors import DomainError
 
@@ -36,6 +37,19 @@ _DIGITS = 4  # 기록에 남기는 비율의 소수 자릿수
 
 
 # ---- 실행 ----------------------------------------------------------------------
+@runtime_checkable
+class StructuringRunDetails(Protocol):
+    """실행 정보를 내주는 구조화기 (지금은 LLMStructurer).
+
+    구조화기 포트에는 없는 속성이라, 기록이 읽는 이름을 여기 못박는다.
+    이름이 어긋나면 테스트(isinstance)가 알린다.
+    """
+
+    attempts: int  # 마지막 structure() 의 시도 횟수
+    last_completion: JsonCompletion | None  # 마지막으로 받은 원본 응답
+    last_repair_notes: list[str]  # 마지막 시도에서 보정한 내용
+
+
 @dataclass(frozen=True)
 class CaseRun:
     case: GoldCase
@@ -58,32 +72,33 @@ def run_gold_set(
 ) -> tuple[CaseRun, ...]:
     """사례를 차례로 구조화해 채점한다. 구조화 실패는 그 사례의 실패로 기록하고 다음 사례로 넘어간다.
 
-    LLMStructurer 처럼 attempts·last_completion·last_repair_notes 를 가진 구조화기면 그 값도 남긴다.
+    StructuringRunDetails 를 따르는 구조화기면 시도 횟수·원본 응답·토큰·보정 메모도 남긴다.
     """
+    details = structurer if isinstance(structurer, StructuringRunDetails) else None
     runs: list[CaseRun] = []
     for case in cases:
-        before = getattr(structurer, "last_completion", None)
+        before = details.last_completion if details else None
         started = clock()
         notes: tuple[str, ...] = ()
         try:
             ir = structurer.structure(case.request())
             score = score_case(case.case_id, case.spec, ir)
-            notes = tuple(getattr(structurer, "last_repair_notes", ()))
+            notes = tuple(details.last_repair_notes) if details else ()
         except (AdapterError, DomainError) as exc:
             score = failed_case(case.case_id, case.spec, _describe(exc))
         elapsed_ms = round((clock() - started) * 1000)
-        completion = getattr(structurer, "last_completion", None)
+        completion = details.last_completion if details else None
         if completion is before:  # 이번 사례에서 응답을 받지 못했다
             completion = None
         runs.append(
             CaseRun(
                 case,
                 score,
-                response=getattr(completion, "text", None),
-                model=getattr(completion, "model", None),
-                attempts=getattr(structurer, "attempts", None),
-                input_tokens=getattr(completion, "input_tokens", None),
-                output_tokens=getattr(completion, "output_tokens", None),
+                response=completion.text if completion else None,
+                model=completion.model if completion else None,
+                attempts=details.attempts if details else None,
+                input_tokens=completion.input_tokens if completion else None,
+                output_tokens=completion.output_tokens if completion else None,
                 repair_notes=notes,
                 elapsed_ms=elapsed_ms,
             )

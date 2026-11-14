@@ -8,7 +8,8 @@
     골드      GoldCase · load_gold_cases (사례 파일), GoldSpec · GoldEntity · GoldRequirement (주석 붙은 기대 IR)
     채점      score_case · failed_case → CaseScore, Tally, ValueMismatch, values_match (값 비교 규칙)
     집계      summarize → StructuringEvaluation, headline, compare_headlines → MetricChange, 목표치 *_TARGET
-    실행·기록  run_gold_set → CaseRun, build_record, write_record · save_record · read_record · latest_record,
+    실행·기록  run_gold_set → CaseRun, StructuringRunDetails (실행 정보를 내주는 구조화기의 모양),
+              build_record, write_record · save_record · read_record · latest_record,
               recorded_responses · rescore_record (모델 없이 다시 채점), compare_records → RecordComparison · CaseChange
     출력      format_summary · format_comparison
 
@@ -29,6 +30,7 @@ from ._records import (
     CaseChange,
     CaseRun,
     RecordComparison,
+    StructuringRunDetails,
     build_record,
     compare_records,
     latest_record,
@@ -80,6 +82,7 @@ __all__ = [
     "CaseChange",
     "CaseRun",
     "RecordComparison",
+    "StructuringRunDetails",
     "build_record",
     "compare_records",
     "latest_record",

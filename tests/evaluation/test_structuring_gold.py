@@ -11,12 +11,13 @@ from pathlib import Path
 import pytest
 
 from frame.adapters.llm import ReplayLLMClient
-from frame.adapters.structurer import LLMStructurer
+from frame.adapters.structurer import FakeStructurer, LLMStructurer
 from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
 from frame.domain.enums import EntityKind
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 from frame.evaluation.structuring import (
     GoldCase,
+    StructuringRunDetails,
     Tally,
     build_record,
     compare_records,
@@ -287,3 +288,20 @@ def test_rescoring_keeps_a_failed_case_failed(cases):
     rescored = rescore_record(record, [case], _replay_structurer, rescored_at="2026-11-15")
     assert rescored["summary"]["failures"] == 1
     assert rescored["cases"][0]["error"]
+
+
+# ---- 실행 정보 ---------------------------------------------------------------------
+def test_llm_structurer_exposes_the_run_details_that_records_read():
+    """기록은 구조화기의 시도 횟수·마지막 응답·보정 메모를 읽는다. 포트에 없는 속성이라 이름이 바뀌면 기록의 칸이
+    조용히 비므로, LLMStructurer 가 그 이름을 지키는지 여기서 확인한다."""
+    assert isinstance(LLMStructurer(ReplayLLMClient([])), StructuringRunDetails)
+    assert not isinstance(FakeStructurer(), StructuringRunDetails)
+
+
+def test_structurer_without_run_details_leaves_those_fields_empty(cases):
+    case = _case(cases, "ko-05-ramen-recipe")
+    runs = run_gold_set(FakeStructurer(ir=case.spec.ir), [case])
+    run = runs[0]
+    assert run.score.requirements == Tally(tp=6)
+    assert (run.response, run.model, run.attempts, run.input_tokens) == (None, None, None, None)
+    assert run.repair_notes == ()
