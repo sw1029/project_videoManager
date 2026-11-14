@@ -12,6 +12,7 @@ POST {base_url}/audio/transcriptions (multipart). OpenAI, OpenRouter, 로컬 Whi
 
 from __future__ import annotations
 
+import math
 import uuid
 from collections.abc import Mapping
 from typing import Any
@@ -154,7 +155,11 @@ def _error_message(response: HttpResponse) -> str:
 
 
 def _ms(value: Any) -> int:
-    return max(0, round(float(value) * 1000))
+    """초 -> 밀리초. 유한한 수가 아니면 ValueError (inf 는 round 에서 OverflowError 가 난다)."""
+    seconds = float(value)
+    if not math.isfinite(seconds):
+        raise ValueError(f"유한한 수가 아닙니다: {value!r}")
+    return max(0, round(seconds * 1000))
 
 
 def _transcript(
@@ -169,7 +174,10 @@ def _transcript(
         segments = [SpeechSegment(words[0].start_ms, words[-1].end_ms, text, tuple(words))]
     if not segments and text:
         # 시각을 주지 않는 모델: 음성 전체를 한 구간으로 본다
-        end = duration_ms if duration_ms else _ms(document.get("duration") or 0)
+        try:
+            end = duration_ms if duration_ms else _ms(document.get("duration") or 0)
+        except (TypeError, ValueError) as exc:
+            raise SpeechRecognitionError("음성 인식 API 응답의 길이를 해석하지 못했습니다") from exc
         segments = [SpeechSegment(0, max(end, 1), text)]
     return Transcript(code, tuple(_ordered(segments, duration_ms)))
 

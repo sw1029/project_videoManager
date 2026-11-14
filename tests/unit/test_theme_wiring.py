@@ -290,3 +290,17 @@ def test_speech_address_must_be_https(tmp_path):
     )
     recognizer, _ = _recognizer(local)  # 로컬 시험 서버는 받는다
     assert recognizer.base_url == "http://127.0.0.1:9000/v1"
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
+def test_frame_extraction_retries_are_set_apart_from_the_llm_retries():
+    """프레임이 붙는 추출의 재질의 횟수는 FRAME_LLM_MAX_ATTEMPTS 를 따르지 않는다 (감사 BTS-22)."""
+    settings = Settings(
+        jobs="recording", persistence="memory", llm_provider="fake", llm_max_attempts=5
+    )
+    series = make_container(settings, theme_settings=ThemeSettings(extractor="vlm")).series
+    assert series.extractor.max_attempts == 2
+
+    custom = ThemeSettings.from_env({"FRAME_THEME_EXTRACTOR": "vlm", "FRAME_THEME_ATTEMPTS": "1"})
+    assert custom.extractor_attempts == 1
+    assert make_container(settings, theme_settings=custom).series.extractor.max_attempts == 1

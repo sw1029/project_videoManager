@@ -183,7 +183,7 @@ class LLMSeriesPlanner(SeriesPlanner):
                 plan = build_episode_plan(request.theme, request.brief, content, self._policy)
                 _check_narration_fits(request.theme, plan.script, self._policy)
                 return content
-            except (ValueError, KeyError, TypeError, DomainError) as exc:
+            except (ValueError, KeyError, TypeError, AttributeError, DomainError) as exc:
                 last_error = (
                     exc.message if isinstance(exc, DomainError) else f"{type(exc).__name__}: {exc}"
                 )
@@ -274,10 +274,11 @@ def parse_content(theme: Theme, document: Any) -> EpisodeContent:
         raise ValueError("응답이 JSON 객체가 아닙니다")
     slot_scoped = {v.key for v in theme.variables if v.scope is VariableScope.SLOT}
     slots = []
-    for item in document.get("slots") or ():
+    # strict 가 아닌 서버는 형이 어긋난 응답을 줄 수 있다. 입구에서 보고 되돌려 보낸다 (감사 BTS-15)
+    for item in _items(document.get("slots"), "slots"):
         slot_key = str(item["slot_key"]).strip()
         requirements = []
-        for raw in item.get("requirements") or ():
+        for raw in _items(item.get("requirements"), f"requirements of slot '{slot_key}'"):
             predicate = DEFAULT_VOCABULARY.normalize(str(raw.get("predicate") or ""))
             if DEFAULT_VOCABULARY.spec(predicate) is None:
                 raise ValueError(
@@ -324,7 +325,7 @@ def parse_content(theme: Theme, document: Any) -> EpisodeContent:
             EntityKind(str(item.get("kind") or EntityKind.OTHER).upper()),
             " ".join(str(item.get("description") or "").split()),
         )
-        for item in document.get("entities") or ()
+        for item in _items(document.get("entities"), "entities")
     ]
     slots, entities = _fold_printed_text(slots, entities)
     return EpisodeContent(tuple(slots), tuple(entities), _pairs(document.get("variables")))
@@ -392,6 +393,15 @@ def _check_narration_fits(theme: Theme, script: Any, policy: PlanPolicy) -> None
         raise ValueError(
             "narration is too long to be spoken within the scene: " + "; ".join(too_long)
         )
+
+
+def _items(raw: Any, name: str) -> list[Mapping[str, Any]]:
+    """객체의 목록이어야 하는 자리. 아니면 ValueError (모델에 되돌려 보낸다)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(item, Mapping) for item in raw):
+        raise ValueError(f"{name} must be a list of objects")
+    return raw
 
 
 def _pairs(raw: Any) -> dict[str, str]:

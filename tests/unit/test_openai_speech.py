@@ -203,3 +203,22 @@ def test_missing_key_and_empty_audio_fail_before_any_request():
     with pytest.raises(SpeechRecognitionError, match="비어"):
         keyed.transcribe(SpeechAudio(b""))
     assert transport.requests == [] and sent.requests == []
+
+
+def test_numbers_that_are_not_finite_do_not_escape_as_other_errors():
+    """시각이 유한한 수가 아니면 그 낱말·구간을 건너뛰고, 길이가 수가 아니면 인식 오류다 (감사 BTS-15)."""
+    document = {
+        "text": "안녕하세요",
+        "words": [
+            {"word": "안녕", "start": 1e999, "end": 2.0},
+            {"word": "하세요", "start": 0.4, "end": 0.9},
+        ],
+        "segments": [{"start": float("nan"), "end": 1.0, "text": "안녕하세요"}],
+    }
+    recognizer, _ = _recognizer(HttpResponse(200, json.dumps(document).encode("utf-8")))
+    transcript = recognizer.transcribe(AUDIO)
+    assert [(s.start_ms, s.end_ms) for s in transcript.segments] == [(400, 900)]
+
+    recognizer, _ = _recognizer(_json({"text": "안녕하세요", "duration": "abc"}))
+    with pytest.raises(SpeechRecognitionError):
+        recognizer.transcribe(SpeechAudio(AUDIO.data, "audio/wav", None))

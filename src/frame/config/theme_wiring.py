@@ -13,6 +13,7 @@
 | FRAME_SPEECH_KEY_FILE | (주소가 같으면 LLM 의 키) | 인식 전용 키 파일. 주소가 LLM 과 다르면 꼭 주고, 그 키만 싣는다 |
 | FRAME_THEME_EXTRACTOR | fake · vlm | 테마 추출 (vlm 은 FRAME_VLM_MODEL 로 프레임을 읽는다) |
 | FRAME_THEME_FRAMES | 3 | vlm 추출이 장면 자리마다 보는 프레임 수 |
+| FRAME_THEME_ATTEMPTS | 2 | vlm 추출의 재질의 횟수 (프레임이 붙는 요청이라 LLM 설정과 따로 둔다) |
 | FRAME_SERIES_PLANNER | template · llm | 편의 내용 기획 |
 | FRAME_AUDIO_EDITOR | fake · ffmpeg | 녹음 자르기·놓기·붙이기 |
 | FRAME_OVERLAY_RENDERER | fake · ffmpeg | 화면 문구 얹기 |
@@ -79,6 +80,8 @@ class ThemeSettings:
     speech_timeout_s: float = 120.0
     extractor: str = "fake"
     extractor_frames: int = 3
+    # 프레임이 붙는 추출의 재질의 횟수. 글만 보내는 호출의 FRAME_LLM_MAX_ATTEMPTS 와 따로 둔다 (감사 BTS-22)
+    extractor_attempts: int = 2
     planner: str = "template"
     audio: str = "fake"
     overlay: str = "fake"
@@ -110,6 +113,7 @@ class ThemeSettings:
             speech_timeout_s=float(text("SPEECH_TIMEOUT_S", str(base.speech_timeout_s))),
             extractor=text("THEME_EXTRACTOR", base.extractor),
             extractor_frames=int(text("THEME_FRAMES", str(base.extractor_frames))),
+            extractor_attempts=int(text("THEME_ATTEMPTS", str(base.extractor_attempts))),
             planner=text("SERIES_PLANNER", base.planner),
             audio=text("AUDIO_EDITOR", base.audio),
             overlay=text("OVERLAY_RENDERER", base.overlay),
@@ -336,7 +340,7 @@ def build_theme_services(
             ffmpeg(),
             vlm(),
             frames_per_slot=ts.extractor_frames,
-            max_attempts=settings.llm_max_attempts,
+            max_attempts=ts.extractor_attempts,
         )
 
     extractor: ThemeExtractor = pick(

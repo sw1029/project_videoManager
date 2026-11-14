@@ -285,3 +285,18 @@ def test_text_entity_that_stands_alone_is_kept():
 
     assert [e.entity_key for e in content.entities] == ["latte", "sign"]
     assert "sign" in content.slots[0].entity_keys
+
+
+def test_answer_with_the_wrong_shape_is_sent_back():
+    """strict 가 아닌 서버가 요구조건을 글로 적어 오면 예외로 끝내지 않고 되돌려 보낸다 (감사 BTS-15)."""
+    odd = copy.deepcopy(matcha_content_document())
+    odd["slots"][1]["requirements"] = ["latte is green"]
+    planner, llm = _planner(odd, matcha_content_document())
+    planner.plan(_request())
+    assert planner.attempts == 2 and "Your previous answer was rejected" in llm.calls[1]["user"]
+
+    odd = copy.deepcopy(matcha_content_document())
+    odd["slots"] = {"greeting": {}}
+    planner, _ = _planner(odd, matcha_content_document())
+    planner.plan(_request())
+    assert planner.attempts == 2

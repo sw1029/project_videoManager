@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -69,6 +70,8 @@ from frame.domain.theme import (
 from frame.domain.video_analysis import ScreenText
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
+log = logging.getLogger(__name__)
+
 PROMPT_VERSION = "2026-11-14.6"
 SCHEMA_NAME = "theme_observation"
 _CAST_KINDS = (EntityKind.PERSON, EntityKind.ANIMAL, EntityKind.PROP, EntityKind.OTHER)
@@ -76,6 +79,8 @@ _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weathe
 # 자리마다 달라지는 장면 조건: 스타일(모든 장면의 조건)에는 두지 않는다
 _SLOT_ONLY = frozenset({"camera"})
 _NON_KEY = re.compile(r"[^a-z0-9]+")
+# 자리를 가리키는 말: 'S3' · 'slot 3' · 'slot_3 (closeup)' · 프레임 이름 'S3-F2 10.0s', 또는 숫자만 '3'
+_SLOT_REF = re.compile(r"\s*(?:(?:slot|s)[\s_#:-]*(\d+)(?![.\d]).*|(\d+))\s*", re.IGNORECASE)
 # 객체 키에 들어오면 걷어내는 겉모습 낱말 (색·크기·새것). 키는 '무엇인가' 만 말한다
 _LOOK_WORDS = frozenset(
     "red blue green yellow orange purple pink brown black white gray grey teal beige cream gold "
@@ -325,6 +330,7 @@ class VlmThemeExtractor(ThemeExtractor):
         user = self._user_prompt(request, spans, frames)
         usage = {"input_tokens": 0, "output_tokens": 0}
         last_error = "알 수 없는 오류"
+        rejections: list[str] = []  # 재질의마다 무엇이 걸렸는가 (기록에 남긴다)
         prompt = user
         for attempt in range(1, self.max_attempts + 1):
             completion = self._llm.complete_json(
@@ -343,10 +349,12 @@ class VlmThemeExtractor(ThemeExtractor):
                 if not isinstance(document, dict):
                     raise ValueError("응답이 JSON 객체가 아닙니다")
                 theme, source_ir, texts, notes = build_theme(request, spans, document)
-            except (ValueError, KeyError, TypeError, DomainError) as exc:
+            except (ValueError, KeyError, TypeError, AttributeError, DomainError) as exc:
+                # AttributeError: strict 가 아닌 서버가 형이 어긋난 응답을 준 경우 (목록 자리에 글 등)
                 last_error = (
                     exc.message if isinstance(exc, DomainError) else f"{type(exc).__name__}: {exc}"
                 )
+                rejections.append(last_error[:300])
                 prompt = (
                     f"{user}\n\nYour previous answer was rejected: {last_error}\n"
                     f"Previous answer:\n{completion.text[:4000]}\nReturn the corrected JSON only."
@@ -366,11 +374,13 @@ class VlmThemeExtractor(ThemeExtractor):
                 "prompt_version": PROMPT_VERSION,
                 "frames": len(frames),
                 "attempts": attempt,
+                "rejections": rejections,
                 "usage": usage,
             }
             if refined is not None:
                 detail["refined_text_regions"] = refined
             return ThemeExtraction(theme, source_ir, texts, tuple(notes), detail)
+        log.warning("테마 추출의 응답이 %d회 모두 거절됐습니다: %s", len(rejections), rejections)
         raise ThemeExtractionError(
             f"테마 추출이 {self.max_attempts}회 시도 후 실패했습니다: {last_error}"
         )
@@ -493,6 +503,7 @@ def build_theme(
 
     규칙을 통과하지 못하면 ValidationError (부른 쪽이 모델에 되돌려 보낸다).
     """
+    _check_shapes(document)
     notes: list[str] = []
     slot_keys = [f"slot_{i}" for i in range(1, len(spans) + 1)]
     answers = _slot_answers(document.get("slots"), len(spans))
@@ -504,7 +515,7 @@ def build_theme(
     style_conditions = [
         condition
         for condition in _scene_conditions(
-            (document.get("style") or {}).get("conditions"), notes, "스타일"
+            _mapping(document.get("style")).get("conditions"), notes, "스타일"
         )
         if condition.predicate not in _SLOT_ONLY
     ]
@@ -521,7 +532,9 @@ def build_theme(
     for index, (slot_key, (start, end)) in enumerate(zip(slot_keys, spans, strict=True)):
         answer = answers.get(index, {})
         entity_keys = _unique(
-            key_of[_plain(k)] for k in answer.get("entity_keys") or () if _plain(k) in key_of
+            key
+            for key in (_lookup(k, key_of) for k in answer.get("entity_keys") or ())
+            if key is not None
         )
         requirements = _requirements(
             slot_key, answer.get("requirements"), key_of, kinds, entity_keys, notes
@@ -608,8 +621,8 @@ def build_theme(
             purpose = " ".join(str(answers.get(index, {}).get("narration_purpose") or "").split())
             if said or purpose:
                 beats.append(NarrationBeat(slot_key, purpose, said))
-    music = document.get("music") or {}
-    style = document.get("style") or {}
+    music = _mapping(document.get("music"))
+    style = _mapping(document.get("style"))
     media = request.analysis.media
     theme = Theme(
         theme_id=request.theme_id,
@@ -651,10 +664,22 @@ def build_theme(
 
 def _slot_index(raw: Any, count: int) -> int | None:
     """모델이 가리킨 자리('S3', 'slot 3')의 0 기반 번호. 범위 밖이면 None."""
-    match = re.search(r"(\d+)", str(raw or ""))
-    if not match or not 0 < int(match.group(1)) <= count:
+    number = _slot_number(raw)
+    if number is None or not 0 < number <= count:
         return None
-    return int(match.group(1)) - 1
+    return number - 1
+
+
+def _slot_number(raw: Any) -> int | None:
+    """자리 번호 (1부터). 'S3'·'slot 3'·'3', 그리고 프레임 이름 'S3-F2 10.0s' 를 읽는다.
+
+    시각("5.3s")처럼 자리가 아닌 숫자는 읽지 않는다. 아무 숫자나 집으면 모델이 시각을 적어 왔을 때
+    그 숫자가 자리 번호가 된다 (감사 BTS-32).
+    """
+    match = _SLOT_REF.fullmatch(str(raw or ""))
+    if match is None:
+        return None
+    return int(match.group(1) or match.group(2))
 
 
 def _squash(raw: Any) -> str:
@@ -677,8 +702,8 @@ def _slot_answers(raw: Any, count: int) -> dict[int, Mapping[str, Any]]:
     answers: dict[int, Mapping[str, Any]] = {}
     unplaced: list[Mapping[str, Any]] = []
     for item in items:
-        match = re.search(r"(\d+)", str(item.get("slot") or ""))
-        index = int(match.group(1)) - 1 if match else -1
+        number = _slot_number(item.get("slot"))
+        index = number - 1 if number is not None else -1
         if 0 <= index < count and index not in answers:
             answers[index] = item
         else:
@@ -702,7 +727,9 @@ def _entities(
     for position, item in enumerate(raw if isinstance(raw, list) else [], start=1):
         if not isinstance(item, dict):
             continue
-        plain = _plain(item.get("entity_key")) or f"entity_{position}"
+        raw_key = _raw_key(item.get("entity_key"))
+        ascii_key = _plain(raw_key)  # 한글 키는 빈 문자열이 된다
+        plain = ascii_key or f"entity_{position}"
         if plain[0].isdigit():
             plain = f"entity_{plain}"
         bare = "_".join(word for word in plain.split("_") if word not in _LOOK_WORDS)
@@ -717,8 +744,11 @@ def _entities(
             kind = EntityKind(str(item.get("kind") or "").strip().upper())
         except ValueError:
             kind = EntityKind.OTHER
-        key_of[_plain(item.get("entity_key"))] = plain
-        key_of[plain] = plain
+        # 모델이 쓴 키 그대로도 찾을 수 있게 한다. 빈 키는 넣지 않는다: 영문이 아닌 키가 모두 빈 키 하나로 모여
+        # 마지막 객체를 가리켰다 (감사 BTS-25)
+        for name in (raw_key, ascii_key, plain):
+            if name:
+                key_of.setdefault(name, plain)
         originals[plain] = item
         entities.append(
             EntitySpec(plain, kind, " ".join(str(item.get("description") or "").split()))
@@ -862,7 +892,47 @@ def _requirements(
 
 
 def _lookup(raw: Any, key_of: Mapping[str, str]) -> str | None:
-    return key_of.get(_plain(raw)) if raw else None
+    """모델이 가리킨 객체 키 -> 다듬은 키. 없으면 None.
+
+    영문·숫자로 다듬을 수 없는 키(한글 등)가 정의된 객체와 맞지 않으면 ValidationError 로 되돌려 보낸다.
+    그런 키를 조용히 버리면 장면에서 객체가 빠진 테마가 오류 없이 저장된다.
+    """
+    if not raw:
+        return None
+    raw_key = _raw_key(raw)
+    found = key_of.get(raw_key)
+    if found is not None:
+        return found
+    ascii_key = _plain(raw_key)
+    if not ascii_key:
+        raise ValidationError(
+            f"entity key '{raw_key}' is not defined in entities. Refer to entities by the exact "
+            "entity_key you defined (lowercase English snake_case)"
+        )
+    return key_of.get(ascii_key)
+
+
+def _raw_key(raw: Any) -> str:
+    """모델이 준 키 그대로 (공백만 다듬는다). 영문이 아닌 키를 서로 가르는 데 쓴다."""
+    return " ".join(str(raw or "").split())
+
+
+def _mapping(raw: Any) -> Mapping[str, Any]:
+    return raw if isinstance(raw, Mapping) else {}
+
+
+_LISTS = ("entities", "slots", "screen_texts", "text_rules", "variables")
+_OBJECTS = ("style", "music")
+
+
+def _check_shapes(document: Mapping[str, Any]) -> None:
+    """응답의 큰 모양을 본다. strict 가 아닌 서버는 목록 자리에 글이나 객체를 줄 수 있다 (감사 BTS-15)."""
+    for name in _LISTS:
+        if document.get(name) is not None and not isinstance(document[name], list):
+            raise ValidationError(f"'{name}' must be a list")
+    for name in _OBJECTS:
+        if document.get(name) is not None and not isinstance(document[name], Mapping):
+            raise ValidationError(f"'{name}' must be an object")
 
 
 def _variables(raw: Any, notes: list[str]) -> list[ThemeVariable]:
@@ -919,9 +989,9 @@ def _text_rules(
         except ValueError:
             role = TextRole.OTHER
         slots = _unique(
-            slot_keys[int(m.group(1)) - 1]
-            for m in (re.search(r"(\d+)", str(s)) for s in item.get("slots") or ())
-            if m and 0 < int(m.group(1)) <= len(slot_keys)
+            slot_keys[index]
+            for index in (_slot_index(s, len(slot_keys)) for s in item.get("slots") or ())
+            if index is not None
         )
         base = TextStyle()
         background = item.get("background")
@@ -956,10 +1026,10 @@ def _screen_texts(raw: Any, spans: Sequence[tuple[int, int]]) -> tuple[ScreenTex
         if not isinstance(item, dict):
             continue
         text = " ".join(str(item.get("text") or "").split())
-        match = re.search(r"(\d+)", str(item.get("slot") or ""))
-        if not text or not match or not 0 < int(match.group(1)) <= len(spans):
+        index = _slot_index(item.get("slot"), len(spans))
+        if not text or index is None:
             continue
-        start, end = spans[int(match.group(1)) - 1]
+        start, end = spans[index]
         try:
             role = TextRole(str(item.get("role") or "").upper())
         except ValueError:

@@ -583,3 +583,104 @@ def test_regions_are_not_asked_again_when_turned_off(video):
 
 def _box(region):
     return tuple(round(v, 3) for v in (region.x, region.y, region.w, region.h))
+
+
+# ---- 영문이 아닌 객체 키 (감사 BTS-25) ----
+def _renamed(document: dict, names: dict[str, str]) -> dict:
+    """문서 안의 객체 키를 바꾼다 (정의와 가리키는 곳 모두)."""
+
+    def swap(value):
+        return names.get(str(value).lower(), value) if isinstance(value, str) else value
+
+    for entity in document["entities"]:
+        entity["entity_key"] = swap(entity["entity_key"])
+    for slot in document["slots"]:
+        slot["entity_keys"] = [swap(k) for k in slot["entity_keys"]]
+        for requirement in slot["requirements"]:
+            requirement["entity_key"] = swap(requirement["entity_key"])
+            requirement["related_entity_key"] = swap(requirement["related_entity_key"])
+    return document
+
+
+def test_keys_that_are_not_english_stay_separate():
+    """한글 키는 영문·숫자로 다듬으면 빈 문자열이 된다. 그래도 객체끼리 섞이지 않는다.
+
+    지금까지는 모두 빈 키 하나로 모여, 자리와 요구조건이 마지막 객체를 가리켰다 (오류 없이 틀린 테마가 저장됐다).
+    """
+    document = _renamed(
+        cafe_observation(), {"barista": "바리스타", "mug": "머그컵", "cafe": "카페"}
+    )
+    theme, ir, _, _ = _build(document)
+
+    keys = [e.entity_key for e in ir.entities]
+    assert len(keys) == len(set(keys)) == 3 and keys[:2] == ["entity_1", "entity_2"]
+    assert [c.entity_key for c in theme.cast] == ["entity_1", "entity_2"]  # 바리스타, 머그컵
+    assert ir.scene("slot_1").entity_keys == ("entity_1", "entity_3")
+    assert ir.scene("slot_3").entity_keys == ("entity_2",)
+    held = [r for r in ir.scene("slot_2").requirements if r.predicate == "holds"]
+    assert [(r.entity_key, r.related_entity_key) for r in held] == [("entity_1", "entity_2")]
+    colors = [r for r in ir.scene("slot_3").requirements if r.predicate == "color"]
+    assert [(r.entity_key, r.expected_value) for r in colors] == [("entity_2", "red")]
+
+
+def test_key_with_both_scripts_uses_its_english_part():
+    document = _renamed(cafe_observation(), {"barista": "바리스타 barista", "mug": "머그컵_mug"})
+    _, ir, _, _ = _build(document)
+
+    assert [e.entity_key for e in ir.entities][:2] == ["barista", "mug"]
+    assert ir.scene("slot_2").entity_keys[:2] == ("barista", "mug")
+
+
+def test_reference_to_a_key_that_cannot_be_resolved_is_rejected():
+    """영문이 아닌 키가 정의된 객체와 맞지 않으면 버리지 않고 되돌려 보낸다 (조용히 빠지면 테마가 틀린다)."""
+    document = cafe_observation()
+    document["slots"][0]["entity_keys"].append("점원")
+
+    with pytest.raises(ValidationError, match="점원"):
+        _build(document)
+
+
+# ---- 자리는 자리 번호로만 맞춘다 (감사 BTS-32) ----
+def test_a_time_is_not_read_as_a_slot_number():
+    """모델이 자리 대신 시각("5.3s")을 적어 오면 그 숫자를 자리 번호로 읽지 않는다."""
+    document = cafe_observation()
+    document["screen_texts"][0]["slot"] = "2.0s"
+    document["screen_texts"][1]["slot"] = "S3-F2 10.0s"  # 프레임 이름은 그 자리로 읽는다
+    _, _, texts, _ = _build(document)
+
+    assert [(t.text, t.start_ms) for t in texts if t.source is TextSource.OVERLAY] == [
+        ("바닐라 라떼 4,500원", 8000)
+    ]
+
+    answers = cafe_observation()
+    for slot, name in zip(answers["slots"], ("1.5s", "slot 2", "3", "S4 (outro)"), strict=True):
+        slot["slot"] = name
+    theme, _, _, _ = _build(answers)
+    assert [s.purpose for s in theme.format.slots][1:] == [
+        "진행자가 오늘의 메뉴를 들어 보인다",
+        "오늘의 메뉴를 가까이 보여 준다",
+        "진행자가 손을 흔들며 마무리한다",
+    ]
+
+
+# ---- 형이 어긋난 응답과 재질의의 기록 (감사 BTS-15·22) ----
+@needs_ffmpeg
+def test_answer_with_the_wrong_shape_is_sent_back_and_the_rejection_is_recorded(video):
+    """strict 가 아닌 서버는 형이 어긋난 응답을 줄 수 있다. 예외로 끝내지 않고 되돌려 보낸다."""
+    odd = copy.deepcopy(cafe_observation())
+    odd["style"] = ["warm"]
+    odd["entities"] = {"barista": "PERSON"}
+    extractor, llm = _extractor(odd, cafe_observation(), refine_text_regions=False)
+    extraction = extractor.extract(_request(video=video))
+
+    assert extraction.detail["attempts"] == 2 and len(llm.calls) == 2
+    assert len(extraction.detail["rejections"]) == 1 and extraction.detail["rejections"][0]
+
+    clean, _ = _extractor(cafe_observation(), refine_text_regions=False)
+    assert clean.extract(_request(video=video)).detail["rejections"] == []
+
+
+@needs_ffmpeg
+def test_extractor_asks_at_most_twice_by_default():
+    """프레임이 붙는 요청이다. 재질의 횟수를 글만 보내는 호출의 설정(3회)에 맡기지 않는다."""
+    assert VlmThemeExtractor(FFMPEG, ReplayLLMClient([])).max_attempts == 2
