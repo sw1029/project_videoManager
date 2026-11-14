@@ -79,7 +79,9 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_REFERENCE_IMAGE_MAX_BYTES` | 정수 (기본 10485760 = 10 MiB) | 참조 이미지 업로드(`POST /api/reference-images`)의 크기 상한. PNG·JPEG·WebP 만 받는다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)) |
 | `FRAME_LLM_RUNTIME_KEY` | `true` · `false`(기본) | 화면에서 OpenAI 키 입력 허용 (키 없이 기동, 메모리에만 보관, 같은 기기에서만) |
 
-Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`
+Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`.
+이미지에는 ffmpeg(배포판의 것)와 한글 글꼴이 들어 있어, 실제 영상 경로와 화면 문구 얹기(`FRAME_OVERLAY_RENDERER=ffmpeg`)를 그대로 켤 수 있다
+([ADR-0034](docs/adr/0034-docker-image-distribution-ffmpeg-and-in-image-checks.md)).
 
 ## 프론트엔드 연동
 

@@ -33,6 +33,7 @@
 화면 문구 얹기(ffmpeg)는 drawtext 필터로 그린다. video extra 가 Windows · macOS 에 가져오는 ffmpeg 에는 그 필터가 있고,
 Linux 에 가져오는 것에는 없다 (libharfbuzz 없이 빌드됐다). Linux 에서는 drawtext 가 든 ffmpeg 를 PATH 에 두거나
 FRAME_VIDEO_FFMPEG 로 지정한다 (apt install ffmpeg). 없으면 기동할 때 그렇게 알린다 (감사 A-43).
+Docker 이미지에는 그 ffmpeg(배포판의 것)와 한글 글꼴(나눔)이 들어 있다 (ADR-0034).
 로컬 인식(faster_whisper)은 선택 설치다: pip install -e ".[speech-local]". 모델은 미리 받아 둔다 — 받는 명령과
 잰 판(저장소·revision·sha256)은 docs/adr/0028-script-extraction-and-evidence.md 결정 9 에 있다.
 """
