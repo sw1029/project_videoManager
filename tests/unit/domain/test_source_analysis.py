@@ -39,6 +39,9 @@ def test_clamped_cuts_a_model_box_to_the_screen():
     assert Region.clamped(1.2, 0.0, 0.5, 0.5) is None
     assert Region.clamped(float("nan"), 0.0, 0.5, 0.5) is None
     assert Region.clamped("x", 0.0, 0.5, 0.5) is None
+    # 모델이 좌표 하나를 빼먹으면 (None) 영역이 없는 것이다. 오류가 아니다
+    assert Region.clamped(None, 0.0, 0.5, 0.5) is None
+    assert Region.clamped(0.1, 0.2, None, 0.5) is None
 
 
 def test_region_helpers():

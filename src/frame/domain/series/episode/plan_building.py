@@ -255,7 +255,7 @@ def _script(
         budget = max(0, slot.duration_ms - policy.lead_in_ms - policy.tail_ms)
         estimated = round(spoken_characters(text) / pace * 1000) if pace > 0 else None
         line = ScriptLine(f"L{len(lines) + 1}", slot.slot_key, text, budget, estimated)
-        if line.fits is False:
+        if estimated is not None and line.fits is False:
             notes.append(
                 f"대본 {line.line_key} (장면 '{slot.slot_key}'): 어림 {estimated / 1000:.1f}초가 "
                 f"말할 수 있는 {budget / 1000:.1f}초보다 깁니다"

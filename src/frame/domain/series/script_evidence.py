@@ -317,7 +317,9 @@ def _text_evidence(
     wanted = canonical_text(shown.text)
     discrepancies: list[Discrepancy] = []
     best: tuple[float, bool, tuple[str, ...]] = (0.0, False, ())
-    candidates = [((line,), canonical_text(line.text)) for line in nearby]
+    candidates: list[tuple[tuple[SpokenLine, ...], str]] = [
+        ((line,), canonical_text(line.text)) for line in nearby
+    ]
     if len(nearby) > 1:
         candidates.append((tuple(nearby), "".join(canonical_text(line.text) for line in nearby)))
     for lines, said in candidates:

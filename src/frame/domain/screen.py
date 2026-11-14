@@ -60,8 +60,11 @@ class Region:
             raise ValidationError(f"영역이 화면을 벗어났습니다: {values}")
 
     @classmethod
-    def clamped(cls, x: float, y: float, w: float, h: float) -> Region | None:
-        """화면 밖으로 나간 부분을 잘라 낸 영역. 남는 것이 없으면 None (모델이 준 박스를 받을 때 쓴다)."""
+    def clamped(cls, x: Any, y: Any, w: Any, h: Any) -> Region | None:
+        """화면 밖으로 나간 부분을 잘라 낸 영역. 남는 것이 없으면 None (모델이 준 박스를 받을 때 쓴다).
+
+        모델이 준 값이라 수가 아닐 수 있다 (빠진 좌표는 None, 글). 그때도 None 이다.
+        """
         try:
             fx, fy, fw, fh = float(x), float(y), float(w), float(h)
         except (TypeError, ValueError):

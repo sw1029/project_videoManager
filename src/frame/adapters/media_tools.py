@@ -72,12 +72,12 @@ def probe_media(ffmpeg: str, path: str | Path, timeout_s: float = 120.0) -> Medi
     probe = MediaProbe(duration_ms=duration)
     if audio is not None:
         line = audio.group(0)
-        rate = _SAMPLE_RATE.search(line)
+        sampled = _SAMPLE_RATE.search(line)
         channels = next((n for name, n in _CHANNELS.items() if f", {name}" in line), None)
         probe = MediaProbe(
             duration_ms=duration,
             audio_codec=audio.group(1),
-            sample_rate=int(rate.group(1)) if rate else None,
+            sample_rate=int(sampled.group(1)) if sampled else None,
             channels=channels,
         )
     if video is None or video.group(1) in _STILL_CODECS:

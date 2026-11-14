@@ -72,13 +72,14 @@ def locate_text(
 def _region(answer: Any) -> Region | None:
     if not isinstance(answer, dict) or answer.get("found") is not True:
         return None
-    edges = [answer.get(name) for name in ("top", "bottom", "left", "right")]
-    if not all(isinstance(v, int | float) and not isinstance(v, bool) for v in edges):
-        return None
+    given = [answer.get(name) for name in ("top", "bottom", "left", "right")]
+    edges = [float(v) for v in given if isinstance(v, int | float) and not isinstance(v, bool)]
+    if len(edges) != len(given):
+        return None  # 가장자리가 빠졌거나 수가 아니다
     if not all(math.isfinite(v) and -_SLACK <= v <= 1.0 + _SLACK for v in edges):
         return None
-    top, bottom = sorted(min(1.0, max(0.0, float(v))) for v in edges[:2])
-    left, right = sorted(min(1.0, max(0.0, float(v))) for v in edges[2:])
+    top, bottom = sorted(min(1.0, max(0.0, v)) for v in edges[:2])
+    left, right = sorted(min(1.0, max(0.0, v)) for v in edges[2:])
     if bottom - top < MIN_SIDE or right - left < MIN_SIDE:
         return None
     return Region(left, top, right - left, bottom - top)

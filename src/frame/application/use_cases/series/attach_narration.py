@@ -197,14 +197,14 @@ def _mode(recordings: Sequence[RecordingInput], script: Sequence[ScriptLine]) ->
     """편 전체를 읽은 녹음 하나면 True, 줄마다 녹음한 것이면 False. 섞여 있으면 ValidationError."""
     if not recordings:
         raise ValidationError("녹음 파일이 하나 이상 있어야 합니다")
-    keys = [r.line_key for r in recordings]
-    if all(key is None for key in keys):
+    keys = [r.line_key for r in recordings if r.line_key is not None]  # 줄을 적은 녹음
+    if not keys:
         if len(recordings) != 1:
             raise ValidationError(
                 "편 전체를 읽은 녹음은 하나만 받을 수 있습니다. 줄마다 녹음했다면 줄(line_key)을 적어 주세요"
             )
         return True
-    if any(key is None for key in keys):
+    if len(keys) != len(recordings):
         raise ValidationError("편 전체를 읽은 녹음과 줄마다 녹음한 것을 함께 줄 수 없습니다")
     if len(keys) != len(set(keys)):
         raise ValidationError(f"같은 줄의 녹음이 두 번 들어 있습니다: {keys}")

@@ -56,6 +56,15 @@ def test_box_slightly_outside_the_frame_is_clipped_and_swapped_edges_are_put_rig
         {"found": True, "top": 0.5, "bottom": 0.5, "left": 0.1, "right": 0.9},  # 높이 없음
         {"found": True, "top": 0.2, "bottom": 0.3, "left": 0.4, "right": 0.402},  # 너무 좁다
         {"found": True, "top": "?", "bottom": 0.3, "left": 0.4, "right": 0.6},
+        {"found": True, "bottom": 0.3, "left": 0.4, "right": 0.6},  # 가장자리 하나가 없다
+        {"found": True, "top": None, "bottom": 0.3, "left": 0.4, "right": 0.6},
+        {
+            "found": True,
+            "top": True,
+            "bottom": 0.3,
+            "left": 0.4,
+            "right": 0.6,
+        },  # 참·거짓은 수가 아니다
     ],
 )
 def test_no_region_when_not_found_or_the_box_makes_no_sense(answer):

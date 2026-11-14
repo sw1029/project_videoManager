@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Set
 from dataclasses import dataclass
 from typing import Any
 
@@ -153,7 +154,7 @@ class CheckEpisodeScreen:
 
     # ---- 3. 문구 (화면) ----
     def _rendered_text_issues(
-        self, episode: Episode, skip: set[str | None], notes: list[str]
+        self, episode: Episode, skip: Set[str], notes: list[str]
     ) -> tuple[int, list[ScreenIssue]]:
         if not episode.plan.overlays:
             return 0, []

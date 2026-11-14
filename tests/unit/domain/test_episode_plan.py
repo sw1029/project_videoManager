@@ -265,6 +265,19 @@ def test_pace_falls_back_to_the_policy_when_the_theme_has_none(theme):
     assert plan.line("L1").estimated_ms == 3000  # 12글자 ÷ 4
 
 
+def test_without_any_pace_the_script_length_is_not_estimated(theme):
+    """말 빠르기를 테마도 정책도 모르면 대본의 길이를 어림하지 않는다. 넘친다는 경고도 내지 않는다."""
+    quiet = replace(theme, narration=replace(theme.narration, pace_cps=None))
+
+    plan = build_episode_plan(
+        quiet, matcha_brief(), matcha_content(), PlanPolicy(default_pace_cps=0.0)
+    )
+
+    assert plan.script and all(line.estimated_ms is None for line in plan.script)
+    assert all(line.fits is None for line in plan.script)
+    assert not any("깁니다" in note for note in plan.notes)
+
+
 # ---- 계획 고치기와 직렬화 ----
 def test_overlay_can_be_replaced_added_and_removed(plan):
     fixed = replace(plan.overlay("closeup:price"), text="말차 라떼 5,500원")
