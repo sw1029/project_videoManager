@@ -199,7 +199,7 @@ RunGenerationPipeline
 |---|---|---|
 | 술어 어휘 | 술어는 `domain/vocabulary.py` 로 정규화된다 (`colour`·`색상` → `color`). 등록 술어는 값 종류(COLOR/TEXT/NUMBER/POSITION/ENTITY)와 관계 여부를 가진다. 미등록 술어도 정규화 후 허용 | `RequirementSpec.__post_init__`, `AttributeChange.__post_init__` |
 | 관계 조건 | 관계 술어(holds, wears, near, looks_at, on)는 `related_entity_key` 필수, `expected_value` 는 상대 객체 키와 동일. 속성 술어는 상대 객체 금지 | `IR.validate()` |
-| 키 형식 | 객체·장면 키는 영문·숫자·밑줄로 된 64자 이하, 영문·숫자로 시작 (`KEY_PATTERN`). 키가 클립 저장 경로·요구조건 키·URL·DB id 에 그대로 들어가기 때문 (감사 A-01, ADR-0023) | `IR.validate()`, IR 입력 스키마 |
+| 키 형식 | 객체·장면 키는 영문·숫자·밑줄로 된 64자 이하, 영문·숫자로 시작 (`KEY_PATTERN`), 유일성은 대소문자를 가리지 않는다. 키가 클립 저장 경로·요구조건 키·URL·DB id 에 그대로 들어가기 때문 (감사 A-01, 델타 D02, ADR-0023) | `IR.validate()`, IR 입력 스키마 |
 | 요구조건 키 | `장면:객체:술어[:상대객체]`. 장면 안에서 유일 (SQL `requirement_id` 도 같은 키에서 파생) | `IR.validate()`, DB PK |
 | 장면 수준 조건 | `entity_key=None` (분위기·조명·카메라). DSL: `scene.mood = calm @ a` | `RuleBasedStructurer` |
 | 타임라인 | 장면은 0 ms 에서 시작, 겹침·빈 구간 없이 이어짐. 길이 합계는 목표 길이와 허용 오차(500 ms 또는 10%) 안 | `IR.validate()`, `StructureRequirements` |
