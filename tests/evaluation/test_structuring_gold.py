@@ -515,6 +515,60 @@ def test_error_messages_in_records_hide_absolute_paths(cases, error):
         assert leaked not in message
 
 
+@pytest.mark.parametrize(
+    ("raw", "kept"),
+    [
+        (
+            "Connection error: https://api.openai.com/v1/chat/completions",
+            "Connection error: https://api.openai.com/v1/chat/completions",
+        ),
+        ("timeout from http://localhost:8001/v1", "timeout from http://localhost:8001/v1"),
+        (
+            "401 from https://user:pw@proxy.local:8443/v1?key=abc#x",
+            "401 from https://proxy.local:8443/v1",
+        ),
+        ("refused by http://[::1]:8001/v1", "refused by http://[::1]:8001/v1"),
+        ("cannot open file:///C:/Users/someone/key.txt", "cannot open file:///<경로>"),
+    ],
+)
+def test_error_messages_keep_urls_without_account_or_query(cases, raw, kept):
+    """URL 은 경로로 보지 않고 남긴다 (어느 주소에서 실패했는지가 중요하다). 계정·질의·조각은 뺀다."""
+    case = _case(cases, "ko-05-ramen-recipe")
+    message = run_gold_set(FakeStructurer(error=LLMUnavailable(raw)), [case])[0].score.error
+    assert message == f"LLM_UNAVAILABLE: {kept}"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [r"C:\Users\Jane Doe\keys\k.txt", "C:/Users/Jane Doe/keys/k.txt", r"c:\users\jane doe\k.txt"],
+)
+def test_error_messages_hide_the_whole_home_folder_even_with_spaces(cases, monkeypatch, path):
+    """사용자 폴더 이름에 빈칸이 있어도 이름의 뒷부분이 새지 않는다 (빈칸에서 경로가 끊기지 않게)."""
+    records_module = importlib.import_module("frame.evaluation.structuring._records")
+    monkeypatch.setattr(records_module, "_home_folders", lambda: (r"C:\Users\Jane Doe",))
+    case = _case(cases, "ko-05-ramen-recipe")
+    error = LLMUnavailable(f"키 파일이 없습니다: {path}. 다시 확인하세요")
+    message = run_gold_set(FakeStructurer(error=error), [case])[0].score.error
+    assert message == "LLM_UNAVAILABLE: 키 파일이 없습니다: <경로> 다시 확인하세요"
+
+
+def test_a_longer_folder_name_that_starts_with_the_home_folder_is_hidden_whole(cases, monkeypatch):
+    """사용자 폴더가 C:\\Users\\Al 일 때 C:\\Users\\Alice 의 뒷부분('ice')이 남지 않는다."""
+    records_module = importlib.import_module("frame.evaluation.structuring._records")
+    monkeypatch.setattr(records_module, "_home_folders", lambda: (r"C:\Users\Al",))
+    case = _case(cases, "ko-05-ramen-recipe")
+    error = LLMUnavailable(r"키 파일이 없습니다: C:\Users\Alice\key.txt")
+    message = run_gold_set(FakeStructurer(error=error), [case])[0].score.error
+    assert message == "LLM_UNAVAILABLE: 키 파일이 없습니다: <경로>"
+
+
+def test_a_home_folder_that_is_only_a_root_is_not_used_for_masking(monkeypatch):
+    """사용자 폴더가 뿌리('/')뿐이면 그것으로 가리지 않는다 (문구의 모든 '/' 가 바뀌지 않게)."""
+    records_module = importlib.import_module("frame.evaluation.structuring._records")
+    monkeypatch.setattr(records_module.Path, "home", classmethod(lambda cls: cls("/")))
+    assert records_module._home_folders() == ()
+
+
 def test_long_error_messages_are_shortened(cases):
     case = _case(cases, "ko-05-ramen-recipe")
     message = run_gold_set(FakeStructurer(error=LLMUnavailable("x" * 2000)), [case])[0].score.error
