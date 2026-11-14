@@ -60,4 +60,4 @@ def _home_folders() -> tuple[str, ...]:
         home = Path.home()
     except RuntimeError:  # 사용자 폴더를 알 수 없는 환경
         return ()
-    return (str(home),) if len(home.parts) >= 2 else ()
+    return (str(home),) if len(home.parts) > 1 else ()

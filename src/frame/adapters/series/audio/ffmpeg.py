@@ -15,6 +15,7 @@ from pathlib import Path
 
 from frame.adapters.shared.media.ffmpeg import require_ffmpeg, tail
 from frame.adapters.shared.media.media_tools import (
+    WORK_TIMEOUT_S,
     MediaToolError,
     detect_silences,
     probe_media,
@@ -25,6 +26,8 @@ from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio
 
 SPEECH_SAMPLE_RATE = 16000
+# 빠르기가 1 과 이만큼도 다르지 않으면 바꾸지 않은 것으로 본다 (필터를 넣지 않는다)
+_SAME_TEMPO = 1e-6
 
 
 class FfmpegAudioEditor(AudioEditor):
@@ -35,7 +38,7 @@ class FfmpegAudioEditor(AudioEditor):
         sample_rate: int = 44100,
         normalize: bool = False,
         audio_bitrate: str = "128k",
-        timeout_s: float = 300.0,
+        timeout_s: float = WORK_TIMEOUT_S,
     ) -> None:
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.sample_rate = sample_rate
@@ -124,7 +127,7 @@ class FfmpegAudioEditor(AudioEditor):
                     f"atrim=start={cut.source_start_ms / 1000:.3f}:end={cut.source_end_ms / 1000:.3f},"
                     f"asetpts=PTS-STARTPTS,aformat=sample_rates={self.sample_rate}:channel_layouts=mono"
                 )
-                if abs(cut.tempo - 1.0) > 1e-6:
+                if abs(cut.tempo - 1.0) > _SAME_TEMPO:
                     chain += f",atempo={cut.tempo:.6f}"
                 chain += f",adelay={cut.target_start_ms}:all=1[c{number}]"
                 chains.append(chain)

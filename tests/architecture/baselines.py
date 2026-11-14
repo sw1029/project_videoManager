@@ -54,3 +54,7 @@ COMPAT_PATH_IMPORTERS = frozenset(
         "frame.presentation.routers.versions",  # #10 이 고친다
     }
 )
+
+# 설정에서 오는 인자인데 생성자가 기본값을 또 가진 것 ("생성자.인자") — P-19, ADR-0032.
+# 모두 고쳤다. 새로 더하지 않는다 (기본값을 지우고 값은 조립이 넘긴다)
+SETTINGS_ARGUMENTS_WITH_DEFAULTS: frozenset[str] = frozenset()

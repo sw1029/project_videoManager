@@ -14,20 +14,29 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from frame.domain.checks import CheckResult
+from frame.domain.checks import (
+    PRESERVATION_BY_KEEP,
+    PRESERVATION_BY_SSIM,
+    PRESERVATION_REUSED,
+    CheckResult,
+)
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.metrics import preservation_rate
+
+# 결과에 남기는 수의 자릿수. 기록 형식의 일부라 실행기 · 보고서가 같은 값을 쓴다
+RATE_DIGITS = 6  # 비율 · 비용
+SECONDS_DIGITS = 3  # 걸린 시간 (초)
 
 # 지표 1 목표 (T12). 케이스 판정(evaluate_case)과 전체 판정(EditEvaluation)이 함께 쓴다
 SUCCESS_RATE_TARGET = 0.8  # 전체: 성공한 케이스의 비율 >= 80%
 NON_TARGET_CHANGE_TARGET = 0.1  # 케이스: 비대상 변경률 <= 10% 여야 성공, 전체: 평균 <= 10%
 
-# 비대상 변경률의 측정 기준 = PRESERVATION 결과의 detail.method
+# 비대상 변경률의 측정 기준 = PRESERVATION 결과의 detail.method (이름은 domain/checks.py 의 것이다)
 # - vlm_keep: vlm_preservation 의 유지 요소 판정 (요소 하나가 결과 하나, 그대로 1.0 / 달라짐 0.0)
 # - ssim: ssim_preservation 의 부모 클립 대비 SSIM (다시 만든 장면 하나가 결과 하나, 화면 전체)
-PRESERVATION_BASES: tuple[str, ...] = ("vlm_keep", "ssim")
+PRESERVATION_BASES: tuple[str, ...] = (PRESERVATION_BY_KEEP, PRESERVATION_BY_SSIM)
 # 부모 클립을 그대로 쓴 장면. 어느 보존 검수기든 1.0 이고, 두 검수기를 함께 켜면 장면마다 하나씩 나온다
-REUSED_METHOD = "identical"
+REUSED_METHOD = PRESERVATION_REUSED
 
 
 @dataclass(frozen=True)
@@ -70,7 +79,7 @@ class EditEvaluation:
 def evaluate_case(case: EditCase) -> EditCaseOutcome:
     target_met = _target_met(case)
     preservation = preservation_rate(case.revision_results)
-    change_rate = None if preservation is None else round(1.0 - preservation, 6)
+    change_rate = None if preservation is None else round(1.0 - preservation, RATE_DIGITS)
     success = target_met and change_rate is not None and change_rate <= NON_TARGET_CHANGE_TARGET
     return EditCaseOutcome(case.case_id, success, change_rate, target_met)
 

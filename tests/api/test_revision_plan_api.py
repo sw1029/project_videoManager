@@ -194,7 +194,9 @@ def _llm_answer(**overrides):
 
 def test_a_sentence_is_read_by_the_llm_interpreter():
     llm = ReplayLLMClient([_llm_answer()])
-    client, _, version_id = _api(change_interpreter=LLMChangeRequestInterpreter(llm))
+    client, _, version_id = _api(
+        change_interpreter=LLMChangeRequestInterpreter(llm, timeout_s=60.0)
+    )
 
     plan = _plan(client, version_id, request_text=REQUEST, entity_key="cup").json()
 
@@ -221,11 +223,15 @@ def test_requests_that_cannot_be_read_or_served_are_reported_with_their_own_code
     not_understood = ReplayLLMClient(
         [_llm_answer(understood=False, notes="무엇을 바꿀지 모르겠습니다.")]
     )
-    client, _, version_id = _api(change_interpreter=LLMChangeRequestInterpreter(not_understood))
+    client, _, version_id = _api(
+        change_interpreter=LLMChangeRequestInterpreter(not_understood, timeout_s=60.0)
+    )
     unclear = _plan(client, version_id, request_text="멋지게 해줘")
 
     timed_out = ReplayLLMClient([LLMTimeout("LLM 응답 없음")])
-    other, _, other_id = _api(change_interpreter=LLMChangeRequestInterpreter(timed_out))
+    other, _, other_id = _api(
+        change_interpreter=LLMChangeRequestInterpreter(timed_out, timeout_s=60.0)
+    )
     unavailable = _plan(other, other_id, request_text=REQUEST)
 
     assert unclear.status_code == 422

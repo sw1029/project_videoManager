@@ -44,11 +44,11 @@ def test_video_settings_are_parsed_from_env():
             "FRAME_VIDEO_RESOLUTION": "480p",
             "FRAME_VIDEO_ASPECT_RATIO": "9:16",
             "FRAME_VIDEO_FPS": "24",
-            "FRAME_VIDEO_KEY_FILE": "F:/openrouter.key",
+            "FRAME_VIDEO_KEY_FILE": "keys/openrouter.key",
             "FRAME_VIDEO_BASE_URL": "http://127.0.0.1:9000/api/v1",
             "FRAME_VIDEO_TIMEOUT_S": "900",
             "FRAME_VIDEO_POLL_INTERVAL_S": "15",
-            "FRAME_VIDEO_FFMPEG": "C:/tools/ffmpeg.exe",
+            "FRAME_VIDEO_FFMPEG": "tools/ffmpeg",
         }
     )
     assert settings.generator == "external_api"
@@ -56,11 +56,11 @@ def test_video_settings_are_parsed_from_env():
     assert settings.video_resolution == "480p"
     assert settings.video_aspect_ratio == "9:16"
     assert settings.video_fps == 24
-    assert settings.video_key_file == "F:/openrouter.key"
+    assert settings.video_key_file == "keys/openrouter.key"
     assert settings.video_base_url == "http://127.0.0.1:9000/api/v1"
     assert settings.video_timeout_s == 900.0
     assert settings.video_poll_interval_s == 15.0
-    assert settings.video_ffmpeg == "C:/tools/ffmpeg.exe"
+    assert settings.video_ffmpeg == "tools/ffmpeg"
 
 
 @pytest.mark.parametrize(

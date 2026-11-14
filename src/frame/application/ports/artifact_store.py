@@ -16,6 +16,9 @@ from pathlib import Path, PurePosixPath
 
 from ..errors import StorageError
 
+# ASCII 의 제어 문자: 이 값 아래의 글자들과 DEL. 저장 키에 쓸 수 없다
+_FIRST_PRINTABLE = 0x20
+_DELETE = 0x7F
 # 플랫폼(Windows 레지스트리 등)에 따라 달라지지 않도록 자주 쓰는 형식은 고정한다
 _KNOWN_MEDIA_TYPES: dict[str, str] = {
     ".mp4": "video/mp4",
@@ -51,7 +54,11 @@ def check_artifact_key(key: str) -> None:
     """
     if not isinstance(key, str) or not key:
         raise StorageError("저장 키가 비어 있습니다")
-    if "\\" in key or ":" in key or any(ord(char) < 32 or ord(char) == 127 for char in key):
+    if (
+        "\\" in key
+        or ":" in key
+        or any(ord(char) < _FIRST_PRINTABLE or ord(char) == _DELETE for char in key)
+    ):
         raise StorageError(f"저장 키에 쓸 수 없는 글자가 있습니다: {key!r}")
     for part in key.split("/"):
         if part in ("", ".", "..") or part[-1] in ". ":

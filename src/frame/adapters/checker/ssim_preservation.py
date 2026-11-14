@@ -21,7 +21,7 @@ from frame.adapters.shared.media.similarity import ssim
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome
-from frame.domain.checks import WarningInterval
+from frame.domain.checks import PRESERVATION_BY_SSIM, PRESERVATION_REUSED, WarningInterval
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.ir import SceneSpec
 
@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 class SsimPreservationChecker(Checker):
     check_type = CheckType.PRESERVATION
 
-    def __init__(self, store: ArtifactStore, ffmpeg: str | None, *, threshold: float = 0.9) -> None:
+    def __init__(self, store: ArtifactStore, ffmpeg: str | None, *, threshold: float) -> None:
+        # threshold 는 설정(FRAME_PRESERVATION_THRESHOLD)에서 온다 (ADR-0032)
         self._store = store
         self._ffmpeg = require_ffmpeg(ffmpeg)
         self.threshold = threshold
@@ -49,7 +50,7 @@ class SsimPreservationChecker(Checker):
                 Verdict.PASS,
                 score=1.0,
                 scene_key=key,
-                detail={"reason": "clip_reused", "method": "identical"},
+                detail={"reason": "clip_reused", "method": PRESERVATION_REUSED},
             )
         clip, parent = ctx.clips.get(key), ctx.parent_clips.get(key)
         if clip is None or parent is None:
@@ -81,7 +82,7 @@ class SsimPreservationChecker(Checker):
             warnings=warnings,
             detail={
                 "reason": "regenerated",
-                "method": "ssim",
+                "method": PRESERVATION_BY_SSIM,
                 "ssim": score,
                 "change_rate": 1.0 - score,
                 "threshold": self.threshold,
@@ -94,5 +95,5 @@ class SsimPreservationChecker(Checker):
             self.check_type,
             Verdict.UNDETERMINED,
             scene_key=scene_key,
-            detail={"reason": reason[:400], "method": "ssim"},
+            detail={"reason": reason[:400], "method": PRESERVATION_BY_SSIM},
         )

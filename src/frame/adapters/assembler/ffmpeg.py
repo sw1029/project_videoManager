@@ -37,9 +37,10 @@ class FfmpegVideoAssembler(VideoAssembler):
         store: ArtifactStore,
         ffmpeg: str,
         *,
-        fps: int = 30,
-        width: int = 720,
-        height: int = 1280,
+        # 목표 규격은 설정(FRAME_VIDEO_FPS · 해상도 · 화면비)에서 온다. 생성기가 정규화한 클립과 같아야 한다
+        fps: int,
+        width: int,
+        height: int,
         crf: int = 18,
         preset: str = "medium",
         timeout_s: float = 600.0,

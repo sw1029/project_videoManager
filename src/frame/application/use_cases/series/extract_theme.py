@@ -56,7 +56,6 @@ from frame.domain.series.script_evidence import ScriptEvidence, apply_script, li
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms
 from frame.domain.series.source_analysis import VideoAnalysis
 from frame.domain.series.theme import (
-    DEFAULT_MIN_SLOT_MS,
     SourceOrigin,
     SourceVideo,
     Theme,
@@ -114,7 +113,7 @@ class ExtractTheme:
         clock: Clock,
         *,
         platforms: Sequence[ShortformPlatform] = tuple(ShortformPlatform),
-        min_slot_ms: int = DEFAULT_MIN_SLOT_MS,
+        min_slot_ms: int,  # 설정(FRAME_THEME_MIN_SLOT_MS)에서 온다 (ADR-0032)
         max_slot_ms: int | None = None,
     ) -> None:
         self._themes = themes

@@ -192,7 +192,7 @@ def _not_speech(segment: SpeechSegment, policy: ScriptPolicy) -> bool:
 
 def _too_fast(piece: _Piece, policy: ScriptPolicy) -> bool:
     chars = spoken_characters(piece.text)
-    return chars >= 2 and chars * 1000 > policy.max_chars_per_second * max(
+    return chars > 1 and chars * 1000 > policy.max_chars_per_second * max(
         1, piece.end - piece.start
     )
 
@@ -207,7 +207,7 @@ def _split(segment: SpeechSegment, text: str, policy: ScriptPolicy) -> list[_Pie
         else:
             groups.append([word])
     whole = _Piece(segment.start_ms, segment.end_ms, text, words, segment.confidence)
-    if len(groups) < 2:
+    if len(groups) <= 1:
         return [whole]
     return [
         _Piece(group[0].start_ms, group[-1].end_ms, piece, tuple(group), segment.confidence)
@@ -296,7 +296,7 @@ def _split_at_silences(
             groups.append([island])
         else:
             groups[-1].append(island)
-    if len(groups) < 2 or not piece.words:
+    if len(groups) <= 1 or not piece.words:
         return [(piece, list(islands))]
     buckets: list[list[Word]] = [[] for _ in groups]
     for word in piece.words:
@@ -304,7 +304,7 @@ def _split_at_silences(
         buckets[owner].append(word)
     spoken = [(bucket, group) for bucket, group in zip(buckets, groups, strict=True) if bucket]
     if (
-        len(spoken) < 2
+        len(spoken) <= 1
     ):  # 낱말이 한쪽에만 있다: 나눌 것이 없고, 낱말이 없는 소리는 이 줄의 것이 아니다
         return [(piece, spoken[0][1])]
     texts = _texts(piece.text, piece.words, [bucket for bucket, _ in spoken])

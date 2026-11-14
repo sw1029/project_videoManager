@@ -30,10 +30,13 @@ from ..ports.artifact_store import ArtifactStore
 from ..ports.common import IdGenerator
 
 UPLOAD_PREFIX = "refs/uploads/"
-# 10 MiB. 생성기는 참조 이미지를 data URI 로 보내므로 작을수록 좋다
-DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 EXTENSIONS: dict[str, str] = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
-_UPLOAD_NAME = re.compile(r"[A-Za-z0-9_-]{1,100}\.(?:png|jpg|webp)")
+# WebP 를 알아보는 데 필요한 머리의 길이: "RIFF" + 크기 4바이트 + "WEBP"
+_WEBP_HEADER_BYTES = 12
+# 올린 파일의 이름. 확장자는 위 EXTENSIONS 의 것만 받는다 (형식을 더하면 한 곳만 고친다)
+_UPLOAD_NAME = re.compile(
+    r"[A-Za-z0-9_-]{1,100}(?:" + "|".join(map(re.escape, sorted(set(EXTENSIONS.values())))) + ")"
+)
 EXTERNAL_SCHEMES = frozenset(
     {"http", "https"}
 )  # 업로드가 아닌 참조 이미지가 쓸 수 있는 주소 (델타 D05)
@@ -50,7 +53,7 @@ def sniff_image_type(data: bytes) -> str | None:
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+    if len(data) >= _WEBP_HEADER_BYTES and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
     return None
 
@@ -63,9 +66,8 @@ class UploadedReferenceImage:
 
 
 class UploadReferenceImage:
-    def __init__(
-        self, store: ArtifactStore, ids: IdGenerator, *, max_bytes: int = DEFAULT_MAX_BYTES
-    ) -> None:
+    def __init__(self, store: ArtifactStore, ids: IdGenerator, *, max_bytes: int) -> None:
+        # 크기 상한은 설정(FRAME_REFERENCE_IMAGE_MAX_BYTES)에서 온다 (ADR-0032)
         self._store = store
         self._ids = ids
         self.max_bytes = max_bytes

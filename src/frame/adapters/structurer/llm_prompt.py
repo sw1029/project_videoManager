@@ -9,12 +9,11 @@ import json
 
 from frame.application.ports.structurer import StructuringRequest
 from frame.domain.enums import EntityKind
-from frame.domain.ir import IR_SCHEMA_VERSION
+from frame.domain.ir import IR_SCHEMA_VERSION, MIN_PLANNED_SCENE_MS
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary, ValueKind
 
 PROMPT_VERSION = "2026-11-12.1"
 DEFAULT_DURATION_MS = 8000
-MIN_SCENE_MS = 3000  # 숏폼 장면 길이 하한 (장면 수 상한 계산용)
 
 _SCENE_LEVEL = ("location", "lighting", "mood", "camera", "time_of_day", "weather")
 
@@ -96,7 +95,7 @@ Rules
 - Every entity must appear in at least one scene's entity_keys. Do not invent entities or conditions
   that the brief does not state or clearly imply.
 - Scenes are in timeline order, start at 0 ms, are contiguous (each planned_start_ms equals the previous
-  planned_end_ms) and end exactly at the target duration. Keep each scene at least {MIN_SCENE_MS} ms.
+  planned_end_ms) and end exactly at the target duration. Keep each scene at least {MIN_PLANNED_SCENE_MS} ms.
 - Each requirement's entity_key and related_entity_key must be listed in that scene's entity_keys.
 - Object attribute predicates: {attributes}.
 - Scene-level predicates ({scene_level}) describe the whole scene: use entity_key null for them.
@@ -142,4 +141,4 @@ def feedback_prompt(user_prompt: str, error_message: str, previous_text: str) ->
 
 def max_scenes_for(request: StructuringRequest) -> int:
     duration = request.target_duration_ms or DEFAULT_DURATION_MS
-    return max(1, duration // MIN_SCENE_MS)
+    return max(1, duration // MIN_PLANNED_SCENE_MS)

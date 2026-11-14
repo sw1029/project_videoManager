@@ -14,9 +14,10 @@ import pytest
 
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.structurer import FakeStructurer, LLMStructurer
-from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
+from frame.adapters.structurer.llm_prompt import max_scenes_for
 from frame.application.errors import LLMUnavailable
 from frame.domain.enums import EntityKind
+from frame.domain.ir import MIN_PLANNED_SCENE_MS
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 from frame.evaluation.structuring import (
     GoldCase,
@@ -79,7 +80,7 @@ def test_gold_irs_follow_the_structuring_prompt_rules(cases):
         ir = case.spec.ir  # 불러올 때 IR.validate() 를 통과했다
         assert ir.total_duration_ms == case.target_duration_ms, case.case_id
         assert len(ir.scenes) <= max_scenes_for(case.request()), case.case_id
-        assert all(s.duration_ms >= MIN_SCENE_MS for s in ir.scenes), case.case_id
+        assert all(s.duration_ms >= MIN_PLANNED_SCENE_MS for s in ir.scenes), case.case_id
         keys = [e.entity_key for e in ir.entities] + [s.scene_key for s in ir.scenes]
         assert all(_SNAKE.match(k) for k in keys), case.case_id
         appearing = {k for s in ir.scenes for k in s.entity_keys}
@@ -415,7 +416,7 @@ def test_rescoring_reports_the_current_scoring_error_instead_of_the_run_error(ca
 def test_llm_structurer_exposes_the_run_details_that_records_read():
     """기록은 구조화기의 시도 횟수·마지막 응답·보정 메모를 읽는다. 포트에 없는 속성이라 이름이 바뀌면 기록의 칸이
     조용히 비므로, LLMStructurer 가 그 이름을 지키는지 여기서 확인한다."""
-    assert isinstance(LLMStructurer(ReplayLLMClient([])), StructuringRunDetails)
+    assert isinstance(LLMStructurer(ReplayLLMClient([]), max_attempts=1), StructuringRunDetails)
     assert not isinstance(FakeStructurer(), StructuringRunDetails)
 
 

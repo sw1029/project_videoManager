@@ -111,9 +111,13 @@ class PipelineProgress:
         return cls(tuple(StageProgress.from_dict(s) for s in data.get("stages", [])))
 
 
+# 반올림하면 1000ms 가 되는 값부터는 초로 적는다 (999.5ms 를 '1000ms' 로 적지 않는다)
+_SHOWN_IN_SECONDS_FROM_MS = 999.5
+
+
 def format_elapsed_ms(ms: float) -> str:
     """사람이 읽는 소요 시간: 1초 미만은 ms, 그 이상은 소수 한 자리 초."""
-    return f"{ms:.0f}ms" if ms < 999.5 else f"{ms / 1000:.1f}s"
+    return f"{ms:.0f}ms" if ms < _SHOWN_IN_SECONDS_FROM_MS else f"{ms / 1000:.1f}s"
 
 
 def _ms(value: float) -> int:

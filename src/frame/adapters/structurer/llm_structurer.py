@@ -25,7 +25,7 @@ class LLMStructurer(RequirementStructurer):
         client: LLMClient,
         *,
         vocabulary: PredicateVocabulary = DEFAULT_VOCABULARY,
-        max_attempts: int = 3,
+        max_attempts: int,  # 설정(FRAME_LLM_MAX_ATTEMPTS)에서 온다 (ADR-0032)
         timeout_s: float | None = None,
     ) -> None:
         self._client = client

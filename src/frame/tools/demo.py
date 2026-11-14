@@ -33,6 +33,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from http import HTTPStatus
 from pathlib import Path, PurePath
 
 from frame.adapters.shared.api_keys import find_key
@@ -550,7 +551,7 @@ def _startup_problem(
         if code is not None:
             return f"서버가 시작하다가 끝났습니다 (종료 코드 {code}). 위의 서버 로그를 확인하세요"
         with contextlib.suppress(OSError, http.client.HTTPException):
-            if _http("GET", f"{base}/health", timeout=2)[0] == 200:
+            if _http("GET", f"{base}/health", timeout=2)[0] == HTTPStatus.OK:
                 return None
         if not told and slow_after is not None and waited >= slow_after:
             told = True
@@ -878,14 +879,17 @@ def cmd_smoke(root: Path, *, port: int) -> int:
 def _smoke_offline(base: str, check: Callable[[bool, str], bool]) -> None:
     status, health = _json("GET", f"{base}/health")
     check(
-        status == 200 and health.get("structuring_input") == "dsl",
+        status == HTTPStatus.OK and health.get("structuring_input") == "dsl",
         "상태 확인 (오프라인 = DSL 입력)",
     )
     status, page = _http("GET", f"{base}/")
-    check(status == 200 and b"FRAME" in page, "화면을 같은 주소에서 제공")
+    check(status == HTTPStatus.OK and b"FRAME" in page, "화면을 같은 주소에서 제공")
     status, data = _json("GET", f"{base}/presets.json")
     preset = next((p for p in data.get("presets", []) if p.get("mode") == "dsl"), None)
-    if not check(status == 200 and preset is not None, "시연 프리셋 제공") or preset is None:
+    if (
+        not check(status == HTTPStatus.OK and preset is not None, "시연 프리셋 제공")
+        or preset is None
+    ):
         return
     body = {
         "title": preset["title"],
@@ -894,17 +898,18 @@ def _smoke_offline(base: str, check: Callable[[bool, str], bool]) -> None:
     }
     status, created = _json("POST", f"{base}/api/projects", body)
     version_url = f"{base}/api/versions/{created.get('version_id')}"
-    drafted = status == 202 and _json("GET", version_url)[1].get("state") == "DRAFT"
+    drafted = status == HTTPStatus.ACCEPTED and _json("GET", version_url)[1].get("state") == "DRAFT"
     if not check(drafted, "프리셋 구조화 (DRAFT)"):
         return
     status, _ = _json("POST", f"{version_url}/generations")
     version = _json("GET", version_url)[1]
     if not check(
-        status == 202 and version.get("state") == "COMPLETED", "생성·추적·검수 (COMPLETED)"
+        status == HTTPStatus.ACCEPTED and version.get("state") == "COMPLETED",
+        "생성·추적·검수 (COMPLETED)",
     ):
         return
-    check(_http("GET", f"{base}{version.get('video_url')}")[0] == 200, "결과 영상 주소")
-    check(_json("GET", f"{version_url}/checks")[0] == 200, "검수 결과 조회")
+    check(_http("GET", f"{base}{version.get('video_url')}")[0] == HTTPStatus.OK, "결과 영상 주소")
+    check(_json("GET", f"{version_url}/checks")[0] == HTTPStatus.OK, "검수 결과 조회")
 
 
 def _smoke_online(base: str, check: Callable[[bool, str], bool]) -> None:
@@ -926,9 +931,9 @@ def _smoke_online(base: str, check: Callable[[bool, str], bool]) -> None:
     guided = version.get("state") == "FAILED" and version.get("error_code") == "LLM_UNAVAILABLE"
     check(guided, "키가 없을 때 안내 (LLM_UNAVAILABLE)")
     status, data = _json("PUT", f"{base}/api/settings/llm-key", {"api_key": "sk-smoke-" + "x" * 24})
-    check(status == 200 and data.get("source") == "runtime", "화면 키 입력 (메모리)")
+    check(status == HTTPStatus.OK and data.get("source") == "runtime", "화면 키 입력 (메모리)")
     status, data = _json("DELETE", f"{base}/api/settings/llm-key")
-    check(status == 200 and data.get("configured") is False, "입력 키 지우기")
+    check(status == HTTPStatus.OK and data.get("configured") is False, "입력 키 지우기")
 
 
 def build_parser() -> argparse.ArgumentParser:

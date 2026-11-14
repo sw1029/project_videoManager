@@ -15,6 +15,8 @@ _WORD = re.compile(r"[^\W_]+")
 _NUMERIC = re.compile(r"[+-]?\d+(?:\.\d+)?")
 _LEADING_DIGITS = re.compile(r"\d+")
 _QUOTES = "'\"‘’“”「」『』`"
+# 아래 표들(불용어 · 부정어 · 어미 · 색 이름 · 수사)은 값을 견주기 전의 일반 정규화다.
+# 골드 사례 하나의 답을 맞추려고 낱말을 더하지 않는다 — 표에 없는 낱말은 값 불일치로 집계되는 것이 맞다
 _STOPWORDS = frozenset({
     "a", "an", "the", "and", "or", "of", "with",
     "to", "at", "in", "on", "into", "onto", "for", "from", "by", "while",
@@ -32,6 +34,8 @@ _NEGATING_PREFIXES = (
     unicodedata.normalize("NFD", "않"),
     unicodedata.normalize("NFD", "못하")[:4],  # 못 + 첫소리 ㅎ
 )
+# 끝 글자(y · e · 겹친 자음)를 떼려면 낱말이 이보다 길어야 한다 (red · sky 같은 짧은 낱말은 그대로)
+_SHORTEST_TRIMMED = 3
 # (어미, 그 어미를 걷어낼 최소 낱말 길이). 앞에서부터 하나만 걷어낸다
 _SUFFIXES = (("ing", 6), ("ied", 5), ("ies", 5), ("es", 5), ("ed", 5), ("ly", 6), ("s", 4))
 _COLOR_WORDS = {
@@ -156,11 +160,11 @@ def stem(word: str) -> str:
             if _VOWELS & set(base):
                 word = base
                 break
-    if len(word) > 3 and word.endswith("y"):
+    if len(word) > _SHORTEST_TRIMMED and word.endswith("y"):
         word = word[:-1]
-    if len(word) > 3 and word.endswith("e"):
+    if len(word) > _SHORTEST_TRIMMED and word.endswith("e"):
         word = word[:-1]
-    if len(word) > 3 and word[-1] == word[-2] and word[-1] not in _VOWELS:
+    if len(word) > _SHORTEST_TRIMMED and word[-1] == word[-2] and word[-1] not in _VOWELS:
         word = word[:-1]
     return word
 

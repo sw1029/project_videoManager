@@ -26,7 +26,7 @@ def _request(brief="카페 신제품 숏폼", duration=12000):
 
 def test_valid_response_becomes_ir_and_prompts_carry_rules():
     client = ReplayLLMClient([json.dumps(_document())])
-    structurer = LLMStructurer(client)
+    structurer = LLMStructurer(client, max_attempts=3)
 
     ir = structurer.structure(_request())
 
@@ -41,7 +41,7 @@ def test_valid_response_becomes_ir_and_prompts_carry_rules():
 
 def test_invalid_json_triggers_self_correction_with_feedback():
     client = ReplayLLMClient(["this is not json", json.dumps(_document())])
-    ir = LLMStructurer(client).structure(_request())
+    ir = LLMStructurer(client, max_attempts=3).structure(_request())
     assert ir == cafe_ir()
     assert len(client.calls) == 2
     assert "rejected" in client.calls[1]["user"]
@@ -51,7 +51,7 @@ def test_rule_violation_is_fed_back_to_the_model():
     broken = _document()
     broken["entities"].append(dict(broken["entities"][0]))  # entity_key 중복
     client = ReplayLLMClient([json.dumps(broken), json.dumps(_document())])
-    LLMStructurer(client).structure(_request())
+    LLMStructurer(client, max_attempts=3).structure(_request())
     assert "entity_key" in client.calls[1]["user"]
 
 
@@ -63,7 +63,7 @@ def test_an_answer_of_the_wrong_shape_is_fed_back_like_any_other_mistake():
     wrong = _document()
     wrong["scenes"][0]["requirements"][0]["expected_value"] = 3
     client = ReplayLLMClient([json.dumps(wrong), json.dumps(_document())])
-    structurer = LLMStructurer(client)
+    structurer = LLMStructurer(client, max_attempts=3)
 
     ir = structurer.structure(_request())
 
@@ -95,7 +95,9 @@ def test_light_repair_snaps_timeline_and_links_entities():
     scenes[1]["entity_keys"] = ["cafe"]  # cup 조건이 있는데 cup 연결 누락
     document["scenes"][0]["requirements"][2]["expected_value"] = ""  # 관계 값 비어 있음
 
-    ir = LLMStructurer(ReplayLLMClient([json.dumps(document)])).structure(_request())
+    ir = LLMStructurer(ReplayLLMClient([json.dumps(document)]), max_attempts=3).structure(
+        _request()
+    )
 
     assert [(s.planned_start_ms, s.planned_end_ms) for s in ir.scenes] == [
         (0, 4000),
@@ -110,14 +112,14 @@ def test_light_repair_snaps_timeline_and_links_entities():
 def test_llm_transport_errors_propagate_with_their_code():
     client = ReplayLLMClient([LLMTimeout("timed out")])
     with pytest.raises(LLMTimeout) as excinfo:
-        LLMStructurer(client).structure(_request())
+        LLMStructurer(client, max_attempts=3).structure(_request())
     assert excinfo.value.code == "LLM_TIMEOUT"
     assert len(client.calls) == 1
 
 
 def test_last_completion_is_kept_for_debugging():
     client = ReplayLLMClient([json.dumps(_document())])
-    structurer = LLMStructurer(client)
+    structurer = LLMStructurer(client, max_attempts=3)
     structurer.structure(_request())
     assert structurer.last_completion is not None
     assert json.loads(structurer.last_completion.text)["schema_version"] == 1
@@ -125,7 +127,7 @@ def test_last_completion_is_kept_for_debugging():
 
 def test_system_prompt_states_kind_relation_and_action_rules():
     client = ReplayLLMClient([json.dumps(_document())])
-    LLMStructurer(client).structure(_request())
+    LLMStructurer(client, max_attempts=3).structure(_request())
     system = client.calls[0]["system"]
     assert "ANIMAL" in system and "BACKGROUND" in system
     assert "action" in system and "location" in system
@@ -134,7 +136,7 @@ def test_system_prompt_states_kind_relation_and_action_rules():
 def test_system_prompt_keeps_changeable_attributes_out_of_entity_keys():
     """2차 실호출: 객체 키가 red_mug 로 나와, 색을 teal 로 바꾼 뒤에도 이름·다른 조건에 red 가 남았다."""
     client = ReplayLLMClient([json.dumps(_document())])
-    LLMStructurer(client).structure(_request())
+    LLMStructurer(client, max_attempts=3).structure(_request())
     system = client.calls[0]["system"]
     assert '"mug", not "red_mug"' in system
     assert '"shows mug to camera", not "shows red mug to camera"' in system
@@ -151,7 +153,7 @@ def test_repair_notes_are_kept_for_debugging():
             "expected_value": "cafe",
         }
     )
-    structurer = LLMStructurer(ReplayLLMClient([json.dumps(document)]))
+    structurer = LLMStructurer(ReplayLLMClient([json.dumps(document)]), max_attempts=3)
     ir = structurer.structure(_request())
     assert all(r.related_entity_key != "cafe" for r in ir.iter_requirements())
     assert structurer.last_repair_notes and "cafe" in structurer.last_repair_notes[0]

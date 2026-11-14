@@ -1,7 +1,8 @@
 # 품질 검사 안내 — 로컬과 CI
 
 무엇을 검사하는지, 로컬에서 어떻게 돌리는지, 걸렸을 때 어떻게 고치는지를 적는다. 결정의 배경은
-[ADR-0030](adr/0030-ci-quality-gates-and-baselines.md) 에 있다.
+[ADR-0030](adr/0030-ci-quality-gates-and-baselines.md) 과
+[ADR-0032](adr/0032-no-machine-paths-single-source-settings.md)(절대 경로 · 설정값의 출처 · 이름 없는 수)에 있다.
 
 ## 1. 한 번에 돌리기
 
@@ -68,6 +69,7 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
   | `C901` | 복잡도 19 초과 | 함수를 나눈다 |
   | `ERA001` | 주석으로 남긴 코드 | 지운다 (git 에 남아 있다) |
   | `ISC004` | 목록 안에서 줄을 넘겨 이어 쓴 문자열 | 괄호로 묶는다 |
+  | `PLR2004` | 비교식의 이름 없는 수 (`if status == 429`, `if n > 8`) | 상태 코드는 `http.HTTPStatus`, 상한 · 임계값은 뜻을 적은 이름 붙은 상수로. "둘 미만" 은 `<= 1` 로 적는다. tests 는 예외 (ADR-0032) |
 
 - 파일 단위 예외(`pyproject.toml` 의 `per-file-ignores`)는 기준선이다. 새 파일을 더하지 않는다.
 
@@ -87,6 +89,10 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 | `test_modules_stay_small_enough_to_read` | 새 모듈이 500줄을 넘는다 | 개념 단위로 나눈다 (줄 수는 신호이고, 나누는 기준은 개념이다) |
 | `test_the_adr_index_lists_every_adr` | ADR 을 더했는데 색인에 없다 | `docs/adr/README.md` 의 표에 한 줄 |
 | `test_the_module_map_lists_every_package` | 패키지를 더하거나 옮겼는데 모듈 지도에 없다 | `docs/MODULE_MAP.md` §2 의 표를 고친다 |
+| `test_no_machine_bound_paths_are_committed` | 커밋되는 글에 드라이브 문자 경로나 홈 · 설치 · 임시 폴더에서 시작하는 경로가 있다 | 설정 · 상대 경로 · `tmp_path` · 자리표시(`path/to/…`)로 바꾼다. 경로를 거절 · 변환 · 가리는지 시험하는 입력처럼 꼭 있어야 하면 `tests/architecture/test_machine_paths.py` 의 `ALLOWED` 에 이유와 함께 적는다 (ADR-0032) |
+| `test_every_allowed_path_is_still_there` | 허용 목록에 적은 줄이 없어졌다 | `ALLOWED` 에서 그 항목을 지운다 |
+| `test_arguments_that_come_from_settings_have_no_default_of_their_own` | 조립이 설정에서 넘기는 인자에 생성자가 기본값을 또 갖고 있다 | 생성자의 기본값을 지운다. 값은 설정에만 두고 조립이 넘긴다. 그 클래스를 직접 만드는 테스트는 값을 직접 준다 (ADR-0032) |
+| `test_address_and_model_defaults_are_written_only_in_the_config` | 설정의 주소 · 모델 기본값을 `frame/config/` 밖의 코드에 다시 적었다 | 그 값을 인자로 받아 쓴다 |
 
 "이제 … 기준선에서 지운다" 로 실패하면 고친 것이다. `tests/architecture/baselines.py` 에서 그 줄을 지운다.
 

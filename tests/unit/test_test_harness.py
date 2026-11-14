@@ -91,7 +91,7 @@ def test_a_missing_ffmpeg_fails_the_run_only_when_required():
     required = {"FRAME_REQUIRE_FFMPEG": "1"}
 
     assert "ffmpeg 를 찾지 못했습니다" in (missing_ffmpeg_message(required, None) or "")
-    assert missing_ffmpeg_message(required, "/usr/bin/ffmpeg") is None
+    assert missing_ffmpeg_message(required, "bin/ffmpeg") is None
     assert missing_ffmpeg_message({}, None) is None  # 로컬에서는 지금처럼 건너뛴다
 
 

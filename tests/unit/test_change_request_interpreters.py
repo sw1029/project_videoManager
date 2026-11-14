@@ -126,7 +126,7 @@ def _answer(**overrides):
 
 def _llm(*answers):
     client = ReplayLLMClient(list(answers))
-    return LLMChangeRequestInterpreter(client), client
+    return LLMChangeRequestInterpreter(client, timeout_s=60.0), client
 
 
 def test_llm_turns_a_sentence_into_one_change_and_keep_items(ir):

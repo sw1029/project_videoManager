@@ -57,6 +57,9 @@ class VariableScope(StrEnum):
     SLOT = "SLOT"  # 장면 자리마다 값 (자리별 자막)
 
 
+MAX_TEXT_SIZE = 0.5  # 문구 크기(글자 높이 ÷ 화면 높이)의 상한
+
+
 @dataclass(frozen=True)
 class TextStyle:
     """화면 문구의 겉모습. 색은 이름이나 #RRGGBB, 크기는 글자 높이 ÷ 화면 높이."""
@@ -68,8 +71,10 @@ class TextStyle:
     bold: bool = True
 
     def __post_init__(self) -> None:
-        if not 0 < self.size <= 0.5:
-            raise ValidationError(f"문구 크기는 화면 높이의 0~0.5 배여야 합니다: {self.size}")
+        if not 0 < self.size <= MAX_TEXT_SIZE:
+            raise ValidationError(
+                f"문구 크기는 화면 높이의 0~{MAX_TEXT_SIZE} 배여야 합니다: {self.size}"
+            )
         if not 0 <= self.background_opacity <= 1:
             raise ValidationError(f"띠의 불투명도는 0~1 이어야 합니다: {self.background_opacity}")
 

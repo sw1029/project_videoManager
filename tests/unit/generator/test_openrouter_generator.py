@@ -205,7 +205,8 @@ def test_http_and_data_reference_uris_are_passed_through(store, ir):
 
 
 @pytest.mark.parametrize(
-    "uri", ["C:/Users/USER/secret.png", "file:///etc/passwd", "../refs/cup.png", "mem://refs/x.png"]
+    "uri",
+    ["C:/Users/someone/secret.png", "file:///etc/passwd", "../refs/cup.png", "mem://refs/x.png"],
 )
 def test_references_outside_the_artifact_store_are_rejected(store, ir, uri):
     api = FakeOpenRouterApi()

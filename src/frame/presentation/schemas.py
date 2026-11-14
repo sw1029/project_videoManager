@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr, StringConstraints, model_validator
 
-from frame.domain.ir import KEY_PATTERN
+from frame.domain.ir import KEY_PATTERN, MIN_SCENE_MS
 
 # ---- 입력 제한 (공개 데모에서 LLM 비용·저장 용량을 지키기 위한 상한) ----------------
 
@@ -18,7 +18,6 @@ MAX_TARGET_DURATION_MS = 300_000  # 5분 (숏폼 대상)
 MAX_IR_ENTITIES = 50
 MAX_IR_SCENES = 60
 MAX_SCENE_REQUIREMENTS = 50
-MIN_SCENE_MS = 500  # 보정이 장면 길이를 이 값보다 짧게 두지 않는다 (adapters/structurer/repair.py)
 # 객체·장면 키: 도메인 규칙(KEY_PATTERN)과 같은 식을 스키마에도 건다 (감사 A-01). 422 의 details 가 필드별로 나온다
 IR_KEY_PATTERN = f"^{KEY_PATTERN.pattern}$"
 # 길이(1~64자)도 식이 묶으므로 따로 적지 않는다 (규칙을 바꿀 때 한 곳만 고치게, 델타 D11)

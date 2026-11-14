@@ -87,7 +87,7 @@ class VlmCropIdentityExtractor(IdentityReferenceExtractor):
         person_max_aspect: float = 1.1,
         timeout_s: float | None = 90.0,
         reuse_existing: bool = True,
-        verify_attributes: bool = True,
+        verify_attributes: bool,  # 설정(FRAME_IDENTITY_VERIFY_ATTRIBUTES)에서 온다 (ADR-0032)
         sampler: FrameSampler | None = None,
     ) -> None:
         self._store = store

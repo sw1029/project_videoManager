@@ -27,6 +27,12 @@ class _FakeCompletions:
         return self.response
 
 
+def _client(**options):
+    """테스트가 따로 주지 않은 호출 설정은 여기서 정한다 (제품의 기본값은 설정 한 곳에만 있다)."""
+    settings = {"timeout_s": 60.0, "temperature": 0.0, "strict": True}
+    return OpenAIJsonClient(**{**settings, **options})
+
+
 def _sdk(response=None, error=None):
     return SimpleNamespace(chat=SimpleNamespace(completions=_FakeCompletions(response, error)))
 
@@ -78,7 +84,7 @@ def test_an_openrouter_key_is_never_sent_to_the_openai_address(base_url):
     created = []
 
     with pytest.raises(LLMUnavailable) as excinfo:
-        OpenAIJsonClient(
+        _client(
             model="gpt-4.1-mini",
             api_key=OPENROUTER_KEY,
             env={},
@@ -95,7 +101,7 @@ def test_an_openrouter_key_is_never_sent_to_the_openai_address(base_url):
 def test_an_openrouter_key_may_go_to_an_address_that_takes_it(base_url):
     created = []
 
-    OpenAIJsonClient(
+    _client(
         model="openai/gpt-4.1-mini",
         api_key=OPENROUTER_KEY,
         env={},
@@ -111,7 +117,7 @@ def test_an_openrouter_key_may_go_to_an_address_that_takes_it(base_url):
 
 def test_request_uses_strict_json_schema_and_temperature_zero():
     sdk = _sdk(_response('{"ok": true}'))
-    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=sdk)
+    client = _client(model="gpt-4.1-mini", sdk_client=sdk)
 
     result = client.complete_json("SYS", "USR", {"type": "object"}, schema_name="frame_ir")
 
@@ -130,13 +136,13 @@ def test_request_uses_strict_json_schema_and_temperature_zero():
 
 def test_reasoning_models_do_not_receive_temperature():
     sdk = _sdk(_response("{}"))
-    OpenAIJsonClient(model="gpt-5-mini", sdk_client=sdk).complete_json("s", "u", {"type": "object"})
+    _client(model="gpt-5-mini", sdk_client=sdk).complete_json("s", "u", {"type": "object"})
     assert "temperature" not in sdk.chat.completions.calls[0]
 
 
 def test_per_call_timeout_is_forwarded():
     sdk = _sdk(_response("{}"))
-    OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=sdk, timeout_s=30).complete_json(
+    _client(model="gpt-4.1-mini", sdk_client=sdk, timeout_s=30).complete_json(
         "s", "u", {"type": "object"}, timeout_s=5
     )
     assert sdk.chat.completions.calls[0]["timeout"] == 5
@@ -147,7 +153,7 @@ def test_per_call_timeout_is_forwarded():
     [(_response(None, refusal="I can't help"), "거부"), (_response(""), "빈 응답")],
 )
 def test_refusal_and_empty_content_raise_bad_response(response, needle):
-    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+    client = _client(model="gpt-4.1-mini", sdk_client=_sdk(response))
     with pytest.raises(LLMBadResponse, match=needle):
         client.complete_json("s", "u", {"type": "object"})
 
@@ -168,7 +174,7 @@ def _status_error(cls, status):
     ],
 )
 def test_sdk_errors_map_to_llm_error_codes(error, code):
-    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(error=error))
+    client = _client(model="gpt-4.1-mini", sdk_client=_sdk(error=error))
     with pytest.raises(LLMError) as excinfo:
         client.complete_json("s", "u", {"type": "object"})
     assert excinfo.value.code == code
@@ -191,7 +197,7 @@ def test_sdk_errors_map_to_llm_error_codes(error, code):
 )
 def test_an_answer_without_a_message_is_a_bad_response(response):
     """OpenAI 호환 서버는 choices 를 비우거나 빼고 답할 때가 있다."""
-    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+    client = _client(model="gpt-4.1-mini", sdk_client=_sdk(response))
 
     with pytest.raises(LLMBadResponse, match="choices"):
         client.complete_json("s", "u", {"type": "object"})
@@ -199,7 +205,7 @@ def test_an_answer_without_a_message_is_a_bad_response(response):
 
 def test_content_that_is_not_text_is_a_bad_response():
     response = _response([{"type": "text", "text": "{}"}])
-    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(response))
+    client = _client(model="gpt-4.1-mini", sdk_client=_sdk(response))
 
     with pytest.raises(LLMBadResponse, match="글이 아닙니다"):
         client.complete_json("s", "u", {"type": "object"})
@@ -223,7 +229,7 @@ def test_content_that_is_not_text_is_a_bad_response():
     ids=["response-validation", "api-error", "any-sdk-error"],
 )
 def test_the_rest_of_the_sdk_errors_are_llm_errors_too(error, code):
-    client = OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=_sdk(error=error))
+    client = _client(model="gpt-4.1-mini", sdk_client=_sdk(error=error))
 
     with pytest.raises(LLMError) as excinfo:
         client.complete_json("s", "u", {"type": "object"})
@@ -244,9 +250,7 @@ def test_the_sdk_retries_are_limited_explicitly(monkeypatch):
     """SDK 의 기본 재시도(2회)에 기대지 않는다. 응답하지 않는 서버에서 호출 하나가 시간 제한의 세 배까지 걸린다."""
     made = _record_sdk_clients(monkeypatch)
 
-    client = OpenAIJsonClient(
-        model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, timeout_s=30
-    )
+    client = _client(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, timeout_s=30)
 
     assert client.max_retries == 1
     assert (made[0]["max_retries"], made[0]["timeout"]) == (1, 30)
@@ -256,7 +260,7 @@ def test_the_sdk_retries_are_limited_explicitly(monkeypatch):
 def test_the_retry_limit_can_be_set(monkeypatch, given, used):
     made = _record_sdk_clients(monkeypatch)
 
-    OpenAIJsonClient(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, max_retries=given)
+    _client(model="gpt-4.1-mini", api_key="sk-test-" + "a" * 24, env={}, max_retries=given)
 
     assert made[0]["max_retries"] == used
 
@@ -274,7 +278,7 @@ def test_key_is_resolved_at_call_time_when_startup_check_is_off():
         created.append(key)
         return _sdk(_response('{"ok": true}'))
 
-    client = OpenAIJsonClient(
+    client = _client(
         model="gpt-4.1-mini", key_source=store, sdk_factory=factory, require_key_at_start=False
     )
     with pytest.raises(LLMUnavailable, match="키"):
@@ -297,9 +301,7 @@ def test_startup_check_still_fails_fast_by_default():
     from frame.adapters.llm.key_store import LLMKeyStore
 
     with pytest.raises(LLMUnavailable):
-        OpenAIJsonClient(
-            model="gpt-4.1-mini", key_source=LLMKeyStore(env={}), sdk_factory=lambda key: None
-        )
+        _client(model="gpt-4.1-mini", key_source=LLMKeyStore(env={}), sdk_factory=lambda key: None)
 
 
 # ---- 이미지 입력 (VLM, ADR-0015) --------------------------------------------------------
@@ -309,7 +311,7 @@ def test_images_are_sent_as_labelled_data_uri_parts():
     from frame.application.ports.llm import ImageInput
 
     sdk = _sdk(_response("{}"))
-    client = OpenAIJsonClient(model="gpt-4.1", sdk_client=sdk)
+    client = _client(model="gpt-4.1", sdk_client=sdk)
 
     client.complete_json(
         "sys",
@@ -338,7 +340,5 @@ def test_images_are_sent_as_labelled_data_uri_parts():
 
 def test_text_only_requests_keep_a_plain_string_message():
     sdk = _sdk(_response("{}"))
-    OpenAIJsonClient(model="gpt-4.1-mini", sdk_client=sdk).complete_json(
-        "sys", "user", {"type": "object"}
-    )
+    _client(model="gpt-4.1-mini", sdk_client=sdk).complete_json("sys", "user", {"type": "object"})
     assert sdk.chat.completions.calls[0]["messages"][1]["content"] == "user"

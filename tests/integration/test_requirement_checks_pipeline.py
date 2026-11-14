@@ -55,7 +55,9 @@ def test_mismatch_is_detected_then_repaired_and_only_the_repaired_scenes_are_jud
     )
     keep_llm = ReplayLLMClient([_elements("yes"), _elements("yes")])
     checkers = (
-        VlmRequirementChecker(store, FFMPEG, requirement_llm, frames_per_scene=FRAMES),
+        VlmRequirementChecker(
+            store, FFMPEG, requirement_llm, frames_per_scene=FRAMES, threshold=0.5
+        ),
         VlmPreservationChecker(store, FFMPEG, keep_llm, frames_per_scene=FRAMES),
     )
     container = make_container(

@@ -49,7 +49,9 @@ class PlacementStatus(StrEnum):
     MISSING = "MISSING"  # 놓을 음성이 없다
 
 
-MAX_TRACK_TEMPO = 2.0  # 트랙 조각이 받는 빠르기의 상한 (ports/series/audio.TrackCut 과 같은 값)
+# 트랙 조각이 받는 빠르기의 범위. 포트의 TrackCut(ports/series/audio)이 이 값으로 검증한다
+MIN_TRACK_TEMPO = 0.5
+MAX_TRACK_TEMPO = 2.0
 
 
 @dataclass(frozen=True)

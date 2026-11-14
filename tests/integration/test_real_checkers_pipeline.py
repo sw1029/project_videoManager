@@ -89,8 +89,8 @@ def _container(tmp_path, replies):
     llm = ReplayLLMClient(replies)
     checkers = (
         FakeRequirementChecker(),
-        VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES),
-        SsimPreservationChecker(store, FFMPEG),
+        VlmConsistencyChecker(store, FFMPEG, llm, frames_per_scene=FRAMES, threshold=0.9),
+        SsimPreservationChecker(store, FFMPEG, threshold=0.9),
     )
     generator = ColorClipGenerator(store, tmp_path)
     container = make_container(
