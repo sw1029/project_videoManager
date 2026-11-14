@@ -20,6 +20,7 @@ from frame.adapters.generator.decorators import (
     pause_before_retry,
 )
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.structurer.passthrough import PassthroughStructurer
 from frame.application.checks import CheckSuite
 from frame.application.errors import ConfigurationError
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
@@ -37,6 +38,7 @@ from frame.application.ports import (
     Clock,
     IdentityReferenceExtractor,
     IdGenerator,
+    IrDocumentStructurer,
     JobDispatcher,
     JobHandlerRegistry,
     ObjectTracker,
@@ -52,11 +54,13 @@ from frame.application.use_cases import (
     AcceptGeneration,
     CreateProject,
     CreateRevision,
+    EditDraftIr,
     PlanRevision,
     ProjectQueries,
     RecoverPendingVersions,
     RunGenerationPipeline,
     StructureRequirements,
+    UploadReferenceImage,
 )
 from frame.domain.enums import EntityKind
 from frame.domain.services.identity import IdentityPolicy
@@ -64,6 +68,7 @@ from frame.domain.services.propagation import ChangePropagationPolicy, DefaultPr
 
 from .registry import AdapterRegistry, BuildContext, default_registry
 from .settings import Settings
+from .theme_wiring import ThemeServices, build_theme_services
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +80,8 @@ class Container:
     clock: Clock
     artifact_store: ArtifactStore
     structurer: RequirementStructurer
+    # 화면이 조립한 IR 문서의 보정·검증 (IR 직접 입력·DRAFT IR 수정, #10 #11)
+    ir_structurer: IrDocumentStructurer
     generator: VideoGenerator
     assembler: VideoAssembler
     tracker: ObjectTracker
@@ -86,15 +93,19 @@ class Container:
     create_project: CreateProject
     structure_requirements: StructureRequirements
     create_revision: CreateRevision
+    edit_draft_ir: EditDraftIr  # DRAFT IR 수정 (#11)
     plan_revision: PlanRevision  # 변경 계획 미리보기 (ADR-0019)
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
     queries: ProjectQueries
+    upload_reference_image: UploadReferenceImage  # 참조 이미지 업로드 (#12)
     # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
     recover_pending_versions: RecoverPendingVersions
     llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
     # 정체성 기준 이미지 추출기 (ADR-0015). FRAME_IDENTITY=off 면 None
     identity_extractor: IdentityReferenceExtractor | None = None
+    # 테마 추출·시리즈 편·녹음 붙이기·화면 국소 수정 (ADR-0025~0027). 조립은 config/theme_wiring.py
+    series: ThemeServices | None = None
 
 
 def _warn_if_timeout_cuts_before_adapter(settings: Settings) -> None:
@@ -160,6 +171,7 @@ def build_container(
     structurer = pick(
         "structurer", lambda: registry.build(RequirementStructurer, settings.structurer, ctx)
     )
+    ir_structurer: IrDocumentStructurer = pick("ir_structurer", PassthroughStructurer)
     generator: VideoGenerator = pick(
         "generator", lambda: registry.build(VideoGenerator, settings.generator, ctx)
     )
@@ -227,12 +239,13 @@ def build_container(
         lambda job: run_generation_pipeline.execute(job.payload["version_id"]),
     )
 
-    return Container(
+    container = Container(
         settings=settings,
         ids=ids,
         clock=clock,
         artifact_store=ctx.artifact_store,
         structurer=structurer,
+        ir_structurer=ir_structurer,
         generator=generator,
         assembler=assembler,
         tracker=tracker,
@@ -241,13 +254,24 @@ def build_container(
         handlers=handlers,
         dispatcher=dispatcher,
         propagation_policy=policy,
-        create_project=CreateProject(uow_factory, dispatcher, ids, clock),
+        create_project=CreateProject(
+            uow_factory,
+            dispatcher,
+            ids,
+            clock,
+            ir_structurer=ir_structurer,
+            artifact_store=ctx.artifact_store,
+        ),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
+        edit_draft_ir=EditDraftIr(uow_factory, ir_structurer),
         plan_revision=PlanRevision(uow_factory, policy, change_interpreter, generator),
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,
         queries=ProjectQueries(uow_factory),
+        upload_reference_image=UploadReferenceImage(
+            ctx.artifact_store, ids, max_bytes=settings.reference_image_max_bytes
+        ),
         llm_keys=ctx.llm_keys,
         identity_extractor=identity_extractor,
         recover_pending_versions=RecoverPendingVersions(
@@ -258,3 +282,14 @@ def build_container(
             max_attempts=settings.worker_max_attempts,
         ),
     )
+    container.series = build_theme_services(
+        settings=settings,
+        registry=registry,
+        ctx=ctx,
+        uow_factory=uow_factory,
+        assembler=assembler,
+        create_revision=container.create_revision,
+        accept_generation=container.accept_generation,
+        overrides=ov,
+    )
+    return container

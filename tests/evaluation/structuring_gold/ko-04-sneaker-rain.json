@@ -1,0 +1,68 @@
+{
+  "case_id": "ko-04-sneaker-rain",
+  "language": "ko",
+  "target_duration_ms": 12000,
+  "brief": "러닝화 광고 12초. 장면 1 (4초): 비 오는 밤, 도시 거리에서 형광 초록색 러닝화를 신은 러너가 달린다. 장면 2 (4초): 젖은 아스팔트 위 러닝화 클로즈업, 슬로모션. 장면 3 (4초): 러너가 멈춰 숨을 고르고, 화면 가운데에 'RUN FREE' 문구가 나타난다.",
+  "covers": ["relation", "literal_text", "position", "camera", "weather", "time_of_day", "action"],
+  "notes": "러닝화는 제품이라 객체이고 러너와 wears 로 잇는다. 장면 2 의 카메라 지시는 클로즈업과 슬로모션 둘 다다. 비·밤·거리는 장면 1 에서 말했으므로 2·3 에서는 선택이다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "runner", "kind": "PERSON", "description": "러너", "aliases": ["러너", "달리는 사람", "runner", "jogger", "athlete"]},
+      {"entity_key": "shoes", "kind": "PROP", "description": "형광 초록색 러닝화", "aliases": ["러닝화", "운동화", "신발", "shoe", "sneaker"]},
+      {"entity_key": "caption", "kind": "TEXT", "description": "'RUN FREE' 문구", "aliases": ["RUN FREE", "문구", "자막", "caption", "text", "slogan", "title", "tagline"]},
+      {"entity_key": "street", "kind": "BACKGROUND", "description": "도시 거리", "aliases": ["거리", "도시", "street", "city"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "run",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "비 오는 밤 도시 거리를 러너가 달린다",
+        "entity_keys": ["runner", "shoes", "street"],
+        "requirements": [
+          {"entity_key": "runner", "predicate": "wears", "related_entity_key": "shoes", "expected_value": "shoes"},
+          {"entity_key": "shoes", "predicate": "color", "expected_value": "neon green", "accept": ["fluorescent green", "lime green"]},
+          {"entity_key": "runner", "predicate": "action", "expected_value": "runs", "accept": ["jogs", "sprints"]},
+          {"predicate": "location", "expected_value": "street", "accept": ["city", "road"]},
+          {"predicate": "weather", "expected_value": "rain"},
+          {"predicate": "time_of_day", "expected_value": "night"}
+        ]
+      },
+      {
+        "scene_key": "shoe_closeup",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "젖은 아스팔트 위 러닝화 클로즈업, 슬로모션",
+        "entity_keys": ["shoes", "runner", "street"],
+        "optional_entities": ["runner"],
+        "requirements": [
+          {"entity_key": "shoes", "predicate": "color", "expected_value": "neon green", "accept": ["fluorescent green", "lime green"]},
+          {"predicate": "camera", "expected_value": "close up slow motion"},
+          {"entity_key": "runner", "predicate": "wears", "related_entity_key": "shoes", "expected_value": "shoes"},
+          {"predicate": "location", "expected_value": "street", "optional": true, "accept": ["asphalt", "road", "city"]},
+          {"predicate": "weather", "expected_value": "rain", "optional": true, "accept": ["wet"]},
+          {"predicate": "time_of_day", "expected_value": "night", "optional": true}
+        ]
+      },
+      {
+        "scene_key": "finish",
+        "planned_start_ms": 8000,
+        "planned_end_ms": 12000,
+        "description": "러너가 멈춰 숨을 고르고 화면 가운데에 RUN FREE 문구",
+        "entity_keys": ["runner", "caption", "shoes", "street"],
+        "optional_entities": ["shoes"],
+        "requirements": [
+          {"entity_key": "runner", "predicate": "action", "expected_value": "catches breath", "accept": ["rests", "breathes", "stops", "pauses", "panting"]},
+          {"entity_key": "caption", "predicate": "text", "expected_value": "RUN FREE"},
+          {"entity_key": "caption", "predicate": "position", "expected_value": "center"},
+          {"entity_key": "runner", "predicate": "wears", "related_entity_key": "shoes", "expected_value": "shoes"},
+          {"entity_key": "shoes", "predicate": "color", "expected_value": "neon green", "accept": ["fluorescent green", "lime green"]},
+          {"predicate": "location", "expected_value": "street", "optional": true, "accept": ["city", "road"]},
+          {"predicate": "weather", "expected_value": "rain", "optional": true},
+          {"predicate": "time_of_day", "expected_value": "night", "optional": true}
+        ]
+      }
+    ]
+  }
+}

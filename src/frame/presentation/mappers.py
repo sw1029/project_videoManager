@@ -229,6 +229,7 @@ def version_out(
                     entity_key=e.entity_key,
                     kind=str(e.kind),
                     description=e.description,
+                    display_name=e.display_name or None,
                 )
                 for e in v.ir.entities
             ],

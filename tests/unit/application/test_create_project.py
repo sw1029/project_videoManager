@@ -74,7 +74,8 @@ def test_unparseable_prompt_fails_with_reason(container):
 
 def test_reference_image_for_unknown_entity_fails_validation(container):
     result = create_draft(
-        container, references=[ReferenceImageInput("mem://refs/logo.png", entity_key="logo")]
+        container,
+        references=[ReferenceImageInput("https://example.com/refs/logo.png", entity_key="logo")],
     )
     version = version_of(container, result.version_id)
     assert version.state is VersionState.FAILED
@@ -83,8 +84,8 @@ def test_reference_image_for_unknown_entity_fails_validation(container):
 
 def test_reference_images_are_stored_with_the_version(container):
     refs = [
-        ReferenceImageInput("mem://refs/cup.png", "cup"),
-        ReferenceImageInput("mem://refs/style.png"),
+        ReferenceImageInput("https://example.com/refs/cup.png", "cup"),
+        ReferenceImageInput("https://example.com/refs/style.png"),
     ]
     result = create_draft(container, references=refs)
     stored = container.queries.get_version(result.version_id).reference_images
@@ -116,3 +117,17 @@ def test_target_duration_within_tolerance_is_accepted(container):
     )
     dispatcher_of(container).run_all()
     assert version_of(container, result.version_id).state is VersionState.DRAFT
+
+
+def test_dsl_keys_that_could_escape_their_folder_fail_structuring(container):
+    """감사 A-01: DSL 은 공백 아닌 글자를 그대로 키로 쓰므로 도메인 검증이 막는다 (키는 클립 저장 경로에 들어간다)."""
+    prompt = (
+        "scene ../ver_victim/intro 0-1000\nentity cup PROP\n"
+        "in ../ver_victim/intro: cup\ncup.color = red"
+    )
+
+    result = create_draft(container, prompt=prompt)
+
+    version = version_of(container, result.version_id)
+    assert (version.state, version.error_code) == (VersionState.FAILED, "STRUCTURING_ERROR")
+    assert "장면 키" in version.error_message

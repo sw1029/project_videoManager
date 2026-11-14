@@ -122,6 +122,28 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self._session.expire_all()
         return result.rowcount == 1
 
+    def replace_draft_ir(self, version_id: str, ir: IntermediateRepresentation) -> bool:
+        # 조건부 UPDATE 로 행을 잡은 뒤에 정규화 행을 다시 만든다. 동시에 온 생성 접수의 조건부 갱신은
+        # 이 트랜잭션이 끝날 때까지 기다리거나(행 잠금) 이미 바뀐 상태를 보고 이쪽이 0 행으로 끝난다
+        result = self._session.execute(
+            update(VersionRow)
+            .where(
+                VersionRow.version_id == version_id,
+                VersionRow.state == str(VersionState.DRAFT),
+                VersionRow.frozen_fingerprint.is_(None),
+            )
+            .values(ir_json=ir.to_json())
+        )
+        self._session.expire_all()
+        if result.rowcount != 1:
+            return False
+        version = self.get(version_id)
+        # 방금 바꾼 행을 같은 트랜잭션에서 읽지 못함 = 불변식이 깨짐 (save() 와 같은 예외)
+        if version is None:
+            raise LookupError(f"조건부 갱신 직후 version_id {version_id} 을 다시 읽지 못했습니다")
+        self._sync_ir_rows(version)
+        return True
+
     # ---- 읽기 -------------------------------------------------------------
     def get(self, version_id: str) -> VideoVersion | None:
         row = self._session.get(VersionRow, version_id)
@@ -233,7 +255,7 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self._session.execute(delete(RequirementRow).where(RequirementRow.scene_id.in_(scene_ids)))
         self._session.execute(delete(SceneEntityRow).where(SceneEntityRow.scene_id.in_(scene_ids)))
         self._session.execute(delete(SceneRow).where(SceneRow.version_id == vid))
-        # ENTITY 는 프로젝트 범위: 없으면 만들고 있으면 설명만 갱신
+        # ENTITY 는 프로젝트 범위: 없으면 만들고 있으면 종류·설명·표시 이름만 갱신
         for e in ir.entities:
             eid = entity_id(pid, e.entity_key)
             existing = self._session.get(EntityRow, eid)
@@ -245,10 +267,12 @@ class SqlAlchemyVersionRepository(VersionRepository):
                         entity_key=e.entity_key,
                         kind=str(e.kind),
                         description=e.description,
+                        display_name=e.display_name or None,
                     )
                 )
             else:
                 existing.kind, existing.description = str(e.kind), e.description
+                existing.display_name = e.display_name or None
         _flush(self._session)
         # relationship() 없이 FK 만 선언했으므로 부모 행(SCENE)을 먼저 flush 해야 자식 행 INSERT 순서가 보장된다
         for s in ir.scenes:

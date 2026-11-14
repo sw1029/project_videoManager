@@ -233,7 +233,7 @@ def test_identity_references_are_listed_with_their_origin():
         json={
             "title": "카페",
             "prompt": CAFE_PROMPT,
-            "reference_images": [{"image_uri": "mem://refs/style.png"}],
+            "reference_images": [{"image_uri": "https://example.com/refs/style.png"}],
         },
     ).json()
     dispatcher_of(container).run_all()
@@ -246,7 +246,7 @@ def test_identity_references_are_listed_with_their_origin():
     by_origin = {}
     for ref in references:
         by_origin.setdefault(ref["origin"], []).append(ref)
-    assert [r["image_uri"] for r in by_origin["USER"]] == ["mem://refs/style.png"]
+    assert [r["image_uri"] for r in by_origin["USER"]] == ["https://example.com/refs/style.png"]
     assert by_origin["USER"][0]["source_scene_key"] is None
     derived = {r["entity_key"]: r for r in by_origin["DERIVED"]}
     assert set(derived) == {"barista", "cup"}
@@ -285,7 +285,7 @@ def test_a_reference_made_stale_by_a_revision_is_marked_not_current():
         json={
             "title": "카페",
             "prompt": CAFE_PROMPT,
-            "reference_images": [{"image_uri": "mem://refs/style.png"}],
+            "reference_images": [{"image_uri": "https://example.com/refs/style.png"}],
         },
     ).json()
     dispatcher_of(container).run_all()
