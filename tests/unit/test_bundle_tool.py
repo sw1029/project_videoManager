@@ -5,6 +5,7 @@ import io
 import os
 import re
 import stat
+import subprocess
 import tarfile
 import urllib.error
 import zipfile
@@ -333,6 +334,25 @@ def test_verify_reports_a_broken_bundle_file_instead_of_crashing(tmp_path):
 def test_a_bundle_error_ends_the_command_with_a_message_not_a_traceback(tmp_path, capsys):
     assert bundle.main(["verify", str(tmp_path / "missing.zip")], root=REPO) == 1
     assert "번들 파일이 없습니다" in capsys.readouterr().err
+
+
+def _hangs(command, **kwargs):
+    """답하지 않는 프로그램: 시간 제한을 주고 불렀을 때만 돌아온다."""
+    assert kwargs.get("timeout"), "시간 제한 없이 부르면 멈춘 프로그램을 끝없이 기다린다"
+    raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+
+def test_a_git_that_does_not_answer_leaves_the_revision_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(bundle.subprocess, "run", _hangs)
+    assert bundle._git_sha(tmp_path) == "unknown"
+
+
+def test_a_bundled_python_that_does_not_answer_stops_the_build_with_a_message(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(bundle.subprocess, "run", _hangs)
+    with pytest.raises(bundle.BundleError, match="실행할 수 없습니다"):
+        bundle.install_app(tmp_path / "python", tmp_path)
 
 
 def test_targets_command_lists_every_bundle(capsys):

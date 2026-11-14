@@ -194,6 +194,27 @@ def test_the_launcher_runs_on_the_standard_library_alone():
     assert done.returncode == 0, done.stderr[-400:]
 
 
+def _hangs(command, **kwargs):
+    """답하지 않는 프로그램: 시간 제한을 주고 불렀을 때만 돌아온다."""
+    assert kwargs.get("timeout"), "시간 제한 없이 부르면 멈춘 프로그램을 끝없이 기다린다"
+    raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+
+def test_short_questions_to_other_programs_never_hang_the_launcher(monkeypatch, tmp_path):
+    # 버전·상태를 묻는 짧은 실행 (node --version, 가상환경 확인). 답이 없으면 없는 것으로 본다
+    monkeypatch.setattr(demo.subprocess, "run", _hangs)
+    monkeypatch.setattr(demo.shutil, "which", lambda name: "node")
+    assert demo._ask(["node", "--version"]) is None
+    assert demo._node_major() is None
+    assert demo._quiet_ok([sys.executable, "-c", "pass"]) is False
+
+
+def test_a_short_question_returns_the_answer_as_text():
+    done = demo._ask([sys.executable, "-c", "print('ok')"])
+    assert done is not None and done.returncode == 0 and done.stdout.strip() == "ok"
+    assert demo._ask([str(Path("no-such-program-anywhere"))]) is None  # 실행할 수 없다
+
+
 def test_npm_install_prefers_ci_with_lockfile(tmp_path):
     assert demo.npm_install_command(tmp_path)[:2] == ["npm", "install"]
     (tmp_path / "package-lock.json").write_text("{}", encoding="utf-8")

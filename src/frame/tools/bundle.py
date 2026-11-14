@@ -258,10 +258,14 @@ def install_app(python: Path, repo: Path) -> None:
     """동봉 Python 에 FRAME 과 의존성([llm] 포함)을 일반 설치한다 (편집 모드가 아니므로 저장소 없이 동작)."""
     try:
         has_pip = (
-            subprocess.run([str(python), "-m", "pip", "--version"], capture_output=True).returncode
+            subprocess.run(
+                [str(python), "-m", "pip", "--version"],
+                capture_output=True,
+                timeout=launcher.QUICK_TIMEOUT_S,
+            ).returncode
             == 0
         )
-    except OSError as exc:
+    except (OSError, subprocess.TimeoutExpired) as exc:
         raise BundleError(
             f"동봉 Python 을 이 기기에서 실행할 수 없습니다 ({exc}). 대상 OS·CPU 에서 만드세요"
         ) from exc
@@ -442,14 +446,16 @@ def _git_sha(repo: Path) -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=launcher.QUICK_TIMEOUT_S,
         ).stdout.strip()
         dirty = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=no"],  # noqa: S607 - PATH 의 git
             cwd=repo,
             capture_output=True,
             text=True,
+            timeout=launcher.QUICK_TIMEOUT_S,
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError):  # 없음·실패·답 없음
         return "unknown"
     return f"{sha}+dirty" if dirty else sha
 
@@ -603,12 +609,11 @@ def verify(path: Path, target: Target) -> int:
         python = bundled_python(root, target)
         env = minimal_env()
         code = "import frame, platform; print(platform.python_version()); print(frame.__file__)"
-        probe = subprocess.run(
-            [str(python), "-I", "-c", code], capture_output=True, text=True, env=env, cwd=root
-        )
-        lines = probe.stdout.splitlines()
+        probe = launcher._ask([str(python), "-I", "-c", code], env=env, cwd=root)
+        lines = probe.stdout.splitlines() if probe is not None else []
         inside = (
-            probe.returncode == 0
+            probe is not None
+            and probe.returncode == 0
             and len(lines) == 2
             and Path(lines[1]).resolve().is_relative_to(root)
         )
@@ -621,10 +626,8 @@ def verify(path: Path, target: Target) -> int:
             if target.windows
             else ["sh", str(root / "run.sh"), "--help"]
         )
-        check(
-            subprocess.run(wrapper, capture_output=True, env=env, cwd=root).returncode == 0,
-            "실행 래퍼",
-        )
+        answered = launcher._ask(wrapper, env=env, cwd=root)
+        check(answered is not None and answered.returncode == 0, "실행 래퍼")
         smoke = [str(python), "-I", "-m", "frame.tools.demo", "--root", str(root), "smoke"]
         check(
             subprocess.run(smoke, env=env, cwd=root).returncode == 0,

@@ -47,6 +47,7 @@ HEALTH_WAIT_S = 90.0  # 서버가 /health 에 답할 때까지 기다리는 시�
 # LLM 호출 하나가 제한 시간 60초 x 2회까지 걸린다. 그보다 짧으면 남은 분석이 실행마다 되풀이된다
 RECOVERY_WAIT_S = 300.0
 SLOW_START_NOTICE_S = 15.0  # 이만큼 지나도 뜨지 않으면 까닭과 건너뛰는 방법을 알린다
+QUICK_TIMEOUT_S = 60.0  # 버전·상태를 묻는 짧은 실행. 이 안에 답이 없으면 없는 것으로 본다
 LOOPBACK = "127.0.0.1"
 DEMO_DIR = ".demo"
 KEY_FILE_NAME = "openai.key"
@@ -307,7 +308,11 @@ def _utf8_output() -> None:
 
 
 def _run(command: Sequence[str], cwd: Path) -> int:
-    """명령을 실행하고 종료 코드를 돌려준다. Windows 의 npm.cmd 같은 래퍼도 경로를 찾아 실행한다."""
+    """명령을 실행하고 종료 코드를 돌려준다. Windows 의 npm.cmd 같은 래퍼도 경로를 찾아 실행한다.
+
+    설치·빌드에 쓴다. 시간 제한이 없다: 출력이 그대로 보이고 Ctrl+C 로 멈출 수 있으며, 느린 연결의 설치를
+    중간에 끊지 않는다 (CI 에서는 잡의 timeout-minutes 가 막는다). 짧은 질의는 _ask 를 쓴다.
+    """
     _say(f"$ {' '.join(command)}")
     executable = shutil.which(command[0]) or command[0]
     try:
@@ -317,11 +322,30 @@ def _run(command: Sequence[str], cwd: Path) -> int:
         return 127
 
 
-def _quiet_ok(command: Sequence[str]) -> bool:
+def _ask(
+    command: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
+) -> subprocess.CompletedProcess[str] | None:
+    """버전·상태를 묻는 짧은 실행. 실행할 수 없거나 QUICK_TIMEOUT_S 안에 끝나지 않으면 None.
+
+    설치·빌드처럼 오래 걸리는 실행은 _run 을 쓴다 (출력이 그대로 보이고 Ctrl+C 로 멈춘다. 시간 제한을 두지 않는다).
+    """
     try:
-        return subprocess.run(command, capture_output=True).returncode == 0
-    except OSError:
-        return False
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            env=dict(env) if env is not None else None,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=QUICK_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _quiet_ok(command: Sequence[str]) -> bool:
+    done = _ask(command)
+    return done is not None and done.returncode == 0
 
 
 def _venv_ready(python: Path) -> bool:
@@ -334,11 +358,8 @@ def _node_major() -> int | None:
     node = shutil.which("node")
     if node is None:
         return None
-    try:
-        result = subprocess.run([node, "--version"], capture_output=True, text=True)
-    except OSError:
-        return None
-    return parse_node_major(result.stdout)
+    result = _ask([node, "--version"])
+    return parse_node_major(result.stdout) if result is not None else None
 
 
 def _port_free(port: int, host: str) -> bool:
