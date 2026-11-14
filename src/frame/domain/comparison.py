@@ -21,11 +21,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..artifacts import GeneratedClip
-from ..errors import InvalidStateTransition
-from ..ir import IntermediateRepresentation, RequirementSpec, SceneSpec
-from ..metrics import CheckSummary
-from ..models import VideoVersion
+from .artifacts import GeneratedClip
+from .errors import InvalidStateTransition
+from .ir import IntermediateRepresentation, RequirementSpec, SceneSpec
+from .metrics import CheckSummary
+from .models import VideoVersion
 
 
 class VersionNotComparable(InvalidStateTransition):

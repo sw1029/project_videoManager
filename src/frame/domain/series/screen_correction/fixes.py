@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from frame.domain.errors import NotFound, ValidationError
+from frame.domain.identity import appearance_attributes
 from frame.domain.screen import Region, TextRole
 from frame.domain.series.episode import EpisodePlan, OverlayItem, OverlayKind
 from frame.domain.series.screen_correction.issues import (
@@ -21,7 +22,6 @@ from frame.domain.series.screen_correction.issues import (
     patch_overlay_id,
 )
 from frame.domain.series.theme import TextStyle
-from frame.domain.services.identity import appearance_attributes
 
 
 class StepStatus(StrEnum):

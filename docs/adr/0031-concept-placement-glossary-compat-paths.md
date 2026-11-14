@@ -69,6 +69,12 @@
   기록으로 남긴다. 같은 표가 `tests/architecture/test_moved_paths.py` 에 있어, 그 경로가 다시 생기거나 쓰이면 테스트가 실패한다.
 - **보완 (2026-11-15) — 호환 모듈은 그 경로를 쓰는 작업 중 브랜치가 있을 때만 남긴다.** 옮기기 전에 원격 · 로컬 브랜치에서
   그 경로를 쓰는 곳을 찾는다. 없으면 옛 경로를 남기지 않고, `test_moved_paths.py` 의 표에 옛 경로와 새 자리를 적는다.
+- 호환 모듈 없이 옮긴 것 (2026-11-15)
+
+  | 옛 경로 | 새 자리 |
+  |---|---|
+  | `frame.domain.services.identity` | `frame.domain.identity` |
+  | `frame.domain.services.comparison` | `frame.domain.comparison` |
 
 ### 4. 용어집
 - `docs/GLOSSARY.md` — 낱말 하나에 뜻 하나, 한국어 이름과 코드 이름을 짝짓는다. 낱말은 연구 문서와 ADR 의 것을 따른다.

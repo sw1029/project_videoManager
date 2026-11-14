@@ -9,11 +9,11 @@ from frame.adapters.checker import (
 )
 from frame.adapters.generator import FakeVideoGenerator
 from frame.application.dto import CreateRevisionCommand
+from frame.domain.comparison import SceneStatus, VersionNotComparable
 from frame.domain.enums import Verdict, VersionState
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.models import VideoVersion
 from frame.domain.revision import AttributeChange
-from frame.domain.services.comparison import SceneStatus, VersionNotComparable
 from tests.support.factories import create_draft, generate, make_container
 
 

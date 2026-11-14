@@ -20,8 +20,8 @@
 | 최종 영상 조립 | `artifacts.py` `VideoArtifact` | `ports/assembler.py` `VideoAssembler` | `adapters/assembler/` `FfmpegVideoAssembler` |
 | 부모 클립 편집 | — | `ports/generator.py` `ParentClip`·`RevisionDirective` | `adapters/generator/openrouter/` (흐름 `generator.py`, 편집 지시문 `_prompts.py`) |
 | 재사용 판단 (해시·키) | `ir.py` 의 fingerprint, `hashing.py` | `ports/generator.py` `generation_fingerprint`·`result_key` | `adapters/generator/cache.py`, `ledger.py` |
-| 정체성 기준 이미지 | `services/identity.py`, `models.py` `ReferenceImage` | `ports/identity.py` `IdentityReferenceExtractor` · `pipeline/identity_anchoring.py` `IdentityAnchoring` | `adapters/identity/` |
-| 검수 (요구 반영 · 유지 요소 · 일관성 · 보존) | `checks.py` `CheckResult`, `metrics.py`, `services/comparison.py` | `ports/checker.py` `Checker`, `checks.py` `CheckSuite` · `pipeline/stages.py` `CheckStage` | `adapters/checker/` |
+| 정체성 기준 이미지 | `identity.py`, `models.py` `ReferenceImage` | `ports/identity.py` `IdentityReferenceExtractor` · `pipeline/identity_anchoring.py` `IdentityAnchoring` | `adapters/identity/` |
+| 검수 (요구 반영 · 유지 요소 · 일관성 · 보존) | `checks.py` `CheckResult`, `metrics.py`, 버전 비교 `comparison.py` | `ports/checker.py` `Checker`, `checks.py` `CheckSuite` · `pipeline/stages.py` `CheckStage` | `adapters/checker/` |
 | 수정 의도 · 변경 계획 | `revision/` — 수정 의도 `intent.py` `RevisionIntent`, 속성 변경 `changes.py`, 전파 `propagation.py`, 수정 요청 풀기 `resolution.py` | `ports/change_request.py` · `use_cases/create_revision.py`, `plan_revision.py` | `adapters/change_request/` |
 | 추적 | `tracking.py` | `ports/tracker.py` `ObjectTracker` · `pipeline/stages.py` `TrackStage` | `adapters/tracker/` |
 | 테마 · 시리즈 (같은 테마의 편) | `series/theme/` `Theme`, `series/episode/` `EpisodePlan`, 편의 기록 `series/record.py`, 숏폼 규격 판정 `series/shortform.py`, 원본에서 읽은 것 `series/source_analysis.py` | `ports/series/` · `use_cases/series/` — `extract_theme.py`, `create_episode.py`, `adopt_anchors.py`, `revise_episode.py`, `settle_episode.py` | `adapters/series/` (포트마다 하위 패키지: `source_analysis/`, `theme_extraction/`, `planning/`, `store/`), 조립 `config/theme_wiring.py` · `theme_adapters.py` · `theme_settings.py` |
@@ -44,9 +44,8 @@
 | 패키지 | 맡는 개념 | 밖에서 쓰는 이름 |
 |---|---|---|
 | `src/frame/` | 패키지 최상위 | `__version__` |
-| `src/frame/domain/` | 업무 규칙. 표준 라이브러리만 쓴다 | `IntermediateRepresentation`, `VideoVersion`, `RevisionIntent`, `CheckResult`, 열거형(`enums.py`), 오류(`errors.py`). 여러 기능이 함께 쓰는 일반 타입: 영상의 겉모습 `media.py` `MediaInfo`, 화면 좌표 `screen.py` `Region`, 받아쓰기 `speech.py` `Transcript` |
+| `src/frame/domain/` | 업무 규칙. 표준 라이브러리만 쓴다 | `IntermediateRepresentation`, `VideoVersion`, `RevisionIntent`, `CheckResult`, 열거형(`enums.py`), 오류(`errors.py`), 정체성 기준 이미지의 규칙 `identity.py`, 버전 비교 `comparison.py`. 여러 기능이 함께 쓰는 일반 타입: 영상의 겉모습 `media.py` `MediaInfo`, 화면 좌표 `screen.py` `Region`, 받아쓰기 `speech.py` `Transcript` |
 | `src/frame/domain/revision/` | 수정 의도와 그 규칙 — 수정 요청을 CHANGE·REPAIR 로 풀고, 변경을 중간표현에 반영하고, 유지할 요소와 함께 남긴다 | `RevisionIntent`, `KeepItem`, `AttributeChange`, `ChangePropagationPolicy`·`DefaultPropagationPolicy`, `target_scenes`·`repair_targets`, `resolution` 의 `resolve_revision`·`revision_draft` |
-| `src/frame/domain/services/` | 여러 엔티티에 걸친 규칙 | 정체성 기준 `identity`, 버전 비교 `comparison` |
 | `src/frame/domain/script/` | 대본 — 소리에서 뽑아 줄 단위로 다듬은 말과 한국어 수량 (ADR-0028). 시리즈 기능 밖에서도 쓰는 개념이다 | `SpokenScript`, `SpokenLine`, `build_script`, `ScriptPolicy`, `Quantity`, `quantities`·`quantity_conflicts`, `parse_number`·`read_number` |
 | `src/frame/domain/series/` | 시리즈 — 숏폼 한 편에서 뽑은 테마로 같은 테마의 편을 이어 만드는 기능의 도메인 (ADR-0025~0029) | 입구는 내보내지 않는다. 모듈로 import 한다: `source_analysis` (원본에서 읽은 것), `shortform` (숏폼 규격 판정), `record` (편의 기록), `narration` (녹음 붙이기), `script_evidence` · `script_correction` · `script_revision` (대본을 근거로 쓰기 · 뽑은 줄 고치기 · 녹음 대본 고치기) |
 | `src/frame/domain/series/theme/` | 테마 — 편 사이의 규칙: 고정 출연 · 형식(장면 자리) · 스타일 · 문구 틀 · 내레이션 | `Theme`, `FormatSpec`·`SceneSlot`, `CastMember`, `StyleSpec`, `TextRule`·`ThemeVariable`, `NarrationSpec`, `SourceVideo`, `Condition` |

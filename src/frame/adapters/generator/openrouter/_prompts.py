@@ -14,9 +14,9 @@ from frame.application.ports.generator import (
     RevisionDirective,
     SceneGenerationRequest,
 )
+from frame.domain.comparison import RequirementChangeKind, compare_requirements
 from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.revision import KeepItem
-from frame.domain.services.comparison import RequirementChangeKind, compare_requirements
 
 
 def compile_video_prompt(

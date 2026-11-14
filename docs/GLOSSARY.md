@@ -99,7 +99,7 @@
 |---|---|---|---|
 | IR 해시 `IR.fingerprint()` → `frozen_fingerprint` | `domain/ir.py` | IR 전체 | 생성 접수 때 '조건 고정' 값으로 저장한다 |
 | 장면 해시 `IR.scene_fingerprint(scene_key)` | `domain/ir.py` | 장면 조건(구간 · 설명 · 객체 · 요구조건) + 그 장면 객체의 정의 | **버전 사이 재사용** — 부모와 같으면 다시 만들지 않는다 |
-| 객체 모습 해시 `entity_appearance_fingerprint()` | `domain/services/identity.py` | 객체 정의 + 그 장면의 고정 속성 | **정체성 기준 이미지의 유효성** — 모습이 달라진 객체의 기준은 쓰지 않는다 |
+| 객체 모습 해시 `entity_appearance_fingerprint()` | `domain/identity.py` | 객체 정의 + 그 장면의 고정 속성 | **정체성 기준 이미지의 유효성** — 모습이 달라진 객체의 기준은 쓰지 않는다 |
 | 조건 해시 `SceneGenerationRequest.fingerprint` | `application/ports/generator.py` | 장면 조건 + 객체 정의 + 사용자 참조 이미지 + seed. `version_id` 는 뺀다 | 클립의 `fingerprint` 로 남는다 (어느 조건으로 만든 클립인가) |
 | 생성 해시 `generation_fingerprint` | 같은 모듈 | 조건 해시 + 정체성 기준 이미지 + 유지할 요소 + (REPAIR 일 때) 고치려는 요구조건 | 결과 키의 기본값 |
 | 결과 키 `VideoGenerator.result_key(request)` | 같은 모듈, 편집하는 생성기가 재정의 | 생성 해시 + (부모 클립을 편집해 만들 때) 부모 클립 | **생성 캐시 · 작업 원장** 의 요청 쪽 키 |

@@ -30,6 +30,10 @@ MOVED = {
     # 수정 의도와 그 규칙 (M-07)
     "frame.domain.services.propagation": "frame.domain.revision",
     "frame.domain.services.revision_planning": "frame.domain.revision.resolution",
+    # 형식(도메인 서비스)으로 묶은 패키지를 없앴다 (K-05)
+    "frame.domain.services.identity": "frame.domain.identity",
+    "frame.domain.services.comparison": "frame.domain.comparison",
+    "frame.domain.services": "frame.domain.identity 와 frame.domain.comparison",
 }
 
 # src 밖에서 frame 을 import 하는 곳

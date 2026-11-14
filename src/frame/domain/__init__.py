@@ -9,7 +9,7 @@
     ir · vocabulary · identifiers          구조화 결과(중간표현)와 술어 어휘, 키 규칙
     models · state_machine · progress      프로젝트 · 버전 · 상태 · 진행
     revision/                              수정 의도와 그 규칙 (속성 변경, 전파, 수정 요청 풀기)
-    services/                              정체성 기준, 버전 비교
+    identity · comparison                  정체성 기준 이미지의 규칙, 버전 비교
     checks · metrics                       검수 결과와 성공 지표
     artifacts · tracking                   산출물(클립 · 영상)과 추적 결과
     hashing                                해시의 바탕 (canonical_hash). 해시·키의 지도는 docs/GLOSSARY.md 3절

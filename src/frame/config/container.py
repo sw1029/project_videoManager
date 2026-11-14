@@ -63,8 +63,8 @@ from frame.application.use_cases import (
     UploadReferenceImage,
 )
 from frame.domain.enums import EntityKind
+from frame.domain.identity import IdentityPolicy
 from frame.domain.revision import ChangePropagationPolicy, DefaultPropagationPolicy
-from frame.domain.services.identity import IdentityPolicy
 
 from .registry import AdapterRegistry, BuildContext, default_registry
 from .settings import Settings

@@ -6,12 +6,7 @@ from datetime import UTC, datetime
 import pytest
 
 from frame.domain.artifacts import GeneratedClip
-from frame.domain.enums import VersionState
-from frame.domain.ir import EntitySpec, RequirementSpec, SceneSpec
-from frame.domain.metrics import CheckSummary
-from frame.domain.models import VideoVersion
-from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
-from frame.domain.services.comparison import (
+from frame.domain.comparison import (
     RateDelta,
     RequirementChangeKind,
     SceneStatus,
@@ -21,6 +16,11 @@ from frame.domain.services.comparison import (
     ensure_comparable,
     rate_delta,
 )
+from frame.domain.enums import VersionState
+from frame.domain.ir import EntitySpec, RequirementSpec, SceneSpec
+from frame.domain.metrics import CheckSummary
+from frame.domain.models import VideoVersion
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 from tests.support.factories import cafe_ir
 
 R = RequirementChangeKind

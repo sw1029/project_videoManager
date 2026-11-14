@@ -11,7 +11,7 @@
 
 ## 결정
 - **읽을 때 계산한다**: 저장 모델·포트를 바꾸지 않는다. 기존 저장소 메서드(`versions.get`·`list_by_project`, `checks.list_by_version`)로 읽고
-  도메인 함수(`domain/services/comparison.py`)로 계산한다. 대시보드의 "바뀐 장면 수" 도 같은 함수를 쓴다.
+  도메인 함수(`domain/services/comparison.py` — 2026-11-15 부터 `domain/comparison.py`)로 계산한다. 대시보드의 "바뀐 장면 수" 도 같은 함수를 쓴다.
 - **`GET /api/versions/{version_id}/comparison?against={version_id}`** (`against` 를 생략하면 부모와 비교)
   - `before`(기준)·`after`(대상) 버전 요약: 상태·오류·생성 시각·`video_url`·`video_media_type`·검수 요약(`checks`).
   - `checks_delta`: 반영률·일관성·보존율의 after − before. 한쪽이라도 null 이면 null.

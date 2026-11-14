@@ -21,11 +21,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..enums import EntityKind, ReferenceOrigin
-from ..hashing import canonical_hash
-from ..ir import IntermediateRepresentation, SceneSpec
-from ..models import ReferenceImage
-from ..vocabulary import DEFAULT_VOCABULARY
+from .enums import EntityKind, ReferenceOrigin
+from .hashing import canonical_hash
+from .ir import IntermediateRepresentation, SceneSpec
+from .models import ReferenceImage
+from .vocabulary import DEFAULT_VOCABULARY
 
 # 기준 이미지를 두는 객체 종류와 우선순위. 배경·문구는 기본으로 빼 둔다
 # (배경은 화면 전체라 구도가 그대로 복사되기 쉽고, 문구는 프롬프트의 철자로 다룬다).

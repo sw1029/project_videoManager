@@ -21,13 +21,13 @@ from frame.application.ports.llm import LLMKeyStatus
 from frame.application.use_cases.plan_revision import RevisionPlan
 from frame.config.settings import Settings
 from frame.domain.artifacts import GeneratedClip
+from frame.domain.comparison import RequirementComparison
 from frame.domain.enums import ReferenceOrigin, Verdict
 from frame.domain.identifiers import entity_id
+from frame.domain.identity import is_valid_identity
 from frame.domain.ir import RequirementSpec, SceneSpec
 from frame.domain.progress import PipelineProgress
 from frame.domain.revision import RevisionIntent
-from frame.domain.services.comparison import RequirementComparison
-from frame.domain.services.identity import is_valid_identity
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, PredicateVocabulary
 
 from . import schemas as s

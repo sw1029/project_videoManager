@@ -85,8 +85,8 @@ max-complexity = 19  # 켤 때의 최댓값 (identity/vlm_crop.py 의 extract). 
 "src/frame/adapters/generator/ledger.py" = ["S101"]
 "src/frame/adapters/generator/openrouter/generator.py" = ["S101"]
 "src/frame/adapters/llm/openai_client.py" = ["S101"]
-"src/frame/domain/services/comparison.py" = ["S101"]
-"src/frame/domain/services/identity.py" = ["S101"]
+"src/frame/domain/comparison.py" = ["S101"]
+"src/frame/domain/identity.py" = ["S101"]
 
 [tool.ruff.lint.pycodestyle]
 max-line-length = 120  # 코드는 100 칸으로 포맷하되, 한글 docstring/주석은 120 칸까지 허용

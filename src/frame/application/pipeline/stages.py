@@ -11,10 +11,10 @@ from dataclasses import dataclass
 
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.errors import IntegrityViolation
-from frame.domain.ir import SceneSpec
-from frame.domain.services.identity import (
+from frame.domain.identity import (
     IdentityPolicy,
 )
+from frame.domain.ir import SceneSpec
 
 from ..checks import CheckSuite
 from ..ports.assembler import VideoAssembler
