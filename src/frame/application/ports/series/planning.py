@@ -41,7 +41,9 @@ class SeriesPlanner(ABC):
     - 돌려준 내용은 build_episode_plan(theme, brief, content) 를 통과한다:
       테마의 자리를 모두, 그 자리만 채우고, 화면 문구에 쓰는 편 단위 변수에 값이 있다.
     - 요청이 준 변수의 값을 바꾸지 않는다.
-    - 실패는 SeriesPlanningError 또는 다른 AdapterError (LLM 호출 실패 등).
+    - 응답을 규칙에 맞게 다듬지 못한 실패는 SeriesPlanningError 다.
+    - LLM 을 쓰는 구현에서 LLM 호출의 오류(LLMTimeout · LLMUnavailable · LLMRateLimited · LLMBadResponse)는
+      바꾸지 않고 그대로 올린다. 부른 쪽이 종류를 가려 다시 시도할 수 있다.
     """
 
     @abstractmethod

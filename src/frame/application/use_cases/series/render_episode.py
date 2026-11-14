@@ -110,6 +110,8 @@ class RenderEpisode:
             scene_uris[scene.scene_key] = uri
             ordered.append(GeneratedClip(scene.scene_key, uri, clip.duration_ms, clip.fingerprint))
 
+        # 조립기의 첫 인자(version_id)는 결과를 둘 자리의 이름으로만 쓰인다. 완성본은 버전이 아니라 편의
+        # 산출물이라 편의 이름을 준다 (그 버전의 최종 영상을 덮어쓰지 않는다)
         video = self._assembler.assemble(f"episode-{episode.episode_id}", ordered)
         final_uri = video.uri
         track_uri = episode.narration.track_uri if episode.narration is not None else None

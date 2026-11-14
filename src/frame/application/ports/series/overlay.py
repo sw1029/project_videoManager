@@ -47,7 +47,7 @@ class ScreenTextReader(ABC):
     - 읽지 못했으면 (모델이 그 영역에 답하지 않음 등) AdapterError 다. '글자 없음' 과 '읽지 못함' 을 같은 값으로
       돌려주지 않는다: 검수는 앞의 것을 어긋난 곳으로, 뒤의 것을 판정하지 못한 것으로 다룬다.
     - 읽은 그대로 적는다. 고치거나 채워 넣지 않는다.
-    - 호출 실패는 AdapterError.
+    - 호출 실패는 AdapterError 다. LLM 을 쓰는 구현에서 LLM 호출의 오류(LLMTimeout 등)는 바꾸지 않고 그대로 올린다.
     """
 
     @abstractmethod

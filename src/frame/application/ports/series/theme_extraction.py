@@ -48,7 +48,9 @@ class ThemeExtractor(ABC):
     - 고정 출연은 모두 원본 IR 의 객체다.
     - 외부 영상(EXTERNAL)에서는 기준 이미지를 붙이지 않는다 (Theme.validate 가 막는다).
     - 화면 문구의 시각은 영상 길이 안이다.
-    - 실패는 ThemeExtractionError 또는 다른 AdapterError (LLM 호출 실패 등).
+    - 응답을 규칙에 맞게 다듬지 못한 실패는 ThemeExtractionError 다.
+    - LLM 을 쓰는 구현에서 LLM 호출의 오류(LLMTimeout · LLMUnavailable · LLMRateLimited · LLMBadResponse)는
+      바꾸지 않고 그대로 올린다. 부른 쪽이 종류를 가려 다시 시도할 수 있다.
     - signature 는 추출기 설정의 지문이다 (모델·프롬프트 판·프레임 수). 같은 영상에 다른 결과를 낼 수 있는 설정이
       바뀌면 달라진다. 같은 영상·같은 지문의 테마가 있으면 유스케이스가 다시 뽑지 않는다 (감사 BTS-12).
     """
