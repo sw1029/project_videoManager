@@ -401,7 +401,10 @@ def _summary_text(report: Mapping[str, Any], written: Path | None) -> str:
                 f"{_percent(item['mean_non_target_change_rate'])} "
                 f"(잰 케이스 {item['measured_cases']}) · {'달성' if item['meets_target'] else '미달'}"
             )
-        if summary["completed"] and not summary["by_basis"][summary["basis"]]["measured_cases"]:
+        measured = summary["by_basis"][summary["basis"]]["measured_cases"]
+        # 검수 결과를 읽은 케이스가 있는데도 그 기준의 보존 결과가 없을 때만 (읽지 못한 것은 오류로 따로 보인다)
+        checks_read = any(case["checks"] for case in report["cases"])
+        if summary["completed"] and checks_read and not measured:
             checker = _BASIS_CHECKERS[summary["basis"]]
             lines.append(
                 f"주의: 기준 {summary['basis']} 의 보존 결과가 하나도 없습니다. "

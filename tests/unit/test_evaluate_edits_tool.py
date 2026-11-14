@@ -679,3 +679,31 @@ def test_existing_result_file_is_kept_unless_overwrite_is_given(tmp_path, capsys
     code, report = _run(tmp_path, container, [_cup(parent)], "--overwrite")
 
     assert code == 0 and report["complete"] is True
+
+
+def test_checker_hint_is_not_shown_when_check_results_could_not_be_read(tmp_path, capsys):
+    """검수 결과를 읽지 못한 것(오류)을 검수기를 켜지 않은 것으로 안내하지 않는다."""
+
+    class UnreadableChecks:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def get_version(self, version_id):
+            return self.inner.get_version(version_id)
+
+        def get_checks(self, version_id):
+            raise LookupError("검수 결과를 읽지 못함")
+
+    container = _container()
+    parent = _parent(container)
+    broken = dataclasses.replace(container, queries=UnreadableChecks(container.queries))
+
+    code, report = _run(tmp_path, broken, [_cup(parent)])
+
+    assert code == 0
+    summary = report["summary"]
+    assert (summary["completed"], summary["errors"]) == (
+        1,
+        1,
+    )  # 생성은 끝났고 검수 결과를 못 읽었다
+    assert "FRAME_CHECKERS" not in capsys.readouterr().out
