@@ -297,7 +297,20 @@ def test_display_name_that_is_not_text_is_read_as_text(ir):
 # 키는 저장 경로(clips/{version_id}/{scene_key}.mp4)·요구조건 키(장면:객체:술어)·URL 경로·DB id 에 그대로 들어간다
 
 
-BAD_KEYS = ["../ver_victim/intro", "a/b", "a:b", "-", "컵", "a-b", "a b", "_a", "", "a" * 65]
+BAD_KEYS = [
+    "../ver_victim/intro",
+    "a/b",
+    "a\\b",  # Windows 경로 구분자
+    "a:b",
+    "-",
+    "컵",
+    "a-b",
+    "a b",
+    "_a",
+    "",
+    "a" * 65,
+    "cup\n",  # 끝 줄바꿈: match(...$) 로는 통과하므로 fullmatch 여야 한다 (델타 D09)
+]
 
 
 @pytest.mark.parametrize("key", BAD_KEYS)
@@ -337,3 +350,26 @@ def test_ordinary_keys_pass(key):
         entities=(EntitySpec(key, EntityKind.PROP),),
         scenes=(SceneSpec(key, 0, 1000, entity_keys=(key,)),),
     ).validate()
+
+
+@pytest.mark.parametrize("kind", ["scene", "entity"])
+def test_keys_that_differ_only_in_case_count_as_the_same_key(kind):
+    """델타 D02: 대소문자를 가리지 않는 파일 시스템(Windows·macOS)에서는 intro 와 Intro 의 클립이 한 파일이 된다."""
+    if kind == "scene":
+        ir = IntermediateRepresentation(
+            entities=(EntitySpec("cup", EntityKind.PROP),),
+            scenes=(
+                SceneSpec("intro", 0, 1000, entity_keys=("cup",)),
+                SceneSpec("Intro", 1000, 2000, entity_keys=("cup",)),
+            ),
+        )
+    else:
+        ir = IntermediateRepresentation(
+            entities=(EntitySpec("cup", EntityKind.PROP), EntitySpec("Cup", EntityKind.PROP)),
+            scenes=(SceneSpec("a", 0, 1000, entity_keys=("cup", "Cup")),),
+        )
+
+    with pytest.raises(ValidationError) as excinfo:
+        ir.validate()
+
+    assert "대소문자" in excinfo.value.message

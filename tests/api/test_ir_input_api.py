@@ -165,3 +165,16 @@ def test_keys_that_are_not_ascii_identifiers_are_rejected_per_field(api, where, 
     field = "scene_key" if where == "scene" else "entity_key"
     assert any(d["loc"].endswith(field) for d in body["details"])
     assert client.get("/api/projects/prj_0001").status_code == 404
+
+
+def test_scene_keys_that_differ_only_in_case_are_rejected(api):
+    """델타 D02: intro·Intro 는 같은 클립 파일이 될 수 있어 같은 키로 본다 (422, 저장하지 않음)."""
+    client, _, _ = api
+    document = cafe_block_document()
+    document["scenes"][1]["scene_key"] = "Intro"
+
+    response = client.post("/api/projects", json={"title": "카페", "ir": document})
+
+    assert response.status_code == 422
+    assert "대소문자" in response.json()["error_message"]
+    assert client.get("/api/projects/prj_0001").status_code == 404

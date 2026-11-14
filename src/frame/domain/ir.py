@@ -144,12 +144,19 @@ class IntermediateRepresentation:
             _check_key("객체", e.entity_key)
         for s in self.scenes:
             _check_key("장면", s.scene_key)
+        # 유일성은 대소문자를 가리지 않고 본다: 대소문자를 가리지 않는 파일 시스템(Windows·macOS)에서
+        # intro·Intro 의 클립(clips/{version_id}/{scene_key}) 이 한 파일이 되기 때문이다 (델타 D02).
+        # 키는 ASCII 라 lower() 로 충분하다
         entity_keys = [e.entity_key for e in self.entities]
-        if len(entity_keys) != len(set(entity_keys)):
-            raise ValidationError("entity_key 는 프로젝트 내에서 유일해야 합니다")
+        if len(entity_keys) != len({k.lower() for k in entity_keys}):
+            raise ValidationError(
+                "entity_key 는 프로젝트 내에서 유일해야 합니다 (대소문자만 다른 키도 같은 키로 본다)"
+            )
         scene_keys = [s.scene_key for s in self.scenes]
-        if len(scene_keys) != len(set(scene_keys)):
-            raise ValidationError("scene_key 는 버전 내에서 유일해야 합니다")
+        if len(scene_keys) != len({k.lower() for k in scene_keys}):
+            raise ValidationError(
+                "scene_key 는 버전 내에서 유일해야 합니다 (대소문자만 다른 키도 같은 키로 본다)"
+            )
         if not self.scenes:
             raise ValidationError("장면이 하나 이상 있어야 합니다")
         self._validate_timeline()
