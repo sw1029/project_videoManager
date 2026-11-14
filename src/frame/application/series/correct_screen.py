@@ -12,6 +12,11 @@
 - 화면에서 다르게 읽힌 문구(계획은 맞음): 글꼴·영역의 문제라 자동으로 고치지 않고 알린다.
 
 문구를 고친 뒤에는 완성본을 다시 만든다 (RenderEpisode). 고친 장면만 다시 합성된다.
+
+돈이 드는 쪽이 기본이 되지 않게 한다 (감사 BTS-31)
+- 고칠 것을 짚지 않으면(issue_ids 가 비어 있으면) 문구 수정만 한다. 클립을 다시 만드는 수정은 SKIPPED 로 알린다.
+  클립을 다시 만들려면 그 어긋남을 issue_ids 로 짚는다.
+- 수정 버전은 초안까지만 만든다. 생성을 바로 접수하려면 generate=True 를 준다.
 """
 
 from __future__ import annotations
@@ -58,10 +63,11 @@ class PatchRegion:
 @dataclass(frozen=True)
 class CorrectScreenCommand:
     episode_id: str
-    issue_ids: tuple[str, ...] = ()  # 비어 있으면 찾은 것 전부
+    # 비어 있으면 찾은 것 가운데 영상을 다시 만들지 않는 것만 고친다. 클립 수정은 여기서 짚은 것만 한다
+    issue_ids: tuple[str, ...] = ()
     patches: tuple[PatchRegion, ...] = ()
     keep: tuple[KeepItem, ...] = ()  # 클립을 다시 만들 때 그대로 둘 요소
-    generate: bool = True  # 수정 버전의 생성을 바로 접수한다
+    generate: bool = False  # 수정 버전의 생성을 바로 접수한다 (과금). 기본은 초안까지
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,7 @@ class CorrectEpisodeScreen:
             raise ValidationError(f"가릴 자리를 준 어긋남이 고칠 대상에 없습니다: {unknown}")
 
         plan = episode.plan
+        named = set(command.issue_ids)
         steps: list[CorrectionStep] = []
         clip_edits: list[ScreenIssue] = []
         for issue in issues:
@@ -135,8 +142,16 @@ class CorrectEpisodeScreen:
                     )
                 plan, step = _patch(plan, issue, patches[issue.issue_id])
                 steps.append(step)
-            else:
+            elif issue.issue_id in named:
                 clip_edits.append(issue)
+            else:
+                steps.append(
+                    _step(
+                        issue,
+                        StepStatus.SKIPPED,
+                        "클립을 다시 만드는 수정(과금)은 어긋남을 issue_ids 로 짚었을 때만 합니다",
+                    )
+                )
 
         if plan is not episode.plan:
             episode = replace(episode, plan=plan, render=None)  # 완성본은 다시 만들어야 한다

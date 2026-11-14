@@ -338,7 +338,13 @@ def test_wrong_attribute_regenerates_only_its_scene_through_a_repair_revision():
     generator.requests.clear()
 
     keep = (KeepItem(KeepAspect.BACKGROUND),)
-    result = _correct(container, episode, keep=keep)
+    result = _correct(
+        container,
+        episode,
+        issue_ids=("requirement:closeup:latte:color",),
+        keep=keep,
+        generate=True,
+    )
 
     step = result.steps[0]
     assert (step.status, step.method) == (StepStatus.GENERATING, CorrectionMethod.CLIP_EDIT)
@@ -375,7 +381,13 @@ def test_same_condition_in_several_scenes_goes_into_one_revision_and_others_wait
     container = _container(failing=failing)
     episode = _ready(container)
 
-    result = _correct(container, episode, generate=False)
+    # 짚은 순서대로 본다: 첫 조건이 한 수정 버전이 되고, 다른 조건은 다음으로 미룬다
+    named = (
+        "requirement:greeting:barista:outfit",
+        "requirement:show:latte:color",
+        "requirement:closeup:latte:color",
+    )
+    result = _correct(container, episode, issue_ids=named)
 
     statuses = {s.issue_id: s.status for s in result.steps}
     assert statuses == {
@@ -384,7 +396,7 @@ def test_same_condition_in_several_scenes_goes_into_one_revision_and_others_wait
         "requirement:closeup:latte:color": StepStatus.SKIPPED,
     }
     revision = version_of(container, result.pending_version_id)
-    assert revision.state is VersionState.DRAFT  # generate=False: 접수하지 않았다
+    assert revision.state is VersionState.DRAFT  # 생성은 요청해야 접수한다 (기본은 초안만)
     assert revision.intent.target_scene_keys == ("greeting",)
     # 골라서 고치면 같은 조건이 걸린 두 장면이 한 수정 버전으로 간다
     again = _container(failing=failing)
@@ -393,7 +405,6 @@ def test_same_condition_in_several_scenes_goes_into_one_revision_and_others_wait
         again,
         episode,
         issue_ids=("requirement:show:latte:color", "requirement:closeup:latte:color"),
-        generate=False,
     )
     assert version_of(again, picked.pending_version_id).intent.target_scene_keys == (
         "show",
@@ -429,7 +440,7 @@ def test_object_that_looks_different_in_one_scene_is_found_and_only_that_scene_i
         ("consistency:closeup:latte", IssueKind.CONSISTENCY)
     ]
 
-    result = _correct(container, episode)
+    result = _correct(container, episode, issue_ids=("consistency:closeup:latte",), generate=True)
 
     step = result.steps[0]
     assert (step.status, step.method) == (StepStatus.GENERATING, CorrectionMethod.CLIP_EDIT)
@@ -463,12 +474,44 @@ def test_inconsistent_object_without_a_look_condition_in_that_scene_is_reported_
     save_theme(container, theme)
     episode = _ready(container)
 
-    result = _correct(container, episode)
+    result = _correct(container, episode, issue_ids=("consistency:greeting:barista",))
 
     assert [(s.issue_id, s.status) for s in result.steps] == [
         ("consistency:greeting:barista", StepStatus.SKIPPED)
     ]
     assert "조건이 없어" in result.steps[0].note and result.pending_version_id is None
+
+
+# ---- 돈이 드는 수정은 짚었을 때만 ----
+def test_clip_is_not_remade_unless_the_issue_is_named():
+    """고칠 것을 짚지 않고 부르면 문구만 고친다. 클립을 다시 만드는 수정(과금)은 어긋남을 짚었을 때만 한다."""
+    container, generator = _spied(failing=("closeup:latte:color",))
+    episode = _tamper(container, _ready(container), "closeup:price", "말차 라떼 6,000원")
+    generator.requests.clear()
+
+    result = _correct(container, episode)
+
+    by_issue = {s.issue_id: s for s in result.steps}
+    assert by_issue["overlay:closeup:price"].status is StepStatus.APPLIED  # 문구는 고친다 (무료)
+    waiting = by_issue["requirement:closeup:latte:color"]
+    assert waiting.status is StepStatus.SKIPPED and "issue_ids" in waiting.note
+    assert result.pending_version_id is None
+    assert result.episode.version_id == episode.version_id and result.episode.history == ()
+    assert dispatcher_of(container).run_all() == 0 and generator.requests == []
+
+
+def test_generation_is_only_accepted_when_asked():
+    """짚어서 고치더라도 생성은 요청해야 접수한다. 기본은 수정 버전의 초안까지다."""
+    assert CorrectScreenCommand("epi_1").generate is False
+    container, generator = _spied(failing=("closeup:latte:color",))
+    episode = _ready(container)
+    generator.requests.clear()
+
+    result = _correct(container, episode, issue_ids=("requirement:closeup:latte:color",))
+
+    assert result.steps[0].status is StepStatus.DRAFTED
+    assert version_of(container, result.pending_version_id).state is VersionState.DRAFT
+    assert dispatcher_of(container).run_all() == 0 and generator.requests == []
 
 
 # ---- 국소 수정: 녹음 ----
