@@ -13,7 +13,8 @@
     CONSISTENCY_LINE · EDIT_KEEP_LINE             프롬프트의 문구 상수
     VideoModelInfo                    모델 정보 (받는 길이 · 해상도 · 단가)
     EDIT_OFF · EDIT_PREVIOUS_JOB · EDIT_VIDEO_REFERENCE · EDIT_MODES    부모 클립 편집 방식 (FRAME_VIDEO_EDIT_MODE)
-    OPENROUTER_API_BASE · DEFAULT_VIDEO_MODEL · KEY_ENV · LEDGER_TTL_SECONDS    기본값
+    KEY_ENV · LEDGER_TTL_SECONDS      키의 환경 변수 이름, 원장 항목을 이어 받는 기한
+    (모델 · 주소 · 해상도 · 시간 제한의 기본값은 여기 없다. 설정 config/settings.py 에만 있다 - ADR-0032)
 
 모듈 지도
     generator         생성기 클래스: 제출 · 대기 · 내려받기 · 원장으로 이어 받기 · 부모 클립 편집 · 미리보기 · 저장
@@ -34,13 +35,11 @@ from ._prompts import (
     compile_video_prompt,
 )
 from .generator import (
-    DEFAULT_VIDEO_MODEL,
     EDIT_MODES,
     EDIT_OFF,
     EDIT_PREVIOUS_JOB,
     EDIT_VIDEO_REFERENCE,
     LEDGER_TTL_SECONDS,
-    OPENROUTER_API_BASE,
     OpenRouterVideoGenerator,
 )
 from .generator import (
@@ -49,7 +48,6 @@ from .generator import (
 
 __all__ = [
     "CONSISTENCY_LINE",
-    "DEFAULT_VIDEO_MODEL",
     "EDIT_KEEP_LINE",
     "EDIT_MODES",
     "EDIT_OFF",
@@ -57,7 +55,6 @@ __all__ = [
     "EDIT_VIDEO_REFERENCE",
     "KEY_ENV",
     "LEDGER_TTL_SECONDS",
-    "OPENROUTER_API_BASE",
     "OpenRouterVideoGenerator",
     "VideoModelInfo",
     "compile_edit_prompt",

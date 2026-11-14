@@ -115,7 +115,7 @@ def test_mismatched_clips_are_reencoded_to_the_target_spec(ffmpeg, store, tmp_pa
 
 def test_non_video_clips_are_rejected(ffmpeg, store):
     uri = store.put("clips/ver_1/intro.json", b"{}", "application/json")
-    assembler = FfmpegVideoAssembler(store, ffmpeg)
+    assembler = FfmpegVideoAssembler(store, ffmpeg, fps=30, width=480, height=854)
     with pytest.raises(GenerationError, match="영상") as excinfo:
         assembler.assemble("ver_1", [GeneratedClip("intro", uri, 1000, "fp")])
     assert excinfo.value.retryable is False
@@ -123,4 +123,4 @@ def test_non_video_clips_are_rejected(ffmpeg, store):
 
 def test_nothing_to_assemble_is_an_error(ffmpeg, store):
     with pytest.raises(GenerationError, match="클립"):
-        FfmpegVideoAssembler(store, ffmpeg).assemble("ver_1", [])
+        FfmpegVideoAssembler(store, ffmpeg, fps=30, width=480, height=854).assemble("ver_1", [])

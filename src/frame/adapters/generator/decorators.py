@@ -117,7 +117,7 @@ class RetryingVideoGenerator(DelegatingVideoGenerator):
     def __init__(
         self,
         inner: VideoGenerator,
-        retries: int = 1,
+        retries: int,  # 설정(FRAME_GENERATOR_RETRIES)에서 온다
         sleep: Callable[[float], None] | None = None,
         backoff_seconds: float = 0.0,
     ) -> None:

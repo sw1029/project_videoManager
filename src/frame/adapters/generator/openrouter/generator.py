@@ -117,8 +117,6 @@ from ._prompts import compile_edit_prompt, compile_video_prompt
 # 로거 이름은 패키지의 것을 쓴다 (모듈을 나누기 전과 같은 이름)
 log = logging.getLogger("frame.adapters.generator.openrouter")
 
-OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
-DEFAULT_VIDEO_MODEL = "alibaba/wan-3.0"
 # 제출 뒤 이 시간이 지나면 제공자에게 다시 물어야 하는 원장 항목(결과 미회수·클립 없음)은 이어 받지 않는다
 LEDGER_TTL_SECONDS = 24 * 3600.0
 
@@ -234,13 +232,15 @@ class OpenRouterVideoGenerator(VideoGenerator):
         *,
         store: ArtifactStore,
         api_key: str,
-        model: str = DEFAULT_VIDEO_MODEL,
-        resolution: str = "720p",
-        aspect_ratio: str = "9:16",
-        fps: int = 30,
-        base_url: str = OPENROUTER_API_BASE,
-        timeout_seconds: float = 600.0,
-        poll_interval_seconds: float = 20.0,
+        # 아래 일곱과 edit_mode · edit_parent_wait_seconds 는 설정(FRAME_VIDEO_*)에서 온다.
+        # 기본값은 설정 한 곳에만 있다 - 여기에 다시 적지 않는다 (ADR-0032)
+        model: str,
+        resolution: str,
+        aspect_ratio: str,
+        fps: int,
+        base_url: str,
+        timeout_seconds: float,
+        poll_interval_seconds: float,
         submit_attempts: int = 3,
         download_attempts: int = 3,
         request_timeout_seconds: float = 60.0,
@@ -248,9 +248,9 @@ class OpenRouterVideoGenerator(VideoGenerator):
         normalizer: VideoNormalizer | None = None,
         ledger: JobLedger | None = None,
         ledger_ttl_seconds: float = LEDGER_TTL_SECONDS,
-        edit_mode: str = EDIT_OFF,
+        edit_mode: str,
         edit_model: str | None = None,
-        edit_parent_wait_seconds: float = 10.0,
+        edit_parent_wait_seconds: float,
         edit_preview_wait_seconds: float = 3.0,
         parent_url_hold_seconds: float = 1800.0,
         sleep: Callable[[float], None] = time.sleep,
