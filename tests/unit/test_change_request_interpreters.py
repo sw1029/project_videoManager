@@ -55,6 +55,23 @@ def test_rule_based_reads_scenes_scene_level_conditions_and_relations(rules, ir)
     )
 
 
+@pytest.mark.parametrize(
+    ("text", "value", "scenes"),
+    [
+        ("cup.text = info@frame.io", "info@frame.io", ()),
+        ("cup.text = info@frame.io @ closeup", "info@frame.io", ("closeup",)),
+        ("cup.color = teal @closeup", "teal", ("closeup",)),
+    ],
+)
+def test_rule_based_reads_an_at_sign_inside_a_value_as_part_of_the_value(
+    rules, ir, text, value, scenes
+):
+    """장면 목록은 값과 띄어 쓴 '@' 뒤에 온다 (구조화 DSL 과 같은 규칙, 감사 A-26)."""
+    reading = rules.interpret(ir, text)
+
+    assert (reading.new_value, reading.scene_keys) == (value, scenes)
+
+
 def test_rule_based_reads_what_to_keep(rules, ir):
     reading = rules.interpret(
         ir, "cup.color = teal; keep: barista.action, barista.모습, cup.shape, lighting, 배경"

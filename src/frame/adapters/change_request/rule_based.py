@@ -1,7 +1,7 @@
 """규칙 기반 변경 요청 해석 (FRAME_CHANGE_INTERPRETER=rule_based, ADR-0019). LLM 없이 도는 DSL 이다.
 
 형식 (줄바꿈이나 ; 로 나눈다)
-    cup.color = teal                    객체 속성. 값 뒤에 '@ 장면, 장면' 을 붙이면 그 장면만
+    cup.color = teal                    객체 속성. 값 뒤에 띄어서 '@ 장면, 장면' 을 붙이면 그 장면만
     scene.lighting = cold               장면 수준 조건
     barista holds -> tray               관계 (상대 객체)
     keep: barista.action, cup.shape, lighting, background
@@ -30,6 +30,7 @@ from ._reading import known_entity, usable_keep, with_left_out
 _ATTRIBUTE = re.compile(r"^\s*([\w-]+)\s*\.\s*([\w-]+)\s*=\s*(.+?)\s*$")
 _RELATION = re.compile(r"^\s*([\w-]+)\s+([\w-]+)\s*->\s*([\w-]+)\s*$")
 _KEEP = re.compile(r"^\s*(?:keep|유지)\s*[:：]\s*(.+)$", re.IGNORECASE)
+_SCENES = re.compile(r"^(.*?)(?:\s+@\s*(.*))?$")  # 본문 [@ 장면, 장면]
 _ASPECTS = {
     "appearance": KeepAspect.APPEARANCE,
     "모습": KeepAspect.APPEARANCE,
@@ -88,7 +89,9 @@ class RuleBasedChangeRequestInterpreter(ChangeRequestInterpreter):
 
 
 def _change(clause: str) -> tuple[str | None, str, str, tuple[str, ...]]:
-    body, _, where = clause.partition("@")
+    # 장면 목록은 값과 띄어 쓴 '@' 뒤에 온다. 값에 붙은 '@'(info@frame.io)는 값의 일부다
+    split = _SCENES.match(clause)
+    body, where = (split.group(1), split.group(2) or "") if split else (clause, "")
     scenes = tuple(s.strip() for s in where.split(",") if s.strip())
     relation = _RELATION.match(body)
     if relation:
