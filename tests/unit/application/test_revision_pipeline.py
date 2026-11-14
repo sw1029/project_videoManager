@@ -13,8 +13,7 @@ from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.dto import CreateRevisionCommand
 from frame.application.ports.generator import RevisionDirective, SceneGenerationRequest
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem
 from tests.support.factories import create_draft, generate, make_container
 
 ACTION = KeepItem(KeepAspect.ACTION, "barista")

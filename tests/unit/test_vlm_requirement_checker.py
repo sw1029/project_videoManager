@@ -20,7 +20,7 @@ from frame.domain.checks import CheckResult
 from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.ir import RequirementSpec
 from frame.domain.models import VideoVersion
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 from tests.support.clock import ManualClock
 from tests.support.video import find_ffmpeg, make_clip
 

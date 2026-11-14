@@ -17,9 +17,8 @@ from dataclasses import dataclass, replace
 from frame.domain.enums import ChangeScope, CheckType, RevisionKind, Verdict
 from frame.domain.errors import NotFound, ValidationError, VersionNotRevisable
 from frame.domain.models import ReferenceImage, VideoVersion
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange, ChangePropagationPolicy
-from frame.domain.services.revision_planning import resolve_revision, revision_draft
+from frame.domain.revision import AttributeChange, ChangePropagationPolicy, KeepItem
+from frame.domain.revision.resolution import resolve_revision, revision_draft
 from frame.domain.state_machine import REVISABLE_STATES
 
 from ..pipeline.requests import condition_request, parent_clip_of, revision_directive

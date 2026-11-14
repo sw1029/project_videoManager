@@ -3,10 +3,9 @@
 밖에서 쓰는 이름 - 이 패키지는 이름을 내보내지 않는다. 모듈에서 import 한다.
 
 모듈 지도
-    propagation          수정 전파: 값 바꾸기가 어느 장면에 미치는가
-    revision_planning    수정 요청 풀기: 요청을 CHANGE · REPAIR 로 풀어 수정 버전의 초안을 만든다 (변경 계획이 아니다)
     identity             정체성 기준 이미지의 규칙: 누구에게 필요한가, 아직 유효한가
     comparison           버전 비교: 장면 · 요구조건 · 지표의 전후
+    propagation · revision_planning    옛 경로의 호환 모듈. 수정 의도와 그 규칙은 domain/revision/ 에 있다
 """
 
 __all__: list[str] = []

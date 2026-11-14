@@ -41,11 +41,16 @@ COMPAT_ADAPTER_MODULES: dict[str, tuple[str, ...]] = {
         "frame.adapters.generator.normalizer",
         "frame.adapters.shared.media",
     ),
+    # 수정 의도와 그 규칙은 domain/revision/ 패키지로 모았다 (감사 M-07)
+    "frame.domain.services.propagation": ("frame.domain.revision",),
+    "frame.domain.services.revision_planning": ("frame.domain.revision.resolution",),
 }
 
 # 호환 경로를 아직 import 하는 모듈 — 다른 브랜치가 고치고 있어 지금 고치지 않는 파일. 머지 뒤에 고치고 지운다
 COMPAT_PATH_IMPORTERS = frozenset(
     {
         "frame.config.container",  # #10 · theme-series 가 고친다 (P-02)
+        "frame.application.dto",  # #10 이 고친다
+        "frame.presentation.routers.versions",  # #10 이 고친다
     }
 )

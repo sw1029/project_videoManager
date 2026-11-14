@@ -12,8 +12,8 @@ from frame.application.dto import CreateRevisionCommand
 from frame.domain.enums import Verdict, VersionState
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.models import VideoVersion
+from frame.domain.revision import AttributeChange
 from frame.domain.services.comparison import SceneStatus, VersionNotComparable
-from frame.domain.services.propagation import AttributeChange
 from tests.support.factories import create_draft, generate, make_container
 
 

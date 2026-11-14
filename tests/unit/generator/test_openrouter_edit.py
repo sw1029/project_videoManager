@@ -35,8 +35,7 @@ from frame.application.ports.generator import (
 from frame.config import Settings, build_container
 from frame.domain.enums import KeepAspect, RevisionKind
 from frame.domain.ir import RequirementSpec
-from frame.domain.revision import KeepItem
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy, KeepItem
 from tests.support.openrouter import (
     JOB_ID,
     SIGNED_URL,

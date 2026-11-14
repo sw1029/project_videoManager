@@ -12,7 +12,7 @@ from frame.application.ports.checker import Checker
 from frame.application.ports.generator import VideoGenerator
 from frame.domain.enums import CheckType, TrackingStatus, Verdict, VersionState
 from frame.domain.errors import InvalidStateTransition
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.clock import ManualClock
 from tests.support.factories import (
     create_draft,

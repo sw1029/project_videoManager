@@ -19,8 +19,12 @@ from frame.application.ports.checker import CheckContext
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import CheckType, KeepAspect, RevisionKind, Verdict, VersionState
 from frame.domain.models import VideoVersion
-from frame.domain.revision import KeepItem, RevisionIntent
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import (
+    AttributeChange,
+    DefaultPropagationPolicy,
+    KeepItem,
+    RevisionIntent,
+)
 from tests.support.clock import ManualClock
 from tests.support.video import find_ffmpeg, make_clip
 

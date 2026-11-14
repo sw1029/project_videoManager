@@ -17,8 +17,7 @@ from frame.adapters.shared.vlm.answers import requested_key
 from frame.application.ports.change_request import ChangeRequestNotUnderstood
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import IntermediateRepresentation
-from frame.domain.revision import KeepItem, normalize_keep
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange, KeepItem, normalize_keep
 
 
 def known_entity(ir: IntermediateRepresentation, raw: str, notes: str = "") -> str:

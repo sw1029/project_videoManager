@@ -37,8 +37,8 @@
 | 다시 맞추기 | `RevisionKind.REPAIR` | 요구조건은 그대로 두고, 반영되지 않은 장면을 다시 만든다 (ADR-0017) |
 | 유지할 요소 | `KeepItem` (`KeepAspect`) | 수정에서 그대로 두라고 사용자가 고른 것 — 객체의 모습 · 동작 · 형태, 장면의 배경 · 조명 · 구도 |
 | 수정 지시 | `RevisionDirective` | 생성기에 넘기는 "이 장면을 왜 다시 만드는가" (종류 · 고칠 요구조건 · 이전 값 · 유지할 요소) |
-| 수정 전파 | `domain/services/propagation.py` | 값 바꾸기가 어느 장면에 미치는지 (`ChangeScope`) |
-| 수정 요청 풀기 | `domain/services/revision_planning.py` `resolve_revision` | 수정 요청을 CHANGE · REPAIR 로 풀어 수정 버전의 초안을 만드는 규칙. **변경 계획이 아니다** (모듈 이름이 헷갈린다 — `domain/revision/` 으로 옮길 때 `resolution` 으로) |
+| 수정 전파 | `domain/revision/propagation.py` (대상 장면은 `changes.py`) | 값 바꾸기가 어느 장면에 미치는지 (`ChangeScope`) |
+| 수정 요청 풀기 | `domain/revision/resolution.py` `resolve_revision` | 수정 요청을 CHANGE · REPAIR 로 풀어 수정 버전의 초안을 만드는 규칙. **변경 계획이 아니다** (옛 이름 `revision_planning` 이 헷갈려 옮기면서 바꿨다) |
 | 변경 계획 | `PlanRevision`, `RevisionPlan` | 수정을 실행하기 전에 보여 주는 미리보기 — 어느 장면을 다시 만들고, 어떻게 · 얼마에 (ADR-0019, 0020) |
 | 변경 요청 해석 | `ChangeRequestInterpreter` | 글로 쓴 변경 요청을 수정 의도로 읽는 일 (ADR-0019) |
 | 부모 클립 편집 | `ProductionMethod.EDIT`, `ParentClip` | 다시 만드는 장면을 새로 생성하지 않고 부모 버전의 클립을 고쳐 만드는 방식 (ADR-0016) |
@@ -78,7 +78,7 @@
 |---|---|---|
 | (최종 영상) 조립 | `VideoAssembler` | 장면 클립을 이어 최종 영상을 만드는 일 |
 | 조립 지점 | `config/` (`Settings` → `AdapterRegistry` → `Container`) | 설정에 따라 어댑터를 골라 엮는 곳. 등록은 `config/registrations/<포트>.py` |
-| 변경 계획 | `PlanRevision` | 위 '수정' 계열 참고. `revision_planning` 은 변경 계획이 아니다 |
+| 변경 계획 | `PlanRevision` | 위 '수정' 계열 참고. 수정 요청 풀기(`domain/revision/resolution.py`)는 변경 계획이 아니다 |
 
 ## 3. 한 번만 만들고 한 번만 과금하기
 

@@ -41,6 +41,40 @@ MOVED = [
     ("frame.adapters.generator.ffmpeg", "VideoNormalizer", "frame.adapters.generator.normalizer"),
     ("frame.application.ports.generator", "VideoAssembler", "frame.application.ports.assembler"),
     ("frame.application.ports", "VideoAssembler", "frame.application.ports.assembler"),
+    # 수정 의도와 그 규칙은 domain/revision/ 패키지로 모았다. frame.domain.revision 은 패키지의 입구가 됐다
+    ("frame.domain.revision", "RevisionIntent", "frame.domain.revision.intent"),
+    ("frame.domain.revision", "KeepItem", "frame.domain.revision.intent"),
+    ("frame.domain.revision", "normalize_keep", "frame.domain.revision.intent"),
+    ("frame.domain.revision", "repair_targets", "frame.domain.revision.changes"),
+    ("frame.domain.revision", "next_seed", "frame.domain.revision.changes"),
+    ("frame.domain.services.propagation", "AttributeChange", "frame.domain.revision.changes"),
+    ("frame.domain.services.propagation", "target_scenes", "frame.domain.revision.changes"),
+    (
+        "frame.domain.services.propagation",
+        "ChangePropagationPolicy",
+        "frame.domain.revision.propagation",
+    ),
+    (
+        "frame.domain.services.propagation",
+        "DefaultPropagationPolicy",
+        "frame.domain.revision.propagation",
+    ),
+    ("frame.domain.services.propagation", "PropagationResult", "frame.domain.revision.propagation"),
+    (
+        "frame.domain.services.revision_planning",
+        "resolve_revision",
+        "frame.domain.revision.resolution",
+    ),
+    (
+        "frame.domain.services.revision_planning",
+        "revision_draft",
+        "frame.domain.revision.resolution",
+    ),
+    (
+        "frame.domain.services.revision_planning",
+        "ResolvedRevision",
+        "frame.domain.revision.resolution",
+    ),
     # OpenRouter 모듈은 하위 패키지가 됐다. 예전 모듈 경로가 패키지의 입구다
     # (theme-series 는 _checked_base_url 을 가져다 쓴다)
     (

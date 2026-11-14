@@ -27,7 +27,7 @@ from frame.application.ports.generator import (
     VideoGenerator,
 )
 from frame.application.ports.structurer import ReferenceImageInput
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
 from tests.support.openrouter import PNG_BYTES, make_openrouter_generator
 
 

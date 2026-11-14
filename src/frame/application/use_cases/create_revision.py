@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 from frame.domain.errors import NotFound, VersionNotRevisable
-from frame.domain.services.propagation import ChangePropagationPolicy
-from frame.domain.services.revision_planning import resolve_revision, revision_draft
+from frame.domain.revision import ChangePropagationPolicy
+from frame.domain.revision.resolution import resolve_revision, revision_draft
 from frame.domain.state_machine import REVISABLE_STATES
 
 from ..dto import CreateRevisionCommand, CreateRevisionResult

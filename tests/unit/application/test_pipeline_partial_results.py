@@ -19,7 +19,7 @@ from frame.application.ports.tracker import ObjectTracker
 from frame.domain.enums import ChangeScope, CheckType, TrackingStatus, Verdict, VersionState
 from frame.domain.errors import MediaNotAvailable
 from frame.domain.progress import StageStatus
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from frame.domain.tracking import TrackRecord
 from tests.support.factories import create_draft, generate, make_container
 

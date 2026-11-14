@@ -13,8 +13,8 @@ import pytest
 from frame.domain.enums import ChangeScope, RevisionKind
 from frame.domain.errors import ValidationError
 from frame.domain.ir import RequirementSpec
-from frame.domain.services.propagation import AttributeChange, DefaultPropagationPolicy
-from frame.domain.services.revision_planning import resolve_revision
+from frame.domain.revision import AttributeChange, DefaultPropagationPolicy
+from frame.domain.revision.resolution import resolve_revision
 
 policy = DefaultPropagationPolicy()
 

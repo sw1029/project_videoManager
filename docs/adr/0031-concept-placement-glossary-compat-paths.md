@@ -58,6 +58,8 @@
   | `frame.adapters.vlm_answers` | `frame.adapters.shared.vlm.answers` |
   | `frame.adapters.generator.ffmpeg` | 클립 정규화 `frame.adapters.generator.normalizer`, ffmpeg 찾기 `frame.adapters.shared.media.ffmpeg`, 클립 검사 `frame.adapters.shared.media.probe` |
   | `frame.application.ports.generator.VideoAssembler` (이름 하나) | `frame.application.ports.assembler.VideoAssembler` |
+  | `frame.domain.services.propagation` | `frame.domain.revision` (`changes` · `propagation`) |
+  | `frame.domain.services.revision_planning` | `frame.domain.revision.resolution` |
 
   최종 영상 조립기(`FfmpegVideoAssembler` · `FakeVideoAssembler`)는 `frame.adapters.assembler` 로 옮겼고 옛 경로를 남기지 않았다
   (어댑터 패키지끼리 import 하지 않는다. 작업 중인 브랜치의 새 코드는 이 이름을 쓰지 않는다).

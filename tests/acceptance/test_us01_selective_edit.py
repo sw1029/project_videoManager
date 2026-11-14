@@ -4,7 +4,7 @@ import pytest
 
 from frame.application.dto import CreateRevisionCommand
 from frame.domain.enums import CheckType, VersionState
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from frame.evaluation import EditCase, evaluate_cases
 from tests.support.factories import generate, version_of
 

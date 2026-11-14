@@ -15,7 +15,7 @@ from frame.adapters.storage import LocalFileArtifactStore
 from frame.application.dto import CreateRevisionCommand
 from frame.config import Settings
 from frame.domain.enums import ReferenceOrigin, VersionState
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import (
     create_draft,
     dispatcher_of,

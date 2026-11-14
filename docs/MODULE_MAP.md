@@ -21,7 +21,7 @@
 | 재사용 판단 (해시·키) | `ir.py` 의 fingerprint, `hashing.py` | `ports/generator.py` `generation_fingerprint`·`result_key` | `adapters/generator/cache.py`, `ledger.py` |
 | 정체성 기준 이미지 | `services/identity.py`, `models.py` `ReferenceImage` | `ports/identity.py` `IdentityReferenceExtractor` · `pipeline/stages.py` | `adapters/identity/` |
 | 검수 (요구 반영 · 유지 요소 · 일관성 · 보존) | `checks.py` `CheckResult`, `metrics.py`, `services/comparison.py` | `ports/checker.py` `Checker`, `checks.py` `CheckSuite` · `pipeline/stages.py` `CheckStage` | `adapters/checker/` |
-| 수정 의도 · 변경 계획 | `revision.py` `RevisionIntent`, `services/propagation.py`, `services/revision_planning.py` | `ports/change_request.py` · `use_cases/create_revision.py`, `plan_revision.py` | `adapters/change_request/` |
+| 수정 의도 · 변경 계획 | `revision/` — 수정 의도 `intent.py` `RevisionIntent`, 속성 변경 `changes.py`, 전파 `propagation.py`, 수정 요청 풀기 `resolution.py` | `ports/change_request.py` · `use_cases/create_revision.py`, `plan_revision.py` | `adapters/change_request/` |
 | 추적 | `tracking.py` | `ports/tracker.py` `ObjectTracker` · `pipeline/stages.py` `TrackStage` | `adapters/tracker/` |
 | 영상 처리 (ffmpeg) | — | — | `adapters/shared/media/` — 찾기·실행 `ffmpeg.py`, 프레임 뽑기 `frames.py` (`FrameSampler`), 영상 정보 `probe.py`, 유사도(SSIM) `similarity.py`. 클립 정규화는 `adapters/generator/normalizer.py` |
 | LLM·VLM 과 API 키 | — | `ports/llm.py` `LLMClient`·`LLMKeySource` | `adapters/llm/`, 응답을 물어본 것에 맞추기 `adapters/shared/vlm/answers.py`, 키 파일 읽기·키 표시 `adapters/shared/api_keys.py` |
@@ -40,7 +40,8 @@
 |---|---|---|
 | `src/frame/` | 패키지 최상위 | `__version__` |
 | `src/frame/domain/` | 업무 규칙. 표준 라이브러리만 쓴다 | `IntermediateRepresentation`, `VideoVersion`, `RevisionIntent`, `CheckResult`, 열거형(`enums.py`), 오류(`errors.py`) |
-| `src/frame/domain/services/` | 여러 엔티티에 걸친 규칙 | 수정 전파 `propagation`, 수정 요청 풀기 `revision_planning`, 정체성 기준 `identity`, 버전 비교 `comparison` |
+| `src/frame/domain/revision/` | 수정 의도와 그 규칙 — 수정 요청을 CHANGE·REPAIR 로 풀고, 변경을 중간표현에 반영하고, 유지할 요소와 함께 남긴다 | `RevisionIntent`, `KeepItem`, `AttributeChange`, `ChangePropagationPolicy`·`DefaultPropagationPolicy`, `target_scenes`·`repair_targets`, `resolution` 의 `resolve_revision`·`revision_draft` |
+| `src/frame/domain/services/` | 여러 엔티티에 걸친 규칙 | 정체성 기준 `identity`, 버전 비교 `comparison`. `propagation`·`revision_planning` 은 옛 경로의 호환 모듈이다 (구현은 `domain/revision/`) |
 | `src/frame/application/` | 유스케이스와 포트 | `CheckSuite`, `dto.py` 의 명령·결과, 어댑터 오류 계층 `errors.py` |
 | `src/frame/application/ports/` | 바깥에 요구하는 계약 | `RequirementStructurer`, `VideoGenerator`, `VideoAssembler`, `IdentityReferenceExtractor`, `ObjectTracker`, `Checker`, `ChangeRequestInterpreter`, `LLMClient`, `ArtifactStore`, 저장소·`UnitOfWork`, `JobDispatcher` |
 | `src/frame/application/use_cases/` | 유스케이스 하나가 모듈 하나 | `CreateProject`, `StructureRequirements`, `AcceptGeneration`, `RunGenerationPipeline`, `CreateRevision`, `PlanRevision`, `ProjectQueries`, `RecoverPendingVersions` |

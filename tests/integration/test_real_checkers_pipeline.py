@@ -21,7 +21,7 @@ from frame.application.dto import CreateRevisionCommand
 from frame.application.ports.generator import GeneratedClip, VideoGenerator
 from frame.config import Settings
 from frame.domain.enums import CheckType, Verdict, VersionState
-from frame.domain.services.propagation import AttributeChange
+from frame.domain.revision import AttributeChange
 from tests.support.factories import create_draft, generate, make_container
 from tests.support.video import find_ffmpeg, make_clip
 
