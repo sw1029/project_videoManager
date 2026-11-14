@@ -1,8 +1,6 @@
-"""구조화 골드셋 실행과 결과 기록 (US-06 AC-11, T2·T6). 지표 계산은 structuring_metrics 가 한다.
+"""골드셋 실행과 기록: 구조화기로 사례를 돌려 채점하고, 기록(JSON)을 만들고·읽고·다시 채점하고·견준다.
 
-골드 사례 = 브리프 + 목표 길이 + 주석이 붙은 기대 IR (tests/evaluation/structuring_gold/*.json).
-
-기록(JSON) 하나 = 같은 골드셋을 한 구조화기(모델·프롬프트 버전)로 한 번 돌린 결과다.
+기록 하나 = 같은 골드셋을 한 구조화기(모델·프롬프트 버전)로 한 번 돌린 결과다 (record_version 1).
 사례마다 모델의 원본 응답을 함께 남겨, 골드나 지표를 고친 뒤에도 모델을 다시 부르지 않고 다시 채점할 수 있다.
 파일 이름은 `{프롬프트 버전}__{모델}__{실행 시각}.json` 이라 같은 프롬프트 버전의 기록끼리 모인다.
 """
@@ -18,77 +16,23 @@ from pathlib import Path
 from typing import Any
 
 from frame.application.errors import AdapterError
-from frame.application.ports.structurer import RequirementStructurer, StructuringRequest
+from frame.application.ports.structurer import RequirementStructurer
 from frame.domain.errors import DomainError
-from frame.domain.hashing import canonical_hash
 
-from .structuring_metrics import (
+from ._gold import GoldCase, gold_fingerprint
+from ._scoring import CaseScore, Tally, failed_case, score_case
+from ._summary import (
     ENTITY_RECALL_TARGET,
     REQUIREMENT_F1_TARGET,
     SCENE_COUNT_MATCH_TARGET,
-    CaseScore,
-    GoldSpec,
     MetricChange,
-    Tally,
     compare_headlines,
-    failed_case,
     headline,
-    score_case,
     summarize,
 )
 
 RECORD_VERSION = 1
 _DIGITS = 4  # 기록에 남기는 비율의 소수 자릿수
-
-
-@dataclass(frozen=True)
-class GoldCase:
-    case_id: str
-    language: str
-    brief: str
-    target_duration_ms: int
-    document: Mapping[str, Any]  # 주석이 붙은 기대 IR
-    spec: GoldSpec
-    covers: tuple[str, ...] = ()
-    notes: str = ""
-
-    @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> GoldCase:
-        document = data["expected"]
-        return cls(
-            case_id=str(data["case_id"]),
-            language=str(data["language"]),
-            brief=str(data["brief"]),
-            target_duration_ms=int(data["target_duration_ms"]),
-            document=document,
-            spec=GoldSpec.from_document(document),
-            covers=tuple(data.get("covers", ())),
-            notes=str(data.get("notes", "")),
-        )
-
-    def request(self) -> StructuringRequest:
-        return StructuringRequest(self.brief, target_duration_ms=self.target_duration_ms)
-
-
-def load_gold_cases(directory: Path | str) -> tuple[GoldCase, ...]:
-    """폴더의 *.json 을 파일 이름 순서로 읽는다. 기대 IR 이 IR 규칙을 어기면 ValidationError."""
-    paths = sorted(Path(directory).glob("*.json"))
-    return tuple(GoldCase.from_dict(json.loads(p.read_text(encoding="utf-8"))) for p in paths)
-
-
-def gold_fingerprint(cases: Iterable[GoldCase]) -> str:
-    """골드셋 내용의 해시. 지문이 다른 기록끼리는 같은 잣대로 잰 것이 아니다."""
-    return canonical_hash(
-        [
-            {
-                "case_id": c.case_id,
-                "brief": c.brief,
-                "target_duration_ms": c.target_duration_ms,
-                "expected": c.document,
-            }
-            for c in cases
-        ]
-    )
 
 
 # ---- 실행 ----------------------------------------------------------------------
@@ -152,7 +96,7 @@ def _describe(exc: Exception) -> str:
     return f"{code}: {exc}"
 
 
-# ---- 기록 ----------------------------------------------------------------------
+# ---- 기록 만들기·읽기 ---------------------------------------------------------------
 def build_record(
     runs: Sequence[CaseRun], *, structurer: Mapping[str, Any], run_at: str
 ) -> dict[str, Any]:
@@ -168,16 +112,16 @@ def build_record(
             "case_ids": [r.case.case_id for r in runs],
             "fingerprint": gold_fingerprint(r.case for r in runs),
         },
-        "summary": _summary(scores, runs),
+        "summary": _summary_block(scores, runs),
         "by_language": {
-            language: _summary([r.score for r in runs if r.case.language == language])
+            language: _summary_block([r.score for r in runs if r.case.language == language])
             for language in sorted({r.case.language for r in runs})
         },
         "cases": [_case_entry(r) for r in runs],
     }
 
 
-def _summary(scores: Sequence[CaseScore], runs: Sequence[CaseRun] = ()) -> dict[str, Any]:
+def _summary_block(scores: Sequence[CaseScore], runs: Sequence[CaseRun] = ()) -> dict[str, Any]:
     evaluation = summarize(scores)
     summary: dict[str, Any] = {
         "cases": evaluation.cases,
@@ -282,6 +226,7 @@ def latest_record(
     return max(records, key=lambda r: str(r["run_at"]), default=None)
 
 
+# ---- 다시 채점 -------------------------------------------------------------------
 def recorded_responses(record: Mapping[str, Any]) -> dict[str, str]:
     """사례 id → 원본 응답. ReplayLLMClient 로 다시 채점할 때 쓴다 (응답이 없던 사례는 빠진다)."""
     return {c["case_id"]: c["response"] for c in record["cases"] if c.get("response") is not None}
@@ -335,7 +280,7 @@ def rescore_record(
     return rescored
 
 
-# ---- 비교 ----------------------------------------------------------------------
+# ---- 기록 비교 -------------------------------------------------------------------
 @dataclass(frozen=True)
 class CaseChange:
     case_id: str
@@ -380,92 +325,22 @@ def compare_records(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
             )
     same_gold = baseline["gold"].get("fingerprint") == candidate["gold"].get("fingerprint")
     return RecordComparison(
-        _label(baseline), _label(candidate), metrics, tuple(changes), same_gold=same_gold
+        record_label(baseline),
+        record_label(candidate),
+        metrics,
+        tuple(changes),
+        same_gold=same_gold,
     )
 
 
-def _lost(case: Mapping[str, Any]) -> list[str]:
-    return [*case["missed_requirements"], *(m["key"] for m in case["mismatched_requirements"])]
-
-
-def _label(record: Mapping[str, Any]) -> str:
+def record_label(record: Mapping[str, Any]) -> str:
+    """기록을 사람이 알아보는 이름: 프롬프트 버전 / 모델 / 실행 시각."""
     structurer = record.get("structurer", {})
     return f"{structurer.get('prompt_version')} / {structurer.get('model')} / {record['run_at']}"
 
 
-# ---- 출력 ----------------------------------------------------------------------
-_LABELS = {
-    "entity_recall": "객체 재현율",
-    "entity_precision": "객체 정밀도",
-    "requirement_precision": "요구조건 정밀도",
-    "requirement_recall": "요구조건 재현율",
-    "requirement_f1": "요구조건 F1",
-    "appearance_f1": "등장 장면 F1",
-    "scene_count_match_rate": "장면 수 일치",
-    "mean_boundary_error_ms": "경계 오차(ms)",
-    "mean_duration_error_ms": "길이 오차(ms)",
-}
-
-
-def format_summary(record: Mapping[str, Any]) -> str:
-    summary = record["summary"]
-    targets = summary.get("targets", {})
-    lines = [
-        f"구조화 골드셋 — {_label(record)} ({summary['cases']}건, 실패 {summary['failures']})",
-    ]
-    for name, label in _LABELS.items():
-        target = f" (목표 ≥ {targets[name]})" if name in targets else ""
-        lines.append(f"  {label:<12} {_fmt(summary.get(name))}{target}")
-    lines.append(f"  목표 충족: {'예' if summary['meets_target'] else '아니오'}")
-    lines.append("  사례 (요구조건 F1 | 놓침 | 값 틀림 | 골드에 없음 | 객체 놓침·남음):")
-    for case in record["cases"]:
-        if case["error"]:
-            lines.append(f"    {case['case_id']}: 실패 {case['error']}")
-            continue
-        mismatched = [f"{m['key']}={m['actual']!r}" for m in case["mismatched_requirements"]]
-        entities = case["missed_entities"] + [f"+{k}" for k in case["spurious_entities"]]
-        lines.append(
-            f"    {case['case_id']} {_fmt(case['requirement_f1'])} | "
-            f"{_join(case['missed_requirements'])} | {_join(mismatched)} | "
-            f"{_join(case['spurious_requirements'])} | {_join(entities)}"
-        )
-    return "\n".join(lines)
-
-
-def format_comparison(comparison: RecordComparison) -> str:
-    lines = [f"기준 {comparison.baseline}", f"비교 {comparison.candidate}"]
-    if not comparison.same_gold:
-        lines.append(
-            "  ※ 골드셋이 다르다. 기준 기록의 원본 응답을 지금 골드로 다시 채점한 뒤 견줄 것 "
-            "(recorded_responses + ReplayLLMClient)"
-        )
-    for change in comparison.metrics:
-        mark = "  ← 회귀" if change.regressed else ""
-        delta = "" if change.delta is None else f"{change.delta:+.4f}"
-        lines.append(
-            f"  {change.name:<24} {_fmt(change.baseline):>9} → {_fmt(change.candidate):>9} "
-            f"{delta:>9}{mark}"
-        )
-    if comparison.cases:
-        lines.append("  달라진 사례:")
-    for case in comparison.cases:
-        lines.append(
-            f"    {case.case_id} F1 {_fmt(case.baseline_f1)} → {_fmt(case.candidate_f1)}"
-            f" | 새로 놓침: {_join(case.newly_missed)} | 새로 맞춤: {_join(case.newly_found)}"
-        )
-    return "\n".join(lines)
-
-
-def _fmt(value: Any) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, float):
-        return f"{value:.4f}".rstrip("0").rstrip(".") if value % 1 else f"{value:.0f}"
-    return str(value)
-
-
-def _join(items: Sequence[str]) -> str:
-    return ", ".join(items) if items else "-"
+def _lost(case: Mapping[str, Any]) -> list[str]:
+    return [*case["missed_requirements"], *(m["key"] for m in case["mismatched_requirements"])]
 
 
 def _tally(tally: Tally) -> dict[str, int]:

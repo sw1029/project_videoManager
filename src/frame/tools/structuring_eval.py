@@ -17,7 +17,7 @@ from pathlib import Path
 
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.structurer import LLMStructurer
-from frame.evaluation.structuring_gold import (
+from frame.evaluation.structuring import (
     compare_records,
     format_comparison,
     format_summary,

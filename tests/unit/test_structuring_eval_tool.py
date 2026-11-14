@@ -5,7 +5,7 @@ from pathlib import Path
 
 from frame.adapters.llm import ReplayLLMClient
 from frame.adapters.structurer import LLMStructurer
-from frame.evaluation.structuring_gold import (
+from frame.evaluation.structuring import (
     build_record,
     load_gold_cases,
     read_record,

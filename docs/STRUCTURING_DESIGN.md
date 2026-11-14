@@ -249,7 +249,20 @@ StructuringReport
   - 요구조건: `accept`, `accept_predicates`, `optional`
   - 요구조건의 `scene_key` 와 null 필드는 생략할 수 있다.
 
-### 10.2 지표 (`evaluation/structuring_metrics.py`, 순수 함수)
+### 10.2 지표 (`evaluation/structuring/` 패키지)
+
+코드는 `src/frame/evaluation/structuring/` 하위 패키지에 개념별로 나뉘어 있다. 밖에서는 패키지 이름으로만 import 한다 (`from frame.evaluation.structuring import …`).
+패키지 `__init__.py` 머리에 맡는 개념·공개 이름·모듈 지도가 있다.
+
+| 모듈 | 맡는 일 |
+|---|---|
+| `_values.py` | 값 비교 (어휘 정규화 뒤 값 종류별) |
+| `_gold.py` | 골드 주석 읽기, 골드 사례 파일·지문 |
+| `_matching.py` | 모델 객체·장면을 골드에 짝짓기 |
+| `_scoring.py` | 한 사례 채점 (tp/fp/fn, 장면 오차) |
+| `_summary.py` | 집계·목표 판정·대표 지표 비교 |
+| `_records.py` | 실행·기록·다시 채점·기록 비교 |
+| `_report.py` | 사람이 읽는 표 |
 
 키 이름은 모델·프롬프트마다 다르다(`red_mug` / `cup`, `scene_1` / `smile`). 그래서 먼저 키와 무관하게 짝을 맞춘다.
 - 객체: 종류가 같고 별칭이 키·설명에 들어 있는 짝만 후보로 본다. 그중 (필수 짝 수, 선택 짝 수, 맞은 별칭 수)가 가장 큰 일대일 대응을 고른다.
@@ -410,7 +423,7 @@ src/frame/adapters/structurer/repair.py            보정 규칙(순수 함수 �
 src/frame/adapters/structurer/llm_structurer.py    Prepare→Extract→(Ground)→Repair→Validate→Report
 src/frame/adapters/structurer/passthrough.py       IR 직접 입력 모드 (Repair→Validate 만)
 src/frame/application/use_cases/edit_draft_ir.py   PUT /ir
-src/frame/evaluation/structuring_metrics.py        골드셋 지표
+src/frame/evaluation/structuring/                  골드셋 지표·실행·기록 (10.2 의 모듈 표)
 tests/unit/structurer/test_repair_rules.py         규칙별 단위 테스트 (가장 먼저)
 tests/unit/structurer/test_schema.py               스키마가 IR.to_dict 와 일치하는지 (왕복)
 tests/contract/test_structurer_contract.py         LLMStructurer(ReplayLLMClient) 를 params 에 추가

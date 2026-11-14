@@ -7,7 +7,7 @@ import pytest
 
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
-from frame.evaluation.structuring_metrics import (
+from frame.evaluation.structuring import (
     GoldSpec,
     Tally,
     ValueMismatch,

@@ -24,7 +24,7 @@ from frame.adapters.structurer.llm_prompt import PROMPT_VERSION
 from frame.application.errors import ConfigurationError, LLMUnavailable
 from frame.config import Settings, build_container
 from frame.domain.ir import IR_SCHEMA_VERSION
-from frame.evaluation.structuring_gold import (
+from frame.evaluation.structuring import (
     build_record,
     compare_records,
     format_comparison,

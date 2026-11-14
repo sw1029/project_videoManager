@@ -15,8 +15,9 @@ from frame.adapters.structurer import LLMStructurer
 from frame.adapters.structurer.llm_prompt import MIN_SCENE_MS, max_scenes_for
 from frame.domain.enums import EntityKind
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
-from frame.evaluation.structuring_gold import (
+from frame.evaluation.structuring import (
     GoldCase,
+    Tally,
     build_record,
     compare_records,
     format_comparison,
@@ -27,9 +28,9 @@ from frame.evaluation.structuring_gold import (
     recorded_responses,
     rescore_record,
     run_gold_set,
+    summarize,
     write_record,
 )
-from frame.evaluation.structuring_metrics import Tally, summarize
 
 GOLD_DIR = Path(__file__).parent / "structuring_gold"
 REPLAY_DIR = Path(__file__).parent / "replay"
