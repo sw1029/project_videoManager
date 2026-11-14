@@ -205,3 +205,77 @@ def test_llm_answer_that_is_not_json_is_a_bad_response(ir):
     interpreter, _ = _llm("not json")
     with pytest.raises(LLMBadResponse):
         interpreter.interpret(ir, REQUEST)
+
+
+# ---- 두 구현의 같은 경계 (감사 A-30) -----------------------------------------------------
+# 포트 계약: 성공한 해석은 이 영상에 있는 객체만 가리킨다. 구현마다 따로 맞추면 같은 요청이 구현에 따라
+# 다른 오류(규칙 기반 404 / LLM 422)가 되고, 유지 요소 하나 때문에 계획 전체가 거절된다.
+
+
+def test_both_interpreters_refuse_a_subject_that_is_not_in_the_video(rules, ir):
+    llm, _ = _llm(_answer(entity_key="dog"))
+
+    for read in (
+        lambda: rules.interpret(ir, "dog.color = teal"),
+        lambda: llm.interpret(ir, REQUEST),
+    ):
+        with pytest.raises(ChangeRequestNotUnderstood, match="이 영상에 없습니다") as excinfo:
+            read()
+        assert excinfo.value.code == "CHANGE_REQUEST_NOT_UNDERSTOOD"
+
+
+def test_both_interpreters_leave_out_what_to_keep_for_a_subject_that_is_not_there(rules, ir):
+    keep = [{"aspect": "ACTION", "entity_key": "dog"}, {"aspect": "LIGHTING", "entity_key": None}]
+    llm, _ = _llm(_answer(keep=keep))
+
+    for reading in (
+        rules.interpret(ir, "cup.color = teal; keep: dog.action, lighting"),
+        llm.interpret(ir, REQUEST),
+    ):
+        assert reading.keep == (KeepItem(KeepAspect.LIGHTING),)
+        assert "이 영상에 없어 뺀 것" in reading.notes and "dog" in reading.notes
+
+
+def test_both_interpreters_leave_out_keeping_the_very_thing_the_change_alters(rules, ir):
+    """컵 색을 바꾸면서 컵의 모습을 그대로 두라는 것은 어긋난다. 그 유지 요소만 빼고 알린다.
+
+    그대로 돌려주면 수정 요청을 푸는 단계가 계획 전체를 거절한다 (모델이 유지 요소를 넉넉히 적는 일은 흔하다).
+    """
+    keep = [
+        {"aspect": "APPEARANCE", "entity_key": "cup"},
+        {"aspect": "ACTION", "entity_key": "barista"},
+    ]
+    llm, _ = _llm(_answer(keep=keep))
+
+    for reading in (
+        rules.interpret(ir, "cup.color = teal; keep: cup.모습, barista.action"),
+        llm.interpret(ir, REQUEST),
+    ):
+        assert reading.keep == (KeepItem(KeepAspect.ACTION, "barista"),)
+        assert "바꾸는 것 자체라 뺀 유지 요소" in reading.notes and "cup" in reading.notes
+        assert "이 영상에 없어" not in reading.notes
+
+
+def test_llm_keys_that_carry_extra_text_are_matched_to_the_video(ir):
+    """실제 모델은 키 대신 질의의 한 줄을 통째로 돌려줄 때가 있다 ('cup (prop): 세라믹 머그컵')."""
+    answer = _answer(
+        entity_key="cup (prop): 세라믹 머그컵",
+        scope="SCENES",
+        scene_keys=["closeup (4s-8s)", "- intro"],
+        keep=[{"aspect": "ACTION", "entity_key": "barista (person)"}],
+    )
+    llm, _ = _llm(answer)
+
+    reading = llm.interpret(ir, REQUEST)
+
+    assert reading.entity_key == "cup"
+    assert (reading.scope, reading.scene_keys) == (ChangeScope.SCENES, ("closeup", "intro"))
+    assert reading.keep == (KeepItem(KeepAspect.ACTION, "barista"),)
+    assert "뺀" not in reading.notes
+
+
+def test_a_key_that_only_starts_like_a_subject_is_not_that_subject(ir):
+    llm, _ = _llm(_answer(entity_key="cupboard"))
+
+    with pytest.raises(ChangeRequestNotUnderstood, match="cupboard"):
+        llm.interpret(ir, REQUEST)

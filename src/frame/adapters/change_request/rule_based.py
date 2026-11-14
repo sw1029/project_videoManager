@@ -6,6 +6,9 @@
     barista holds -> tray               관계 (상대 객체)
     keep: barista.action, cup.shape, lighting, background
 유지할 요소는 '객체.요소' 또는 장면 요소 이름으로 쓴다 (영어 이름과 한국어 별칭을 읽는다).
+
+읽은 객체와 유지 요소는 LLM 해석기와 같은 규칙으로 이 영상에 맞춘다 (_reading): 바꿀 객체가 이 영상에 없으면
+ChangeRequestNotUnderstood, 쓸 수 없는 유지 요소는 빼고 notes 에 적는다.
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ from frame.domain.enums import ChangeScope, KeepAspect
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.revision import KeepItem
+
+from ._reading import known_entity, usable_keep, with_left_out
 
 _ATTRIBUTE = re.compile(r"^\s*([\w-]+)\s*\.\s*([\w-]+)\s*=\s*(.+?)\s*$")
 _RELATION = re.compile(r"^\s*([\w-]+)\s+([\w-]+)\s*->\s*([\w-]+)\s*$")
@@ -66,14 +71,19 @@ class RuleBasedChangeRequestInterpreter(ChangeRequestInterpreter):
         if change is None:
             raise ChangeRequestNotUnderstood(f"변경 요청을 읽지 못했습니다. {_HINT}")
         entity, predicate, value, scenes = change
+        if entity is not None:
+            entity = known_entity(ir, entity)
+        usable, missing, clashing = usable_keep(
+            ir, keep, entity_key=entity, predicate=predicate, new_value=value
+        )
         return ChangeRequestInterpretation(
             entity_key=entity,
             predicate=predicate,
             new_value=value,
             scope=ChangeScope.SCENES if scenes else None,
             scene_keys=scenes,
-            keep=tuple(keep),
-            notes="규칙 기반 형식으로 읽었습니다",
+            keep=usable,
+            notes=with_left_out("규칙 기반 형식으로 읽었습니다", missing, clashing),
         )
 
 
