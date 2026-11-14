@@ -121,3 +121,35 @@ def test_malformed_values_are_reported_as_validation_errors(mutate):
 
     with pytest.raises(ValidationError):
         PassthroughStructurer().structure_document(document)
+
+
+def _deeply_nested(depth: int = 5000) -> list:
+    value: list = []
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+def _tuple_scenes_with_a_list_key(document: dict) -> None:
+    document["scenes"][0]["entity_keys"] = [["cup"]]
+    document["scenes"] = tuple(document["scenes"])  # 보정은 list 가 아닌 장면 목록을 건너뛴다
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d["scenes"][0].update(planned_end_ms=float("inf")),  # json 의 Infinity·1e400
+        _tuple_scenes_with_a_list_key,  # validate() 에서 unhashable
+        lambda d: d["scenes"][0].update(
+            description=_deeply_nested()
+        ),  # deepcopy 에서 RecursionError
+    ],
+    ids=["infinite-number", "tuple-scenes-list-key", "deeply-nested"],
+)
+def test_other_malformed_documents_are_validation_errors_too(mutate):
+    """델타 D04: 포트 계약('형식 위반은 ValidationError')을 보정·변환·검증 어디서 틀려도 지킨다."""
+    document = _document()
+    mutate(document)
+
+    with pytest.raises(ValidationError):
+        PassthroughStructurer().structure_document(document)
