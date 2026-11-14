@@ -113,7 +113,47 @@
 - `FRAME_SPEECH_RECOGNIZER=faster_whisper`: faster-whisper 로 이 컴퓨터에서 받아 적는다. 과금이 없고 소리가 밖으로 나가지 않는다.
   선택 설치다 (`.[speech-local]`). 같은 포트·같은 계약 테스트를 지난다.
 - 말 구간 검출(꾸러미에 든 Silero VAD)을 기본으로 켠다. 끄면 발화를 통째로 놓치고 (457발화 가운데 3개) 잡음에서 문장을 지어낸다. 켜면 둘 다 0 이었다.
-- 기본 인식기는 그대로 가짜다. API 인식(whisper-1)은 2027-02-26 종료가 예고돼 있어, 로컬 인식이 그 뒤의 길이기도 하다.
+- 기본 인식기는 그대로 가짜다. API 인식(whisper-1)은 2027-02-26 종료가 예고돼 있어, 로컬 인식이 그 뒤의 길이기도 하다
+  (출처: OpenAI API 의 deprecations 페이지 `developers.openai.com/api/docs/deprecations` — 2026-08-26 공지, 2026-11-14 에 읽음).
+- 인식기는 포트의 계약을 스스로 맞춘다: 엔진이 준 구간을 시간 순서로 놓고, 겹침을 없애고, 소리 길이 안으로 자른다
+  (`domain/speech.ordered_segments`, 두 어댑터가 같이 쓴다). 끝이 1 ms 만 넘어도 받아쓰기 검사에서 거절되기 때문이다.
+- 오류는 두 종류로 올린다. 소리의 문제(읽을 수 없는 소리, API 의 400·413·415·422)는 `SpeechRecognitionError` — 부른 쪽은
+  내레이션 없이 계속할 수 있다. 그 밖(키·인증·한도·연결·잔액·주소나 모델 이름·서버 오류, 로컬 모델을 열지 못하거나 받아 적는 중의
+  실행 오류)은 `SpeechServiceError` — 부른 쪽은 다음 유료 단계로 가지 않는다.
+
+**로컬 모델은 미리 받아 두고, 제품은 받아 둔 폴더만 연다** (`FRAME_SPEECH_LOCAL_MODEL` = 폴더)
+- 이름을 주면 꾸러미가 첫 받아쓰기 요청 안에서, 판을 고정하지 않은 채 허브에서 받는다 (1.6GB. 그 동안 요청이 멈추고, 네트워크가 없으면 실패한다).
+  그래서 이름은 받지 않는다. 폴더가 없거나 모델 파일(`model.bin` · `config.json` · `tokenizer.json`)이 빠졌으면 기동할 때 설정 오류다.
+  어댑터는 `local_files_only` 로 연다 (실행 중에 허브에 묻지 않는다).
+- 받는 명령 (한 번, 네트워크가 있는 곳에서. 저장소와 판을 고정한다):
+
+  ```
+  python -c "from faster_whisper import download_model; download_model('dropbox-dash/faster-whisper-large-v3-turbo', output_dir='<받을 폴더>', revision='0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf')"
+  ```
+
+- 이 문서의 수치(글자 오류율 3.6% 등)를 잰 판. 받은 뒤 `sha256sum <파일>` (Windows 는 `certutil -hashfile <파일> SHA256`) 로 견준다.
+
+  | 항목 | 값 |
+  |---|---|
+  | 저장소 | `huggingface.co/dropbox-dash/faster-whisper-large-v3-turbo` (Whisper large-v3-turbo 의 CTranslate2 변환본) |
+  | 판 (revision) | `0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf` (저장소의 마지막 수정 2025-11-05, 2026-11-14 에 받음) |
+  | 라이선스 | MIT (모델 카드) |
+  | 꾸러미 | faster-whisper 1.2.1 · ctranslate2 4.9.0 (선택 설치는 `faster-whisper>=1.1,<2`) |
+
+  | 파일 | 크기 (바이트) | sha256 |
+  |---|---|---|
+  | `model.bin` | 1,617,884,929 | `e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da` |
+  | `config.json` | 2,263 | `b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e` |
+  | `tokenizer.json` | 2,710,337 | `297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd` |
+  | `vocabulary.json` | 1,068,114 | `c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1` |
+  | `preprocessor_config.json` | 340 | `7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711` |
+
+- 꾸러미 1.2.1 이 아는 이름 `large-v3-turbo` 는 제3자 저장소 `mobiuslabsgmbh/faster-whisper-large-v3-turbo` 이고, 허브가 그 이름을 위 저장소로 넘긴다
+  (이름이 가리키는 곳이 이미 한 번 옮겨졌다). 이름이 아니라 저장소와 판으로 받는 까닭이다.
+- 위 명령을 판을 넣은 꼴로 다시 돌려 보지는 않았다 (다시 받지 않았다). 처음에는 같은 함수를 이름으로 불러 받았고, 받은 폴더의 기록이 위의 판을 가리킨다.
+  `revision` 인자는 설치된 1.2.1 의 함수 서명으로 확인했다.
+- 결과를 남기는 키에 드는 인식기의 정체는 모델 파일의 지문 · 연산 방식 · 빔 크기 · 말 구간 검출이다. 폴더의 위치는 들지 않는다
+  (저장된 문서에 그 컴퓨터의 경로가 남지 않고, 폴더를 옮겨도 캐시가 맞는다).
 
 ## 낱말
 | 낱말 | 뜻 | 코드 |

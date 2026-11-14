@@ -50,7 +50,7 @@ class _Model:
 def _recognizer(model: _Model, **changes) -> FasterWhisperRecognizer:
     defaults = ThemeSettings()
     options = {
-        "model": defaults.speech_local_model,
+        "model": "model-folder",  # 가짜 모델을 넣어 주므로 폴더를 열지 않는다
         "device": defaults.speech_local_device,
         "compute_type": defaults.speech_local_compute,
         "vad": defaults.speech_local_vad,
@@ -221,6 +221,61 @@ def test_a_missing_gpu_library_falls_back_to_the_cpu_once():
     assert recognizer.transcribe(AUDIO).text == "안녕하세요"
     assert devices == ["auto", "cpu"] and recognizer.device == "cpu"
     assert recognizer.transcribe(AUDIO).text == "안녕하세요" and devices == ["auto", "cpu"]
+
+
+def test_model_is_opened_from_its_folder_without_asking_the_hub(monkeypatch, tmp_path):
+    """모델은 받아 둔 폴더에서만 연다. 실행 중에 허브에 묻거나 내려받지 않는다 (감사 BTS-D60)."""
+    from frame.adapters.speech import faster_whisper as module
+
+    opened: list[tuple[str, dict]] = []
+
+    class _Package:
+        @staticmethod
+        def WhisperModel(path, **options):
+            opened.append((path, options))
+            return _Model([_segment(0.0, 1.0, "안녕하세요")])
+
+    monkeypatch.setattr(module, "_package", lambda: _Package)
+    recognizer = FasterWhisperRecognizer(
+        model=str(tmp_path),
+        device="cpu",
+        compute_type="int8",
+        vad=True,
+        decoder=lambda data, rate: data,
+    )
+
+    assert recognizer.transcribe(AUDIO).text == "안녕하세요"
+    assert opened == [
+        (str(tmp_path), {"device": "cpu", "compute_type": "int8", "local_files_only": True})
+    ]
+
+
+def test_model_fingerprint_follows_the_files_not_the_folder(tmp_path):
+    from frame.adapters.speech.faster_whisper import missing_model_files, model_fingerprint
+
+    def folder(name: str, weights: bytes = b"weights" * 400_000, config: bytes = b"{}"):
+        made = tmp_path / name
+        made.mkdir()
+        (made / "model.bin").write_bytes(weights)  # 2.8MB: 앞뒤만 읽는 크기
+        (made / "config.json").write_bytes(config)
+        (made / "tokenizer.json").write_bytes(b"{}")
+        (made / "README.md").write_bytes(name.encode())  # 모델의 파일이 아닌 것은 보지 않는다
+        return made
+
+    base = model_fingerprint(folder("a"))
+
+    assert base == model_fingerprint(folder("b")) and len(base) == 16
+    assert base != model_fingerprint(folder("c", weights=b"weights" * 400_000 + b"!"))
+    assert base != model_fingerprint(folder("d", weights=b"Weights" + b"weights" * 399_999))
+    assert base != model_fingerprint(folder("e", config=b'{"n_mels": 128}'))
+    assert missing_model_files(tmp_path / "a") == ()
+    (tmp_path / "a" / "tokenizer.json").unlink()
+    assert missing_model_files(tmp_path / "a") == ("tokenizer.json",)
+    assert missing_model_files(tmp_path / "nowhere") == (
+        "model.bin",
+        "config.json",
+        "tokenizer.json",
+    )
 
 
 def test_a_model_that_cannot_be_loaded_is_a_service_error():

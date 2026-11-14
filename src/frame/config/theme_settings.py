@@ -10,7 +10,7 @@
 | FRAME_SPEECH_MODEL | whisper-1 | 인식 모델 (낱말 시각을 주는 모델이어야 줄 사이를 정확히 나눈다) |
 | FRAME_SPEECH_BASE_URL | (LLM 주소, 없으면 OpenAI) | 인식 API 주소. https 만 받는다 (로컬 서버는 예외) |
 | FRAME_SPEECH_KEY_FILE | (주소가 같으면 LLM 의 키) | 인식 전용 키 파일. 주소가 LLM 과 다르면 꼭 주고, 그 키만 싣는다 |
-| FRAME_SPEECH_LOCAL_MODEL | large-v3-turbo | 로컬 인식의 모델: 이름(처음 쓸 때 받는다) 또는 받아 둔 폴더 |
+| FRAME_SPEECH_LOCAL_MODEL | (없음) | 로컬 인식 모델을 받아 둔 폴더. 로컬 인식에 꼭 준다 (실행 중에는 받지 않는다) |
 | FRAME_SPEECH_LOCAL_DEVICE | auto · cpu · cuda | 로컬 인식을 돌릴 장치 (GPU 라이브러리가 없으면 CPU 로 바꾼다) |
 | FRAME_SPEECH_LOCAL_COMPUTE | default | CTranslate2 의 연산 방식 (float16 · int8 …) |
 | FRAME_SPEECH_LOCAL_VAD | on · off | 말이 있는 곳만 받아 적는다 (끄면 말이 없는 소리에서 문장을 지어낸다) |
@@ -28,7 +28,8 @@
 | FRAME_THEME_MAX_SLOT_MS | (없음) | 자리 길이의 상한. 주면 더 긴 자리를 말 멈춤에서 나눈다 |
 | FRAME_SHOT_THRESHOLD | 0.3 | ffmpeg 컷 찾기의 scene 점수 하한 |
 
-로컬 인식(faster_whisper)은 선택 설치다: pip install -e ".[speech-local]".
+로컬 인식(faster_whisper)은 선택 설치다: pip install -e ".[speech-local]". 모델은 미리 받아 둔다 — 받는 명령과
+잰 판(저장소·revision·sha256)은 docs/adr/0028-script-extraction-and-evidence.md 결정 9 에 있다.
 """
 
 from __future__ import annotations
@@ -57,9 +58,8 @@ class ThemeSettings:
     speech_key_file: str | None = None
     speech_timeout_s: float = 120.0
     # 로컬 인식 (speech="faster_whisper"). 선택 설치: pip install -e ".[speech-local]"
-    speech_local_model: str = (
-        "large-v3-turbo"  # 모델 이름(처음 쓸 때 받는다, 약 1.6GB) 또는 받아 둔 폴더
-    )
+    # 모델을 받아 둔 폴더. 이름으로 받지 않는다 (첫 요청 안에서 판을 고정하지 않고 받게 된다 — 감사 BTS-D60)
+    speech_local_model: str | None = None
     speech_local_device: str = "auto"  # auto · cpu · cuda
     speech_local_compute: str = "default"  # CTranslate2 의 연산 방식 (default · float16 · int8 …)
     speech_local_vad: bool = (
@@ -109,7 +109,7 @@ class ThemeSettings:
             speech_base_url=text("SPEECH_BASE_URL", "") or None,
             speech_key_file=text("SPEECH_KEY_FILE", "") or None,
             speech_timeout_s=number("SPEECH_TIMEOUT_S", base.speech_timeout_s, float),
-            speech_local_model=text("SPEECH_LOCAL_MODEL", base.speech_local_model),
+            speech_local_model=text("SPEECH_LOCAL_MODEL", "") or None,
             speech_local_device=text("SPEECH_LOCAL_DEVICE", base.speech_local_device),
             speech_local_compute=text("SPEECH_LOCAL_COMPUTE", base.speech_local_compute),
             speech_local_vad=text(

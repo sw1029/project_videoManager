@@ -196,33 +196,99 @@ class _SpyTransport:
         return HttpResponse(200, b'{"text": "", "segments": [], "words": []}')
 
 
-def test_local_recognizer_needs_its_optional_package(monkeypatch):
-    """로컬 인식은 선택 설치다. 꾸러미가 없으면 조립할 때 무엇을 설치할지 알린다. 있으면 설정대로 만든다."""
+def _model_folder(parent, *, without=()):
+    """받아 둔 로컬 인식 모델을 흉내 낸 폴더 (내용은 가짜다)."""
+    folder = parent / "turbo"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in ("model.bin", "config.json", "tokenizer.json"):
+        if name not in without:
+            (folder / name).write_bytes(f"fake {name}".encode())
+    return folder
+
+
+def _local_package(monkeypatch, *, installed: bool = True) -> None:
+    """faster-whisper 꾸러미가 설치돼 있는(또는 없는) 것처럼 보이게 한다."""
     import importlib.util
 
-    from frame.adapters.speech.caching import CachingSpeechRecognizer
-    from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
-
-    settings = ThemeSettings(
-        speech="faster_whisper", speech_local_model="models/turbo", speech_local_vad=False
-    )
     found = importlib.util.find_spec
-    monkeypatch.setattr(
-        importlib.util, "find_spec", lambda name: None if name == "faster_whisper" else found(name)
-    )
-    with pytest.raises(ConfigurationError, match="speech-local"):
-        make_container(theme_settings=settings)
-
+    answer = object() if installed else None
     monkeypatch.setattr(
         importlib.util,
         "find_spec",
-        lambda name: object() if name == "faster_whisper" else found(name),
+        lambda name: answer if name == "faster_whisper" else found(name),
     )
+
+
+def test_local_recognizer_needs_its_optional_package(monkeypatch, tmp_path):
+    """로컬 인식은 선택 설치다. 꾸러미가 없으면 조립할 때 무엇을 설치할지 알린다. 있으면 설정대로 만든다."""
+    from frame.adapters.speech.caching import CachingSpeechRecognizer
+    from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
+
+    folder = _model_folder(tmp_path)
+    settings = ThemeSettings(
+        speech="faster_whisper", speech_local_model=str(folder), speech_local_vad=False
+    )
+    _local_package(monkeypatch, installed=False)
+    with pytest.raises(ConfigurationError, match="speech-local"):
+        make_container(theme_settings=settings)
+
+    _local_package(monkeypatch)
     recognizer = make_container(theme_settings=settings).series.recognizer
     assert isinstance(recognizer, CachingSpeechRecognizer)
     local = recognizer.inner
     assert isinstance(local, FasterWhisperRecognizer)
-    assert (local.model, local.device, local.vad) == ("models/turbo", "auto", False)
+    assert (local.model, local.device, local.vad) == (str(folder), "auto", False)
+
+
+def test_local_recognizer_only_opens_a_model_that_is_already_downloaded(monkeypatch, tmp_path):
+    """실행 중에는 모델을 내려받지 않는다: 받아 둔 폴더만 연다 (감사 BTS-D60).
+
+    이름을 받으면 첫 받아쓰기 요청 안에서, 판을 고정하지 않은 채 1.6GB 를 받게 된다 (그 동안 요청이 멈춘다).
+    폴더가 없거나 모델 파일이 빠졌으면 기동할 때 설정 오류로 알린다. 모델을 열어 보지는 않는다.
+    """
+    _local_package(monkeypatch)
+
+    def build(model):
+        settings = ThemeSettings(speech="faster_whisper", speech_local_model=model)
+        return make_container(theme_settings=settings)
+
+    for model, reason in (
+        (None, "받아 둔 폴더"),
+        ("large-v3-turbo", "폴더가 아닙니다"),  # 이름으로는 받지 않는다
+        (str(tmp_path / "nowhere"), "폴더가 아닙니다"),
+    ):
+        with pytest.raises(ConfigurationError, match=reason) as caught:
+            build(model)
+        assert "FRAME_SPEECH_LOCAL_MODEL" in str(caught.value)
+    broken = _model_folder(tmp_path / "broken", without=("model.bin", "tokenizer.json"))
+    with pytest.raises(ConfigurationError, match=r"model\.bin.*tokenizer\.json") as caught:
+        build(str(broken))
+    assert str(tmp_path) not in str(caught.value)  # 오류 글에 이 컴퓨터의 경로를 싣지 않는다
+    assert ThemeSettings().speech_local_model is None  # 기본값으로 받는 이름이 없다
+
+
+def test_local_cache_profile_names_the_model_not_where_it_is(monkeypatch, tmp_path):
+    """결과를 남기는 키에는 모델의 정체와 답을 바꾸는 설정이 든다. 폴더의 위치는 들지 않는다 (감사 BTS-D66).
+
+    위치가 들면 그 컴퓨터의 절대 경로가 저장된 문서에 남고, 폴더를 옮기면 같은 모델인데 캐시가 빗나간다.
+    """
+    _local_package(monkeypatch)
+
+    def signature(folder, **changes) -> str:
+        settings = ThemeSettings(speech="faster_whisper", speech_local_model=str(folder), **changes)
+        recognizer = make_container(theme_settings=settings).series.recognizer
+        assert recognizer.signature == recognizer.inner.signature  # 래퍼의 키는 인식기의 정체다
+        return recognizer.signature
+
+    here, moved = _model_folder(tmp_path / "a"), _model_folder(tmp_path / "b")
+
+    first = signature(here)
+    assert first == signature(moved)  # 옮겨도 같은 모델이다
+    assert str(tmp_path) not in first and "turbo" not in first
+    assert first != signature(here, speech_local_compute="int8")  # 연산 방식은 답을 바꿀 수 있다
+    assert first != signature(here, speech_local_vad=False)
+    (moved / "model.bin").write_bytes(b"other weights")
+    assert first != signature(moved)  # 다른 가중치
 
 
 def test_local_recognizer_settings_come_from_the_environment():
@@ -240,6 +306,7 @@ def test_local_recognizer_settings_come_from_the_environment():
     assert (settings.speech_local_model, settings.speech_local_device) == ("small", "cpu")
     assert settings.speech_local_compute == "int8" and settings.speech_local_vad is False
     assert ThemeSettings.from_env({}).speech_local_vad is True
+    assert ThemeSettings.from_env({}).speech_local_model is None
 
 
 def _recognizer(theme_settings, settings=None, **overrides):

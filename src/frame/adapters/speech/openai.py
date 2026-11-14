@@ -69,6 +69,10 @@ class OpenAISpeechRecognizer(SpeechRecognizer):
         self._http = transport or UrllibTransport()
         self.last_usage: Mapping[str, Any] | None = None  # 마지막 호출의 과금 단위 (기록용)
 
+    @property
+    def signature(self) -> str:
+        return f"{self.model}@{self.base_url}"
+
     def transcribe(
         self, audio: SpeechAudio, *, language: str | None = None, hint: str = ""
     ) -> Transcript:

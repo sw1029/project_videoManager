@@ -50,7 +50,14 @@ class SpeechRecognizer(ABC):
     - 말이 없으면 구간이 빈 Transcript 다 (예외가 아니다).
     - hint 는 인식을 돕는 낱말이다 (메뉴 이름 같은 고유명). 받아 적을 내용을 정하지는 않는다.
     - 호출 실패는 SpeechRecognitionError. API 키 같은 비밀을 예외·로그·반환값에 남기지 않는다.
+    - signature 는 인식기의 정체다: 답을 바꿀 수 있는 것(모델·주소·연산 방식)으로 만든 글. 같은 소리를 다시
+      받아 적을지 정할 때 견준다. 이 컴퓨터의 경로나 비밀을 넣지 않는다 (저장되는 문서에 남는다).
     """
+
+    @property
+    def signature(self) -> str:
+        """기본은 구현의 이름이다. 설정에 따라 답이 달라지는 구현은 그 설정을 넣어 다시 정한다."""
+        return type(self).__name__
 
     @abstractmethod
     def transcribe(

@@ -76,7 +76,7 @@ def _local_recognizer(
 ) -> FasterWhisperRecognizer:
     defaults = ThemeSettings()
     return FasterWhisperRecognizer(
-        model=defaults.speech_local_model,
+        model="model-folder",  # 가짜 모델을 넣어 주므로 폴더를 열지 않는다
         device=defaults.speech_local_device,
         compute_type=defaults.speech_local_compute,
         vad=defaults.speech_local_vad,

@@ -1,7 +1,8 @@
 """같은 소리의 음성 인식은 한 번만 과금한다 (감사 BTS-12, ADR-0013 의 원칙).
 
 인식기를 감싸 결과(받아쓰기)를 산출물 저장소에 남긴다. 생성기의 CachingVideoGenerator 와 같은 모양이다.
-- 키: 소리의 sha256 + 인식기의 프로필(모델·주소) + 언어 + 힌트. 답을 바꿀 수 있는 것은 모두 키에 든다.
+- 키: 소리의 sha256 + 인식기의 정체(signature: 모델·주소, 로컬은 모델의 지문·연산 방식) + 언어 + 힌트.
+  답을 바꿀 수 있는 것은 모두 키에 든다. 이 컴퓨터의 경로는 들지 않는다 (감사 BTS-D66).
 - 실패는 남기지 않는다 (다음에 다시 인식한다). 저장된 문서가 깨졌으면 없는 것으로 보고 다시 인식해 덮어쓴다.
 - 포트의 계약(시간 순서·겹치지 않음·소리 길이 안)을 어긴 결과도 남기지 않는다. 남기면 다시 불러도 같은 받아쓰기가
   나와 그 소리는 계속 실패한다 (감사 BTS-D61). 결과는 그대로 돌려준다 (부른 쪽이 검사한다).
@@ -26,10 +27,17 @@ log = logging.getLogger(__name__)
 
 
 class CachingSpeechRecognizer(SpeechRecognizer):
-    def __init__(self, inner: SpeechRecognizer, store: ArtifactStore, profile: str) -> None:
+    def __init__(
+        self, inner: SpeechRecognizer, store: ArtifactStore, profile: str | None = None
+    ) -> None:
         self.inner = inner
         self._store = store
-        self._profile = profile  # 인식기의 모델·주소. 바뀌면 예전 결과를 쓰지 않는다
+        # 인식기의 정체. 바뀌면 예전 결과를 쓰지 않는다. 따로 주지 않으면 인식기가 말하는 것을 쓴다
+        self._profile = profile or inner.signature
+
+    @property
+    def signature(self) -> str:
+        return self._profile
 
     def transcribe(
         self, audio: SpeechAudio, *, language: str | None = None, hint: str = ""

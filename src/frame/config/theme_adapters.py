@@ -211,8 +211,8 @@ def _openai_recognizer(w: AdapterPicker) -> SpeechRecognizer:
         base_url=base_url,
         timeout_s=ts.speech_timeout_s,
     )
-    # 같은 소리는 한 번만 과금한다: 결과를 산출물 저장소에 남긴다 (감사 BTS-12)
-    return CachingSpeechRecognizer(recognizer, w.store, f"{ts.speech_model}@{base_url}")
+    # 같은 소리는 한 번만 과금한다: 결과를 산출물 저장소에 남긴다 (감사 BTS-12). 키는 인식기의 정체(모델@주소)다
+    return CachingSpeechRecognizer(recognizer, w.store)
 
 
 def _local_recognizer(w: AdapterPicker) -> SpeechRecognizer:
@@ -228,14 +228,41 @@ def _local_recognizer(w: AdapterPicker) -> SpeechRecognizer:
             'pip install -e ".[speech-local]" 로 설치하세요'
         )
     local = FasterWhisperRecognizer(
-        model=ts.speech_local_model,
+        model=str(_local_model_folder(ts.speech_local_model)),
         device=ts.speech_local_device,
         compute_type=ts.speech_local_compute,
         vad=ts.speech_local_vad,
     )
-    # 과금은 없지만 같은 소리를 다시 받아 적지 않는다 (시간이 든다)
-    profile = f"faster-whisper:{ts.speech_local_model}:vad={ts.speech_local_vad}"
-    return CachingSpeechRecognizer(local, w.store, profile)
+    # 과금은 없지만 같은 소리를 다시 받아 적지 않는다 (시간이 든다). 키는 모델의 지문과 답을 바꾸는 설정이다
+    return CachingSpeechRecognizer(local, w.store)
+
+
+def _local_model_folder(setting: str | None) -> Path:
+    """받아 둔 로컬 인식 모델의 폴더. 없거나 모델 파일이 빠졌으면 기동 때 알린다 (감사 BTS-D60).
+
+    실행 중에는 모델을 내려받지 않는다. 모델을 열어 보지는 않는다 (몇 초가 걸린다. 처음 받아 적을 때 연다).
+    오류 글에는 폴더의 경로를 싣지 않는다.
+    """
+    from frame.adapters.speech.faster_whisper import missing_model_files
+
+    how = "받는 방법은 docs/adr/0028-script-extraction-and-evidence.md 결정 9 에 있습니다"
+    if not setting:
+        raise ConfigurationError(
+            "FRAME_SPEECH_LOCAL_MODEL: 로컬 인식 모델을 받아 둔 폴더를 주세요. "
+            f"실행 중에는 모델을 내려받지 않습니다 ({how})"
+        )
+    folder = Path(setting)
+    if not folder.is_dir():
+        raise ConfigurationError(
+            "FRAME_SPEECH_LOCAL_MODEL: 폴더가 아닙니다. 모델 이름으로는 받지 않습니다. "
+            f"모델을 받아 둔 폴더의 경로를 주세요 ({how})"
+        )
+    missing = missing_model_files(folder)
+    if missing:
+        raise ConfigurationError(
+            f"FRAME_SPEECH_LOCAL_MODEL: 폴더에 모델 파일이 없습니다: {', '.join(missing)} ({how})"
+        )
+    return folder
 
 
 # ---- 테마 추출 · 시리즈 기획 -------------------------------------------------------
