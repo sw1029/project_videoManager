@@ -55,3 +55,24 @@ def make_tone(
     ]
     _run(cmd)
     return path.read_bytes()
+
+
+def make_tone_with_gap(
+    ffmpeg: str,
+    path: Path,
+    *,
+    tone_s: float = 1.0,
+    gap_s: float = 1.5,
+    hz: int = 440,
+    sample_rate: int = 16000,
+) -> bytes:
+    """순음 - 무음 - 순음. 무음 구간을 재는 시험에 쓴다."""
+    tone = f"sine=frequency={hz}:sample_rate={sample_rate}:duration={tone_s}"
+    quiet = f"anullsrc=r={sample_rate}:cl=mono:d={gap_s}"
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
+    for source in (tone, quiet, tone):
+        cmd += ["-f", "lavfi", "-i", source]
+    cmd += ["-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[a]", "-map", "[a]", "-ac", "1"]
+    cmd.append(str(path))
+    _run(cmd)
+    return path.read_bytes()

@@ -37,9 +37,12 @@ from frame.application.ports.series.theme_extraction import (
     ThemeExtractionRequest,
     ThemeExtractor,
 )
+from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
+from frame.domain.enums import EntityKind
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
+from frame.domain.script import SceneSpan, SpokenScript, build_script, classify_kinds
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms
 from frame.domain.series.source_analysis import VideoAnalysis
 from frame.domain.series.theme import DEFAULT_MIN_SLOT_MS, SourceOrigin, SourceVideo, Theme
@@ -134,6 +137,7 @@ class ExtractTheme:
                 return ExtractThemeResult(known, verdict, reused=True)
         shots = self._shot_detector.detect(command.video, media)
         notes: list[str] = []
+        profile = self._profile(command, media.has_audio, notes)
         analysis = VideoAnalysis(media, shots, self._transcribe(command, media.has_audio, notes))
         analysis.validate()
 
@@ -170,6 +174,7 @@ class ExtractTheme:
             analysis=analysis,
             screen_texts=tuple(extraction.screen_texts),
             shortform=verdict.to_dict(),
+            script=_script(analysis.transcript, profile, theme, extraction.source_ir),
             notes=(*notes, *extraction.notes),
             detail={**extraction.detail, **self._settings_of(command)},
         )
@@ -198,6 +203,19 @@ class ExtractTheme:
                 return record
         return None
 
+    def _profile(
+        self, command: ExtractThemeCommand, has_audio: bool, notes: list[str]
+    ) -> SoundProfile | None:
+        """소리의 길이와 무음 구간 (무료). 재지 못해도 추출은 계속한다."""
+        if not has_audio:
+            return None
+        try:
+            return self._audio.sound_profile(command.video)
+        except AdapterError as exc:
+            log.warning("소리를 훑지 못했습니다: %s: %s", type(exc).__name__, exc)
+            notes.append(f"무음 구간을 재지 못했습니다 ({exc.code})")
+            return None
+
     def _transcribe(
         self, command: ExtractThemeCommand, has_audio: bool, notes: list[str]
     ) -> Transcript | None:
@@ -218,6 +236,30 @@ class ExtractTheme:
             log.warning("말소리를 인식하지 못했습니다: %s: %s", type(exc).__name__, exc)
             notes.append(f"말소리를 인식하지 못해 내레이션 없이 뽑았습니다 ({code})")
             return None
+
+
+def _script(
+    transcript: Transcript | None,
+    profile: SoundProfile | None,
+    theme: Theme,
+    source_ir: IntermediateRepresentation,
+) -> SpokenScript:
+    """받아쓰기를 테마의 자리에 맞춘 대본으로 다듬는다. 말이 없으면 줄이 빈 대본이다."""
+    scenes: list[SceneSpan] = []
+    cursor = 0
+    for slot in theme.format.slots:
+        scenes.append(SceneSpan(slot.slot_key, cursor, cursor + slot.duration_ms))
+        cursor += slot.duration_ms
+    people = {e.entity_key for e in source_ir.entities if e.kind is EntityKind.PERSON}
+    # 말할 사람이 화면에 없는 자리의 줄은 내레이션이다. 사람이 보이는 자리는 소리만으로 가르지 못한다
+    visible = {s.scene_key: bool(people & set(s.entity_keys)) for s in source_ir.scenes}
+    script = build_script(
+        transcript,
+        scenes,
+        duration_ms=profile.duration_ms if profile is not None else None,
+        silences=profile.silences if profile is not None else None,
+    )
+    return classify_kinds(script, visible)
 
 
 def _check_contract(

@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from frame.adapters.http_transport import (
@@ -163,6 +164,23 @@ def _ms(value: Any) -> int:
     return max(0, round(seconds * 1000))
 
 
+def _probability(value: Any) -> float | None:
+    """0..1 의 값. 수가 아니거나 유한하지 않으면 None (없는 것으로 본다)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return min(1.0, max(0.0, number)) if math.isfinite(number) else None
+
+
+def _confidence(avg_logprob: Any) -> float | None:
+    """구간의 평균 로그 확률 -> 0..1 의 신뢰도 (낱말 하나를 맞게 적었을 평균 확률)."""
+    try:
+        return _probability(math.exp(float(avg_logprob)))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _transcript(
     document: Mapping[str, Any], language: str | None, duration_ms: int | None
 ) -> Transcript:
@@ -211,10 +229,19 @@ def _segments(raw: Any, words: list[Word]) -> list[SpeechSegment]:
         if not text or end <= start:
             continue
         inside = tuple(w for w in words if start <= (w.start_ms + w.end_ms) / 2 < end)
-        segments.append(SpeechSegment(start, end, text, inside))
+        segments.append(
+            SpeechSegment(
+                start,
+                end,
+                text,
+                inside,
+                confidence=_confidence(item.get("avg_logprob")),
+                no_speech=_probability(item.get("no_speech_prob")),
+            )
+        )
     if segments and words and any(not s.words for s in segments):
         # 낱말이 구간에 고르게 들지 않으면(경계가 어긋남) 낱말 시각을 믿을 수 없다: 구간만 쓴다
-        segments = [SpeechSegment(s.start_ms, s.end_ms, s.text) for s in segments]
+        segments = [replace(s, words=()) for s in segments]
     return segments
 
 
@@ -228,10 +255,7 @@ def _ordered(segments: list[SpeechSegment], duration_ms: int | None) -> list[Spe
         if end <= start:
             continue
         words = tuple(w for w in segment.words if w.start_ms >= start and w.end_ms <= end)
-        ordered.append(
-            SpeechSegment(
-                start, end, segment.text, words if len(words) == len(segment.words) else ()
-            )
-        )
+        kept = words if len(words) == len(segment.words) else ()
+        ordered.append(replace(segment, start_ms=start, end_ms=end, words=kept))
         previous_end = end
     return ordered

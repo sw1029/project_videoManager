@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 import math
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from frame.application.errors import AdapterError
-from frame.application.ports.speech import SpeechAudio
+from frame.application.ports.sound import SoundReader
 from frame.domain.errors import ValidationError
 
 
@@ -49,10 +49,9 @@ class TrackCut:
             raise ValidationError(f"트랙 조각의 빠르기는 0.5~2.0 이어야 합니다: {self.tempo}")
 
 
-class AudioEditor(ABC):
-    """계약
+class AudioEditor(SoundReader):
+    """계약 (소리 읽기 SoundReader 의 계약에 더해)
     - probe: 소리 스트림이 없으면 None. 파일을 읽지 못하면 AudioError.
-    - speech_audio: 음성 인식에 넘길 소리 (모노). 소리가 없으면 None.
     - render_track: 길이가 total_ms 인 트랙 하나. 조각이 없는 곳은 무음이고, 조각이 없으면 전체가 무음이다.
       조각이 total_ms 를 넘으면 넘는 부분은 잘린다. 조각이 가리키는 녹음이 없으면 AudioError.
     - mux: 영상의 그림은 그대로 두고 소리만 track 으로 바꾼다. 결과의 길이는 영상의 길이다.
@@ -63,9 +62,6 @@ class AudioEditor(ABC):
 
     @abstractmethod
     def probe(self, media: bytes) -> AudioInfo | None: ...
-
-    @abstractmethod
-    def speech_audio(self, media: bytes) -> SpeechAudio | None: ...
 
     @abstractmethod
     def render_track(

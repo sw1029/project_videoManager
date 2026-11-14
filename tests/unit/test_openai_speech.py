@@ -130,6 +130,37 @@ def test_other_base_url_and_model_use_the_same_format():
     ]
 
 
+def test_segment_confidence_comes_from_the_recognizer():
+    """verbose_json 의 avg_logprob·no_speech_prob 을 0..1 의 값으로 옮긴다. 없으면 None 이다."""
+    document = {
+        "language": "korean",
+        "segments": [
+            {
+                "start": 0.3,
+                "end": 2.4,
+                "text": "안녕하세요.",
+                "avg_logprob": -0.105,
+                "no_speech_prob": 0.02,
+            },
+            {
+                "start": 5.0,
+                "end": 7.0,
+                "text": "감사합니다.",
+                "avg_logprob": -1.6,
+                "no_speech_prob": 0.9,
+            },
+            {"start": 7.5, "end": 8.0, "text": "값이 없는 구간."},
+        ],
+    }
+    recognizer, _ = _recognizer(_json(document))
+
+    first, second, third = recognizer.transcribe(AUDIO).segments
+
+    assert first.confidence == pytest.approx(0.9, abs=0.001) and first.no_speech == 0.02
+    assert second.confidence == pytest.approx(0.2019, abs=0.001) and second.no_speech == 0.9
+    assert third.confidence is None and third.no_speech is None
+
+
 def test_no_speech_is_an_empty_transcript():
     recognizer, _ = _recognizer(
         _json({"text": "", "segments": [], "words": []}), _json({"text": "  "})

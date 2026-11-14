@@ -13,9 +13,16 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from frame.adapters.media_tools import MediaToolError, probe_media, run_ffmpeg, tail
+from frame.adapters.media_tools import (
+    MediaToolError,
+    detect_silences,
+    probe_media,
+    run_ffmpeg,
+    tail,
+)
 from frame.adapters.video_tools import require_ffmpeg
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
+from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio
 
 SPEECH_SAMPLE_RATE = 16000
@@ -54,6 +61,28 @@ class FfmpegAudioEditor(AudioEditor):
             cmd += ["-ac", "1", "-ar", str(SPEECH_SAMPLE_RATE), "-c:a", "pcm_s16le", str(target)]
             self._run(cmd, target, "인식용 소리를 만들지 못했습니다")
             return SpeechAudio(target.read_bytes(), "audio/wav", info.duration_ms)
+
+    def sound_profile(self, media: bytes) -> SoundProfile | None:
+        with tempfile.TemporaryDirectory(prefix="frame-audio-") as tmp:
+            path = Path(tmp) / "media"
+            path.write_bytes(media)
+            info = self._info(path)
+            if info is None:
+                return None
+            try:
+                found = detect_silences(self._ffmpeg, path, timeout_s=self.timeout_s)
+            except MediaToolError as exc:
+                raise AudioError(f"무음 구간을 재지 못했습니다: {exc}") from exc
+        quiet: list[tuple[int, int]] = []
+        for start, end in found:
+            # 파일 끝까지 조용하면 끝이 없다. 길이로 닫는다
+            span = (
+                max(0, start),
+                min(info.duration_ms, end if end is not None else info.duration_ms),
+            )
+            if span[1] > span[0] and (not quiet or span[0] >= quiet[-1][1]):
+                quiet.append(span)
+        return SoundProfile(info.duration_ms, tuple(quiet))
 
     def render_track(
         self, sources: Sequence[bytes], cuts: Sequence[TrackCut], total_ms: int

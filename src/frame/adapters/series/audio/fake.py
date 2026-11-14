@@ -12,6 +12,7 @@ from typing import Any
 
 from frame.adapters.fake_media import FAKE_MEDIA_TYPE, decode_fake_media, encode_fake_media
 from frame.application.ports.series.audio import AudioEditor, AudioError, AudioInfo, TrackCut
+from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechAudio
 from frame.domain.speech import SpeechSegment, Transcript, Word
 
@@ -36,6 +37,20 @@ class FakeAudioEditor(AudioEditor):
         return SpeechAudio(
             encode_fake_media({"audio": part}), FAKE_MEDIA_TYPE, int(part["duration_ms"])
         )
+
+    def sound_profile(self, media: bytes) -> SoundProfile | None:
+        part = _audio_part(media)
+        if part is None:
+            return None
+        duration = int(part["duration_ms"])
+        if part.get("silences") is not None:
+            quiet = [(int(a), int(b)) for a, b in part["silences"]]
+        else:  # 말소리가 없는 시간이 모두 무음이다
+            spoken = Transcript.from_dict(part.get("transcript") or {}).segments
+            edges = [0, *(t for s in spoken if s.text.strip() for t in (s.start_ms, s.end_ms))]
+            edges.append(duration)
+            quiet = [(edges[i], edges[i + 1]) for i in range(0, len(edges) - 1, 2)]
+        return SoundProfile(duration, tuple((a, b) for a, b in quiet if b > a))
 
     def render_track(
         self, sources: Sequence[bytes], cuts: Sequence[TrackCut], total_ms: int

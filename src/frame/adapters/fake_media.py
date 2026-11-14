@@ -26,8 +26,13 @@ def fake_video(
     fps: float = 30.0,
     cuts_ms: Sequence[int] = (4000, 8000, 12000),
     transcript: Transcript | None = None,
+    silences: Sequence[tuple[int, int]] | None = None,
 ) -> bytes:
-    """가짜 영상. transcript 를 주면 소리가 있는 영상이다."""
+    """가짜 영상. transcript 를 주면 소리가 있는 영상이다.
+
+    silences 를 주면 그 구간만 무음이다 (나머지는 말이든 음악이든 소리가 난다).
+    주지 않으면 말소리가 없는 시간이 모두 무음이다.
+    """
     media: dict[str, Any] = {
         "video": {
             "width": width,
@@ -39,6 +44,8 @@ def fake_video(
     }
     if transcript is not None:
         media["audio"] = {"duration_ms": duration_ms, "transcript": transcript.to_dict()}
+        if silences is not None:
+            media["audio"]["silences"] = [list(span) for span in silences]
     return encode_fake_media(media)
 
 

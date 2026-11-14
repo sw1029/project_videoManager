@@ -15,6 +15,7 @@ from frame.application.ports.speech import SpeechRecognitionError, SpeechService
 from frame.application.use_cases.series import ExtractThemeCommand, NotShortform
 from frame.config.theme_settings import ThemeSettings
 from frame.domain.errors import ValidationError
+from frame.domain.script import LineKind, SoundKind
 from frame.domain.series.theme import SourceOrigin
 from frame.domain.speech import SpeechSegment, Transcript
 from tests.support.series import series_container, series_of
@@ -63,6 +64,36 @@ def test_theme_is_extracted_and_saved_with_its_evidence():
     assert [s.scene_key for s in record.source_ir.scenes] == [
         s.slot_key for s in theme.format.slots
     ]
+
+
+def test_theme_record_keeps_the_script_of_the_source():
+    """뽑은 대본을 테마의 기록에 함께 둔다. 인식은 한 번만 한다 (테마 추출의 받아쓰기를 그대로 쓴다)."""
+    container = series_container()
+    series = series_of(container)
+    record = series.extract_theme.execute(_command()).record
+
+    script = record.script
+    assert [(line.line_id, line.scene_key, line.text) for line in script.lines] == [
+        ("S1", "slot_1", "안녕하세요, 오늘의 메뉴예요."),
+        ("S2", "slot_2", "바닐라 라떼입니다."),
+        ("S3", "slot_3", "가격은 4,500원."),
+        ("S4", "slot_4", "매장에서 만나요!"),
+    ]
+    # 가짜 추출기의 원본 IR 에는 사람이 없다: 말할 사람이 화면에 없으니 내레이션이다
+    assert {line.kind for line in script.lines} == {LineKind.NARRATION}
+    # 말소리 사이의 조용한 시간이 무음으로 남는다
+    assert {span.kind for span in script.sounds} == {SoundKind.SILENCE}
+    assert series.themes.get(record.theme.theme_id).script == script  # 저장된다
+    assert len(series.recognizer.calls) == 1
+
+
+def test_source_without_speech_has_an_empty_script():
+    series = series_of(series_container())
+
+    silent = series.extract_theme.execute(_command(fake_video())).record
+
+    assert silent.script is not None and silent.script.is_empty
+    assert silent.script.sounds == ()  # 소리 스트림이 없다
 
 
 def test_source_is_recorded_by_fingerprint_not_by_copy():

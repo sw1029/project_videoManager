@@ -28,6 +28,7 @@ from frame.application.ports.series.theme_extraction import ThemeExtractor
 from frame.application.ports.speech import SpeechRecognizer
 from frame.application.ports.unit_of_work import UnitOfWorkFactory
 from frame.application.use_cases import AcceptGeneration, CreateRevision
+from frame.application.use_cases.script import ExtractScript
 from frame.application.use_cases.series import (
     AdoptAnchors,
     AttachNarration,
@@ -72,6 +73,7 @@ class ThemeServices:
     render_episode: RenderEpisode
     check_screen: CheckEpisodeScreen
     correct_screen: CorrectEpisodeScreen
+    extract_script: ExtractScript
     revise_episode: ReviseEpisode
     settle_episode: SettleEpisode
 
@@ -403,6 +405,7 @@ def build_theme_services(
         attach_narration=AttachNarration(episodes, store, audio, recognizer),
         render_episode=RenderEpisode(episodes, uow_factory, store, renderer, assembler, audio),
         check_screen=check_screen,
+        extract_script=ExtractScript(audio, recognizer),
         correct_screen=CorrectEpisodeScreen(
             episodes, check_screen, uow_factory, create_revision, accept_generation
         ),

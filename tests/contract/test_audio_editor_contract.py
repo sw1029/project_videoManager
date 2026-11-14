@@ -21,7 +21,7 @@ from frame.adapters.series.source_analysis.ffmpeg import FfmpegMediaProber
 from frame.application.ports.series.audio import AudioEditor, AudioError, TrackCut
 from frame.application.ports.series.source_analysis import MediaProber
 from frame.domain.speech import SpeechSegment, Transcript
-from tests.support.media import make_cut_clip, make_tone
+from tests.support.media import make_cut_clip, make_tone, make_tone_with_gap
 from tests.support.video import find_ffmpeg
 
 FFMPEG = find_ffmpeg()
@@ -37,6 +37,7 @@ class Kit:
     sounding_video: bytes  # 6초, 소리 있음
     recording: bytes  # 3초 녹음
     other_recording: bytes  # 2초 녹음
+    gapped: bytes  # 1초 소리 - 1.5초 무음 - 1초 소리
 
 
 def _fake_kit() -> Kit:
@@ -49,6 +50,10 @@ def _fake_kit() -> Kit:
         fake_video(duration_ms=6000, cuts_ms=(2000, 4000), transcript=said),
         fake_recording(said, 3000),
         fake_recording(Transcript("ko", (SpeechSegment(100, 1800, "말차 라떼입니다"),)), 2000),
+        fake_recording(
+            Transcript("ko", (SpeechSegment(0, 1000, "하나"), SpeechSegment(2500, 3500, "둘"))),
+            3500,
+        ),
     )
 
 
@@ -61,6 +66,7 @@ def _ffmpeg_kit(folder) -> Kit:
         make_cut_clip(FFMPEG, folder / "sounding.mp4", tone_hz=330),
         make_tone(FFMPEG, folder / "recording.wav", seconds=3.0, hz=440),
         make_tone(FFMPEG, folder / "other.m4a", seconds=2.0, hz=660),
+        make_tone_with_gap(FFMPEG, folder / "gapped.wav"),
     )
 
 
@@ -79,6 +85,19 @@ def test_probe_reports_audio_or_none(kit):
     assert info is not None and abs(info.duration_ms - 3000) <= TOLERANCE_MS
     with_sound = kit.editor.probe(kit.sounding_video)
     assert with_sound is not None and abs(with_sound.duration_ms - 6000) <= TOLERANCE_MS
+
+
+def test_sound_profile_reports_length_and_silences(kit):
+    """소리 읽기 포트(SoundReader)의 계약: 길이와 무음 구간. 소리가 없으면 None 이다."""
+    assert kit.editor.sound_profile(kit.silent_video) is None
+    profile = kit.editor.sound_profile(kit.gapped)
+
+    assert profile is not None and abs(profile.duration_ms - 3500) <= TOLERANCE_MS
+    (silence,) = profile.silences
+    assert abs(silence[0] - 1000) <= TOLERANCE_MS and abs(silence[1] - 2500) <= TOLERANCE_MS
+    # 내내 소리가 나는 파일에는 무음 구간이 없다
+    steady = kit.editor.sound_profile(kit.other_recording)
+    assert steady is not None and all(end - start < 500 for start, end in steady.silences)
 
 
 def test_speech_audio_is_ready_for_a_recognizer(kit):
