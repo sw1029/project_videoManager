@@ -1,4 +1,4 @@
-"""화면 정보의 어긋남: 검수 결과를 '고칠 곳' 으로 옮기는 규칙과 문구 비교 (ADR-0027)."""
+"""화면 국소 수정의 순수 함수 (ADR-0027): 검수 결과·계획에서 어긋난 곳을 찾는 규칙, 문구 비교, 계획을 고치는 걸음."""
 
 from __future__ import annotations
 
@@ -8,16 +8,26 @@ from frame.domain.checks import CheckResult, WarningInterval
 from frame.domain.enums import CheckType, Verdict
 from frame.domain.ir import RequirementSpec
 from frame.domain.screen import Region
+from frame.domain.series.episode import OverlayKind, build_episode_plan
 from frame.domain.series.screen_correction import (
     CorrectionMethod,
     IssueKind,
+    PatchRegion,
     ScreenIssue,
+    StepStatus,
+    expected_overlay_texts,
+    fix_overlay_text,
     is_text_requirement,
     issues_from_checks,
     normalize_screen_text,
     patch_overlay_id,
+    patch_scene_text,
+    plan_text_issues,
+    repair_axis,
     screen_text_matches,
+    without_patched,
 )
+from tests.support.themes import cafe_theme, matcha_brief, matcha_content
 
 
 def _result(key, verdict=Verdict.FAIL, warnings=(), observed="", check_type=CheckType.REQUIREMENT):
@@ -202,3 +212,105 @@ def test_consistency_issues_come_after_the_requirement_issues_of_their_scene(ir)
         "consistency:intro:cup",
         "requirement:closeup:cup:color",
     ]
+
+
+# ---- 계획에서 찾기 · 고치는 걸음 (저장소·모델 없이) ----
+def _plan():
+    return build_episode_plan(cafe_theme(), matcha_brief(), matcha_content())
+
+
+def _wrong_price(plan):
+    price = plan.overlay("closeup:price")
+    return plan.with_overlay(replace(price, text="말차 라떼 6,000원"))
+
+
+def test_plan_text_that_differs_from_the_theme_template_is_an_overlay_issue():
+    theme, plan = cafe_theme(), _plan()
+    assert plan_text_issues(theme, plan) == []  # 틀에 값을 넣은 그대로면 어긋난 곳이 없다
+
+    (issue,) = plan_text_issues(theme, _wrong_price(plan))
+
+    assert (issue.issue_id, issue.kind, issue.method) == (
+        "overlay:closeup:price",
+        IssueKind.OVERLAY_TEXT,
+        CorrectionMethod.OVERLAY_EDIT,
+    )
+    assert (issue.expected, issue.observed) == ("말차 라떼 5,000원", "말차 라떼 6,000원")
+    # 구간은 편의 타임라인이다: 셋째 장면(8000 ms 에 시작)의 0.5~3.5초
+    assert (issue.scene_key, issue.start_ms, issue.end_ms) == ("closeup", 8500, 11500)
+    assert issue.detail["source"] == "plan"
+
+
+def test_slot_level_templates_have_no_expected_text():
+    """자리마다 값이 다른 틀(자막)은 기대값이 없다: 그 자리의 값이 곧 내용이다."""
+    expected = expected_overlay_texts(cafe_theme(), matcha_brief().variables)
+
+    assert expected == {"greeting:title": "오늘의 메뉴", "closeup:price": "말차 라떼 5,000원"}
+
+
+def test_fixing_an_overlay_text_changes_only_that_item():
+    theme, plan = cafe_theme(), _plan()
+    wrong = _wrong_price(plan)
+    (issue,) = plan_text_issues(theme, wrong)
+
+    fixed, step = fix_overlay_text(wrong, issue)
+
+    assert fixed.overlays == plan.overlays and fixed.ir == plan.ir
+    assert (step.status, step.overlay_id) == (StepStatus.APPLIED, "closeup:price")
+    # 화면에서 다르게 읽힌 문구(계획은 맞음)는 글꼴·영역의 문제다. 고치지 않고 알린다
+    unchanged, skipped = fix_overlay_text(wrong, replace(issue, detail={"source": "render"}))
+    assert unchanged is wrong and skipped.status is StepStatus.SKIPPED
+
+
+def test_patching_scene_text_covers_the_region_and_settles_the_issue():
+    plan = _plan()
+    issue = ScreenIssue(
+        "requirement:closeup:latte:text",
+        IssueKind.SCENE_TEXT,
+        "closeup",
+        8500,
+        11000,
+        expected="말차",
+        observed="맏차",
+        entity_key="latte",
+        predicate="text",
+    )
+    region = Region(0.3, 0.4, 0.4, 0.1)
+
+    patched, step = patch_scene_text(plan, issue, PatchRegion(issue.issue_id, region))
+
+    item = patched.overlay(patch_overlay_id("closeup", "latte", "text"))
+    assert (item.kind, item.text, item.region) == (OverlayKind.PATCH, "말차", region)
+    assert (item.start_ms, item.end_ms) == (500, 3000)  # 장면 안의 시각으로 옮긴다
+    assert (step.status, step.method) == (StepStatus.APPLIED, CorrectionMethod.PATCH)
+    # 가린 뒤에는 그 요구조건을 다시 고치라고 하지 않는다. 가리기 전의 계획에서는 그대로 어긋난 곳이다
+    assert without_patched(patched, [issue]) == ([], [issue.issue_id])
+    assert without_patched(plan, [issue]) == ([issue], [])
+
+
+def test_repair_axis_is_the_failed_requirement_or_a_look_of_the_drifting_entity():
+    plan = _plan()
+    failed = ScreenIssue(
+        "requirement:closeup:latte:color",
+        IssueKind.ATTRIBUTE,
+        "closeup",
+        8000,
+        12000,
+        expected="green",
+        entity_key="latte",
+        predicate="color",
+    )
+    drifted = ScreenIssue(
+        "consistency:greeting:barista",
+        IssueKind.CONSISTENCY,
+        "greeting",
+        0,
+        4000,
+        expected="",
+        entity_key="barista",
+    )
+
+    assert repair_axis(plan, failed) == ("latte", "color", "green")
+    # 장면마다 다르게 보인 객체에는 틀린 요구조건이 없다. 그 장면에서 그 객체의 모습 조건 하나가 축이다
+    assert repair_axis(plan, drifted) == ("barista", "outfit", "white shirt and brown apron")
+    assert repair_axis(plan, replace(drifted, entity_key=None)) is None
