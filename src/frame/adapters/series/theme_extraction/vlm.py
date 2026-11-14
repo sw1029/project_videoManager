@@ -35,6 +35,7 @@ from frame.domain.series.theme import (
     slot_spans_from_shots,
 )
 
+from .._prompt_text import quoted
 from ._answer_parts import _slot_index, _squash
 from ._prompt import PROMPT_VERSION, SCHEMA_NAME, build_system_prompt, script_block
 from ._schema import RESPONSE_SCHEMA
@@ -187,7 +188,7 @@ class VlmThemeExtractor(ThemeExtractor):
                 region, completion = locate_text(
                     self._llm,
                     ImageInput(image.data, image.media_type, "frame"),
-                    f'caption "{text}"',
+                    f"caption {quoted(text)}",  # 화면 문구도 영상에서 온 글이다: 감싸서 넣는다
                     timeout_s=self.timeout_s,
                 )
             except AdapterError as exc:  # LLM 호출 실패 · 프레임을 뽑지 못함
