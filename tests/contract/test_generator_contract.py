@@ -9,6 +9,7 @@ import pytest
 
 from frame.adapters.generator import (
     CachingVideoGenerator,
+    DelegatingVideoGenerator,
     FakeVideoAssembler,
     FakeVideoGenerator,
     RetryingVideoGenerator,
@@ -394,6 +395,44 @@ def test_decorators_pass_the_profile_through(wrap, store):
             return {"generator": "fake", "model": "sketch-2", "fps": 12}
 
     assert wrap(Profiled(store)).profile() == {"generator": "fake", "model": "sketch-2", "fps": 12}
+
+
+def test_the_delegating_base_forwards_every_method_of_the_port():
+    """포트에 메서드를 더하면 위임도 더해야 한다 (감사 R-02).
+
+    빠뜨리면 데코레이터가 포트의 기본 구현으로 조용히 답한다.
+    """
+
+    def public_methods(cls):
+        return {
+            name
+            for name, member in vars(cls).items()
+            if callable(member) and not name.startswith("_")
+        }
+
+    assert public_methods(VideoGenerator) <= public_methods(DelegatingVideoGenerator)
+
+
+def test_a_new_decorator_only_writes_what_it_changes(store, ir):
+    """바탕 클래스를 상속한 데코레이터는 바꾸려는 동작만 적는다. 나머지는 감싼 생성기의 답 그대로다."""
+
+    class Counting(DelegatingVideoGenerator):
+        calls = 0
+
+        def generate_scene(self, request):
+            self.calls += 1
+            return super().generate_scene(request)
+
+    inner = FakeVideoGenerator(store, edits_parent=True)
+    counting = Counting(inner)
+    request = _with_parent(_request(_recolored(ir)), ir, store)
+
+    clip = counting.generate_scene(request)
+
+    assert counting.calls == 1 and clip.scene_key == "intro"
+    assert counting.result_key(request) == inner.result_key(request)
+    assert counting.profile() == inner.profile()
+    assert counting.preview(request) == ProductionPreview(ProductionMethod.EDIT)
 
 
 def test_a_cache_around_the_whole_chain_keeps_edits_of_different_parents_apart(store, ir):

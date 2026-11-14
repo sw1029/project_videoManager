@@ -47,7 +47,7 @@
 | `src/frame/application/pipeline/` | 생성 → 추적 → 검수 단계와 실행기 | `PipelineRunner`, `GenerateStage`, `TrackStage`, `CheckStage`, `PipelineContext` |
 | `src/frame/adapters/` | 포트의 구현. 최상위 모듈 넷(`common.py` ID·시계, `http_transport.py`, `video_tools.py`, `vlm_answers.py`)은 어댑터들이 함께 쓴다 | — |
 | `src/frame/adapters/structurer/` | 구조화 | `RuleBasedStructurer`, `LLMStructurer`, `FakeStructurer` |
-| `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 최종 영상 조립, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `FfmpegVideoAssembler`, `FakeVideoAssembler` |
+| `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 최종 영상 조립, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `DelegatingVideoGenerator` (데코레이터의 바탕), `FfmpegVideoAssembler`, `FakeVideoAssembler` |
 | `src/frame/adapters/identity/` | 정체성 기준 이미지 뽑기 | `VlmCropIdentityExtractor`, `FrameIdentityExtractor`, `FakeIdentityExtractor` |
 | `src/frame/adapters/checker/` | 검수 | `VlmRequirementChecker`, `VlmConsistencyChecker`, `VlmPreservationChecker`, `SsimPreservationChecker`, 가짜 검수기 셋 |
 | `src/frame/adapters/change_request/` | 글로 쓴 변경 요청의 해석 | `LLMChangeRequestInterpreter`, `RuleBasedChangeRequestInterpreter` |
