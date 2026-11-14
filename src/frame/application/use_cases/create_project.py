@@ -36,8 +36,8 @@ class CreateProject:
         clock: Clock,
         *,
         ir_structurer: IrDocumentStructurer,
-        artifact_store: ArtifactStore
-        | None = None,  # 있으면 올린 참조 이미지를 프로젝트 자리로 옮긴다
+        # 있으면 올린 참조 이미지(refs/uploads/)를 프로젝트 자리로 옮긴다 (#12)
+        artifact_store: ArtifactStore | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._dispatcher = dispatcher
