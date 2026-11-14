@@ -13,12 +13,17 @@ from frame.domain.ir import EntitySpec, IntermediateRepresentation
 from ._gold import GoldEntity
 from ._values import stem, words
 
+# 모두 훑을 대응 수의 상한 (골드 객체마다 '후보 수 + 1(짝 없음)' 을 곱한 값).
+# 골드 15건과 첫 실제 실행 응답에서는 가장 커도 수백이다
+SEARCH_LIMIT = 50_000
+
 
 def match_entities(gold: Sequence[GoldEntity], predicted: Sequence[EntitySpec]) -> dict[str, str]:
     """모델 객체 키 → 골드 객체 키 (일대일).
 
-    종류가 같고 별칭이 하나라도 키·설명에 있는 짝만 후보다. (필수 짝 수, 선택 짝 수, 맞은 별칭 수) 가 가장 큰
-    대응을 고른다. 객체가 브리프당 열 개를 넘지 않고 후보가 적어 모두 훑어도 빠르다.
+    종류가 같고 별칭이 하나라도 키·설명에 있는 짝만 후보다. 대응 수가 SEARCH_LIMIT 이하면 모두 훑어
+    (필수 짝 수, 선택 짝 수, 맞은 별칭 수) 가 가장 큰 대응을 고른다. 넘으면(객체·후보가 아주 많을 때) 필수 객체부터
+    별칭이 가장 많이 맞는 빈 짝을 차례로 고른다. 그래서 채점이 멈춘 것처럼 보이지 않는다.
     """
     candidates = [
         sorted(
@@ -32,6 +37,9 @@ def match_entities(gold: Sequence[GoldEntity], predicted: Sequence[EntitySpec]) 
         for g in gold
     ]
     order = sorted(range(len(gold)), key=lambda i: gold[i].optional)  # 필수 객체 먼저
+    if search_space(candidates) > SEARCH_LIMIT:
+        chosen = _pick_in_order(order, candidates)
+        return {predicted[j].entity_key: gold[i].entity_key for i, j in chosen.items()}
     best_value = (0, 0, 0)
     best: dict[int, int] = {}
 
@@ -57,6 +65,31 @@ def match_entities(gold: Sequence[GoldEntity], predicted: Sequence[EntitySpec]) 
 
     search(0, frozenset(), {}, best_value)
     return {predicted[j].entity_key: gold[i].entity_key for i, j in best.items()}
+
+
+def search_space(candidates: Sequence[Sequence[tuple[int, int]]]) -> int:
+    """모두 훑을 때의 대응 수 (골드 객체마다 후보 수 + 1 을 곱한다). 상한을 넘으면 거기서 멈춰 센다."""
+    size = 1
+    for options in candidates:
+        size *= len(options) + 1
+        if size > SEARCH_LIMIT:
+            break
+    return size
+
+
+def _pick_in_order(
+    order: Sequence[int], candidates: Sequence[Sequence[tuple[int, int]]]
+) -> dict[int, int]:
+    """골드 객체를 order 순서로 돌며 별칭이 가장 많이 맞는 빈 짝을 고른다 (탐욕)."""
+    used: set[int] = set()
+    chosen: dict[int, int] = {}
+    for i in order:
+        for _hits, j in candidates[i]:
+            if j not in used:
+                chosen[i] = j
+                used.add(j)
+                break
+    return chosen
 
 
 def _alias_hits(aliases: Iterable[str], entity: EntitySpec) -> int:

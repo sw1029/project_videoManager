@@ -3,6 +3,8 @@
 모델마다 키 이름이 달라지므로(red_mug / cup) 객체는 종류·설명으로, 장면은 시간으로 맞춘 뒤 비교한다.
 """
 
+import time
+
 import pytest
 
 from frame.domain.errors import ValidationError
@@ -237,6 +239,23 @@ def test_two_people_are_assigned_by_the_better_description():
     score = _score(predicted, gold)
     assert score.entities == Tally(tp=2)
     assert score.requirements == Tally(tp=1)
+
+
+def test_entity_matching_stays_fast_when_many_entities_match_each_other():
+    """객체·후보가 아주 많아 대응을 모두 훑을 수 없으면, 필수 객체부터 별칭이 가장 많이 맞는 짝을 차례로 고른다."""
+    n = 12  # 모두 훑으면 13^12 가지라 끝나지 않는다
+    gold = _doc(
+        [_entity(f"person_{i}", "PERSON", "사람", aliases=["person"]) for i in range(n)],
+        [_scene("s1", 0, 4000, [f"person_{i}" for i in range(n)], [])],
+    )
+    predicted = _doc(
+        [_entity(f"p{i}", "PERSON", "person") for i in range(n)],
+        [_scene("s1", 0, 4000, [f"p{i}" for i in range(n)], [])],
+    )
+    started = time.perf_counter()
+    score = _score(predicted, gold)
+    assert time.perf_counter() - started < 2.0
+    assert score.entities == Tally(tp=n)
 
 
 # ---- 요구조건 값 ------------------------------------------------------------
