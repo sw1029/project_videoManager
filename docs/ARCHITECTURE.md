@@ -364,6 +364,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | GET | `/api/versions/{version_id}` | `get_version` | 200 IR·상태·`video_url`/`clip_url`·미디어 형식 (FAILED 면 `error_code`/`error_message`) | 404 |
 | GET | `/api/versions/{version_id}/video` | `get_video_uri` | 200 결과 영상 (파일 저장소는 Range 206) | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
 | GET | `/api/versions/{version_id}/scenes/{scene_key}/clip` | `get_clip_uri` | 200 장면 클립 | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
+| POST | `/api/reference-images` | `UploadReferenceImage` | 201 `{image_uri, media_type, size_bytes}` (multipart `file`, PNG·JPEG·WebP, `refs/uploads/` 에 저장. `POST /projects` 가 `refs/{project_id}/` 로 옮긴다, ADR-0023) | 413 `PAYLOAD_TOO_LARGE` / 415 `UNSUPPORTED_MEDIA_TYPE` / 422 / 429 |
 | PUT | `/api/versions/{version_id}/ir` | `EditDraftIr` | 200 고친 뒤의 버전 + `repair_notes` (DRAFT 의 구조화 결과 수정: 보정 → 검증 → 조건부 저장, ADR-0022) | 404 / 409 `VERSION_NOT_EDITABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/revisions` | `CreateRevision` | 201 `{version_id, parent_version_id, DRAFT, changed_scene_keys}`. `entity_key` 생략 시 장면 수준 조건 | 404 / 409 `VERSION_NOT_REVISABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
@@ -455,3 +456,4 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0020](adr/0020-production-preview-and-held-parent-url.md) | 생성기의 만들기 전 미리보기(편집·새로 생성, 어림값) · 계획 때 받은 부모 주소를 메모리에 들고 있다가 편집 |
 | [0021](adr/0021-provisional-results.md) | 일시적인 사정으로 낸 임시 결과(`provisional`)는 요청의 키에 남기지 않는다 · 작업 원장의 `released` |
 | [0022](adr/0022-direct-ir-input-draft-edit-and-display-name.md) | IR 직접 입력(블록, 바로 DRAFT) · DRAFT IR 수정(조건부 저장, 보정 메모) · 객체의 표시 이름 `display_name`(생성 조건 아님) |
+| [0023](adr/0023-reference-image-upload.md) | 참조 이미지 업로드(multipart, 내용으로 형식 판별·크기 상한) · 임시 자리 `refs/uploads/` → 프로젝트를 만들 때 `refs/{project_id}/` 로 옮김 |
