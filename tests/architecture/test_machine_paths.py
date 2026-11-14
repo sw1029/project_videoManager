@@ -77,6 +77,11 @@ ALLOWED: tuple[Allowed, ...] = (
         ("db_data:/var/lib/mysql",),
     ),
     Allowed(
+        "docker/Dockerfile",
+        "컨테이너 안의 경로 (apt 가 꾸러미 색인을 두는 폴더. 설치한 뒤 지워 이미지에 남기지 않는다)",
+        ("rm -rf /var/lib/apt/lists/*",),
+    ),
+    Allowed(
         "src/frame/adapters/series/overlay/ffmpeg_renderer.py",
         "규격이 정한 위치: XDG Base Directory 의 기본값과 macOS 의 글꼴 폴더 (글꼴은 그 폴더들에서 이름으로 찾는다)",
         (

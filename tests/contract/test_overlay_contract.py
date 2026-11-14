@@ -239,6 +239,25 @@ def test_font_is_found_by_file_name_in_the_font_folders(tmp_path):
     assert find_font(names, (tmp_path / "missing",)) is None
 
 
+def test_a_font_folder_that_cannot_be_looked_at_is_skipped(tmp_path, monkeypatch):
+    """글꼴 폴더 가운데 볼 수 없는 것이 있어도 (홈 폴더를 읽을 권한이 없는 사용자 등) 나머지에서 찾는다."""
+    readable, locked = tmp_path / "fonts", tmp_path / "locked"
+    readable.mkdir()
+    (readable / "NanumGothicBold.ttf").write_bytes(b"font")
+    real = Path.is_dir
+
+    def is_dir(self: Path) -> bool:
+        if self == locked:
+            raise PermissionError(13, "Permission denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+
+    found = find_font(("NanumGothicBold.ttf",), (locked, readable))
+
+    assert found == str(readable / "NanumGothicBold.ttf")
+
+
 def test_font_folders_come_from_the_environment_not_from_fixed_paths(tmp_path):
     env = {"WINDIR": str(tmp_path / "windows"), "LOCALAPPDATA": str(tmp_path / "local")}
     assert system_font_dirs(env, tmp_path, "win32") == (
