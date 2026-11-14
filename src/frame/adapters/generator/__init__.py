@@ -1,3 +1,30 @@
+"""장면 클립 생성 (VideoGenerator 포트). 최종 영상 조립기(VideoAssembler 포트)도 아직 여기에 있다.
+
+맡는 개념
+    장면 하나의 클립을 만든다. 실제 제공자(OpenRouter 영상 API)와 가짜 구현이 있고, 생성기를 감싸는 복원력
+    데코레이터(재시도 · 시간 제한 · 결과 캐시)와 한 번만 과금하기 위한 기록(생성 캐시 · 작업 원장)이 함께 있다.
+    조립기는 다른 포트다 - adapters/assembler/ 로 옮길 것이다 (감사 K-04).
+
+밖에서 쓰는 이름
+    OpenRouterVideoGenerator    OpenRouter 영상 API (FRAME_GENERATOR=external_api, ADR-0011)
+    FakeVideoGenerator          결정적 가짜 구현 (영상 대신 결과 정보를 저장한다)
+    DiffusersVideoGenerator     뼈대 - 구현이 아직 없다. FRAME_GENERATOR=diffusers 는 기동에서 거절한다
+    CachingVideoGenerator · RetryingVideoGenerator · TimeoutVideoGenerator
+                                생성기를 감싸는 데코레이터: 결과 캐시 · 재시도 · 시간 제한 (ADR-0012, 0013)
+    DelegatingVideoGenerator    데코레이터의 바탕 (profile · result_key · preview 를 감싼 생성기에 넘긴다)
+    FfmpegVideoAssembler · FakeVideoAssembler    최종 영상 조립기
+
+모듈 지도
+    openrouter     OpenRouter 생성기: 제출 · 대기 · 원장으로 이어 받기 · 부모 클립 편집 · 미리보기 · 프롬프트
+    decorators     복원력 데코레이터
+    abandonment    시간 제한으로 버려진 작업 스레드가 더 제출하지 않게 하는 신호
+    cache          생성 캐시(ClipCache)와 키 잠금(KeyedLocks), 캐시·원장 키(generation_key)
+    ledger         작업 원장(JobLedger): 제출한 유료 작업의 기록
+    ffmpeg         클립 정규화(FfmpegVideoNormalizer) · 클립 검사(probe_video) · 조립(FfmpegVideoAssembler)
+    fake           가짜 생성기와 가짜 조립기
+    stubs          뼈대 생성기
+"""
+
 from .decorators import (
     CachingVideoGenerator,
     DelegatingVideoGenerator,

@@ -11,32 +11,12 @@ from __future__ import annotations
 # 설명(docstring)이 없는 패키지 — K-03. 패키지를 옮기거나 고칠 때 채운다
 PACKAGES_WITHOUT_DOCSTRING = frozenset(
     {
-        "frame.adapters.change_request",
-        "frame.adapters.checker",
-        "frame.adapters.generator",
-        "frame.adapters.identity",
-        "frame.adapters.jobs",
-        "frame.adapters.persistence.sqlalchemy",
-        "frame.adapters.storage",
-        "frame.adapters.structurer",
-        "frame.adapters.tracker",
-        "frame.presentation.routers",
+        "frame.adapters.structurer",  # #10 이 이 파일을 고친다. 머지 뒤에 채운다
     }
 )
 
-# 밖에서 쓰는 이름(__all__)을 적지 않은 패키지 — K-03
-PACKAGES_WITHOUT_ALL = frozenset(
-    {
-        "frame",
-        "frame.adapters",
-        "frame.adapters.persistence",
-        "frame.application",
-        "frame.domain",
-        "frame.domain.services",
-        "frame.presentation",
-        "frame.tools",
-    }
-)
+# 밖에서 쓰는 이름(__all__)을 적지 않은 패키지 — K-03. 모두 채웠다
+PACKAGES_WITHOUT_ALL: frozenset[str] = frozenset()
 
 # 500줄을 넘는 모듈 — M-01 (openrouter), M-05 (demo·bundle), M-03 (schemas)
 LARGE_MODULES = frozenset(

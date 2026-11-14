@@ -1,3 +1,5 @@
+"""메모리 산출물 저장소 (테스트 · 기본 설정). 주소는 mem://<키> 이고 프로세스가 끝나면 사라진다."""
+
 from __future__ import annotations
 
 from frame.application.errors import StorageError
