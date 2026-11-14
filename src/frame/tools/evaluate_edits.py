@@ -40,7 +40,8 @@ from frame.evaluation.edit_runner import CaseInterrupted, CaseRun, run_case
 # 측정 기준(detail.method)을 내는 보존 검수기 (FRAME_CHECKERS 의 키)
 _BASIS_CHECKERS = {"vlm_keep": "vlm_preservation", "ssim": "ssim_preservation"}
 
-# 결과에 남기는 설정 (재현용). DB 주소(계정이 들어갈 수 있음)와 키 파일 경로는 남기지 않는다
+# 결과에 남기는 설정 (재현용). 결과 파일은 저장소에 기록하므로(TDD_WORKFLOW §7) DB 주소(계정이 들어갈 수 있음)·
+# 키 파일 경로·이 컴퓨터의 폴더(산출물 폴더는 종류 artifact_store 만, 케이스 파일은 이름만)는 남기지 않는다
 _RECORDED_SETTINGS = (
     "structurer",
     "change_interpreter",
@@ -68,7 +69,6 @@ _RECORDED_SETTINGS = (
     "consistency_threshold",
     "persistence",
     "artifact_store",
-    "artifact_dir",
 )
 
 
@@ -93,7 +93,7 @@ def main(
     out = Path(args.out)
     clock = container.clock
     meta: dict[str, Any] = {
-        "cases_file": str(args.cases),
+        "cases_file": Path(args.cases).name,
         "started_at": _iso(clock.now()),
         "settings": _settings(container.settings),
         "checkers": [type(checker).__name__ for checker in container.checkers],

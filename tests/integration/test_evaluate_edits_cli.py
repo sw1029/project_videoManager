@@ -69,7 +69,11 @@ def test_cli_evaluates_cases_against_the_configured_database(tmp_path, capsys):
     # Fake 보존 검수기는 method 를 남기지 않아 두 기준에 똑같이 들어간다
     assert summary["by_basis"]["vlm_keep"] == summary["by_basis"]["ssim"]
     assert report["settings"]["persistence"] == "sqlalchemy"
-    assert "db_url" not in report["settings"]
+    assert report["settings"]["artifact_store"] == "local_fs"
+    # 결과 파일은 저장소에 기록한다: DB 주소·산출물 폴더·케이스 파일의 폴더(모두 tmp_path 아래)를 남기지 않는다
+    assert "db_url" not in report["settings"] and "artifact_dir" not in report["settings"]
+    assert report["cases_file"] == "cases.json"
+    assert tmp_path.name not in out.read_text("utf-8")
     assert report["checkers"] == [
         "FakeRequirementChecker",
         "FakeConsistencyChecker",

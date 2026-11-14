@@ -133,6 +133,18 @@ def test_report_keeps_clip_uris_and_check_details_as_evidence(tmp_path):
     assert target[0]["detail"]["predicate"] == "color"
 
 
+def test_report_leaves_no_local_folder_paths(tmp_path):
+    """결과 파일은 저장소에 기록한다 (TDD_WORKFLOW §7): 이 컴퓨터의 폴더 경로를 남기지 않는다."""
+    container = _container()
+    parent = _parent(container)
+    _, report = _run(tmp_path, container, [_cup(parent)])
+
+    assert report["cases_file"] == "cases.json"  # 케이스 파일은 이름만
+    assert "artifact_dir" not in report["settings"]  # 산출물 폴더는 종류(artifact_store)만
+    assert report["settings"]["artifact_store"] == "memory"
+    assert tmp_path.name not in (tmp_path / "out" / "result.json").read_text("utf-8")
+
+
 def test_both_bases_are_recorded_and_the_option_picks_the_headline(tmp_path):
     container = _container(
         ssim=0.5
