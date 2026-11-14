@@ -115,6 +115,28 @@ def test_empty_transcript_has_no_pace():
     assert Transcript(segments=(SpeechSegment(0, 1000, "  "),)).is_empty
 
 
+@pytest.mark.parametrize("marks", ["♪", "♪♪ ♪", "...", "…!", "(♪)"])
+def test_transcript_with_no_letters_is_not_speech(marks):
+    """음악만 있는 소리에 인식기가 '♪' 같은 표시를 적는 일이 있다. 글자·숫자가 없으면 말이 없는 것이다.
+
+    말 빠르기가 0.0 이 되면 테마의 규칙('빠르기는 0 보다 크다')에 걸려 추출이 늘 실패한다 (감사 BTS-D30).
+    """
+    noise = Transcript("ko", (SpeechSegment(0, 2000, marks), SpeechSegment(3000, 5000, marks)))
+
+    assert noise.is_empty and noise.speech_ms == 0 and noise.pace_cps is None
+
+
+def test_marks_between_speech_do_not_slow_the_pace_down():
+    mixed = Transcript(
+        "ko", (SpeechSegment(0, 2000, "♪"), SpeechSegment(2000, 4000, "안녕하세요, 반가워요."))
+    )
+
+    assert (
+        not mixed.is_empty and mixed.speech_ms == 2000
+    )  # 말한 시간에 표시만 있는 구간은 들지 않는다
+    assert mixed.pace_cps == pytest.approx(9 / 2.0)
+
+
 def test_transcript_segments_must_be_ordered_and_inside_the_audio():
     _transcript().validate(7000)
     with pytest.raises(ValidationError):

@@ -169,8 +169,10 @@ class SpokenScript:
 
     @property
     def pace_cps(self) -> float | None:
-        """말 빠르기: 초당 글자 수. 말이 없으면 None."""
-        return self.chars / (self.speech_ms / 1000) if self.speech_ms > 0 else None
+        """말 빠르기: 초당 글자 수. 말이 없으면 (글자가 없으면) None. 0 이 되는 일은 없다."""
+        if self.speech_ms <= 0 or self.chars <= 0:
+            return None
+        return self.chars / (self.speech_ms / 1000)
 
     def line(self, line_id: str) -> SpokenLine:
         for line in self.lines:

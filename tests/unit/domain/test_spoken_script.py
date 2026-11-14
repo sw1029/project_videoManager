@@ -341,6 +341,26 @@ def test_a_sentence_made_up_over_silence_is_not_a_line():
     assert any("고맙습니다." in note and "소리가 없는" in note for note in script.notes)
 
 
+def test_a_segment_with_no_letters_is_a_sound_mark_not_a_line():
+    """'♪'·'...' 처럼 글자 없는 구간은 줄이 아니다 (말이 아닌 소리의 표시다). 왜 뺐는지는 메모에 남긴다."""
+    transcript = Transcript(
+        "ko",
+        (
+            SpeechSegment(0, 2000, "♪♪"),
+            SpeechSegment(2500, 4500, "안녕하세요."),
+            SpeechSegment(5000, 6000, "..."),
+        ),
+    )
+
+    script = build_script(transcript)
+
+    assert [(line.line_id, line.text) for line in script.lines] == [("S1", "안녕하세요.")]
+    assert script.pace_cps == pytest.approx(5 / 2.0)
+    assert sum("글자가 없는" in note for note in script.notes) == 2
+    only_marks = build_script(Transcript("ko", (SpeechSegment(0, 2000, "♪"),)))
+    assert only_marks.is_empty and only_marks.pace_cps is None
+
+
 def test_a_segment_the_recognizer_is_sure_is_not_speech_is_dropped_whatever_its_confidence():
     transcript = Transcript(
         "ko", (SpeechSegment(13380, 14780, "고맙습니다.", confidence=0.452, no_speech=0.943),)

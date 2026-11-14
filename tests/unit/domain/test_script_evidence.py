@@ -169,6 +169,19 @@ def test_dialogue_and_empty_scripts_are_not_narration_to_reproduce():
     assert not silent.present and silent.beats == () and silent.pace_cps is None
 
 
+def test_lines_without_letters_are_never_narration_and_never_give_a_zero_pace():
+    """사람이 줄을 '...' 로 고쳐 둔 대본이어도 말 빠르기가 0.0 이 되지 않는다 (테마의 규칙에 어긋난다)."""
+    theme = cafe_theme()
+    script = _script()
+    blank = replace(script, lines=tuple(replace(line, text="...") for line in script.lines))
+
+    narration = narration_from_script(theme, blank)
+
+    assert not narration.present and narration.pace_cps is None and narration.beats == ()
+    assert blank.pace_cps is None
+    replace(theme, narration=narration).validate()
+
+
 def test_applying_the_script_marks_caption_rules_and_measures_narration():
     theme = cafe_theme()
     script = _script()

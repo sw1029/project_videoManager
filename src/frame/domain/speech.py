@@ -84,15 +84,21 @@ class Transcript:
 
     @property
     def is_empty(self) -> bool:
-        return not self.text
+        """말이 없다: 글자·숫자가 하나도 없다.
+
+        음악만 있는 소리에 인식기가 '♪'·'...' 같은 표시를 적는 일이 있다. 그런 받아쓰기도 말이 없는 것이다
+        (말로 치면 말 빠르기가 0.0 이 되어 테마의 규칙에 걸린다 — 감사 BTS-D30).
+        """
+        return spoken_characters(self.text) == 0
 
     @property
     def speech_ms(self) -> int:
-        return sum(max(0, s.duration_ms) for s in self.segments if s.text.strip())
+        """말한 시간: 글자가 든 구간의 길이를 더한 것 (표시만 있는 구간은 들지 않는다)."""
+        return sum(max(0, s.duration_ms) for s in self.segments if spoken_characters(s.text) > 0)
 
     @property
     def pace_cps(self) -> float | None:
-        """말 빠르기: 초당 글자 수 (공백·문장부호 제외). 말이 없으면 None."""
+        """말 빠르기: 초당 글자 수 (공백·문장부호 제외). 말이 없으면 None. 0 이 되는 일은 없다."""
         if self.speech_ms <= 0:
             return None
         return spoken_characters(self.text) / (self.speech_ms / 1000)

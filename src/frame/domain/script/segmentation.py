@@ -85,6 +85,9 @@ def build_script(
         text = " ".join(segment.text.split())
         if not text:
             continue
+        if spoken_characters(text) == 0:  # '♪'·'...' — 말이 아닌 소리의 표시다
+            notes.append(_dropped(segment.start_ms, segment.end_ms, text, _NO_LETTERS))
+            continue
         if _not_speech(segment, policy):
             notes.append(
                 _dropped(segment.start_ms, segment.end_ms, text, "말소리가 아닌 것으로 보고")
@@ -96,7 +99,9 @@ def build_script(
         pieces = _fit_to_sound(pieces, sound, duration_ms, policy, notes)
     kept: list[_Piece] = []
     for piece in pieces:
-        if _too_fast(piece, policy):
+        if spoken_characters(piece.text) == 0:  # 낱말 사이에서 나뉜 조각이 표시뿐일 때
+            notes.append(_dropped(piece.start, piece.end, piece.text, _NO_LETTERS))
+        elif _too_fast(piece, policy):
             notes.append(_dropped(piece.start, piece.end, piece.text, "말이라기에는 너무 짧아"))
         else:
             kept.append(piece)
@@ -166,6 +171,9 @@ def classify_kinds(script: SpokenScript, speaker_visible: Mapping[str, bool]) ->
 
 
 # ---- 안쪽 ----------------------------------------------------------------------
+_NO_LETTERS = "글자가 없는 소리 표시라"  # 줄로 삼지 않은 까닭 (메모에 쓴다)
+
+
 def _dropped(start: int, end: int, text: str, why: str) -> str:
     return f"{start / 1000:.1f}~{end / 1000:.1f}초의 '{text}' 는 {why} 줄로 삼지 않았습니다"
 

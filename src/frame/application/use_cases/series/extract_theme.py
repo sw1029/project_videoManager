@@ -10,6 +10,8 @@
 5. 추출기가 테마와 원본 IR 을 만든다. 계약을 다시 확인한 뒤에만 저장한다.
 6. 받아쓰기를 대본으로 다듬어 화면에서 읽은 것과 견준다: 변수·화면 문구의 근거, 어긋남, 내레이션 규칙,
    말을 따르는 자막 규칙 (ADR-0028). 모델을 더 부르지 않는다. 대본과 근거는 테마의 기록에 함께 둔다.
+   대본에서 옮긴 테마는 다시 검사한다. 이 단계가 실패하면 5의 추출 결과를 그대로 저장하고 메모를 남긴다
+   (유료 추출 뒤의 순수 단계가 그 결과를 버리지 않는다 — 감사 BTS-D62).
 
 같은 입력의 유료 호출은 한 번 (감사 BTS-12)
 - 같은 영상(sha256)을 같은 설정(추출기의 지문·언어·자리 길이의 하한과 상한)으로 뽑은 테마가 있으면 그것을 돌려준다.
@@ -37,6 +39,7 @@ from frame.application.ports.series.audio import AudioEditor
 from frame.application.ports.series.repositories import ThemeRecord, ThemeRepository
 from frame.application.ports.series.source_analysis import MediaProber, ShotDetector
 from frame.application.ports.series.theme_extraction import (
+    ThemeExtraction,
     ThemeExtractionError,
     ThemeExtractionRequest,
     ThemeExtractor,
@@ -45,10 +48,10 @@ from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
 from frame.application.use_cases.script import listen
 from frame.domain.enums import EntityKind
-from frame.domain.errors import ValidationError
+from frame.domain.errors import DomainError, ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.script import SceneSpan, SpokenScript, build_script, classify_kinds
-from frame.domain.series.script_evidence import apply_script, link_script
+from frame.domain.series.script_evidence import ScriptEvidence, apply_script, link_script
 from frame.domain.series.shortform import ShortformPlatform, ShortformVerdict, check_platforms
 from frame.domain.series.source_analysis import VideoAnalysis
 from frame.domain.series.theme import (
@@ -177,13 +180,8 @@ class ExtractTheme:
         )
         extraction = self._extractor.extract(request)
         _check_contract(extraction.theme, extraction.source_ir, request)
-        theme = extraction.theme
-        # 대본을 근거로 쓴다: 화면에서 읽은 것과 견주고, 내레이션 규칙을 잰다 (모델을 부르지 않는다)
-        script = _script(analysis.transcript, profile, theme, extraction.source_ir)
-        evidence = link_script(theme, script, extraction.screen_texts)
-        if not script.is_empty:
-            theme = apply_script(theme, script, evidence)
-        if evidence.discrepancies:
+        theme, script, evidence = _linked(extraction, analysis.transcript, profile, notes)
+        if evidence is not None and evidence.discrepancies:
             notes.append(
                 f"화면에서 읽은 것과 말이 어긋난 곳이 {len(evidence.discrepancies)}건 있습니다"
             )
@@ -310,6 +308,41 @@ def _script(
         silences=profile.silences if profile is not None else None,
     )
     return classify_kinds(script, visible)
+
+
+# 대본을 옮기는 단계(순수 계산)에서 날 수 있는 오류. 이 단계가 실패해도 추출 결과는 저장한다
+_LINK_ERRORS = (DomainError, ArithmeticError, LookupError, TypeError, ValueError)
+
+
+def _linked(
+    extraction: ThemeExtraction,
+    transcript: Transcript | None,
+    profile: SoundProfile | None,
+    notes: list[str],
+) -> tuple[Theme, SpokenScript | None, ScriptEvidence | None]:
+    """대본을 근거로 쓴 테마: 화면에서 읽은 것과 견주고 내레이션 규칙을 잰다 (모델을 부르지 않는다).
+
+    옮긴 테마는 다시 검사한다 (추출기의 결과만 검사하면 대본에서 온 값이 규칙을 깨도 그대로 저장된다).
+    이 단계가 실패하면 검사를 통과한 추출 결과를 그대로 돌려주고 메모를 남긴다: 저장하지 않으면 다시 부를 때
+    추출이 다시 과금된다 (감사 BTS-D62).
+    """
+    theme = extraction.theme
+    script: SpokenScript | None = None
+    evidence: ScriptEvidence | None = None
+    try:
+        script = _script(transcript, profile, theme, extraction.source_ir)
+        evidence = link_script(theme, script, extraction.screen_texts)
+        if not script.is_empty:
+            linked = apply_script(theme, script, evidence)
+            linked.validate()
+            theme = linked
+    except _LINK_ERRORS as exc:
+        log.warning("대본을 테마에 옮기지 못했습니다: %s: %s", type(exc).__name__, exc)
+        notes.append(
+            "대본을 테마에 옮기지 못해 추출 결과만 저장했습니다 "
+            f"(SCRIPT_LINK_FAILED: {type(exc).__name__})"
+        )
+    return theme, script, evidence
 
 
 def _check_contract(

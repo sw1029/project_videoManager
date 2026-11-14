@@ -240,7 +240,10 @@ def narration_from_script(theme: Theme, script: SpokenScript) -> NarrationSpec:
 
     자리의 구실(purpose)과 말투(tone)는 소리로 재는 것이 아니라 테마에 있던 것을 그대로 둔다.
     """
-    spoken = [line for line in script.lines if line.kind is not LineKind.DIALOGUE]
+    # 글자가 없는 줄(사람이 '...' 로 고쳐 둔 줄)은 말이 아니다. 넣으면 말 빠르기가 0 이 될 수 있다 (감사 BTS-D62)
+    spoken = [
+        line for line in script.lines if line.kind is not LineKind.DIALOGUE and line.chars > 0
+    ]
     if not spoken:
         return NarrationSpec(present=False)
     starts: dict[str, int] = {}
@@ -271,7 +274,7 @@ def narration_from_script(theme: Theme, script: SpokenScript) -> NarrationSpec:
         present=True,
         language=script.language or theme.narration.language,
         tone=theme.narration.tone,
-        pace_cps=chars / (spoken_ms / 1000) if spoken_ms > 0 else None,
+        pace_cps=chars / (spoken_ms / 1000) if spoken_ms > 0 and chars > 0 else None,
         beats=tuple(beats),
     )
 

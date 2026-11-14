@@ -230,6 +230,27 @@ def test_narration_comes_from_the_transcript_not_from_the_model():
     assert theme.music.present is None  # 프레임만으로는 음악을 알 수 없다
 
 
+@pytest.mark.parametrize("marks", ["♪", "..."])
+def test_transcript_with_no_letters_is_treated_as_no_narration(marks):
+    """받아쓰기가 '♪'·'...' 뿐이면 내레이션이 없는 테마다. 말 빠르기 0.0 으로 답을 거절하지 않는다 (감사 BTS-D30)."""
+    noise = Transcript("ko", (SpeechSegment(400, 2600, marks), SpeechSegment(4500, 6200, marks)))
+
+    theme, _, _, _ = _build(transcript=noise)
+
+    assert not theme.narration.present and theme.narration.pace_cps is None
+    assert theme.narration.beats == ()
+
+
+def test_marks_in_a_slot_are_not_quoted_as_what_was_said():
+    mixed = Transcript(
+        "ko", (SpeechSegment(400, 1000, "♪"), SpeechSegment(1200, 2600, "안녕하세요."))
+    )
+
+    theme, _, _, _ = _build(transcript=mixed)
+
+    assert theme.narration.beat("slot_1").example == "안녕하세요."
+
+
 def test_silent_video_has_no_narration_even_if_the_model_describes_one():
     theme, _, _, _ = _build(transcript=None)
 
@@ -465,6 +486,18 @@ def test_invalid_answer_is_sent_back_once_and_then_fails(video):
     timeout, _ = _extractor(LLMTimeout("응답 없음"))
     with pytest.raises(LLMTimeout):
         timeout.extract(_request(video=video))
+
+
+@needs_ffmpeg
+def test_a_good_answer_is_not_asked_again_because_of_the_transcript(video):
+    """받아쓰기가 기호뿐이어도 맞는 답은 한 번에 받는다. 모델이 고칠 수 없는 까닭으로 되묻지 않는다 (감사 BTS-D30)."""
+    noise = Transcript("ko", (SpeechSegment(400, 2600, "♪"), SpeechSegment(4500, 6200, "♪♪")))
+    extractor, llm = _extractor(cafe_observation(), refine_text_regions=False)
+
+    extraction = extractor.extract(_request(video=video, transcript=noise))
+
+    assert extraction.detail["attempts"] == 1 and len(llm.calls) == 1
+    assert not extraction.theme.narration.present
 
 
 def test_system_prompt_lists_the_vocabulary_and_the_rules():

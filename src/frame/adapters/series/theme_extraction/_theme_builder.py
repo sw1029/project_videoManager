@@ -36,6 +36,7 @@ from frame.domain.series.theme import (
     color_name,
     template_variables,
 )
+from frame.domain.speech import spoken_characters
 from frame.domain.vocabulary import DEFAULT_VOCABULARY, ValueKind
 
 from ._answer_parts import (
@@ -180,7 +181,9 @@ def build_theme(
     beats: list[NarrationBeat] = []
     if spoken is not None:
         for index, (slot_key, (start, end)) in enumerate(zip(slot_keys, spans, strict=True)):
-            said = " ".join(s.text.strip() for s in spoken.within(start, end))
+            said = " ".join(
+                s.text.strip() for s in spoken.within(start, end) if spoken_characters(s.text)
+            )
             purpose = " ".join(str(answers.get(index, {}).get("narration_purpose") or "").split())
             if said or purpose:
                 beats.append(NarrationBeat(slot_key, purpose, said))

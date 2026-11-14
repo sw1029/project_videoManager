@@ -277,6 +277,64 @@ def test_speech_the_recognizer_skipped_is_heard_again_and_reaches_the_script():
     assert any("다시 받아 적었습니다" in note for note in record.notes)
 
 
+@pytest.mark.parametrize("marks", ["♪", "...", "♪♪ ♪"])
+def test_transcript_with_no_letters_gives_a_valid_theme_without_narration(marks):
+    """글자 없는 받아쓰기('♪'·'...')는 말이 없는 것이다 (감사 BTS-D30·D62).
+
+    추출은 한 번만 부르고, 저장된 테마는 규칙을 통과하는 '내레이션 없는 테마' 다. 다시 부르면 그 테마를 돌려준다.
+    """
+    said = Transcript("ko", (SpeechSegment(400, 2600, marks), SpeechSegment(4500, 6200, marks)))
+    series = series_of(series_container())
+
+    record = series.extract_theme.execute(_command(fake_video(transcript=said))).record
+
+    record.theme.validate()
+    assert not record.theme.narration.present and record.theme.narration.pace_cps is None
+    assert record.script.is_empty and len(series.extractor.requests) == 1
+    assert series.themes.get(record.theme.theme_id) == record
+    again = series.extract_theme.execute(_command(fake_video(transcript=said)))
+    assert again.reused and len(series.extractor.requests) == 1
+
+
+def test_extraction_is_saved_even_when_the_script_cannot_be_linked(monkeypatch):
+    """대본을 근거로 옮기는 단계는 모델을 부르지 않는다. 그 단계가 실패해도 돈 들여 받은 추출 결과는 저장한다.
+
+    저장하지 않으면 다시 부를 때 추출이 다시 과금된다 (감사 BTS-D62). 무슨 일이 있었는지는 메모로 남긴다.
+    """
+    from frame.application.use_cases.series import extract_theme as module
+
+    def broken(theme, script, evidence):
+        raise ValidationError("대본을 옮길 수 없습니다")
+
+    monkeypatch.setattr(module, "apply_script", broken)
+    series = series_of(series_container())
+
+    record = series.extract_theme.execute(_command()).record
+
+    record.theme.validate()
+    assert series.themes.get(record.theme.theme_id) == record
+    assert any("SCRIPT_LINK_FAILED" in note for note in record.notes)
+    assert len(series.extractor.requests) == 1
+    assert series.extract_theme.execute(_command()).reused  # 다시 과금하지 않는다
+
+
+def test_theme_changed_by_the_script_is_checked_before_it_is_saved(monkeypatch):
+    """대본에서 옮긴 것이 테마의 규칙을 깨면 (말 빠르기 0 등) 그 테마를 저장하지 않고 추출 결과를 저장한다."""
+    from frame.application.use_cases.series import extract_theme as module
+
+    def zero_pace(theme, script, evidence):
+        return replace(theme, narration=replace(theme.narration, pace_cps=0.0))
+
+    monkeypatch.setattr(module, "apply_script", zero_pace)
+    series = series_of(series_container())
+
+    record = series.extract_theme.execute(_command()).record
+
+    record.theme.validate()
+    assert record.theme.narration.pace_cps == pytest.approx(SAID.pace_cps)  # 추출기가 잰 값 그대로
+    assert any("SCRIPT_LINK_FAILED" in note for note in record.notes)
+
+
 def test_language_hint_reaches_the_recognizer():
     recognizer = FakeSpeechRecognizer()
     series = series_of(series_container(speech_recognizer=recognizer))
