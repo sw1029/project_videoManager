@@ -1,6 +1,7 @@
 """ReviseEpisode: 편의 조건을 고치는 수정 (US-01, ADR-0026·0027).
 
-그 조건이 걸린 장면만 다시 만들고, 편의 계획도 새 조건을 따른다. 테마가 고정한 것은 편에서 바꿀 수 없다.
+그 조건이 걸린 장면만 다시 만든다. 수정 버전은 끝난 뒤에만 편의 기준 버전이 되고, 그때 편의 계획도 새 조건을 따른다.
+테마가 고정한 것은 편에서 바꿀 수 없다.
 """
 
 from __future__ import annotations
@@ -9,7 +10,8 @@ import pytest
 
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.series import ReviseEpisodeCommand
+from frame.application.errors import GenerationError
+from frame.application.series import ReviseEpisodeCommand, SettleEpisodeCommand
 from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind, VersionState
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.revision import KeepItem
@@ -22,6 +24,8 @@ from tests.support.series import (
     series_container,
     series_of,
 )
+
+PINK_SHOW = AttributeChange("latte", "color", "pink", ChangeScope.SCENES, ("show",))
 
 
 @pytest.fixture
@@ -42,6 +46,11 @@ def _revise(container, episode, change, **options):
     return series_of(container).revise_episode.execute(command)
 
 
+def _settled(container, episode, **options):
+    command = SettleEpisodeCommand(episode.episode_id, **options)
+    return series_of(container).settle_episode.execute(command)
+
+
 def _values(episode, scene_key):
     return {r.key: r.expected_value for r in episode.plan.ir.scene(scene_key).requirements}
 
@@ -49,22 +58,29 @@ def _values(episode, scene_key):
 def test_changing_a_condition_remakes_only_the_scenes_it_touches(kit):
     container, generator, episode = kit
     before = version_of(container, episode.version_id)
-    change = AttributeChange("latte", "color", "pink", ChangeScope.SCENES, ("show",))
     keep = (KeepItem(KeepAspect.BACKGROUND),)
 
-    revised = _revise(container, episode, change, keep=keep, request_text="컵 색을 분홍으로")
+    waiting = _revise(
+        container, episode, PINK_SHOW, keep=keep, request_text="컵 색을 분홍으로", generate=True
+    )
 
-    # 편은 새 버전을 가리키고, 편의 계획도 새 조건을 따른다. 완성본은 다시 만들어야 한다
-    assert revised.version_id != episode.version_id and revised.history == (episode.version_id,)
-    assert revised.render is None
+    # 수정 버전이 끝나기 전에는 편의 기준 버전·계획·완성본이 그대로다
+    pending = waiting.pending_version_id
+    assert pending is not None and waiting.version_id == episode.version_id
+    assert waiting.plan == episode.plan and waiting.render == episode.render
+    assert series_of(container).episodes.get(episode.episode_id) == waiting
+
+    dispatcher_of(container).run_all()
+    revised = _settled(container, episode)
+
+    # 끝나면 그 버전이 기준 버전이 되고, 편의 계획도 새 조건을 따른다. 완성본은 다시 만들어야 한다
+    assert revised.version_id == pending and revised.history == (episode.version_id,)
+    assert revised.pending_version_id is None and revised.render is None
     assert _values(revised, "show")["show:latte:color"] == "pink"
     assert _values(revised, "closeup")["closeup:latte:color"] == "green"  # 짚은 장면만
-    assert series_of(container).episodes.get(episode.episode_id) == revised
     # 문구와 대본은 그대로다 (조건이 아니다)
     assert revised.plan.overlays == episode.plan.overlays
     assert revised.plan.script == episode.plan.script
-
-    dispatcher_of(container).run_all()
     revision = version_of(container, revised.version_id)
     assert revision.state is VersionState.COMPLETED and revision.ir == revised.plan.ir
     assert revision.intent.kind is RevisionKind.CHANGE and revision.intent.keep == keep
@@ -83,12 +99,64 @@ def test_a_condition_can_be_added_to_one_scene(kit):
     container, generator, episode = kit
     change = AttributeChange("latte", "text", "말차", ChangeScope.SCENES, ("show",))
 
-    revised = _revise(container, episode, change)
+    _revise(container, episode, change, generate=True)
+    dispatcher_of(container).run_all()
+    revised = _settled(container, episode)
 
     assert _values(revised, "show")["show:latte:text"] == "말차"
     assert "closeup:latte:text" not in _values(revised, "closeup")
-    dispatcher_of(container).run_all()
     assert [r.scene.scene_key for r in generator.requests] == ["show"]
+
+
+def test_failed_revision_leaves_the_episode_on_its_base_version(kit):
+    """수정 버전이 실패해도 편은 멈추지 않는다: 기준 버전·계획·완성본이 그대로고, 다시 고칠 수 있다 (감사 BTS-16)."""
+    container, generator, episode = kit
+    series = series_of(container)
+    generator._error = GenerationError("생성 서버 오류", retryable=False)
+    waiting = _revise(container, episode, PINK_SHOW, generate=True)
+    dispatcher_of(container).run_all()
+    assert version_of(container, waiting.pending_version_id).state is VersionState.FAILED
+
+    # 편을 읽는 유스케이스가 들어오면 실패한 수정 버전을 잊는다
+    report = series.check_screen.execute(episode.episode_id)
+    after = series.episodes.get(episode.episode_id)
+
+    assert (after.version_id, after.pending_version_id, after.history) == (
+        episode.version_id,
+        None,
+        (),
+    )
+    assert after.plan == episode.plan and after.render == episode.render
+    assert report.version_id == episode.version_id and report.checked_requirements > 0
+    assert series.render_episode.execute(episode.episode_id).composed_now == ()  # 완성본도 된다
+    generator._error = None
+    again = _revise(container, episode, PINK_SHOW, generate=True)  # 다시 고칠 수 있다
+    assert again.pending_version_id not in (None, waiting.pending_version_id)
+
+
+def test_no_other_revision_while_one_is_being_made(kit):
+    """만들고 있는 수정 버전이 있는 동안에는 다른 수정을 받지 않는다. 만들다 만 초안은 버릴 수 있다."""
+    container, generator, episode = kit
+    drafted = _revise(container, episode, PINK_SHOW)  # 기본은 초안까지 (생성은 요청해야 접수한다)
+
+    assert version_of(container, drafted.pending_version_id).state is VersionState.DRAFT
+    assert dispatcher_of(container).run_all() == 0 and generator.requests == []
+    with pytest.raises(ValidationError, match="만들고 있습니다"):
+        _revise(container, episode, AttributeChange("latte", "color", "blue"))
+    assert _settled(container, episode).pending_version_id == drafted.pending_version_id
+
+    dropped = _settled(container, episode, discard_draft=True)
+    assert dropped.pending_version_id is None and dropped.version_id == episode.version_id
+    assert _revise(container, episode, AttributeChange("latte", "color", "blue")).pending_version_id
+
+
+def test_draft_is_not_discarded_once_it_is_running(kit):
+    container, _, episode = kit
+    running = _revise(container, episode, PINK_SHOW, generate=True)  # 접수됨 (아직 돌지 않았다)
+
+    kept = _settled(container, episode, discard_draft=True)
+
+    assert kept.pending_version_id == running.pending_version_id
 
 
 def test_what_the_theme_fixes_cannot_be_changed_in_an_episode(kit):
@@ -105,9 +173,8 @@ def test_what_the_theme_fixes_cannot_be_changed_in_an_episode(kit):
             episode,
             AttributeChange(None, "camera", "wide shot", ChangeScope.SCENES, ("closeup",)),
         )
-    assert (
-        series_of(container).episodes.get(episode.episode_id) == episode
-    )  # 아무것도 바뀌지 않았다
+    # 아무것도 바뀌지 않았다
+    assert series_of(container).episodes.get(episode.episode_id) == episode
     assert generator.requests == []
 
 
@@ -118,27 +185,25 @@ def test_a_fixed_condition_can_still_be_repaired(kit):
         "barista", "outfit", "white shirt and brown apron", ChangeScope.SCENES, ("greeting",)
     )
 
-    revised = _revise(container, episode, change, kind=RevisionKind.REPAIR)
-
+    _revise(container, episode, change, kind=RevisionKind.REPAIR, generate=True)
     dispatcher_of(container).run_all()
-    revision = version_of(container, revised.version_id)
-    assert revision.intent.kind is RevisionKind.REPAIR
+    revised = _settled(container, episode)
+
+    assert version_of(container, revised.version_id).intent.kind is RevisionKind.REPAIR
     assert [r.scene.scene_key for r in generator.requests] == ["greeting"]
     assert revised.plan.ir == episode.plan.ir  # 조건은 그대로다
+    assert revised.history == (episode.version_id,)
 
 
-def test_revision_is_only_drafted_when_generation_is_not_asked(kit):
-    container, generator, episode = kit
-    change = AttributeChange("latte", "color", "pink")
+def test_change_without_scenes_reaches_every_scene_of_the_entity(kit):
+    container, _, episode = kit
 
-    revised = _revise(container, episode, change, generate=False)
+    _revise(container, episode, AttributeChange("latte", "color", "pink"), generate=True)
+    dispatcher_of(container).run_all()
+    revised = _settled(container, episode)
 
-    assert version_of(container, revised.version_id).state is VersionState.DRAFT
-    assert dispatcher_of(container).run_all() == 0 and generator.requests == []
     assert _values(revised, "show")["show:latte:color"] == "pink"
-    assert (
-        _values(revised, "closeup")["closeup:latte:color"] == "pink"
-    )  # 범위를 안 주면 나오는 모든 장면
+    assert _values(revised, "closeup")["closeup:latte:color"] == "pink"
 
 
 def test_unknown_episode_and_unchanged_value_are_rejected(kit):
@@ -148,5 +213,8 @@ def test_unknown_episode_and_unchanged_value_are_rejected(kit):
         series_of(container).revise_episode.execute(
             ReviseEpisodeCommand("epi_none", AttributeChange("latte", "color", "pink"))
         )
+    with pytest.raises(NotFound):
+        series_of(container).settle_episode.execute(SettleEpisodeCommand("epi_none"))
     with pytest.raises(ValidationError):  # 값이 같으면 CHANGE 가 아니다 (REPAIR 로 요청한다)
         _revise(container, episode, AttributeChange("latte", "color", "green"))
+    assert series_of(container).episodes.get(episode.episode_id).pending_version_id is None

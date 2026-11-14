@@ -13,7 +13,9 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
+from .enums import VersionState
 from .episode import EpisodeBrief, EpisodePlan
+from .ir import IntermediateRepresentation
 from .services.narration import LineAlignment, LineStatus, Placement, PlacementStatus
 
 
@@ -105,6 +107,9 @@ class Episode:
     narration: NarrationResult | None = None
     render: RenderResult | None = None
     history: tuple[str, ...] = ()  # 지나온 버전 (화면 속성을 고치기 전의 버전들)
+    # 만들고 있는 수정 버전. 끝나면(COMPLETED) 기준 버전이 되고, 실패하면 잊는다 (settled).
+    # 끝나기 전에 기준 버전을 옮기면, 실패했을 때 편이 완성본도 검수도 수정도 안 되는 버전에 멈춘다 (감사 BTS-16)
+    pending_version_id: str | None = None
 
     def with_version(self, version_id: str) -> Episode:
         """기준 버전을 바꾼다 (수정 버전으로 넘어갈 때). 완성본은 다시 만들어야 하므로 비운다."""
@@ -113,6 +118,26 @@ class Episode:
         return replace(
             self, version_id=version_id, history=(*self.history, self.version_id), render=None
         )
+
+    def with_pending(self, version_id: str) -> Episode:
+        """수정 버전을 만들기 시작했다. 기준 버전은 그 버전이 끝난 뒤에 옮긴다."""
+        return replace(self, pending_version_id=version_id)
+
+    def settled(self, state: VersionState | None, ir: IntermediateRepresentation | None) -> Episode:
+        """만들고 있던 수정 버전의 결말을 반영한다 (state·ir 는 그 버전의 것, 버전이 없으면 None).
+
+        - COMPLETED: 그 버전이 기준 버전이 된다. 계획의 IR 도 그 버전의 것으로 바꾼다 (조건을 고친 수정이면 달라진다).
+        - FAILED 또는 없어짐: 수정 버전을 잊는다. 기준 버전은 그대로라 편은 계속 쓸 수 있다.
+        - 그 밖(초안·대기·만드는 중): 그대로 둔다.
+        """
+        if self.pending_version_id is None:
+            return self
+        if state is VersionState.COMPLETED and ir is not None:
+            moved = self.with_version(self.pending_version_id)
+            return replace(moved, plan=replace(moved.plan, ir=ir), pending_version_id=None)
+        if state is None or state is VersionState.FAILED:
+            return replace(self, pending_version_id=None)
+        return self
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,6 +152,7 @@ class Episode:
             "narration": self.narration.to_dict() if self.narration is not None else None,
             "render": self.render.to_dict() if self.render is not None else None,
             "history": list(self.history),
+            "pending_version_id": self.pending_version_id,
         }
 
     @classmethod
@@ -144,4 +170,5 @@ class Episode:
             narration=NarrationResult.from_dict(narration) if narration is not None else None,
             render=RenderResult.from_dict(render) if render is not None else None,
             history=tuple(data.get("history", ())),
+            pending_version_id=data.get("pending_version_id") or None,
         )

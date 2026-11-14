@@ -82,6 +82,11 @@ class AttachNarration:
         self._policy = policy
 
     def execute(self, command: AttachNarrationCommand) -> Episode:
+        # 인식은 오래 걸린다. 그 사이 다른 유스케이스가 고친 문구·버전을 마지막 저장이 지우지 않게 편의 키를 쥔다
+        with self._episodes.lock(command.episode_id):
+            return self._attach(command)
+
+    def _attach(self, command: AttachNarrationCommand) -> Episode:
         episode = self._episodes.get(command.episode_id)
         if episode is None:
             raise NotFound(

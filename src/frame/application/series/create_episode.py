@@ -35,6 +35,8 @@ from ..ports.series import EarlierEpisode, PlanningRequest, SeriesPlanner
 from ..ports.theme_store import EpisodeRepository, ThemeRecord, ThemeRepository
 from ..ports.unit_of_work import UnitOfWorkFactory
 
+MAX_PROJECT_TITLE = 255  # projects.title 열의 길이
+
 
 @dataclass(frozen=True)
 class CreateEpisodeCommand:
@@ -88,7 +90,7 @@ class CreateEpisode:
         with self._uow_factory() as uow:
             project = Project(
                 project_id=self._ids.new_id("prj"),
-                title=f"{theme.title} — {plan.title}",
+                title=f"{theme.title} — {plan.title}"[:MAX_PROJECT_TITLE],
                 created_at=now,
             )
             version = VideoVersion(
@@ -106,7 +108,8 @@ class CreateEpisode:
             for member in theme.references():
                 if not plan.ir.has_entity(member.entity_key):
                     continue  # 이 편에 나오지 않는 고정 출연
-                assert member.reference_image_uri is not None
+                if member.reference_image_uri is None:  # references() 가 이미 걸렀다
+                    continue
                 uow.reference_images.add(
                     ReferenceImage(
                         reference_image_id=self._ids.new_id("img"),
@@ -119,17 +122,20 @@ class CreateEpisode:
                 )
             uow.commit()
 
-        episode = Episode(
-            episode_id=self._ids.new_id("epi"),
-            theme_id=theme.theme_id,
-            index=max((e.index for e in earlier), default=0) + 1,
-            project_id=project.project_id,
-            version_id=version.version_id,
-            brief=brief,
-            plan=plan,
-            created_at=now,
-        )
-        self._episodes.save(episode)
+        # 순번은 테마의 키를 쥐고 매긴다. 기획(오래 걸린다)하는 동안 다른 편이 생겨도 번호가 겹치지 않는다
+        with self._episodes.lock(f"theme:{theme.theme_id}"):
+            taken = [e.index for e in self._episodes.list_by_theme(theme.theme_id)]
+            episode = Episode(
+                episode_id=self._ids.new_id("epi"),
+                theme_id=theme.theme_id,
+                index=max(taken, default=0) + 1,
+                project_id=project.project_id,
+                version_id=version.version_id,
+                brief=brief,
+                plan=plan,
+                created_at=now,
+            )
+            self._episodes.save(episode)
         return episode
 
 
@@ -161,8 +167,14 @@ class AdoptAnchorsResult:
 
 
 class AdoptAnchors:
-    def __init__(self, themes: ThemeRepository, uow_factory: UnitOfWorkFactory) -> None:
+    def __init__(
+        self,
+        themes: ThemeRepository,
+        episodes: EpisodeRepository,
+        uow_factory: UnitOfWorkFactory,
+    ) -> None:
         self._themes = themes
+        self._episodes = episodes
         self._uow_factory = uow_factory
 
     def execute(self, command: AdoptAnchorsCommand) -> AdoptAnchorsResult:
@@ -180,6 +192,18 @@ class AdoptAnchors:
                     f"버전 {command.version_id} 을 찾을 수 없습니다", version_id=command.version_id
                 )
             references = uow.reference_images.list_by_version(command.version_id)
+        if command.origin is AnchorOrigin.PILOT:
+            # '처음 만든 편의 것' 이라는 규칙을 부른 쪽의 말에만 기대지 않는다: 그 테마의 편의 버전이어야 한다
+            own = {
+                version_id
+                for episode in self._episodes.list_by_theme(command.theme_id)
+                for version_id in (episode.version_id, *episode.history)
+            }
+            if command.version_id not in own:
+                raise ValidationError(
+                    "이 테마로 만든 편의 버전이 아닙니다. 처음 만든 편(PILOT)의 기준 이미지만 받습니다",
+                    version_id=command.version_id,
+                )
         theme = record.theme
         adopted: list[str] = []
         for member in record.theme.cast:

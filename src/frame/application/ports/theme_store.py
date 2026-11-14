@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -71,7 +72,16 @@ class ThemeRepository(ABC):
 
 
 class EpisodeRepository(ABC):
-    """계약: save 는 같은 episode_id 의 편을 덮어쓴다. get 은 없으면 None. list_by_theme 은 순번 순서."""
+    """계약
+    - save 는 같은 episode_id 의 편을 덮어쓴다. get 은 없으면 None. list_by_theme 은 순번 순서.
+    - lock(key) 는 그 키를 쥐는 동안 같은 키의 다른 스레드를 기다리게 한다. 같은 스레드는 다시 들어갈 수 있다.
+      편 문서는 읽고 → 고쳐 → 통째로 덮어쓰므로, 유스케이스는 편 id 를 쥐고 그 사이를 지난다.
+      그러지 않으면 오래 걸리는 합성·인식 도중에 다른 유스케이스가 한 수정이 지워진다 (감사 BTS-24).
+      편의 순번은 테마의 키("theme:<id>")를 쥐고 매긴다. 한 프로세스 안의 잠금이다.
+    """
+
+    @abstractmethod
+    def lock(self, key: str) -> AbstractContextManager[None]: ...
 
     @abstractmethod
     def save(self, episode: Episode) -> None: ...

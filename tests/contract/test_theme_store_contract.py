@@ -14,9 +14,10 @@ from frame.adapters.theme_store import (
     InMemoryEpisodeRepository,
     InMemoryThemeRepository,
 )
-from frame.application.errors import ConfigurationError
+from frame.application.errors import ConfigurationError, StorageError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.theme_store import ThemeRecord
+from frame.domain.enums import VersionState
 from frame.domain.episode import build_episode_plan
 from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation, SceneSpec
@@ -177,12 +178,101 @@ def test_moving_to_a_revision_keeps_history_and_drops_the_render():
 
 
 # ---- 산출물 저장소 구현의 제약 ----
-def test_artifact_repository_refuses_unsafe_ids():
+@pytest.mark.parametrize(
+    "bad",
+    ["../secret", "a/b", "thm_1\n", "index.json", "thm.a", "THM_A", "", "-x" * 40],
+)
+def test_artifact_repository_refuses_unsafe_ids(bad):
+    """id 는 소문자·숫자·밑줄·붙임표만 받는다 (점·대문자·줄바꿈·경로 구분자를 받지 않는다, 감사 BTS-14)."""
     themes = ArtifactThemeRepository(InMemoryArtifactStore())
     with pytest.raises(ValidationError):
-        themes.get("../secret")
+        themes.get(bad)
     with pytest.raises(ValidationError):
-        themes.save(replace(_record(), theme=replace(_record().theme, theme_id="a/b")))
+        themes.save(replace(_record(), theme=replace(_record().theme, theme_id=bad)))
+
+
+def test_broken_index_is_reported_and_not_overwritten():
+    """색인이 목록이 아니면 빈 목록으로 읽지 않는다. 그러면 다음 저장이 색인을 덮어써 다른 테마가 목록에서 사라진다."""
+    store = InMemoryArtifactStore()
+    themes = ArtifactThemeRepository(store)
+    themes.save(_record("thm_a"))
+    index = store.uri_for("themes/index.json")
+    store.put("themes/index.json", b'{"oops": 1}', "application/json")
+
+    with pytest.raises(StorageError):
+        themes.list()
+    with pytest.raises(StorageError):
+        themes.save(_record("thm_b"))
+    assert store.get(index) == b'{"oops": 1}'  # 색인을 덮어쓰지 않았다
+
+
+def test_broken_document_is_skipped_when_listing():
+    """문서 하나가 깨져도 나머지는 읽힌다 (편 만들기가 테마의 편 목록을 읽는다)."""
+    store = InMemoryArtifactStore()
+    themes, episodes = ArtifactThemeRepository(store), ArtifactEpisodeRepository(store)
+    themes.save(_record("thm_a"))
+    themes.save(_record("thm_b", minutes=1))
+    episodes.save(_episode("ep_1", 1))
+    episodes.save(_episode("ep_2", 2))
+    store.put("themes/thm_a/theme.json", b"{}", "application/json")
+    store.put("episodes/ep_1/episode.json", b"not json", "application/json")
+
+    assert [r.theme.theme_id for r in themes.list()] == ["thm_b"]
+    assert [e.episode_id for e in episodes.list_by_theme("thm_cafe")] == ["ep_2"]
+
+
+# ---- 편의 키 잠금 (감사 BTS-24) ----
+def test_lock_lets_the_same_thread_in_again_and_makes_other_threads_wait(repositories):
+    import threading
+
+    _, episodes = repositories
+    order: list[str] = []
+    entered = threading.Event()
+
+    def worker(key: str, name: str) -> None:
+        with episodes.lock(key):
+            order.append(name)
+            entered.set()
+
+    with episodes.lock("ep_1"):
+        with episodes.lock(
+            "ep_1"
+        ):  # 같은 스레드는 다시 들어간다 (유스케이스가 다른 유스케이스를 부른다)
+            pass
+        same = threading.Thread(target=worker, args=("ep_1", "same key"))
+        other = threading.Thread(target=worker, args=("ep_2", "other key"))
+        same.start()
+        other.start()
+        other.join(5)
+        assert order == ["other key"] and same.is_alive()  # 같은 키는 기다리고, 다른 키는 지나간다
+    same.join(5)
+    assert order == ["other key", "same key"]
+
+
+# ---- 만들고 있는 수정 버전 (감사 BTS-16) ----
+def test_pending_revision_becomes_the_base_only_when_it_completes():
+    episode = replace(_episode(), render=RenderResult("mem://final.mp4", "ver_1", 16000))
+    waiting = episode.with_pending("ver_2")
+    changed = replace(episode.plan.ir, scenes=episode.plan.ir.scenes[:1])
+
+    assert (waiting.version_id, waiting.pending_version_id) == ("ver_1", "ver_2")
+    assert waiting.render == episode.render  # 아직 기준 버전의 완성본이 맞다
+    for state in (VersionState.DRAFT, VersionState.QUEUED, VersionState.PROCESSING):
+        assert waiting.settled(state, changed) == waiting
+
+    done = waiting.settled(VersionState.COMPLETED, changed)
+    assert (done.version_id, done.history, done.pending_version_id) == ("ver_2", ("ver_1",), None)
+    assert done.plan.ir == changed and done.render is None  # 계획도 새 조건을 따른다
+
+    for state in (
+        VersionState.FAILED,
+        None,
+    ):  # 실패했거나 버전이 없어졌다: 기준 버전 그대로 계속 쓴다
+        dropped = waiting.settled(state, None)
+        assert (dropped.version_id, dropped.pending_version_id) == ("ver_1", None)
+        assert dropped.history == () and dropped.render == episode.render
+    assert episode.settled(VersionState.COMPLETED, changed) is episode  # 기다리는 버전이 없다
+    assert Episode.from_dict(waiting.to_dict()) == waiting
 
 
 def test_artifact_repository_needs_a_store_with_predictable_uris():

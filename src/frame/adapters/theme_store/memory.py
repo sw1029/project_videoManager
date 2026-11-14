@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from contextlib import AbstractContextManager
 from typing import Any
 
 from frame.application.ports.theme_store import EpisodeRepository, ThemeRecord, ThemeRepository
 from frame.domain.series import Episode
+
+from .key_locks import KeyLocks
 
 
 def _copy(document: dict[str, Any]) -> dict[str, Any]:
@@ -32,6 +35,10 @@ class InMemoryThemeRepository(ThemeRepository):
 class InMemoryEpisodeRepository(EpisodeRepository):
     def __init__(self) -> None:
         self._documents: dict[str, dict[str, Any]] = {}
+        self._locks = KeyLocks()
+
+    def lock(self, key: str) -> AbstractContextManager[None]:
+        return self._locks.hold(key)
 
     def save(self, episode: Episode) -> None:
         self._documents[episode.episode_id] = _copy(episode.to_dict())

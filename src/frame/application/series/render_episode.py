@@ -27,6 +27,7 @@ from ..ports.compositor import OverlayRenderer
 from ..ports.generator import VideoAssembler
 from ..ports.theme_store import EpisodeRepository
 from ..ports.unit_of_work import UnitOfWorkFactory
+from .pending_revision import require_episode, settle_pending
 
 
 @dataclass(frozen=True)
@@ -54,9 +55,15 @@ class RenderEpisode:
         self._audio = audio
 
     def execute(self, episode_id: str) -> RenderEpisodeResult:
-        episode = self._episodes.get(episode_id)
-        if episode is None:
-            raise NotFound(f"편 {episode_id} 을 찾을 수 없습니다", episode_id=episode_id)
+        # 편 문서는 읽고 -> 고쳐 -> 통째로 덮어쓴다. 합성하는 동안 다른 유스케이스가 한 수정이 지워지지 않게
+        # 편의 키를 쥐고 지나간다 (감사 BTS-24)
+        with self._episodes.lock(episode_id):
+            return self._render(episode_id)
+
+    def _render(self, episode_id: str) -> RenderEpisodeResult:
+        episode = settle_pending(
+            self._episodes, self._uow_factory, require_episode(self._episodes, episode_id)
+        )
         with self._uow_factory() as uow:
             version = uow.versions.get(episode.version_id)
         if version is None:

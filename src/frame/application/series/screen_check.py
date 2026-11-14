@@ -33,6 +33,7 @@ from frame.domain.correction import (
     patch_overlay_id,
     screen_text_matches,
 )
+from frame.domain.enums import VersionState
 from frame.domain.episode import EpisodePlan, OverlayKind
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.series import Episode
@@ -44,6 +45,7 @@ from ..ports.artifact_store import ArtifactStore
 from ..ports.compositor import ScreenTextReader
 from ..ports.theme_store import EpisodeRepository, ThemeRepository
 from ..ports.unit_of_work import UnitOfWorkFactory
+from .pending_revision import require_episode, settle_pending
 
 log = logging.getLogger(__name__)
 
@@ -58,10 +60,21 @@ class ScreenReport:
     checked_lines: int  # 녹음을 맞춰 본 대본 줄 수
     notes: tuple[str, ...] = ()
     patched: tuple[str, ...] = ()  # 가리고 다시 써서 고친 요구조건 (어긋난 곳에서 뺐다)
+    version_state: str = ""  # 기준 버전의 상태
+    pending_version_id: str | None = None  # 만들고 있는 수정 버전 (끝나면 기준 버전이 된다)
 
     @property
-    def ok(self) -> bool:
-        return not self.issues
+    def ok(self) -> bool | None:
+        """어긋난 곳이 없는가. 판정할 수 없으면 None 이다.
+
+        기준 버전이 완성되지 않았거나 검수 결과가 하나도 없으면 '어긋난 곳 없음' 이 아니라 '모름' 이다.
+        판정할 수 없는 것을 틀렸다고도, 맞다고도 하지 않는다 (감사 BTS-17).
+        """
+        if self.issues:
+            return False
+        if self.version_state != VersionState.COMPLETED or self.checked_requirements == 0:
+            return None
+        return True
 
     def issue(self, issue_id: str) -> ScreenIssue:
         for item in self.issues:
@@ -80,6 +93,8 @@ class ScreenReport:
             "checked_lines": self.checked_lines,
             "notes": list(self.notes),
             "patched": list(self.patched),
+            "version_state": self.version_state,
+            "pending_version_id": self.pending_version_id,
         }
 
 
@@ -99,10 +114,15 @@ class CheckEpisodeScreen:
         self._reader = reader
 
     def execute(self, episode_id: str) -> ScreenReport:
-        episode = self._episodes.get(episode_id)
-        if episode is None:
-            raise NotFound(f"편 {episode_id} 을 찾을 수 없습니다", episode_id=episode_id)
+        with self._episodes.lock(episode_id):
+            return self._check(episode_id)
+
+    def _check(self, episode_id: str) -> ScreenReport:
+        episode = settle_pending(
+            self._episodes, self._uow_factory, require_episode(self._episodes, episode_id)
+        )
         with self._uow_factory() as uow:
+            version = uow.versions.get(episode.version_id)
             results = list(uow.checks.list_by_version(episode.version_id))
         notes: list[str] = []
         issues, patched = _without_patched(
@@ -122,6 +142,8 @@ class CheckEpisodeScreen:
             checked_lines=len(episode.narration.alignments) if episode.narration else 0,
             notes=tuple(notes),
             patched=tuple(patched),
+            version_state=str(version.state) if version is not None else "",
+            pending_version_id=episode.pending_version_id,
         )
 
     # ---- 2. 문구 (계획) ----

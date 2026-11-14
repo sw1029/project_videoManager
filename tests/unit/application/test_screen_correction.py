@@ -15,7 +15,7 @@ from frame.adapters.compositor import FakeOverlayRenderer, FakeScreenTextReader
 from frame.adapters.fake_media import fake_recording
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
-from frame.application.errors import LLMTimeout
+from frame.application.errors import GenerationError, LLMTimeout
 from frame.application.series import (
     AttachNarrationCommand,
     CorrectScreenCommand,
@@ -350,10 +350,10 @@ def test_wrong_attribute_regenerates_only_its_scene_through_a_repair_revision():
     assert (step.status, step.method) == (StepStatus.GENERATING, CorrectionMethod.CLIP_EDIT)
     revision_id = result.pending_version_id
     assert revision_id == step.version_id and revision_id != episode.version_id
-    assert result.episode.version_id == revision_id and result.episode.history == (
-        episode.version_id,
-    )
-    assert result.episode.render is None
+    # 수정 버전이 끝나기 전에는 편의 기준 버전이 그대로다 (실패해도 편이 멈추지 않는다)
+    assert result.episode.version_id == episode.version_id and result.episode.history == ()
+    assert result.episode.pending_version_id == revision_id
+    assert result.episode.render == episode.render
 
     dispatcher_of(container).run_all()
     revision = version_of(container, revision_id)
@@ -370,9 +370,10 @@ def test_wrong_attribute_regenerates_only_its_scene_through_a_repair_revision():
     for scene_key in ("greeting", "show", "outro"):
         assert revision.clips[scene_key].uri == before.clips[scene_key].uri
     assert revision.clips["closeup"].uri != before.clips["closeup"].uri
-    # 새 버전으로 완성본을 다시 만들면 문구는 그대로 다시 얹힌다
+    # 끝난 뒤 완성본을 다시 만들면 그 버전이 기준 버전이 되어 있고, 문구는 그대로 다시 얹힌다
     rendered = series_of(container).render_episode.execute(episode.episode_id).episode
-    assert rendered.render.version_id == revision_id
+    assert rendered.version_id == revision_id and rendered.history == (episode.version_id,)
+    assert rendered.pending_version_id is None and rendered.render.version_id == revision_id
     assert rendered.plan.overlay("closeup:price").text == "말차 라떼 5,000원"
 
 
@@ -482,6 +483,77 @@ def test_inconsistent_object_without_a_look_condition_in_that_scene_is_reported_
     assert "조건이 없어" in result.steps[0].note and result.pending_version_id is None
 
 
+# ---- 만들고 있는 수정 버전 (감사 BTS-16·17) ----
+def test_failed_repair_does_not_strand_the_episode():
+    """다시 만들기가 실패해도 편은 기준 버전 그대로다. 완성본이 되고, 검수가 여전히 그 어긋남을 알려 준다."""
+    container, generator = _spied(failing=("closeup:latte:color",))
+    episode = _ready(container)
+    generator._error = GenerationError("생성 서버 오류", retryable=False)
+    result = _correct(
+        container, episode, issue_ids=("requirement:closeup:latte:color",), generate=True
+    )
+    dispatcher_of(container).run_all()
+    assert version_of(container, result.pending_version_id).state is VersionState.FAILED
+
+    report = _check(container, episode)
+
+    assert report.version_id == episode.version_id and report.pending_version_id is None
+    assert [i.issue_id for i in report.issues] == ["requirement:closeup:latte:color"]
+    after = series_of(container).episodes.get(episode.episode_id)
+    assert (after.version_id, after.history, after.render) == (
+        episode.version_id,
+        (),
+        episode.render,
+    )
+    assert series_of(container).render_episode.execute(episode.episode_id).composed_now == ()
+
+
+def test_clip_fix_waits_while_a_revision_is_being_made():
+    container = _container(failing=("closeup:latte:color", "greeting:barista:outfit"))
+    episode = _ready(container)
+    first = _correct(container, episode, issue_ids=("requirement:closeup:latte:color",))
+    assert first.steps[0].status is StepStatus.DRAFTED
+
+    second = _correct(container, episode, issue_ids=("requirement:greeting:barista:outfit",))
+
+    assert second.steps[0].status is StepStatus.SKIPPED
+    assert first.pending_version_id in second.steps[0].note
+    assert second.pending_version_id is None  # 새 수정 버전을 만들지 않았다
+    assert _check(container, episode).pending_version_id == first.pending_version_id
+
+
+def test_overlay_fix_is_kept_when_the_generation_request_fails():
+    """생성 접수가 실패해도 같은 호출에서 한 문구 수정은 남는다 (문구 수정을 먼저 저장한다)."""
+    container = _container(failing=("closeup:latte:color",))
+    episode = _tamper(container, _ready(container), "closeup:price", "말차 라떼 6,000원")
+    series = series_of(container)
+
+    def refuse(version_id: str):
+        raise GenerationError("대기열이 가득 찼습니다")
+
+    series.correct_screen._accept_generation.execute = refuse
+    named = ("overlay:closeup:price", "requirement:closeup:latte:color")
+    with pytest.raises(GenerationError):
+        _correct(container, episode, issue_ids=named, generate=True)
+
+    after = series.episodes.get(episode.episode_id)
+    assert after.plan.overlay("closeup:price").text == "말차 라떼 5,000원"
+    assert after.version_id == episode.version_id and after.pending_version_id is not None
+
+
+def test_screen_of_an_episode_that_is_not_generated_yet_is_unknown_not_fine():
+    """판정할 수 없는 것을 맞다고 하지 않는다: 아직 만들지 않은 편의 검수는 '어긋난 곳 없음' 이 아니라 '모름' 이다."""
+    container = _container()
+    draft = new_episode(container)
+
+    report = _check(container, draft)
+
+    assert report.issues == () and report.ok is None
+    assert report.version_state == "DRAFT" and report.checked_requirements == 0
+    assert report.to_dict()["ok"] is None
+    assert _check(container, _ready(container)).ok is True
+
+
 # ---- 돈이 드는 수정은 짚었을 때만 ----
 def test_clip_is_not_remade_unless_the_issue_is_named():
     """고칠 것을 짚지 않고 부르면 문구만 고친다. 클립을 다시 만드는 수정(과금)은 어긋남을 짚었을 때만 한다."""
@@ -539,10 +611,15 @@ def test_a_report_of_another_episode_or_version_is_refused():
 
     with pytest.raises(ValidationError, match="다른 편"):
         _correct(container, other, report=report)
-    moved = _correct(
-        container, episode, report=report, issue_ids=("requirement:closeup:latte:color",)
+    waiting = _correct(
+        container,
+        episode,
+        report=report,
+        issue_ids=("requirement:closeup:latte:color",),
+        generate=True,
     )
-    assert moved.episode.version_id != report.version_id
+    assert waiting.episode.version_id == report.version_id  # 아직 기준 버전은 그대로다
+    dispatcher_of(container).run_all()
     with pytest.raises(ValidationError, match="버전"):  # 편이 다른 버전으로 넘어간 뒤의 낡은 보고서
         _correct(container, episode, report=report)
 

@@ -173,6 +173,18 @@ def test_anchor_can_be_adopted_under_a_different_key():
         series.adopt_anchors.execute(AdoptAnchorsCommand("thm_none", pilot.version_id))
 
 
+def test_pilot_anchor_must_come_from_an_episode_of_that_theme():
+    """'처음 만든 편의 것' 이라는 규칙을 부른 쪽의 말에만 기대지 않는다 (감사 BTS-18)."""
+    container, _ = _identity_container()
+    series = series_of(container)
+    save_theme(container, replace(cafe_theme(), theme_id="thm_other", title="다른 테마"))
+    foreign = generate_episode(container, new_episode(container, theme_id="thm_other"))
+
+    with pytest.raises(ValidationError, match="이 테마로 만든 편"):
+        series.adopt_anchors.execute(AdoptAnchorsCommand("thm_cafe", foreign.version_id))
+    assert series.themes.get("thm_cafe").theme.references() == ()
+
+
 def test_external_theme_cannot_take_anchors_cut_from_its_source():
     container, _ = _identity_container(cafe_theme(origin=SourceOrigin.EXTERNAL))
     series = series_of(container)

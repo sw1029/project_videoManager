@@ -4,7 +4,9 @@
 - OVERLAY_TEXT (계획의 문구가 틀림): 그 문구 항목을 기대값으로 바꾼다. 영상은 다시 만들지 않는다.
 - SCENE_TEXT + 영역: 그 영역·시간을 가리고 다시 쓰는 문구(PATCH)를 더한다. 영상은 다시 만들지 않는다.
 - ATTRIBUTE, 영역이 없는 SCENE_TEXT: 그 요구조건이 걸린 장면만 다시 만드는 수정 버전(REPAIR)을 만들고 생성을 접수한다.
-  편은 새 버전을 가리키고, 예전 버전은 history 에 남는다. 한 번에 한 가지 조건만 보낸다
+  편은 그 버전을 '만들고 있는 버전' 으로 적어 두고, 그 버전이 끝난 뒤에 기준 버전을 옮긴다 (실패하면 잊는다).
+  예전 버전은 history 에 남는다. 만들고 있는 버전이 있는 동안에는 클립 수정을 더 받지 않는다.
+  한 번에 한 가지 조건만 보낸다
   (수정 버전 하나는 한 가지 의도를 갖는다, ADR-0017). 나머지는 그 버전이 끝난 뒤 다시 고친다.
 - CONSISTENCY (같은 객체가 장면마다 다르게 보임): 그 장면에서 그 객체의 모습 조건 하나를 축으로 같은 수정 버전(REPAIR)을
   만든다. 그런 조건이 없으면 알리기만 한다.
@@ -38,8 +40,10 @@ from frame.domain.theme import TextStyle
 
 from ..dto import CreateRevisionCommand
 from ..ports.theme_store import EpisodeRepository
+from ..ports.unit_of_work import UnitOfWorkFactory
 from ..use_cases.accept_generation import AcceptGeneration
 from ..use_cases.create_revision import CreateRevision
+from .pending_revision import require_episode, settle_pending
 from .screen_check import CheckEpisodeScreen, ScreenReport
 
 
@@ -107,21 +111,25 @@ class CorrectEpisodeScreen:
         self,
         episodes: EpisodeRepository,
         check: CheckEpisodeScreen,
+        uow_factory: UnitOfWorkFactory,
         create_revision: CreateRevision,
         accept_generation: AcceptGeneration | None = None,
     ) -> None:
         self._episodes = episodes
         self._check = check
+        self._uow_factory = uow_factory
         self._create_revision = create_revision
         self._accept_generation = accept_generation
 
     def execute(self, command: CorrectScreenCommand) -> CorrectScreenResult:
+        with self._episodes.lock(command.episode_id):  # 읽고 -> 고쳐 -> 덮어쓰는 사이를 지킨다
+            return self._correct(command)
+
+    def _correct(self, command: CorrectScreenCommand) -> CorrectScreenResult:
+        episode = settle_pending(
+            self._episodes, self._uow_factory, require_episode(self._episodes, command.episode_id)
+        )
         report = command.report or self._check.execute(command.episode_id)
-        episode = self._episodes.get(command.episode_id)
-        if episode is None:
-            raise NotFound(
-                f"편 {command.episode_id} 을 찾을 수 없습니다", episode_id=command.episode_id
-            )
         if report.episode_id != episode.episode_id:
             raise ValidationError("다른 편의 검수 보고서입니다")
         if report.version_id != episode.version_id:
@@ -163,11 +171,12 @@ class CorrectEpisodeScreen:
                 )
 
         if plan is not episode.plan:
+            # 문구 수정을 먼저 저장한다. 뒤의 수정 버전 만들기·생성 접수가 실패해도 문구 수정은 남는다
             episode = replace(episode, plan=plan, render=None)  # 완성본은 다시 만들어야 한다
+            self._episodes.save(episode)
         if clip_edits:
             episode, edit_steps = self._edit_clips(episode, clip_edits, command)
             steps += edit_steps
-        self._episodes.save(episode)
         return CorrectScreenResult(episode, tuple(steps), report)
 
     def _edit_clips(
@@ -196,6 +205,12 @@ class CorrectEpisodeScreen:
         issues = [i for i in issues if i.issue_id in axes]
         if not issues:
             return episode, skipped
+        if episode.pending_version_id is not None:
+            waiting = (
+                f"이 편은 수정 버전 {episode.pending_version_id} 을 만들고 있습니다. "
+                "그 버전이 끝난 뒤(또는 초안을 버린 뒤) 다시 고치세요"
+            )
+            return episode, [*(_step(i, StepStatus.SKIPPED, waiting) for i in issues), *skipped]
         first = issues[0]
         target = axes[first.issue_id]
         group = [i for i in issues if axes[i.issue_id] == target]
@@ -216,10 +231,16 @@ class CorrectEpisodeScreen:
                 request_text="화면 정보 국소 수정: " + ", ".join(i.issue_id for i in group),
             )
         )
+        # 편의 기준 버전은 옮기지 않는다. 만들고 있는 버전으로만 적어 두고, 끝난 뒤에 옮긴다 (감사 BTS-16).
+        # 생성 접수보다 먼저 저장한다: 접수가 실패해도 초안이 편에 적혀 있다
+        episode = episode.with_pending(created.version_id)
+        self._episodes.save(episode)
         status = StepStatus.DRAFTED
         if command.generate and self._accept_generation is not None:
             self._accept_generation.execute(created.version_id)
             status = StepStatus.GENERATING
+            # 작업을 그 자리에서 끝까지 돌리는 구성(inline)이면 벌써 끝나 있다
+            episode = settle_pending(self._episodes, self._uow_factory, episode)
         steps = [
             _step(
                 issue,
@@ -237,7 +258,7 @@ class CorrectEpisodeScreen:
             )
             for issue in rest
         ]
-        return episode.with_version(created.version_id), [*steps, *skipped]
+        return episode, [*steps, *skipped]
 
 
 def _axis(plan: EpisodePlan, issue: ScreenIssue) -> tuple[str | None, str, str] | None:
