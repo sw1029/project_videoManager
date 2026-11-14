@@ -48,3 +48,9 @@ class VersionNotRevisable(InvalidStateTransition):
     """중간표현이 없거나 처리 중인 버전을 수정하려 할 때 (API 409)."""
 
     code = "VERSION_NOT_REVISABLE"
+
+
+class VersionNotEditable(InvalidStateTransition):
+    """DRAFT 가 아니거나 조건이 고정된 버전의 중간표현을 고치려 할 때 (API 409, #11)."""
+
+    code = "VERSION_NOT_EDITABLE"

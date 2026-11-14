@@ -3,6 +3,7 @@
 from .accept_generation import AcceptGeneration
 from .create_project import CreateProject
 from .create_revision import CreateRevision
+from .edit_draft_ir import EditDraftIr
 from .plan_revision import PlanRevision, PlanRevisionCommand, RevisionPlan
 from .queries import ProjectQueries
 from .recover_pending_versions import RecoverPendingVersions, RecoveryReport
@@ -13,6 +14,7 @@ __all__ = [
     "AcceptGeneration",
     "CreateProject",
     "CreateRevision",
+    "EditDraftIr",
     "PlanRevision",
     "PlanRevisionCommand",
     "ProjectQueries",

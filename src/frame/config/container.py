@@ -20,6 +20,7 @@ from frame.adapters.generator.decorators import (
     pause_before_retry,
 )
 from frame.adapters.llm.key_store import LLMKeyStore
+from frame.adapters.structurer.passthrough import PassthroughStructurer
 from frame.application.checks import CheckSuite
 from frame.application.errors import ConfigurationError
 from frame.application.jobs import RUN_GENERATION_PIPELINE, STRUCTURE_REQUIREMENTS
@@ -37,6 +38,7 @@ from frame.application.ports import (
     Clock,
     IdentityReferenceExtractor,
     IdGenerator,
+    IrDocumentStructurer,
     JobDispatcher,
     JobHandlerRegistry,
     ObjectTracker,
@@ -52,6 +54,7 @@ from frame.application.use_cases import (
     AcceptGeneration,
     CreateProject,
     CreateRevision,
+    EditDraftIr,
     PlanRevision,
     ProjectQueries,
     RecoverPendingVersions,
@@ -75,6 +78,8 @@ class Container:
     clock: Clock
     artifact_store: ArtifactStore
     structurer: RequirementStructurer
+    # 화면이 조립한 IR 문서의 보정·검증 (IR 직접 입력·DRAFT IR 수정, #10 #11)
+    ir_structurer: IrDocumentStructurer
     generator: VideoGenerator
     assembler: VideoAssembler
     tracker: ObjectTracker
@@ -86,6 +91,7 @@ class Container:
     create_project: CreateProject
     structure_requirements: StructureRequirements
     create_revision: CreateRevision
+    edit_draft_ir: EditDraftIr  # DRAFT IR 수정 (#11)
     plan_revision: PlanRevision  # 변경 계획 미리보기 (ADR-0019)
     accept_generation: AcceptGeneration
     run_generation_pipeline: RunGenerationPipeline
@@ -160,6 +166,7 @@ def build_container(
     structurer = pick(
         "structurer", lambda: registry.build(RequirementStructurer, settings.structurer, ctx)
     )
+    ir_structurer: IrDocumentStructurer = pick("ir_structurer", PassthroughStructurer)
     generator: VideoGenerator = pick(
         "generator", lambda: registry.build(VideoGenerator, settings.generator, ctx)
     )
@@ -233,6 +240,7 @@ def build_container(
         clock=clock,
         artifact_store=ctx.artifact_store,
         structurer=structurer,
+        ir_structurer=ir_structurer,
         generator=generator,
         assembler=assembler,
         tracker=tracker,
@@ -244,6 +252,7 @@ def build_container(
         create_project=CreateProject(uow_factory, dispatcher, ids, clock),
         structure_requirements=structure_requirements,
         create_revision=CreateRevision(uow_factory, ids, clock, policy),
+        edit_draft_ir=EditDraftIr(uow_factory, ir_structurer),
         plan_revision=PlanRevision(uow_factory, policy, change_interpreter, generator),
         accept_generation=AcceptGeneration(uow_factory, dispatcher, clock),
         run_generation_pipeline=run_generation_pipeline,

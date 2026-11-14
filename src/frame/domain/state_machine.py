@@ -20,6 +20,7 @@ TRANSITIONS: dict[S, frozenset[S]] = {
 }
 
 GENERATABLE_STATES: frozenset[S] = frozenset({S.DRAFT})
+EDITABLE_STATES: frozenset[S] = frozenset({S.DRAFT})  # IR 을 직접 고칠 수 있는 상태 (#11)
 REVISABLE_STATES: frozenset[S] = frozenset({S.DRAFT, S.COMPLETED, S.FAILED})
 TERMINAL_STATES: frozenset[S] = frozenset({S.COMPLETED, S.FAILED})
 
