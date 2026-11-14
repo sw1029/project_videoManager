@@ -33,6 +33,10 @@
   설치 위치를 코드에 적지 않는다: 컴퓨터마다 다르다.
 - ffmpeg 구현은 `drawbox` + `drawtext` 다 (추가 설치 없음). 글은 파일로 넘기고(`textfile`), 색은 ffmpeg 가 아는 이름·16진수만 받고,
   글자 크기는 영역에 들어가게 줄인다. 계약: 문구의 시간·영역 밖은 그리지 않는다, 크기·fps·길이는 입력과 같다, 결정적이다.
+  보완 (2026-11-15, 감사 A-43): '추가 설치 없음' 은 Windows · macOS 에서만 맞다. video extra 가 Linux 에 가져오는 ffmpeg(7.0.2 정적 빌드)는
+  libharfbuzz 없이 빌드돼 `drawtext` 필터가 없다 (6.1 부터 그 필터는 libharfbuzz 가 있어야 든다). 렌더러는 만들 때 그리는 필터가 있는지
+  확인하고, 없으면 무엇을 할지 알리는 설정 오류를 낸다 — 기동할 때 드러난다. Linux 에서는 drawtext 가 든 ffmpeg 를 PATH 에 두거나
+  `FRAME_VIDEO_FFMPEG` 로 지정한다. Docker 이미지에서 되게 하는 방법은 정하지 않았다 (보고서 §12.3 결정 12).
 
 ### 3. 화면 검수: 다섯 가지를 본다 (`application/use_cases/series/check_episode_screen.py`)
 `CheckEpisodeScreen` 이 어긋난 곳을 `ScreenIssue`(종류·장면·시간·기대·관찰·고치는 방법)로 돌려준다.
