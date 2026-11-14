@@ -746,7 +746,7 @@ src/frame/
   `resolution.py`(수정 요청 풀기·수정 버전 초안). `domain/revision/__init__.py` 가 지금 `domain/revision.py` 의 이름을 그대로 내보내고,
   `domain/services/propagation.py`·`revision_planning.py` 는 다시 내보내는 얇은 모듈로 남는다 (다른 브랜치의
   `from frame.domain.services.propagation import AttributeChange` 가 그대로 돈다). `Any` 두 곳에 타입이 돌아온다.
-- 담당·시점: **감사 · 지금** · 상태: **해결** (이 커밋) — `domain/revision/` 패키지: `intent.py`(수정 의도 · 유지할 요소), `changes.py`(속성 변경과 대상 장면 · REPAIR 대상 · 다시 만드는 장면의 seed), `propagation.py`(전파 정책), `resolution.py`(수정 요청 풀기 · 수정 버전 초안 — 옛 이름 `revision_planning`). `frame.domain.revision` 이 패키지의 입구가 되어 예전 이름을 그대로 내보낸다. 순환 import 를 피하려던 `Any` 둘과 함수 안 import 가 없어졌다 (`change: AttributeChange`). `resolution` 은 버전(`domain/models.py`)을 쓰고 models 가 이 패키지를 쓰므로 입구에서 내보내지 않는다. `domain/services/propagation.py`·`revision_planning.py` 는 이름만 다시 내보내는 호환 모듈이다. 다른 브랜치가 고치는 세 모듈(`application/dto.py`·`config/container.py`·`presentation/routers/versions.py`)은 옛 경로 그대로다 (기준선)
+- 담당·시점: **감사 · 지금** · 상태: **해결** (`8f30d55`) — `domain/revision/` 패키지: `intent.py`(수정 의도 · 유지할 요소), `changes.py`(속성 변경과 대상 장면 · REPAIR 대상 · 다시 만드는 장면의 seed), `propagation.py`(전파 정책), `resolution.py`(수정 요청 풀기 · 수정 버전 초안 — 옛 이름 `revision_planning`). `frame.domain.revision` 이 패키지의 입구가 되어 예전 이름을 그대로 내보낸다. 순환 import 를 피하려던 `Any` 둘과 함수 안 import 가 없어졌다 (`change: AttributeChange`). `resolution` 은 버전(`domain/models.py`)을 쓰고 models 가 이 패키지를 쓰므로 입구에서 내보내지 않는다. `domain/services/propagation.py`·`revision_planning.py` 는 이름만 다시 내보내는 호환 모듈이다. 다른 브랜치가 고치는 세 모듈(`application/dto.py`·`config/container.py`·`presentation/routers/versions.py`)은 옛 경로 그대로다 (기준선)
 
 ## 6. 재사용과 디자인 패턴
 
@@ -1063,7 +1063,7 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 | 나 8 배치 규칙 · 공용 모듈 · 패키지 입구 · 조립기 | 끝 (호환 모듈 걷어내기와 생성기 패키지의 남은 이름은 머지 뒤, P-17) | `5fc95b6` · `36209a9` · `b91f4fe` · `23a008f` · `bde28ff` | L-03, R-03, K-02, K-03, K-01(표) · K-04(조립기) · K-05(어댑터 쪽) |
 | 나 9 VLM 검수기의 공용 조각 | 공용 조각과 단위별 방어, 정체성 추출의 방어는 끝. base 클래스는 뽑지 않았다 (M-04 의 상태 참고) | `c20e1f4` · `4511ad2` · `86884f2` · `348055d` · `60222a9` | R-10, M-04(일부), T-10(일부), A-13, A-24, A-27 |
 | 나 10 `openrouter/` 하위 패키지 | 첫 단계만 (순수한 부분). 생성기 클래스를 나누는 일이 남았다 | `770fd53` | M-01(일부) |
-| 나 11 `domain/revision/` 패키지 | 패키지로 모으는 것은 끝. 같은 줄의 나머지(`VideoVersion` 필드 순서 C-03, 수정 가능 확인 R-05, `Clock` 필수화 R-06, `ClipProduction` R-04·C-04)는 하지 않았다 | (아래 커밋) | M-07 |
+| 나 11 `domain/revision/` 패키지 | 패키지로 모으는 것은 끝. 같은 줄의 나머지(`VideoVersion` 필드 순서 C-03, 수정 가능 확인 R-05, `Clock` 필수화 R-06, `ClipProduction` R-04·C-04)는 하지 않았다 | `8f30d55` | M-07 |
 | 나 12~15 | 하지 않았다 — 도구 분해 (M-05), `GenerateStage` (M-06), 테스트 지원 코드 (T-11), 쓰이지 않는 코드 (C-10). ADR 보완 줄(D-07)과 낡은 주석(D-08)은 일부 했다 (`0b35635`) | — | — |
 | 가 3 검수 | 끝 (A-22 는 비율 결정을 기다린다 — §12.3 결정 4) | `a833d6d` · `85a8322` · `f421f28` · `12df838` · `26692fd` · `fdb9e88` · `4511ad2` | A-23, A-16, A-28, A-13, A-24(설정 연결만 머지 뒤) |
 
