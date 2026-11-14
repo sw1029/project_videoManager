@@ -15,16 +15,15 @@ from tests.support.switches import (
     missing_korean_font_message,
     shell_leak_names,
 )
-from tests.support.video import can_draw_text, find_ffmpeg, find_korean_font
+from tests.support.video import drawtext_problem, find_ffmpeg, find_korean_font
 
 
 def pytest_report_header(config: pytest.Config) -> list[str]:
     """실제 영상 테스트가 도는지 한눈에 보이게 한다 (ffmpeg · 한글 글꼴이 없으면 그 테스트들은 건너뛴다)."""
     ffmpeg = find_ffmpeg()
+    problem = drawtext_problem(ffmpeg) if ffmpeg is not None else None
     drawing = (
-        ""
-        if ffmpeg is None or can_draw_text(ffmpeg)
-        else " (drawtext 필터 없음 — 화면 문구 합성 테스트는 건너뜀)"
+        f" (글자를 그릴 수 없음: {problem} — 화면 문구 합성 테스트는 건너뜀)" if problem else ""
     )
     return [
         f"ffmpeg: {ffmpeg or '없음 — 실제 영상 테스트는 건너뜀'}{drawing}",
@@ -42,7 +41,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     messages = (
         missing_ffmpeg_message(os.environ, ffmpeg),
         missing_korean_font_message(os.environ, find_korean_font()),
-        missing_drawtext_message(os.environ, can_draw_text=can_draw_text(ffmpeg)),
+        missing_drawtext_message(os.environ, problem=drawtext_problem(ffmpeg)),
     )
     for message in messages:
         if message is not None:

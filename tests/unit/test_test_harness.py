@@ -128,9 +128,39 @@ def test_an_ffmpeg_without_drawtext_fails_the_run_only_when_required():
     """화면 문구 합성을 돌리려는 CI 잡은 drawtext 가 없는 ffmpeg 를 만나면 건너뛰지 않고 실패한다 (감사 A-43)."""
     required = {"FRAME_REQUIRE_DRAWTEXT": "1"}
 
-    assert "drawtext" in (missing_drawtext_message(required, can_draw_text=False) or "")
-    assert missing_drawtext_message(required, can_draw_text=True) is None
-    assert missing_drawtext_message({}, can_draw_text=False) is None  # 다른 잡과 로컬은 건너뛴다
+    problem = "some-ffmpeg 에 drawtext 필터가 없습니다 (목록에서 읽은 필터 412개)"
+
+    message = missing_drawtext_message(required, problem=problem) or ""
+    assert "FRAME_REQUIRE_DRAWTEXT=1" in message and problem in message  # 어느 ffmpeg 인지, 왜인지
+    assert missing_drawtext_message(required, problem=None) is None
+    assert missing_drawtext_message({}, problem=problem) is None  # 다른 잡과 로컬은 건너뛴다
+
+
+def test_why_text_cannot_be_drawn_names_the_ffmpeg_and_the_cause(monkeypatch):
+    """'필터가 없다' 와 '목록을 읽지 못했다' 는 고치는 곳이 다르다 (ffmpeg 를 바꾼다 / 읽는 법을 본다).
+
+    CI 에서 drawtext 가 든 ffmpeg 를 깔았는데도 '필터가 없습니다' 로 멈췄을 때, 문구에 어느 ffmpeg 를 찾았는지와
+    목록을 얼마나 읽었는지가 없어 까닭을 로그만으로 알 수 없었다 (감사 A-43 의 둘째 실패).
+    """
+    from frame.application.errors import AdapterError
+    from tests.support import video
+
+    assert "찾지 못했습니다" in (video.drawtext_problem(None) or "")
+
+    monkeypatch.setattr(video, "available_filters", lambda ffmpeg: frozenset({"drawbox", "scale"}))
+    missing = video.drawtext_problem("some-ffmpeg") or ""
+    assert "some-ffmpeg" in missing and "drawtext 필터가 없습니다" in missing and "2개" in missing
+    assert video.can_draw_text("some-ffmpeg") is False
+
+    def unreadable(ffmpeg):
+        raise AdapterError("목록의 모양이 달라졌을 수 있습니다")
+
+    monkeypatch.setattr(video, "available_filters", unreadable)
+    unread = video.drawtext_problem("some-ffmpeg") or ""
+    assert "some-ffmpeg" in unread and "읽지 못했습니다" in unread and "달라졌을" in unread
+
+    monkeypatch.setattr(video, "available_filters", lambda ffmpeg: frozenset({"drawtext"}))
+    assert video.drawtext_problem("some-ffmpeg") is None and video.can_draw_text("some-ffmpeg")
 
 
 def test_pytest_leaves_paid_tests_out_by_default():

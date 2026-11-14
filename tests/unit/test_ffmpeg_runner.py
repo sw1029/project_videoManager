@@ -7,14 +7,17 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 
+from frame.adapters.shared.media import ffmpeg as ffmpeg_module
 from frame.adapters.shared.media.ffmpeg import (
     FfmpegNotRun,
+    VideoToolError,
     available_filters,
     filter_names,
     run_ffmpeg,
@@ -116,6 +119,64 @@ def test_filter_names_are_read_from_the_listing():
         "drawtext",
         "subtitles",
     }  # 머리의 범례는 필터가 아니다
+
+
+# ffmpeg 8.0 은 줄 머리의 표시가 둘이다 (명령 지원 'C' 가 빠졌다. 범례는 세 글자 그대로 남아 있다).
+# fftools/opt_common.c 의 형식(" %c%c %-17s %-10s %s")대로 적은 것이다
+LISTING_8 = """Filters:
+  T.. = Timeline support
+  .S. = Slice threading
+  A = Audio input/output
+  V = Video input/output
+  N = Dynamic number and/or type of input/output
+  | = Source or sink filter
+ .. aap               AA->A      Apply Affine Projection algorithm to first audio stream.
+ .. anullsrc          |->A       Null audio source, return empty audio frames.
+ T. drawbox           V->V       Draw a colored box on the input video.
+ T. drawtext          V->V       Draw text on top of video frames using libfreetype library.
+ .. subtitles         V->V       Render text subtitles onto input video using the libass library.
+"""
+
+
+def test_filter_names_are_read_from_the_listing_of_ffmpeg_8():
+    """표시 글자가 둘인 목록도 읽는다.
+
+    세 글자만 읽던 때에는 ffmpeg 8 의 목록에서 필터를 하나도 읽지 못했고, 그것을 'drawtext 가 없다' 로 알렸다:
+    drawtext 가 든 ffmpeg 8 을 깐 CI 잡이 그 까닭으로 멈췄고, 서버도 그 ffmpeg 로는 화면 문구 합성을 켜지 못했다.
+    """
+    assert filter_names(LISTING_8) == {"aap", "anullsrc", "drawbox", "drawtext", "subtitles"}
+    assert filter_names(LISTING_8) == filter_names(LISTING)
+
+
+def _listing_from(stdout: str):
+    """필터 목록으로 stdout 을 찍고 끝나는 ffmpeg 를 흉내 낸다 (실행기의 안쪽 실행을 바꿔 끼운다)."""
+
+    def run(cmd, timeout_s, cwd=None):
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout.encode("utf-8"), stderr=b"")
+
+    return run
+
+
+@pytest.mark.parametrize("listing", [LISTING, LISTING_8], ids=["ffmpeg-7", "ffmpeg-8"])
+def test_the_filters_of_either_listing_are_available(listing, monkeypatch):
+    monkeypatch.setattr(ffmpeg_module, "_run", _listing_from(listing))
+    available_filters.cache_clear()
+    try:
+        assert {"drawbox", "drawtext"} <= available_filters("some-ffmpeg")
+    finally:
+        available_filters.cache_clear()
+
+
+def test_a_listing_that_cannot_be_read_is_an_error_not_an_empty_set(monkeypatch):
+    """목록의 모양을 알아보지 못한 것은 '그 필터가 없다' 와 다른 일이다. 빈 집합으로 돌려주면 둘이 구별되지 않는다."""
+    unknown = "Filters:\n  drawbox: V->V Draw a colored box\n  drawtext: V->V Draw text\n"
+    monkeypatch.setattr(ffmpeg_module, "_run", _listing_from(unknown))
+    available_filters.cache_clear()
+    try:
+        with pytest.raises(VideoToolError, match="하나도 읽지 못했습니다"):
+            available_filters("some-ffmpeg")
+    finally:
+        available_filters.cache_clear()
 
 
 def test_a_build_without_a_filter_does_not_list_it():

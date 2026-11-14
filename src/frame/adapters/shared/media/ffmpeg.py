@@ -41,8 +41,10 @@ __all__ = [
 
 
 FILTERS_TIMEOUT_S = 30.0  # 필터 목록은 파일을 읽지 않는다. 금방 끝난다
-# `ffmpeg -filters` 의 한 줄: ' T.C drawtext          V->V       설명'. 머리의 범례 줄은 두 칸 들여 쓴다
-_FILTER_LINE = re.compile(r"^ [A-Z.]{3} +(\S+) +\S+->\S+", re.MULTILINE)
+# `ffmpeg -filters` 의 한 줄: ' T.C drawtext          V->V       설명'. 머리의 표시 글자 수는 판마다 다르다 -
+# 7.x 까지는 셋(T · S · C), 8.0 부터는 둘이다 (명령 지원 'C' 가 빠졌다). 그래서 글자 수를 세지 않고,
+# '표시  이름  입력->출력' 의 꼴로 읽는다. 머리의 범례 줄('T.. = Timeline support')에는 '->' 가 없다
+_FILTER_LINE = re.compile(r"^ +[A-Z.]+ +(\S+) +\S+->\S+", re.MULTILINE)
 # 오류 문구에 싣는 출력의 끝: 줄 수와 글자 수 (tail)
 ERROR_TAIL_LINES = 5
 ERROR_TAIL_CHARS = 600
@@ -133,7 +135,11 @@ def run_reading(cmd: Sequence[str], timeout_s: float) -> tuple[int, str]:
 def available_filters(ffmpeg: str, timeout_s: float = FILTERS_TIMEOUT_S) -> frozenset[str]:
     """이 ffmpeg 빌드에 든 필터의 이름 (`ffmpeg -filters`).
 
-    실행하지 못하면 FfmpegNotRun, 목록을 읽지 못하면 VideoToolError 다.
+    실행하지 못하면 FfmpegNotRun, 목록을 읽지 못하면 VideoToolError 다. 목록에서 필터를 하나도 알아보지 못한 것도
+    읽지 못한 것이다 (빈 집합으로 돌려주지 않는다): ffmpeg 의 판이 바뀌어 줄의 모양이 달라지면
+    '그 필터가 없다' 가 아니라 '읽지 못했다' 로 드러나야 한다. 8.0 이 줄 머리의 표시를 셋에서 둘로 줄였을 때,
+    세 글자만 읽던 이 함수가 빈 집합을 돌려줘 drawtext 가 든 ffmpeg 를 '필터가 없다' 며 거절했다
+    (감사 A-43 의 둘째 실패).
     같은 판이라도 빌드마다 다르다. 예: 6.1 부터 drawtext 는 libharfbuzz 와 함께 빌드해야 들어간다 -
     video extra(imageio-ffmpeg 0.6.0)가 Linux 에 가져오는 정적 빌드에는 없고, Windows · macOS 의 것에는 있다
     (감사 A-43).
@@ -142,7 +148,12 @@ def available_filters(ffmpeg: str, timeout_s: float = FILTERS_TIMEOUT_S) -> froz
     if proc.returncode != 0:
         log = proc.stderr.decode("utf-8", errors="replace")
         raise VideoToolError(f"ffmpeg 의 필터 목록을 읽지 못했습니다: {tail(log)}")
-    return filter_names(proc.stdout.decode("utf-8", errors="replace"))
+    names = filter_names(proc.stdout.decode("utf-8", errors="replace"))
+    if not names:
+        raise VideoToolError(
+            "ffmpeg 의 필터 목록에서 필터를 하나도 읽지 못했습니다 (목록의 모양이 달라졌을 수 있습니다)"
+        )
+    return names
 
 
 def filter_names(listing: str) -> frozenset[str]:

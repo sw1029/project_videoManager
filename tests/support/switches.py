@@ -61,14 +61,18 @@ def drawtext_required(env: Mapping[str, str]) -> bool:
     return env.get(REQUIRE_DRAWTEXT_VARIABLE, "").strip() == "1"
 
 
-def missing_drawtext_message(env: Mapping[str, str], *, can_draw_text: bool) -> str | None:
-    """글자를 그리는 ffmpeg 가 필요하다고 했는데 그렇지 않으면 그 사유, 아니면 None."""
-    if not drawtext_required(env) or can_draw_text:
+def missing_drawtext_message(env: Mapping[str, str], *, problem: str | None) -> str | None:
+    """글자를 그리는 ffmpeg 가 필요하다고 했는데 그렇지 않으면 그 사유, 아니면 None.
+
+    problem 은 그릴 수 없는 까닭이다 (tests/support/video.drawtext_problem: 어느 ffmpeg 인지, 필터가 없는지
+    목록을 읽지 못했는지). 그릴 수 있으면 None 이다.
+    """
+    if not drawtext_required(env) or problem is None:
         return None
     return (
-        f"{REQUIRE_DRAWTEXT_VARIABLE}=1 인데 찾은 ffmpeg 에 drawtext 필터가 없습니다 (또는 ffmpeg 가 없습니다). "
-        "video extra 가 Linux 에 가져오는 ffmpeg 에는 그 필터가 없습니다. drawtext 가 든 ffmpeg 를 PATH 에 두세요 "
-        "(Debian · Ubuntu: apt install ffmpeg)"
+        f"{REQUIRE_DRAWTEXT_VARIABLE}=1 인데 글자를 그릴 수 없습니다: {problem}. "
+        "video extra 가 Linux 에 가져오는 ffmpeg 에는 drawtext 필터가 없습니다. "
+        "drawtext 가 든 ffmpeg 를 PATH 에 두세요 (Debian · Ubuntu: apt install ffmpeg)"
     )
 
 

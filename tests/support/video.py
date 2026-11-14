@@ -22,12 +22,24 @@ def can_draw_text(ffmpeg: str | None) -> bool:
 
     video extra 가 Linux 에 가져오는 ffmpeg 에는 없다 (감사 A-43).
     """
+    return drawtext_problem(ffmpeg) is None
+
+
+def drawtext_problem(ffmpeg: str | None) -> str | None:
+    """이 ffmpeg 로 글자를 그릴 수 없는 까닭. 그릴 수 있으면 None.
+
+    어느 ffmpeg 인지와, '필터가 없다' 인지 '목록을 읽지 못했다' 인지를 적는다. 둘은 고치는 곳이 다르다
+    (ffmpeg 를 바꾼다 / 목록을 읽는 법을 본다).
+    """
     if ffmpeg is None:
-        return False
+        return "ffmpeg 를 찾지 못했습니다"
     try:
-        return "drawtext" in available_filters(ffmpeg)
-    except AdapterError:
-        return False
+        filters = available_filters(ffmpeg)
+    except AdapterError as exc:
+        return f"{ffmpeg} 의 필터 목록을 읽지 못했습니다: {exc}"
+    if "drawtext" not in filters:
+        return f"{ffmpeg} 에 drawtext 필터가 없습니다 (목록에서 읽은 필터 {len(filters)}개)"
+    return None
 
 
 def find_korean_font() -> str | None:
