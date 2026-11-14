@@ -73,6 +73,9 @@
 - 기준 추가 (2026-11-14, 사용자): **절대 경로와 로직 하드 코딩을 피한다.** 작업 중인 네 브랜치는 이 기준으로 훑어 각 세션에 전했다.
   이 브랜치의 수정과 CI 게이트·ADR 은 사용자 결정에 따라 **브랜치들이 머지된 뒤에** 한다 (§12.2 의 P-19 와 그 아래).
   위 표의 건수(110건)에는 이 기준의 발견이 들어 있지 않다.
+- 델타 감사 (2026-11-14 저녁): 작업 중인 네 브랜치가 감사 뒤에 더한 커밋(84개)을 읽기만 하고 다시 봤다. 전달한 48건은
+  고침 확인 29 · 일부 고침 15 · 결정으로 남김 4 이고 높음 둘은 닫혔다. 새로 찾은 것 가운데 중간은 여덟 가지이며 각 세션에 전했다.
+  이 브랜치와의 시험 병합은 글 충돌 없이 기능 테스트가 모두 통과한다. 머지 때 고칠 곳과 머지 뒤 항목은 §12.2 (머지 때 체크리스트 · P-20).
 
 ## 2. 기준선 (감사 시점의 측정값)
 
@@ -1100,26 +1103,27 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 
 | ID | 무엇 | 기다리는 브랜치 | 발견 |
 |---|---|---|---|
-| P-01 | 도메인 키 형식 규칙 (#10 세션이 하지 않았을 때) | #10·#11·#12 | A-01 |
+| P-01 | **해결됨 — #10 브랜치 (`6e2a4e0` · `730d2be` · `b75f51b`, 델타 감사로 확인 2026-11-14).** 도메인이 `KEY_PATTERN` 으로 키 형식을 검사하고 IR 직접 입력 · `PUT /ir` · DSL · LLM 구조화가 모두 그 검사를 거친다. 남은 작은 것은 P-20 (대소문자만 다른 키, theme-series 의 같은 식 사본) | #10·#11·#12 | A-01 |
 | P-02 | LLM 키 저장소 공유 조건 | #10·#11·#12 (`container.py`) | A-02 |
 | P-03 | 환경 변수 읽기 통일·범위 검사 | #10·#11·#12 (`settings.py`), theme-series | A-03 |
 | P-04 | `mappers.py`·`edit_runner.py` 를 `ClipProduction` 으로 | #10·#11·#12, #21 | R-04 |
 | P-05 | 구조화 유스케이스의 저장 단위·실패 정규화 | #10·#11·#12 | A-05, R-09 |
-| P-06 | `evaluation/` 을 `edits/`·`structuring/` 하위 패키지로 | #21, #17 | — |
+| P-06 | `evaluation/` 을 `edits/`·`structuring/` 하위 패키지로. **일부 해결 (2026-11-14): `structuring/` 은 #17 브랜치가 했다 (`a5dc562` · `49f2f5f`).** 남은 것은 #21 의 `edit_cases` · `edit_runner` · `edit_report` · `edit_metrics` 를 `edits/` 로 | #21, #17 | — |
 | P-07 | 사각형 타입을 `Region` 하나로 | theme-series | R-07 |
 | P-08 | 장면 조건 해시 내용·타임라인 검사를 도메인 함수로, 해시·키 이름 맞추기 | #10·#11·#12 (`ir.py`), theme-series | R-01, R-08, K-01 |
 | P-09 | presentation 의 스키마·매퍼·라우터 분해, 요청 → 명령 변환 | #10·#11·#12 | M-03, R-05 |
 | P-10 | 요청 제한기 기록 정리 | #10·#11·#12 | A-08 |
 | P-11 | 문서: `ARCHITECTURE.md` §3.1 표·§4 트리·§8 API 표·§12 ADR 목록, README, `.env` 안내와 `.env.example`. `ARCHITECTURE.md` §5 절차 3·§6 패턴 표와 `TDD_WORKFLOW.md` §4·§5 의 등록 자리를 `config/registrations/<포트>.py` 로 | #21·#10·#17 (문서를 고친 브랜치 모두) | L-02, D-01, D-02, D-03, D-04, D-08, M-02 |
-| P-12 | `presentation/app.py`·`schemas.py` 포맷 (#10 세션이 하지 않았을 때), `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
+| P-12 | `presentation/app.py`·`schemas.py` 포맷 — **해결됨, #10 브랜치 (`8474d19`). 병합 뒤 `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 줄을 지운다.** 남은 것: `__all__`·오류 클래스 위치, `dto.py`·`queries.py` 를 자원별로, 나머지 열거형을 개념 모듈 옆으로, 쓰이지 않는 전이의 주석 | #10·#11·#12 | C-01, C-07, C-09, C-10, K-05 |
 | P-13 | Repository·UnitOfWork 계약 테스트 (commit·rollback·예외 종류), `save` 의 계약 | #10·#11·#12 | T-05, A-12 |
-| P-14 | OpenAPI 계약 서명 강화, 오류 응답 명세, CORS `DELETE`·저장소 URI 직접 지정 막기 (#10 세션이 하지 않았을 때) | #10·#11·#12 | T-09, D-05, A-04, A-19 |
-| P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 위로, 테마 도메인을 하위 패키지로 (그 세션이 하지 않았을 때) | theme-series | R-03, L-03, K-03 |
+| P-14 | OpenAPI 계약 서명 강화, 오류 응답 명세. **CORS `DELETE` (`cc54b9c`)와 저장소 URI 직접 지정 막기 (`dc2a6dd`)는 #10 브랜치가 해결했다 (델타 감사로 확인 2026-11-14).** 저장소 스킴이 아닌 참조 주소의 허용 목록은 그 세션에 전했다 (`B10-D05`) | #10·#11·#12 | T-09, D-05, A-04, A-19 |
+| P-15 | `adapters/media_tools.py`·`fake_media.py` 를 `adapters/shared/media/` 위로 (머지 때 체크리스트). **테마 도메인의 하위 패키지는 그 세션이 했다 (`538673f` · `0901fd3` · `8ff4c4e` · `a05f248`, 2026-11-14)** | theme-series | R-03, L-03, K-03 |
 | P-16 | 구조화 프롬프트·보정 규칙을 바꾸는 수정 (프롬프트의 참조 이미지 URI, 빈 문자열 키 보정). 골드셋 리플레이로 점수 변화를 보고 프롬프트 버전을 올린다 | #17 | A-26(b), A-29 |
 
 | P-17 | 머지된 코드의 import 를 새 경로로 고치고 호환 모듈을 지운다 (`adapters/{common,http_transport,video_tools,vlm_answers}.py`, `adapters/generator/ffmpeg.py` — ADR-0031 3절의 표와 `tests/architecture/baselines.py` 의 `COMPAT_*` 를 함께 지운다). 그 뒤 `generator/decorators.py` → `resilience.py`, `cache.py`·`ledger.py` → `records/` (`config/container.py` 가 옛 이름을 import 한다). `adapters/structurer/__init__.py` 의 설명 | 넷 모두 (`container.py` 는 #10·theme-series) | L-03, K-03, K-04, K-05 |
 | P-18 | 운영: 기동 복구를 요청 처리 뒤로 옮기기·서버 종료 때 디스패처 `shutdown()` (`presentation/app.py`), `pymysql[rsa]` 를 `pyproject.toml` 로 | #10·#11·#12 | O-05, A-07, O-03 |
 | P-19 | 사용자 기준 '절대 경로·로직 하드 코딩 지양' (2026-11-14): 완료 요소의 절대 경로와 이름 없는 값 고치기, CI 게이트 셋, ADR 에 '설정값은 출처 하나'. **사용자가 머지 뒤에 하기로 정했다.** 내용은 표 아래 | 모든 작업 중 브랜치 (사용자 결정) | 기준 추가 |
+| P-20 | 델타 감사(2026-11-14)에서 나온 머지 뒤 항목: 병합한 트리에서 확인할 것, 한 벌로 묶을 것, 이 브랜치의 파일에서 고칠 것, 문서와 설정. 내용은 표 아래 | 모든 작업 중 브랜치 | 델타 감사 |
 
 옛 경로에서 다시 내보내는 호환 import 는 모든 작업 중 브랜치가 dev 에 들어간 뒤 한 번에 걷어낸다 (그때 `git grep` 으로 쓰는 곳이 없는지 확인. P-17).
 
@@ -1161,6 +1165,101 @@ GitHub 저장소 설정(브랜치 보호, 필수 검사)은 바꾸지 않는다.
 
 **머지 때 정할 것.** theme-series 브랜치의 중간 커밋(`e180864` 부터 `f3af3cd` 앞까지)에는 키 파일의 위치 문자열이 남아 있다
 (마지막 트리에는 없다). 그 구간의 변경분에서 OpenAI·OpenRouter 키 모양의 문자열을 찾아 보니 테스트용 가짜 값뿐이었다. 스쿼시로 머지하면 dev 의 기록에 남지 않는다 — §12.3 의 결정 9.
+
+#### 델타 감사 — 작업 브랜치가 감사 뒤에 더한 커밋 (2026-11-14 저녁)
+
+사용자 질문: "하위 세션이 작업 완료한 요소에 대하여 감사 세션이 추가 작업을 할 필요가 있는지 확인".
+전달 노트의 기준 커밋 뒤에 더해진 커밋을 읽기만 하고 다시 봤다 (그 커밋의 트리를 저장소 밖에 풀어 Fake 어댑터 · 가짜 모델로 돌렸다. 유료 호출 없음,
+다른 worktree 에 쓰지 않음). '고쳤다' 는 주장은 최신 커밋의 코드와 테스트로 확인했고, 고친 줄을 되돌려 테스트가 잡는지도 봤다.
+발견의 본문은 세션별 전달 노트의 '델타 감사' 절에 있다.
+
+| 브랜치 | 읽은 범위 | 전달한 발견 | 새로 찾은 것 | 가장 무거운 것 |
+|---|---|---|---|---|
+| #21 | `678c082..ede2372` (12커밋) | 8건: 고침 확인 6 · 일부 1 · 결정으로 남김 1 | 중간 1 · 낮음 5 · 정보 4 (`B21-D01` ~ `D10`) | 오류로 끝난 케이스의 수정 버전이 남아도 결과에 상태 · 비용이 없고, 서버를 켜면 기동 복구가 다시 돌린다 (`B21-D01`) |
+| #10·#11·#12 | `bb1a0e8..c19aec2` (13커밋) | 열려 있던 9건: 고침 확인 6 · 일부 2 · 결정으로 남김 1 | 중간 1 · 낮음 4 · 정보 6 (`B10-D01` ~ `D11`) | `Content-Length` 와 `Transfer-Encoding: chunked` 를 함께 보내면 업로드의 크기 검사를 지난다 (`B10-D01`) |
+| #17 | `ea1d853..78a1174` (14커밋) | 7건: 고침 확인 6 · 일부 1 | 중간 1 · 낮음 7 · 정보 2 (`B17-D01` ~ `D10`) | `rescore --write` 가 골드 폴더에 없는 사례를 기록에서 지운다. 폴더를 못 찾으면 전부다 (`B17-D01`) |
+| theme-series | `805b9d1..df73d7c` (45커밋) | 24건: 고침 확인 11 · 일부 11 · 결정으로 남김 2 | 감사 반영분 중간 2 · 낮음 21 · 정보 3 (`BTS-D01` ~ `D14`, `D30` ~ `D41`), 새 제품 경로 중간 4 · 낮음 5 (`BTS-D60` ~ `D68`). 따로 찾아 겹친 것이 일곱 쌍 있다 | 가린 문구가 다시 만든 장면에 남는다 (`BTS-D01`), 글자 없는 받아쓰기에서 유료 추출이 되풀이되고 늘 실패한다 (`BTS-D30` · `D62`), 로컬 인식 모델을 첫 요청 안에서 고정 없이 내려받는다 (`BTS-D60`), 로컬 인식 어댑터가 포트 계약을 지키지 않는다 (`BTS-D61`), 외부 영상의 말이 모델 질의에 경계 없이 들어간다 (`BTS-D63`) |
+
+질문의 답
+
+- **높음은 없다.** 앞 감사의 높음 둘 — 키 형식(A-01)과 가린 글자를 유료로 다시 만드는 것(BTS-31) — 은 그 브랜치에서 닫혔다.
+- **작업 세션이 고칠 것**은 각 세션에 전했다. 중간 여덟 가지는 PR 전에 그 세션이 고치는 것이 좋다.
+  감사 세션은 다른 브랜치의 파일을 고치지 않는다.
+- **감사 세션이 머지 전에 더 할 일은 없다.** 머지 때 할 일은 아래 체크리스트(브랜치마다 한 곳에서 다섯 곳), 머지 뒤에 할 일은 P-20 에 더했다.
+- 병합 자체는 안전하다: 시험 병합에서 글 충돌이 없고 기능 테스트가 모두 통과한다 (아래).
+
+#### 머지 때 체크리스트 (2026-11-14, 시험 병합으로 확인)
+
+오케스트레이터가 이 브랜치(`3c2d318`)와 작업 중 브랜치 넷을 하나씩 시험 병합했다 (`git merge-tree` 로 만든 트리를 따로 풀어 `scripts/check.py` 의
+검사를 돌림. 브랜치와 worktree 는 건드리지 않았다). 결과: **글 충돌 0, 기능 테스트 실패 0**, 포맷과 커버리지 하한 통과.
+이 브랜치가 바꾼 동작(저장 키 규칙 · REPAIR 결과 키 · 등록 분해 · `exists()` · 테스트 격리)은 다른 브랜치의 테스트를 깨지 않는다.
+걸린 것은 두 종류다.
+
+- (가) 각 브랜치 코드의 정적 검사 (ruff 의 넓힌 규칙 · mypy): #21 5건, #10·#11·#12 2건, #17 3건, theme-series 31건.
+  **각 세션이 자기 브랜치에서 모두 고쳤다.** 감사 세션이 최신 커밋(`ede2372` · `c19aec2` · `78a1174` · `df73d7c`)으로 같은 방법의 시험 병합을
+  다시 돌려 확인했다: 네 병합 모두 ruff 통과, mypy 는 theme-series 의 `faster_whisper` 스텁 1건만 남았다 (아래 (나)의 것이다).
+  기능 테스트는 1519 · 1606 · 1535 · 2131 개가 통과했고 실패는 아래 표의 구조 · 문서 테스트뿐이다.
+- (나) 이 브랜치의 구조 · 문서 테스트 (`tests/architecture`). 아래 표가 그 목록이다. **감사 세션이 병합 커밋 바로 뒤에 고친다** —
+  작업 세션은 이 파일들(`docs/adr/README.md` · `docs/MODULE_MAP.md` · `tests/architecture/` · `pyproject.toml` 의 mypy 설정)을 건드리지 않는다.
+
+병합 순서와 상관없이, **이 브랜치와 그 브랜치가 둘 다 들어간 시점에** 아래를 고쳐야 `python scripts/check.py` 가 통과한다.
+
+| 브랜치 | 고칠 것 | 걸리는 테스트 |
+|---|---|---|
+| 모두 | `docs/adr/README.md` 의 표에 그 브랜치의 ADR 행을 더하고 '나눠 가진 번호' 문장에서 그 번호를 지운다: 0022 (#21), 0023 · 0024 (#10·#11·#12), 0025 ~ 0029 (theme-series) | `test_docs.py::test_the_adr_index_lists_every_adr` |
+| #21 | `evaluation/edit_cases.py:40` 의 `frame.domain.services.propagation` → `frame.domain.revision` (같은 이름 `AttributeChange`) | `test_adapter_boundaries.py::test_only_the_known_modules_still_import_the_compat_paths` |
+| #10·#11·#12 | ADR 행뿐이다 | — |
+| #17 | `docs/MODULE_MAP.md` 에 `src/frame/evaluation/structuring/` 행 | `test_docs.py::test_the_module_map_lists_every_package` |
+| theme-series | `docs/MODULE_MAP.md` 에 새 패키지 16개: `adapters/series/` 와 그 아래 `audio` · `overlay` · `planning` · `source_analysis` · `store` · `theme_extraction`, `adapters/speech/`, `application/ports/series/`, `application/use_cases/series/` · `script/`, `domain/series/` 와 그 아래 `theme` · `episode` · `screen_correction`, `domain/script/` | `test_docs.py::test_the_module_map_lists_every_package` |
+| theme-series | 옛 경로 import 10곳을 새 경로로 (P-17): `adapters/series/audio/ffmpeg.py:23` · `overlay/ffmpeg_renderer.py:24` · `overlay/vlm_reader.py:20-21` · `source_analysis/ffmpeg.py:14` · `theme_extraction/vlm.py:23` (`adapters.video_tools` → `adapters.shared.media`, `adapters.vlm_answers` → `adapters.shared.vlm`), `adapters/speech/openai.py:22` (`adapters.http_transport` → `adapters.shared.http`), `use_cases/series/correct_episode_screen.py:51` · `revise_episode.py:32` (`domain.services.propagation` → `domain.revision`), `config/theme_adapters.py:64` (`adapters.generator.ffmpeg` → `adapters.shared.media.ffmpeg`) | `test_adapter_boundaries.py::test_only_the_known_modules_still_import_the_compat_paths` |
+| theme-series | `adapters/media_tools.py` · `adapters/fake_media.py` 를 `adapters/shared/media/` 위로 옮긴다 (P-15). ffmpeg 실행 · 영상 정보 읽기는 `shared/media/ffmpeg.py` · `probe.py` 의 것을 쓴다 | `test_adapter_boundaries.py::test_modules_at_the_top_of_adapters_are_only_the_compat_ones` |
+| theme-series | `tests/architecture/test_layer_rules.py` 의 `THIRD_PARTY_HOMES` 에 `faster_whisper` → `frame.adapters.speech`. `pyproject.toml` 의 mypy 설정에 `faster_whisper` 의 `ignore_missing_imports` (선택 설치라 CI 에는 없다) | `test_layer_rules.py::test_third_party_packages_stay_in_their_layer`, mypy |
+
+같이 볼 것 (테스트는 통과하지만 병합한 뒤 이 세션이 이어서 하는 일)
+
+- theme-series 의 조립(`config/theme_wiring.py` · `theme_adapters.py`)을 `config/registrations/series.py` 로 (M-02 의 연속. 그 이름을 비워 뒀다).
+- `config/theme_wiring.py` 가 `frame.adapters.generator.openrouter` 의 `_checked_base_url` 을 빌려 쓴다. 병합한 뒤 그 함수를 `adapters/shared/http` 로 옮기고 두 곳이 같이 쓴다.
+- #21 과 #17 은 `evaluation/__init__.py` 를 둘 다 고친다 (서로의 병합에서 겹친다 — 오케스트레이터가 두 목록을 합친다). 그 뒤 `evaluation/` 을
+  `edits/` · `structuring/` 로 맞춘다 (P-06: `structuring/` 은 #17 이 했다).
+- `README.md` 는 #21 · #10 · #17 이 모두 고친다. 키 파일 예시 두 줄은 #10 만 고치기로 했다 (P-19).
+
+#### P-20 — 델타 감사에서 나온 머지 뒤 항목 (2026-11-14)
+
+체크리스트(위)가 게이트를 통과시키는 일이라면, 이것은 병합한 뒤에 이 세션이 이어서 볼 것이다.
+
+병합한 트리에서 확인할 것 (브랜치가 서로 만나야 드러난다)
+
+- #10 의 키 규칙(`domain/ir.py` 의 `KEY_PATTERN`)이 theme-series 의 편 객체 키를 덮는지. 지금 `CreateEpisode` 는 편에만 나오는 객체의 키 `../x` 를 받고,
+  LLM 기획기도 모델이 준 키를 그대로 넘긴다 (`adapters/series/planning/llm.py`). 규칙이 들어오면 기획기의 되묻는 고리가 그 오류를 모델에 되돌려 보내는지 본다.
+- #10 의 `PUT /versions/{id}/ir` 과 theme-series 의 `Episode.settled` — 끝난 수정 버전의 IR 을 계획에 옮길 때 `plan.validate()` 를 부르지 않는다.
+- theme-series 의 `application/use_cases/series/create_episode.py` 가 참조 이미지를 #10 의 `resolve_reference_uri` 없이 더한다 (A-19 의 문이 그쪽으로 다시 열리는지).
+- 대소문자만 다른 키(`B10-D02`)와 이 브랜치의 저장 키 검사 — 로컬 저장소에서 두 키가 한 파일이 되는 것을 저장소가 막을지.
+- #10 의 규칙이 생기기 전에 저장된 행(`B10-D06`)을 이 브랜치의 저장 키 검사가 막는지 (옛 행으로 한 번 재현).
+
+한 벌로 묶을 것
+
+- 키 규칙: #10 의 `KEY_PATTERN` 과 theme-series 의 `KEY_FORMAT` (`domain/series/theme/theme.py`)이 같은 식의 사본이다.
+- 잠금: `adapters/shared/locking.py` 의 `KeyedLocks` 와 theme-series 의 `adapters/series/store/_key_locks.py`. 그때 같은 영상의 동시 추출,
+  같은 소리의 동시 인식 (지금은 둘 다 과금), 테마 문서의 잠금(`BTS-D03` · `D38`)을 붙인다.
+- `"UNEXPECTED_ERROR"` 문자열이 세 곳이 된다 (`application/pipeline/runner.py`, #21 의 `evaluation/edit_runner.py`, `adapters/checker/_guard.py`).
+- `_checked_base_url` 을 `adapters/shared/http` 로 (theme-series 의 `config/theme_adapters.py` 가 생성기 패키지에서 빌려 쓴다).
+- 오류 문구에서 경로를 가리는 일을 shared 로 옮긴 뒤 쓸 곳: #21 의 결과 JSON(`B21-D05`), #17 의 기록(`B17-D06`), theme-series 의 검수 보고 메모(`BTS-D34`).
+
+이 브랜치의 파일에서 고칠 것 (델타 감사가 감사 세션 몫으로 남긴 것)
+
+- LLM 클라이언트가 주소를 늘 명시하게 한다. 셸에 `OPENAI_BASE_URL` 이 있으면 SDK 는 그 주소로, theme-series 의 인식기는 같은 키를 OpenAI 주소로 보낸다 (`BTS-D05`).
+- 프레임이 붙는 호출의 SDK 재시도 횟수를 정한다. 지금 합치면 테마 추출이 최악 2 × 2 = 4회다 (BTS-22 의 남은 것). ADR-0025 결정 5 의 글도 맞춘다.
+- 생성 시간 제한(`FRAME_GENERATOR_TIMEOUT_S`)을 켜면 Windows 에서 Ctrl+C 가 장면 생성이 끝날 때까지 늦게 온다 (`B21-D07`, `adapters/generator/decorators.py` 의 기다림).
+- 검수기의 단위별 방어(`adapters/checker/_guard.py`)가 예외 문구를 `detail.reason` 에 넣는다 — 결과 JSON 을 저장소에 기록하기 전에 경로가 남는지 본다.
+
+문서와 설정
+
+- `pyproject.toml` 의 `[tool.ruff.format] exclude` 두 줄을 지운다 (#10 이 두 파일을 포맷했다). mypy 기준선 두 항목(`frame.config.container`,
+  `frame.adapters.persistence.sqlalchemy.repositories`)도 그때 고치고 지운다.
+- 유료 테스트의 실행 명령에 `FRAME_LIVE_TESTS=1` 을 더한다: #17 의 `README.md` · `docs/STRUCTURING_DESIGN.md` · `tests/live/test_structuring_gold_live.py` ·
+  `tools/evaluate_structuring.py` 의 머리말, #21 의 `tests/live/test_evaluate_edits_live.py` 와 README.
+- `.env.example` 에 theme-series 의 `FRAME_SPEECH_*` · `FRAME_THEME_*` 설정을 넣는다 (`BTS-D68`).
+- `docs/ARCHITECTURE.md` 의 폴더 그림(#21 과 #17 이 같은 자리를 고친다)과 `docs/STRUCTURING_DESIGN.md` 의 현황 표(#10 과 #17 이 붙은 줄을 고친다)는 기계적 충돌이다.
 
 ### 12.3 결정이 필요한 것
 
