@@ -275,6 +275,36 @@ def test_recording_far_longer_than_what_it_covers_is_refused_before_recognition(
     assert recognizer.calls == []
 
 
+def test_recording_that_is_silent_from_start_to_end_is_refused_before_recognition():
+    """무음 녹음을 인식기에 보내면 과금되고, 인식기가 지어낸 문장이 줄 맞추기에 들어간다 (감사 BTS-D67)."""
+    recognizer = FakeSpeechRecognizer()
+    container = series_container(speech_recognizer=recognizer)
+    save_theme(container)
+    episode = new_episode(container)
+    made_up = Transcript("ko", (SpeechSegment(300, 2400, "시청해 주셔서 감사합니다"),))
+    silent = fake_recording(made_up, 3000, silences=((0, 3000),))
+
+    with pytest.raises(ValidationError, match="무음"):
+        _attach(container, episode, RecordingInput(silent, filename="take.wav"))
+    with pytest.raises(ValidationError, match="무음"):
+        _attach(container, episode, RecordingInput(silent, line_key="L1", filename="L1.wav"))
+    assert recognizer.calls == []
+
+
+def test_recording_too_large_is_refused_before_anything_reads_it(monkeypatch):
+    from frame.application.use_cases.series import attach_narration as module
+
+    recognizer = FakeSpeechRecognizer()
+    container = series_container(speech_recognizer=recognizer)
+    save_theme(container)
+    episode = new_episode(container)
+    monkeypatch.setattr(module, "MAX_RECORDING_BYTES", 16)
+
+    with pytest.raises(ValidationError, match="너무 큽니다"):
+        _attach(container, episode, _whole())
+    assert recognizer.calls == []
+
+
 def test_recording_that_cannot_be_read_is_a_validation_error_with_real_and_fake_editors():
     """읽을 수 없는 녹음에 실제 편집기는 AudioError 를 던지고 가짜는 None 을 돌려준다. 둘 다 같은 안내가 된다."""
     from frame.adapters.series.audio import FakeAudioEditor

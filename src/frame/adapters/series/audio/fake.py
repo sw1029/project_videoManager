@@ -103,8 +103,15 @@ class FakeAudioEditor(AudioEditor):
 
 
 def _audio_part(media: bytes) -> dict[str, Any] | None:
+    """가짜 영상·음성의 소리 부분. 소리가 없으면 None, 가짜 형식이 아니면 AudioError.
+
+    포트의 계약대로다: 읽을 수 없는 파일은 '소리 없는 파일' 이 아니다. 실제 편집기와 같은 입력에 같은 종류의
+    오류를 내야 유스케이스가 가짜에서만 통과하는 길을 갖지 않는다 (감사 BTS-27 의 남은 것).
+    """
     decoded = decode_fake_media(media)
-    part = decoded.get("audio") if decoded else None
+    if decoded is None:
+        raise AudioError("읽을 수 없는 파일입니다 (가짜 영상·음성 형식이 아닙니다)")
+    part = decoded.get("audio")
     return part if isinstance(part, dict) and "duration_ms" in part else None
 
 

@@ -51,6 +51,8 @@ _SUFFIX = re.compile(r"\.[a-z0-9]{1,5}")
 # 다시 읽은 부분·쉼을 넉넉히 봐준 값이다. 이보다 길면 장면에 놓을 수 없고, 인식 과금만 는다
 MAX_RECORDING_FACTOR = 3.0
 MAX_RECORDING_SLACK_MS = 10_000
+# 녹음 파일의 크기 상한. 길이를 재기 전에 본다 (압축하지 않은 48kHz 스테레오 16비트로도 20분이 넘는 크기다)
+MAX_RECORDING_BYTES = 256 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -118,14 +120,14 @@ class AttachNarration:
             uris.append(self._store.put(key, recording.data))
         # 3) 인식 (과금)
         transcripts: list[Transcript] = []
-        for speech in prepared:
+        for speech, _ in prepared:
             transcript = self._recognizer.transcribe(
                 speech, language=command.language, hint=", ".join(key_terms)
             )
             transcript.validate()
             transcripts.append(transcript)
         if whole:
-            sound = self._sounding(command.recordings[0].data)
+            sound = prepared[0][1]
             alignments = tuple(
                 fit_alignment(alignment, sound)
                 for alignment in align_script(
@@ -144,7 +146,7 @@ class AttachNarration:
                     policy=self._policy,
                     key_terms=key_terms,
                 )
-                kept[recording.line_key] = fit_alignment(checked, self._sounding(recording.data))
+                kept[recording.line_key] = fit_alignment(checked, prepared[number][1])
             alignments = tuple(
                 kept.get(line.line_key, LineAlignment(line.line_key, LineStatus.MISSING))
                 for line in script
@@ -157,27 +159,37 @@ class AttachNarration:
         self._episodes.save(updated)
         return updated
 
-    def _sounding(self, recording: bytes) -> tuple[tuple[int, int], ...]:
-        """녹음에서 소리가 나는 구간. 재지 못하면 비어 있다 (줄의 구간을 인식기가 준 대로 쓴다)."""
+    def _sounding(self, recording: bytes) -> tuple[tuple[int, int], ...] | None:
+        """녹음에서 소리가 나는 구간. 재지 못했으면 None, 처음부터 끝까지 무음이면 빈 튜플이다."""
         try:
             profile = self._audio.sound_profile(recording)
         except AdapterError:
-            return ()
+            return None
         if profile is None:
-            return ()
-        return audible_spans(profile.duration_ms, profile.silences) or ()
+            return None
+        return audible_spans(profile.duration_ms, profile.silences)
 
-    def _prepare(self, episode: Episode, recording: RecordingInput) -> SpeechAudio:
-        """녹음 하나를 인식할 수 있는 소리로 바꾼다. 받을 수 없는 녹음이면 ValidationError (인식하기 전이다)."""
+    def _prepare(
+        self, episode: Episode, recording: RecordingInput
+    ) -> tuple[SpeechAudio, tuple[tuple[int, int], ...]]:
+        """녹음 하나를 인식할 수 있는 소리로 바꾼다: (인식할 소리, 소리가 나는 구간 — 재지 못했으면 빈 튜플).
+
+        받을 수 없는 녹음이면 ValidationError (인식하기 전이다). 크기 -> 길이 -> 무음 -> 변환 순으로 본다:
+        긴 파일을 끝까지 변환한 뒤에 거절하지 않고, 무음 녹음을 인식기에 보내지 않는다 (감사 BTS-D67).
+        """
         if not recording.data:
             raise ValidationError("녹음 파일이 비어 있습니다")
+        if len(recording.data) > MAX_RECORDING_BYTES:
+            raise ValidationError(
+                f"녹음 파일이 너무 큽니다: {len(recording.data) / 1_048_576:.0f}MB "
+                f"(상한 {MAX_RECORDING_BYTES // 1_048_576}MB)"
+            )
         unreadable = "녹음 파일에 소리가 없습니다 (읽을 수 없는 형식일 수 있습니다)"
         try:
-            speech = self._audio.speech_audio(recording.data)
             info = self._audio.probe(recording.data)
-        except AdapterError as exc:  # 실제 편집기는 읽을 수 없는 파일에 오류를 던진다 (가짜는 None)
+        except AdapterError as exc:  # 읽을 수 없는 파일
             raise ValidationError(unreadable) from exc
-        if speech is None or info is None:
+        if info is None:
             raise ValidationError(unreadable)
         covered = episode.plan.ir.total_duration_ms
         if recording.line_key is not None:
@@ -190,7 +202,17 @@ class AttachNarration:
                 f"녹음이 너무 깁니다: {info.duration_ms / 1000:.0f}초 "
                 f"(이 녹음이 덮는 시간은 {covered / 1000:.0f}초, 받는 상한은 {limit / 1000:.0f}초)"
             )
-        return speech
+        sounding = self._sounding(recording.data)
+        if sounding is not None and not sounding:
+            # 인식기는 무음에서 문장을 지어낸다. 그 문장이 줄 맞추기에 들어가고, 과금도 된다
+            raise ValidationError("녹음이 처음부터 끝까지 무음입니다. 소리가 녹음됐는지 확인하세요")
+        try:
+            speech = self._audio.speech_audio(recording.data)
+        except AdapterError as exc:
+            raise ValidationError(unreadable) from exc
+        if speech is None:
+            raise ValidationError(unreadable)
+        return speech, sounding or ()
 
 
 def _mode(recordings: Sequence[RecordingInput], script: Sequence[ScriptLine]) -> bool:

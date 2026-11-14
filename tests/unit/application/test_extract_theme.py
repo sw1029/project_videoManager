@@ -277,6 +277,56 @@ def test_speech_the_recognizer_skipped_is_heard_again_and_reaches_the_script():
     assert any("다시 받아 적었습니다" in note for note in record.notes)
 
 
+class _FailsAfterTheFirstCall(FakeSpeechRecognizer):
+    """전체는 받아 적고, 그 뒤의 호출(빠진 구간을 다시 받아 적기)은 실패하는 인식기."""
+
+    def __init__(self, later: Exception) -> None:
+        super().__init__()
+        self._later = later
+
+    def transcribe(self, audio, *, language=None, hint=""):
+        if self.calls:
+            self.calls.append({"bytes": len(audio.data), "language": language, "hint": hint})
+            raise self._later
+        return super().transcribe(audio, language=language, hint=hint)
+
+
+def _video_with_a_missed_last_line() -> bytes:
+    said = Transcript("ko", SAID.segments[:3])
+    last = Transcript("ko", (SpeechSegment(12500, 14000, "매장에서 만나요!", confidence=0.8),))
+    silences = ((0, 400), (2600, 4500), (6200, 8600), (10400, 12500), (14000, 16000))
+    return fake_video(transcript=said, silences=silences, missed=last)
+
+
+def test_failing_to_hear_a_gap_again_keeps_the_first_transcript():
+    """다시 받아 적기는 덤이다. 그것이 실패해도 처음 받은 받아쓰기는 버리지 않는다 (감사 BTS-D12·D31).
+
+    버리면 내레이션 없는 테마를 유료로 뽑아 저장하고, 같은 영상은 그 테마를 계속 돌려준다.
+    """
+    spy = _FailsAfterTheFirstCall(
+        SpeechRecognitionError("그 구간을 알아듣지 못했습니다: C:\\somewhere\\part.wav")
+    )
+    series = series_of(series_container(speech_recognizer=spy))
+
+    record = series.extract_theme.execute(_command(_video_with_a_missed_last_line())).record
+
+    assert len(spy.calls) == 2
+    assert len(record.analysis.transcript.segments) == 3 and record.theme.narration.present
+    assert [line.text for line in record.script.lines][-1] == "가격은 4,500원."
+    note = next(note for note in record.notes if "다시 받아 적지 못했습니다" in note)
+    assert "SPEECH_RECOGNITION_ERROR" in note and "somewhere" not in note  # 원문은 로그로만
+
+
+def test_service_failure_while_hearing_a_gap_again_still_stops_before_the_paid_extraction():
+    extractor = FakeThemeExtractor()
+    spy = _FailsAfterTheFirstCall(SpeechServiceError("음성 인식 API 요청 한도 초과 (429)"))
+    series = series_of(series_container(speech_recognizer=spy, theme_extractor=extractor))
+
+    with pytest.raises(SpeechServiceError):
+        series.extract_theme.execute(_command(_video_with_a_missed_last_line()))
+    assert extractor.requests == [] and series.themes.list() == []
+
+
 @pytest.mark.parametrize("marks", ["♪", "...", "♪♪ ♪"])
 def test_transcript_with_no_letters_gives_a_valid_theme_without_narration(marks):
     """글자 없는 받아쓰기('♪'·'...')는 말이 없는 것이다 (감사 BTS-D30·D62).
@@ -418,6 +468,18 @@ def test_failed_extraction_leaves_no_copy_of_the_source():
     with pytest.raises(ThemeExtractionError):
         series_of(container).extract_theme.execute(command)
     assert not any("source" in uri for uri in container.artifact_store._blobs)
+
+
+def test_video_longer_than_the_limit_is_refused_even_without_the_shortform_check():
+    """숏폼 판정을 꺼도 길이 상한은 있다: 긴 영상의 대본과 샷이 통째로 들어가지 않는다 (감사 BTS-30 의 남은 것)."""
+    extractor = FakeThemeExtractor()
+    recognizer = FakeSpeechRecognizer()
+    series = series_of(series_container(theme_extractor=extractor, speech_recognizer=recognizer))
+    long = fake_video(duration_ms=21 * 60 * 1000, transcript=SAID)
+
+    with pytest.raises(ValidationError, match="너무 깁니다"):
+        series.extract_theme.execute(_command(long, require_shortform=False))
+    assert extractor.requests == [] and recognizer.calls == []
 
 
 def test_oversized_video_is_refused_before_anything_reads_it(monkeypatch):

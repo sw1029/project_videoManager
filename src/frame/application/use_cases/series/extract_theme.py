@@ -46,7 +46,7 @@ from frame.application.ports.series.theme_extraction import (
 )
 from frame.application.ports.sound import SoundProfile
 from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
-from frame.application.use_cases.script import listen
+from frame.application.use_cases.script import MAX_MEDIA_BYTES, MAX_MEDIA_MS, listen
 from frame.domain.enums import EntityKind
 from frame.domain.errors import DomainError, ValidationError
 from frame.domain.ir import IntermediateRepresentation
@@ -66,9 +66,10 @@ from frame.domain.speech import Transcript
 log = logging.getLogger(__name__)
 
 
-# 겉모습을 읽기 전에 보는 크기 상한. 영상은 단계마다 임시 파일로 다시 쓰이므로 터무니없이 큰 파일을 먼저 끊는다.
-# 숏폼 플랫폼이 받는 크기(Reels 300MB)보다 넉넉하게 둔다. 길이는 숏폼 규격 판정이 본다 (감사 BTS-30)
-MAX_SOURCE_BYTES = 512 * 1024 * 1024
+# 겉모습을 읽기 전에 보는 크기 상한과, 숏폼 판정을 꺼도 넘지 못하는 길이 상한 (감사 BTS-30).
+# 대본 추출(use_cases/script)과 같은 값이다. 숏폼의 길이는 숏폼 규격 판정이 따로 본다
+MAX_SOURCE_BYTES = MAX_MEDIA_BYTES
+MAX_SOURCE_MS = MAX_MEDIA_MS
 
 
 class NotShortform(ValidationError):
@@ -141,6 +142,11 @@ class ExtractTheme:
                 "외부 영상은 저장소에 사본을 두지 않습니다 (keep_source 를 끄세요)"
             )
         media = self._prober.probe(command.video)
+        if media.duration_ms > MAX_SOURCE_MS:  # require_shortform 을 꺼도 지킨다
+            raise ValidationError(
+                f"영상이 너무 깁니다: {media.duration_ms / 60_000:.0f}분 "
+                f"(상한 {MAX_SOURCE_MS // 60_000}분)"
+            )
         verdict = check_platforms(media, self._platforms)
         if command.require_shortform and not verdict.within:
             reasons = [v.message for report in verdict.reports for v in report.violations]

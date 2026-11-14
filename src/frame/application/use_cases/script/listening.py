@@ -9,15 +9,20 @@
    - 그 구간이 소리의 대부분이면 다시 받지 않는다 (음악이 내내 깔린 영상: 같은 소리를 두 번 받을 뿐이다).
    - 다시 받은 말은 믿을 만할 때만 쓴다 (신뢰도). 말이 없는 소리만 잘라 주면 인식기는 또 지어낸다.
    - 구간 수에 상한이 있다. 과금은 그 구간의 길이만큼만 는다.
+   - 다시 받아 적기는 덤이다. 그 구간을 자르거나 받아 적다 실패하면 메모만 남기고 처음 받은 받아쓰기를 돌려준다
+     (전체의 실패로 올리면 부른 쪽이 멀쩡한 받아쓰기를 버리고 내레이션 없이 유료 단계로 간다 — 감사 BTS-D12·D31).
+     인식 서비스를 쓸 수 없다는 오류(SpeechServiceError)는 그대로 올린다.
 무음을 재지 못했으면(profile 이 None) 2 만 한다.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 
+from frame.application.errors import AdapterError
 from frame.application.ports.sound import SoundProfile, SoundReader
-from frame.application.ports.speech import SpeechRecognizer
+from frame.application.ports.speech import SpeechRecognizer, SpeechServiceError
 from frame.domain.script import DEFAULT_SCRIPT_POLICY, ScriptPolicy, audible_spans, build_script
 from frame.domain.speech import SpeechSegment, Transcript
 
@@ -32,6 +37,7 @@ class ListeningPolicy:
     again_confidence: float = 0.6
 
 
+log = logging.getLogger(__name__)
 DEFAULT_LISTENING_POLICY = ListeningPolicy()
 ALL_SILENT = "소리가 처음부터 끝까지 무음이라 받아 적지 않았습니다"
 
@@ -84,12 +90,23 @@ def listen(
     found: list[SpeechSegment] = []
     for start, end in sorted(unheard, key=lambda span: span[0] - span[1])[: policy.again_limit]:
         cut = max(0, start - policy.again_pad_ms)
-        part = sound.speech_audio(
-            media, start_ms=cut, end_ms=min(profile.duration_ms, end + policy.again_pad_ms)
-        )
-        if part is None:
+        span = f"{start / 1000:.1f}~{end / 1000:.1f}초"
+        try:
+            part = sound.speech_audio(
+                media, start_ms=cut, end_ms=min(profile.duration_ms, end + policy.again_pad_ms)
+            )
+            if part is None:
+                continue
+            again = recognizer.transcribe(part, language=language, hint=hint)
+        except SpeechServiceError:
+            raise  # 설정·환경의 문제는 덮지 않는다
+        except AdapterError as exc:
+            # 메모는 저장되는 문서로 간다. 오류 코드만 적고 원문(서버가 준 글·경로)은 로그로 보낸다
+            log.warning(
+                "%s 의 소리를 다시 받아 적지 못했습니다: %s: %s", span, type(exc).__name__, exc
+            )
+            notes.append(f"{span}의 소리를 다시 받아 적지 못했습니다 ({exc.code})")
             continue
-        again = recognizer.transcribe(part, language=language, hint=hint)
         believed = [
             _moved(segment, cut, profile.duration_ms)
             for segment in again.segments
@@ -99,11 +116,10 @@ def listen(
         if believed:
             found += believed
             notes.append(
-                f"{start / 1000:.1f}~{end / 1000:.1f}초의 소리는 따로 잘라 다시 받아 적었습니다 "
-                "(전체를 받아 적을 때 빠졌습니다)"
+                f"{span}의 소리는 따로 잘라 다시 받아 적었습니다 (전체를 받아 적을 때 빠졌습니다)"
             )
     if not found:
-        return Heard(transcript)
+        return Heard(transcript, tuple(notes))
     return Heard(Transcript(transcript.language, _merged(transcript.segments, found)), tuple(notes))
 
 

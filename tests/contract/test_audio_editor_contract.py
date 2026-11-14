@@ -88,6 +88,16 @@ def test_probe_reports_audio_or_none(kit):
     assert with_sound is not None and abs(with_sound.duration_ms - 6000) <= TOLERANCE_MS
 
 
+def test_bytes_that_are_not_media_are_an_audio_error_not_a_file_without_sound(kit):
+    """계약: 파일을 읽지 못하면 AudioError 다. '소리가 없는 파일'(None)과 다르다 (감사 BTS-27 의 남은 것).
+
+    가짜가 None 을 돌려주면 유스케이스가 가짜에서만 통과하는 길을 갖게 된다.
+    """
+    for read in (kit.editor.probe, kit.editor.sound_profile, kit.editor.speech_audio):
+        with pytest.raises(AudioError):
+            read(b"this is not a media file at all")
+
+
 def test_sound_profile_reports_length_and_silences(kit):
     """소리 읽기 포트(SoundReader)의 계약: 길이와 무음 구간. 소리가 없으면 None 이다."""
     assert kit.editor.sound_profile(kit.silent_video) is None

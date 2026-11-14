@@ -78,6 +78,29 @@ def test_media_without_sound_has_no_script_and_costs_nothing():
     assert recognizer.calls == []  # 소리가 없으면 인식기를 부르지 않는다
 
 
+def test_file_too_large_or_too_long_is_refused_before_recognition(monkeypatch):
+    """받아 적기는 분 단위로 과금한다. 크기와 길이의 상한을 인식하기 전에 본다 (감사 BTS-D37)."""
+    from frame.application.use_cases.script import extract_script as module
+
+    use_case, recognizer = _use_case()
+    hour = fake_recording(Transcript("ko", (SpeechSegment(0, 3_600_000, "아주 긴 말"),)))
+    with pytest.raises(ValidationError, match="너무 깁니다"):
+        use_case.execute(ExtractScriptCommand(hour))
+    monkeypatch.setattr(module, "MAX_MEDIA_BYTES", 16)
+    with pytest.raises(ValidationError, match="너무 큽니다"):
+        use_case.execute(ExtractScriptCommand(fake_video(transcript=SAID)))
+    assert recognizer.calls == []
+
+
+def test_file_that_cannot_be_read_is_a_validation_error_not_an_empty_script():
+    """읽을 수 없는 파일은 '소리 없는 파일' 이 아니다. 가짜 편집기도 실제처럼 오류를 내고, 그것은 입력의 문제다."""
+    use_case, recognizer = _use_case()
+
+    with pytest.raises(ValidationError, match="읽을 수 없습니다"):
+        use_case.execute(ExtractScriptCommand(b"not media at all"))
+    assert recognizer.calls == []
+
+
 def test_sound_without_speech_is_an_empty_script_with_the_sound_kept_apart():
     """말은 없고 음악만 있는 영상: 줄은 없고, 말이 아닌 소리가 있었다는 것이 남는다."""
     use_case, _ = _use_case()
