@@ -122,6 +122,11 @@ extra_checks = true
 module = ["imageio_ffmpeg"]
 ignore_missing_imports = true
 
+# 선택 설치(speech-local)라 검사 환경에 없는 외부 패키지. 쓰는 곳은 adapters/speech/faster_whisper.py 하나다
+[[tool.mypy.overrides]]
+module = ["faster_whisper"]
+ignore_missing_imports = true
+
 # 기준선: 다른 브랜치가 고치고 있는 파일의 오류 3건. 그 브랜치가 dev 에 들어온 뒤 고치고 이 두 항목을 지운다. 더하지 않는다
 [[tool.mypy.overrides]]
 module = ["frame.config.container"]

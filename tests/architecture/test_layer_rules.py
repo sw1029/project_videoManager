@@ -46,6 +46,7 @@ THIRD_PARTY_HOMES: dict[str, tuple[str, ...]] = {
     "sqlalchemy": ("frame.adapters.persistence",),
     "openai": ("frame.adapters.llm",),
     "imageio_ffmpeg": ("frame.adapters",),
+    "faster_whisper": ("frame.adapters.speech",),  # 선택 설치 (speech-local): 로컬 음성 인식
 }
 
 
