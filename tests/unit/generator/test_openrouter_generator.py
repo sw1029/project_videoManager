@@ -350,6 +350,17 @@ def test_polling_rides_out_transient_errors(store, ir):
     assert len(api.submits) == 1
 
 
+@pytest.mark.parametrize("code", [408, 409, 425, 500, 501, 520, 524, 599])
+def test_polling_rides_out_every_status_that_may_pass(store, ir, code):
+    """상태 조회의 5xx 는 과금과 무관하다. 한 번 났다고 대기를 끝내 버전을 실패시키지 않는다 (감사 A-37)."""
+    api = FakeOpenRouterApi()
+    api.on("GET", STATUS_PATH, error_response(code, "upstream hiccup"), completed())
+
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir))
+
+    assert clip.metadata["polls"] == 2 and len(api.submits) == 1
+
+
 def test_polling_stops_on_authentication_errors(store, ir):
     api = FakeOpenRouterApi()
     api.on("GET", STATUS_PATH, error_response(401, "Missing Authentication header"))
@@ -371,6 +382,17 @@ def test_download_retries_conflicts_then_succeeds(store, ir):
     assert store.get(clip.uri) == b"MP4:LATE-MP4"
     assert len(api.calls_to("GET", CONTENT_PATH)) == 2
     assert len(api.submits) == 1
+
+
+@pytest.mark.parametrize("code", [408, 425, 429, 500, 520, 524])
+def test_download_rides_out_every_status_that_may_pass(store, ir, code):
+    api = FakeOpenRouterApi()
+    api.on("GET", CONTENT_PATH, error_response(code, "try later"), video_content(b"LATE-MP4"))
+
+    clip = make_openrouter_generator(store, api).generate_scene(_request(ir))
+
+    assert store.get(clip.uri) == b"MP4:LATE-MP4"
+    assert len(api.calls_to("GET", CONTENT_PATH)) == 2 and len(api.submits) == 1
 
 
 def test_download_rejects_a_non_video_payload(store, ir):

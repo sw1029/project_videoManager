@@ -116,7 +116,7 @@ LEDGER_TTL_SECONDS = 24 * 3600.0  # 제출 뒤 이 시간이 지난 원장 항�
 _KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
 _URL = re.compile(r"(https?)://([^/\s\"'<>?]+)[^\s\"'<>]*")
 _RETRY_SUBMIT = frozenset({429, 502})  # 접수 전 거절: 과금 없음
-_TRANSIENT_GET = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_TRANSIENT_GET = frozenset({408, 409, 425, 429})  # 조회·내려받기(GET)에서 곧 나아질 수 있는 4xx
 _FAILED_STATES = frozenset({"failed", "cancelled", "expired"})
 _GONE = frozenset({404, 410})  # 작업·결과가 없다 (만료 등): 원장 항목을 이어 받지 않는다
 _MAX_SEED = 2**31  # 제공자 대부분(Wan 등)이 0 ~ 2^31-1 범위의 seed 를 받는다
@@ -979,7 +979,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
         except TransportError:
             return None, True, None
         if resp.status != 200:
-            return None, resp.status == 429 or resp.status >= 500, None
+            return None, _may_pass(resp.status), None
         try:
             data = self._json(resp)
         except GenerationError:
@@ -1527,7 +1527,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
             except TransportError as exc:
                 log.warning("OpenRouter 상태 조회 실패 (job=%s): %s, 계속 기다림", job_id, exc)
                 continue
-            if resp.status in _TRANSIENT_GET:
+            if _may_pass(resp.status):
                 log.warning("OpenRouter 상태 조회 %s (job=%s), 계속 기다림", resp.status, job_id)
                 continue
             if resp.status in _GONE:  # 만료됐거나 다른 서버의 작업: 이어 받을 수 없다
@@ -1569,7 +1569,7 @@ class OpenRouterVideoGenerator(VideoGenerator):
                     return resp.body
                 if resp.status in _GONE:
                     raise self._gone("결과 다운로드", resp, job_id)
-                if resp.status not in _TRANSIENT_GET:
+                if not _may_pass(resp.status):
                     raise self._http_error("결과 다운로드", resp, retryable=False, job_id=job_id)
                 last = f"{resp.status} {_hint(resp.status)}"
             if attempt < self.download_attempts:
@@ -1651,6 +1651,14 @@ class OpenRouterVideoGenerator(VideoGenerator):
         # 제공자 메시지에 섞여 오는 주소(올려 보낸 참조 이미지의 서명 URL 등)는 호스트만 남긴다
         cleaned = _URL.sub(lambda m: f"{m.group(1)}://{m.group(2)}/...", cleaned)
         return " ".join(cleaned.split())[:400]
+
+
+def _may_pass(status: int) -> bool:
+    """조회·내려받기(GET)의 응답이 기다리면 나아질 수 있는가: 일시적인 4xx 와 모든 5xx.
+
+    GET 은 과금과 무관해 다시 물어도 된다 (ADR-0011). 상태 조회·결과 내려받기·부모 작업 조회가 이 기준 하나를 쓴다.
+    """
+    return status in _TRANSIENT_GET or status >= 500
 
 
 def _hint(status: int) -> str:

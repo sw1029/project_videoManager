@@ -340,6 +340,35 @@ def test_lookup_failures_that_may_pass_are_asked_again(ir, store):
     assert clip.metadata["edit"]["parent_url_lookups"] == 4
 
 
+@pytest.mark.parametrize("code", [408, 409, 425, 429, 500, 524])
+def test_the_parent_lookup_treats_passing_statuses_like_polling_does(ir, store, code):
+    """부모 작업 조회도 상태 조회·내려받기와 같은 기준으로 '곧 나아질 응답' 을 가린다 (감사 A-37)."""
+    api = _api()
+    api.on(
+        "GET",
+        f"/api/v1/videos/{PARENT_JOB}",
+        error_response(code, "try later"),
+        completed(PARENT_JOB),
+    )
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is True
+    assert clip.metadata["edit"]["parent_url_lookups"] == 2
+
+
+@pytest.mark.parametrize("code", [400, 401, 403])
+def test_the_parent_lookup_does_not_repeat_a_refusal(ir, store, code):
+    api = _api(parent_status=error_response(code, "no"))
+    generator = make_openrouter_generator(store, api, edit_mode="video_reference")
+
+    clip = generator.generate_scene(_request(ir, store))
+
+    assert clip.metadata["edit"]["applied"] is False
+    assert len(api.calls_to("GET", f"/api/v1/videos/{PARENT_JOB}")) == 1
+
+
 def test_a_longer_wait_slows_down_to_the_polling_interval(ir, store):
     """오래 기다리게 설정하면 처음 여섯 번만 촘촘히 묻고 그 뒤로는 폴링 간격으로 묻는다."""
     api = _api(parent_status=NO_URLS)
