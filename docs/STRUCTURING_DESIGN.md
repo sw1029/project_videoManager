@@ -49,8 +49,8 @@
 | `LLMStructurer` | 시스템 프롬프트(어휘·규칙 포함), JSON → IR, 검증 | 모델 호출 없음, 구조화 출력 스키마 없음, 보정·재시도 없음, few-shot 없음 |
 | 어휘 `vocabulary.py` | 술어 정규화·값 종류·관계 여부 | 프롬프트/JSON Schema 에 enum 으로 노출하는 코드 없음 |
 | `IR.validate()` | 키·관계·타임라인 규칙 | 규칙 위반을 "고칠 수 있는 것"과 "못 고치는 것"으로 나누는 보정 단계 없음 |
-| `StructureRequirements` | 비동기, FAILED 기록, 목표 길이 오차 | 보고서 저장 없음 (IR 직접 입력은 `CreateProject` 가 동기로 처리, ADR-0022) |
-| API | `POST /projects {prompt}` · `{ir}`(201, 바로 DRAFT) · `PUT /versions/{id}/ir`(보정 메모 응답) — ADR-0022 | 보고서 조회 없음 (#16 보류) |
+| `StructureRequirements` | 비동기, FAILED 기록, 목표 길이 오차 | 보고서 저장 없음 (IR 직접 입력은 `CreateProject` 가 동기로 처리, ADR-0023) |
+| API | `POST /projects {prompt}` · `{ir}`(201, 바로 DRAFT) · `PUT /versions/{id}/ir`(보정 메모 응답) — ADR-0023 | 보고서 조회 없음 (#16 보류) |
 | 평가 | 지표 1 하네스(수정 실험)만 | 구조화 품질 골드셋·지표 없음 |
 
 ---
@@ -216,7 +216,7 @@ StructuringReport
 
 | 제안 | 내용 | 영향 |
 |---|---|---|
-| `EntitySpec.display_name` | 화면 라벨("컵 01", "바리스타")을 키와 분리 | **채택 (ADR-0022)**: IR·API·DB 열. 생성 조건이 아니라 fingerprint·생성 지시문에 넣지 않는다. LLM 구조화는 아직 채우지 않는다 |
+| `EntitySpec.display_name` | 화면 라벨("컵 01", "바리스타")을 키와 분리 | **채택 (ADR-0023)**: IR·API·DB 열. 생성 조건이 아니라 fingerprint·생성 지시문에 넣지 않는다. LLM 구조화는 아직 채우지 않는다 |
 | `StructuringReport` 저장 | 7장 | `video_versions` 컬럼 1개 |
 | 요구조건 단위 시간 구간 | `RequirementSpec.start_ms/end_ms?` (장면 내부 구간, "2초부터 로고") | 검수·전파 규칙 확장 필요 → schema_version 2 로 미룸 |
 | 술어별 값 형식 | COLOR 는 색 이름 또는 `#RRGGBB`, POSITION 은 `left/center/right/top/bottom` enum | 검수기 구현 시 함께 확정 |
@@ -281,4 +281,4 @@ tests/evaluation/test_structuring_gold.py          slow, 실제 모델
 | 참조 이미지 외부 전송(개인정보) | VLM 사용 시 동의·마스킹, 로컬 VLM 옵션 |
 | 재구조화로 키가 바뀌어 검수 결과 비교 불가 | 재구조화는 새 버전으로만, 수정은 `POST /revisions` 로만 |
 
-팀이 정해야 할 것: (1) 추출 모델 — API(OpenAI/Anthropic) 또는 로컬 vLLM, (2) 화면 입력 방식 — 자연어 우선인지 블록 우선인지(둘 다 지원하되 기본값), (3) ~~`display_name` 스키마 확장 수용 여부~~ → 채택 (ADR-0022), (4) 골드셋 작성 담당과 건수.
+팀이 정해야 할 것: (1) 추출 모델 — API(OpenAI/Anthropic) 또는 로컬 vLLM, (2) 화면 입력 방식 — 자연어 우선인지 블록 우선인지(둘 다 지원하되 기본값), (3) ~~`display_name` 스키마 확장 수용 여부~~ → 채택 (ADR-0023), (4) 골드셋 작성 담당과 건수.

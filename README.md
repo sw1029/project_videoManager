@@ -76,7 +76,7 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
 | `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 변경 요청(POST·PUT) 제한 (0 = 꺼짐) |
-| `FRAME_REFERENCE_IMAGE_MAX_BYTES` | 정수 (기본 10485760 = 10 MiB) | 참조 이미지 업로드(`POST /api/reference-images`)의 크기 상한. PNG·JPEG·WebP 만 받는다 ([ADR-0023](docs/adr/0023-reference-image-upload.md)) |
+| `FRAME_REFERENCE_IMAGE_MAX_BYTES` | 정수 (기본 10485760 = 10 MiB) | 참조 이미지 업로드(`POST /api/reference-images`)의 크기 상한. PNG·JPEG·WebP 만 받는다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)) |
 | `FRAME_LLM_RUNTIME_KEY` | `true` · `false`(기본) | 화면에서 OpenAI 키 입력 허용 (키 없이 기동, 메모리에만 보관, 같은 기기에서만) |
 
 Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`
@@ -98,10 +98,10 @@ API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바�
 - **블록 입력 (IR 직접 입력)**: `POST /api/projects` 에 `prompt` 대신 `ir`(GET 의 `ir` 과 같은 모양)을 보내면 LLM 없이 보정·검증만 거쳐
   바로 DRAFT 가 된다 (201, `repair_notes` 에 서버가 고친 것). 객체의 화면 라벨은 `display_name` 에 둔다 (생성 조건이 아니다).
 - **구조화 결과 수정**: DRAFT 에서 `PUT /api/versions/{id}/ir` 로 고친 IR 을 보내면 보정·검증 뒤 저장하고 고친 버전과
-  `repair_notes` 를 돌려준다. 생성이 접수된 뒤에는 409 `VERSION_NOT_EDITABLE` ([ADR-0022](docs/adr/0022-direct-ir-input-draft-edit-and-display-name.md)).
+  `repair_notes` 를 돌려준다. 생성이 접수된 뒤에는 409 `VERSION_NOT_EDITABLE` ([ADR-0023](docs/adr/0023-direct-ir-input-draft-edit-and-display-name.md)).
 - **참조 이미지 업로드**: `POST /api/reference-images` 에 multipart `file`(PNG·JPEG·WebP)을 올리면 `image_uri` 를 돌려준다.
   그 값을 `POST /api/projects` 의 `reference_images[].image_uri` 에 쓰면 서버가 `refs/{project_id}/` 로 옮겨 버전의 참조 이미지로 남기고,
-  `reference_images[].image_url` 로 내려받을 수 있다 ([ADR-0023](docs/adr/0023-reference-image-upload.md)).
+  `reference_images[].image_url` 로 내려받을 수 있다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)).
 
 화면 개발용 백엔드 실행 예시 (데이터 유지 + 비동기 실행 + 영상 Range 지원):
 

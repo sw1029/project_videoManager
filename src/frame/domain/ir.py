@@ -63,7 +63,7 @@ class EntitySpec:
     entity_key: str
     kind: EntityKind = EntityKind.OTHER
     description: str = ""
-    # 화면에 보여 줄 이름 ("컵 01", "바리스타", ADR-0022). 생성 조건이 아니다: 장면·생성 fingerprint 에 넣지 않고
+    # 화면에 보여 줄 이름 ("컵 01", "바리스타", ADR-0023). 생성 조건이 아니다: 장면·생성 fingerprint 에 넣지 않고
     # 생성 지시문에도 쓰지 않는다. 비어 있으면 화면이 종류와 순번으로 라벨을 만든다
     display_name: str = ""
 
