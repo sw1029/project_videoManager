@@ -48,6 +48,34 @@ def test_the_key_is_found_in_the_ways_people_write_key_files(text):
     assert _find(text) == OPENAI
 
 
+@pytest.mark.parametrize(
+    "variable",
+    ["OPENAI_KEY", "API_KEY", "KEY", "LLM_API_KEY", "OPENAI_SECRET_KEY", "MY_OPENAI_TOKEN"],
+)
+def test_a_variable_that_does_not_name_another_service_may_hold_the_key(variable):
+    """키 파일 하나에 그 키만 적어 두는 사람은 변수 이름을 제각각으로 쓴다.
+
+    이름이 다른 서비스를 가리키지 않으면 읽는다.
+    """
+    assert _find(f"{variable}={OPENAI}\n") == OPENAI
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "GITHUB_TOKEN",
+        "DB_SECRET_KEY",
+    ],
+)
+def test_a_variable_that_names_another_service_is_not_read(variable):
+    """sk- 로 시작하는 키를 쓰는 서비스는 여럿이다. 이름이 다른 서비스를 가리키는 줄의 값은 그 서비스의 것이다."""
+    assert _find(f"{variable}={OPENAI}\n") is None
+    assert _find(f"{variable}={OPENROUTER}\nOPENAI_KEY={OPENAI}\n") == OPENAI
+
+
 def test_the_named_line_wins_wherever_it_is():
     """다른 서비스의 키가 앞줄에 있어도 찾는 변수의 줄을 쓴다. 앞의 것을 집으면 그 키가 다른 공급자로 나간다."""
     text = f"OPENROUTER_API_KEY={OPENROUTER}\nOPENAI_API_KEY={OPENAI}\n"

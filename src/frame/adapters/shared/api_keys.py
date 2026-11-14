@@ -5,9 +5,11 @@
 키 파일에서 찾는 규칙 (find_key) — 키 파일은 사람이 손으로 쓴 메모일 수도 .env 일 수도 있다.
 1. `이름=값` 줄 가운데 이름이 찾는 변수(예: OPENAI_API_KEY)인 줄이 있으면 그 값이다
    (앞의 export, 값의 따옴표, 뒤의 주석을 허용한다).
-2. 없으면 키 모양의 토큰(예: sk-...)을 찾는다. 다만 주석 줄과, 다른 환경 변수에 값을 주는 줄(대문자 이름=값)은
-   보지 않는다. 그 줄의 값은 다른 서비스의 키이거나 다른 비밀이다.
-3. 그래도 없으면 None 이다. 이름이 다른 줄의 값을 키로 쓰지 않는다 (.env 를 키 파일로 줘도 다른 비밀이 나가지 않는다).
+2. 없으면 키 모양의 토큰(예: sk-...)을 찾는다. 다만 주석 줄과, 다른 서비스를 가리키는 환경 변수의 줄
+   (OPENROUTER_API_KEY=… 처럼 이름에 다른 낱말이 든 대문자 변수)은 보지 않는다. 그 줄의 값은 그 서비스의 것이다.
+   이름이 일반적인 말(API·KEY·SECRET·TOKEN …)과 찾는 변수의 낱말로만 된 줄(OPENAI_KEY=, API_KEY=)은 본다.
+3. 그래도 없으면 None 이다. 키 모양이 아닌 값은 찾는 변수의 줄에서만 받는다
+   (.env 를 키 파일로 줘도 다른 비밀이 나가지 않는다).
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ __all__ = ["find_key", "mask_key"]
 
 _ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 _ENVIRONMENT_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# 어느 서비스도 가리키지 않는 낱말. 이런 낱말과 찾는 변수의 낱말로만 된 이름은 다른 서비스의 변수가 아니다
+_GENERIC_WORDS = frozenset({"API", "KEY", "KEYS", "SECRET", "TOKEN", "LLM", "FRAME", "MY"})
 # 표시는 끝 네 글자다. 키가 이보다 짧으면 네 글자가 키의 큰 부분이라 아무것도 보이지 않는다
 _SHOWN = 4
 _SHORTEST_SHOWN_KEY = 16
@@ -38,14 +42,25 @@ def find_key(text: str, *, name: str, token: re.Pattern[str]) -> str | None:
                 if found:
                     return found
                 continue
-            if _ENVIRONMENT_NAME.match(variable):
-                continue  # 다른 환경 변수의 값: 다른 서비스의 키이거나 다른 비밀이다
+            if _names_another_service(variable, name):
+                continue  # 그 줄의 값은 다른 서비스의 키이거나 다른 비밀이다
         loose.append(line)
     for line in loose:
         match = token.search(line)
         if match is not None:
             return match.group(0)
     return None
+
+
+def _names_another_service(variable: str, name: str) -> bool:
+    """환경 변수 이름이 찾는 변수와 다른 서비스를 가리키는가.
+
+    이름에 일반적인 말도 찾는 변수의 낱말도 아닌 낱말이 있으면 그렇다 (OPENROUTER_API_KEY 의 OPENROUTER).
+    """
+    if not _ENVIRONMENT_NAME.match(variable):
+        return False  # 환경 변수 모양이 아닌 이름(key = ...)은 사람이 쓴 메모로 본다
+    ours = _GENERIC_WORDS | set(name.split("_"))
+    return any(word and word not in ours for word in variable.split("_"))
 
 
 def _value(raw: str, token: re.Pattern[str]) -> str | None:

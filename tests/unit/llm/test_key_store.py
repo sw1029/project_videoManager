@@ -90,6 +90,17 @@ def test_a_dotenv_without_an_openai_key_gives_no_key(tmp_path):
     assert store.resolve() is None and store.status().configured is False
 
 
+def test_a_key_file_without_a_readable_key_says_how_to_write_one(tmp_path):
+    """키 파일은 있는데 키를 못 찾았다. '키가 없다' 고만 하면 파일을 준 사람은 무엇이 틀렸는지 알 수 없다."""
+    key_file = tmp_path / "keys.env"
+    key_file.write_text(f"OPENROUTER_API_KEY={OTHER_SERVICE}\n", encoding="utf-8")
+
+    message = LLMKeyStore(key_file=key_file, env={}).describe_missing()
+
+    assert "키 파일에서 키를 찾지 못했습니다" in message and "OPENAI_API_KEY=" in message
+    assert OTHER_SERVICE not in message and "f00d" not in message
+
+
 @pytest.mark.parametrize(
     ("key", "hint"),
     [("sk-123456", "***"), ("local-server-key-0001", "...0001"), (FILE, "sk-...1111")],
