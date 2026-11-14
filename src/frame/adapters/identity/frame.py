@@ -6,7 +6,8 @@ VLM 없이 ffmpeg 만으로 돈다. 화면 전체를 넘기므로 객체의 모�
 
 from __future__ import annotations
 
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import extract_frame
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.identity import (
     IdentityExtractionRequest,

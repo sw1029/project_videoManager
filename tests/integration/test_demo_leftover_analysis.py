@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from frame.adapters.common import UuidIdGenerator
+from frame.adapters.shared.runtime import UuidIdGenerator
 from frame.application.dto import CreateProjectCommand
 from frame.config import Settings
 from frame.domain.enums import VersionState

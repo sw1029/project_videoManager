@@ -16,7 +16,7 @@ from frame.adapters.generator.openrouter import (
     output_size,
     resolve_openrouter_key,
 )
-from frame.adapters.http_transport import TransportError
+from frame.adapters.shared.http import TransportError
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError, GenerationTimeout
 from frame.application.ports.generator import SceneGenerationRequest

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from frame.adapters.common import UuidIdGenerator
 from frame.adapters.generator import FakeVideoGenerator
+from frame.adapters.shared.runtime import UuidIdGenerator
 from frame.adapters.storage import LocalFileArtifactStore
 from frame.config import Settings
 from frame.domain.enums import VersionState

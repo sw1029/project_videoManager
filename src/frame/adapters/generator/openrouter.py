@@ -72,13 +72,14 @@ from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import quote, urlsplit
 
-from frame.adapters.http_transport import (
+from frame.adapters.shared import api_keys
+from frame.adapters.shared.http import (
     HttpResponse,
     HttpTransport,
     TransportError,
     UrllibTransport,
 )
-from frame.adapters.shared import api_keys
+from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.application.errors import (
     ConfigurationError,
     GenerationError,
@@ -103,7 +104,7 @@ from frame.domain.services.comparison import RequirementChangeKind, compare_requ
 
 from .abandonment import stop_if_abandoned
 from .cache import KeyedLocks, generation_key
-from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer, resolve_ffmpeg
+from .ffmpeg import FfmpegVideoNormalizer, NormalizedVideo, VideoNormalizer
 from .ledger import (
     COMPLETED,
     FAILED,

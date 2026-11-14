@@ -20,7 +20,7 @@ from frame.adapters.generator.ledger import (
     JobRecord,
     build_job_ledger,
 )
-from frame.adapters.http_transport import HttpResponse, TransportError
+from frame.adapters.shared.http import HttpResponse, TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import GenerationError, GenerationTimeout, StorageError
 from frame.application.ports.generator import RevisionDirective, SceneGenerationRequest

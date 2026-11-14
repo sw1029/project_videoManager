@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from frame.adapters.common import FixedClock, SequentialIdGenerator
 from frame.adapters.llm import ReplayLLMClient
+from frame.adapters.shared.runtime import FixedClock, SequentialIdGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError
 from frame.application.ports import (

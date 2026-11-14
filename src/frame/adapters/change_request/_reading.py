@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from frame.adapters.vlm_answers import requested_key
+from frame.adapters.shared.vlm.answers import requested_key
 from frame.application.ports.change_request import ChangeRequestNotUnderstood
 from frame.domain.errors import NotFound, ValidationError
 from frame.domain.ir import IntermediateRepresentation

@@ -23,8 +23,8 @@
 | 검수 (요구 반영 · 유지 요소 · 일관성 · 보존) | `checks.py` `CheckResult`, `metrics.py`, `services/comparison.py` | `ports/checker.py` `Checker`, `checks.py` `CheckSuite` · `pipeline/stages.py` `CheckStage` | `adapters/checker/` |
 | 수정 의도 · 변경 계획 | `revision.py` `RevisionIntent`, `services/propagation.py`, `services/revision_planning.py` | `ports/change_request.py` · `use_cases/create_revision.py`, `plan_revision.py` | `adapters/change_request/` |
 | 추적 | `tracking.py` | `ports/tracker.py` `ObjectTracker` · `pipeline/stages.py` `TrackStage` | `adapters/tracker/` |
-| 영상 처리 (ffmpeg) | — | — | 실행기 `adapters/shared/media/ffmpeg.py`, 쓰는 곳 `adapters/generator/ffmpeg.py`·`adapters/video_tools.py` |
-| LLM·VLM 과 API 키 | — | `ports/llm.py` `LLMClient`·`LLMKeySource` | `adapters/llm/`, `adapters/vlm_answers.py`, 키 파일 읽기·키 표시 `adapters/shared/api_keys.py` |
+| 영상 처리 (ffmpeg) | — | — | `adapters/shared/media/` — 찾기·실행 `ffmpeg.py`, 프레임 뽑기 `frames.py`, 크기 `probe.py`, 유사도(SSIM) `similarity.py`. 클립 정규화·검사는 `adapters/generator/ffmpeg.py` |
+| LLM·VLM 과 API 키 | — | `ports/llm.py` `LLMClient`·`LLMKeySource` | `adapters/llm/`, 응답을 물어본 것에 맞추기 `adapters/shared/vlm/answers.py`, 키 파일 읽기·키 표시 `adapters/shared/api_keys.py` |
 | 저장 (산출물 · DB) | `artifacts.py` | `ports/artifact_store.py`, `ports/repositories.py`, `ports/unit_of_work.py` | `adapters/storage/`, `adapters/persistence/` |
 | 작업 실행 · 복구 | `state_machine.py` | `ports/jobs.py` `JobDispatcher` · `use_cases/run_generation_pipeline.py`, `recover_pending_versions.py` · `pipeline/` | `adapters/jobs/`, `presentation/recovery.py` |
 | HTTP API | — | `dto.py`, `use_cases/queries.py` | `presentation/` |
@@ -45,9 +45,10 @@
 | `src/frame/application/ports/` | 바깥에 요구하는 계약 | `RequirementStructurer`, `VideoGenerator`, `VideoAssembler`, `IdentityReferenceExtractor`, `ObjectTracker`, `Checker`, `ChangeRequestInterpreter`, `LLMClient`, `ArtifactStore`, 저장소·`UnitOfWork`, `JobDispatcher` |
 | `src/frame/application/use_cases/` | 유스케이스 하나가 모듈 하나 | `CreateProject`, `StructureRequirements`, `AcceptGeneration`, `RunGenerationPipeline`, `CreateRevision`, `PlanRevision`, `ProjectQueries`, `RecoverPendingVersions` |
 | `src/frame/application/pipeline/` | 생성 → 추적 → 검수 단계와 실행기 | `PipelineRunner`, `GenerateStage`, `TrackStage`, `CheckStage`, `PipelineContext` |
-| `src/frame/adapters/` | 포트의 구현. 최상위 모듈 넷(`common.py` ID·시계, `http_transport.py`, `video_tools.py`, `vlm_answers.py`)은 어댑터들이 함께 쓴다 | — |
-| `src/frame/adapters/shared/` | 어댑터 패키지들이 함께 쓰는 것 (어댑터끼리는 서로 import 하지 않는다). 아직 최상위에 남은 공용 모듈 넷이 차례로 이리 온다 | `api_keys` (`find_key`, `mask_key`) |
-| `src/frame/adapters/shared/media/` | 영상 처리 도구 (ffmpeg) | `ffmpeg` (`run_ffmpeg`, `tail`, `FfmpegNotRun`) |
+| `src/frame/adapters/` | 포트의 구현. 최상위 모듈 넷(`common.py`, `http_transport.py`, `video_tools.py`, `vlm_answers.py`)은 옛 경로의 호환 모듈이다 — 구현은 `shared/` 에 있고 새 코드는 쓰지 않는다 (ADR-0031) | — |
+| `src/frame/adapters/shared/` | 어댑터 패키지들이 함께 쓰는 것 (어댑터끼리는 서로 import 하지 않는다) | `api_keys` (`find_key`, `mask_key`), `http` (`HttpTransport`, `UrllibTransport`, `HttpResponse`, `TransportError`), `runtime` (ID 생성기 `UuidIdGenerator`·`SequentialIdGenerator`, 시계 `SystemClock`·`FixedClock`) |
+| `src/frame/adapters/shared/media/` | 영상 처리 도구 (ffmpeg) | `ffmpeg` (`resolve_ffmpeg`, `require_ffmpeg`, `run_ffmpeg`, `run_reading`, `tail`, `FfmpegNotRun`, `VideoToolError`), `frames` (`extract_frame`, `Box`, `Image`), `probe` (`video_size`), `similarity` (`ssim`) |
+| `src/frame/adapters/shared/vlm/` | 이미지를 읽는 모델(VLM)의 답 읽기 | `answers` (`match_answers`, `requested_key`) |
 | `src/frame/adapters/structurer/` | 구조화 | `RuleBasedStructurer`, `LLMStructurer`, `FakeStructurer` |
 | `src/frame/adapters/generator/` | 장면 클립 생성, 클립 정규화, 최종 영상 조립, 생성 캐시·작업 원장 | `OpenRouterVideoGenerator`, `FakeVideoGenerator`, `CachingVideoGenerator`, `RetryingVideoGenerator`, `TimeoutVideoGenerator`, `DelegatingVideoGenerator` (데코레이터의 바탕), `FfmpegVideoAssembler`, `FakeVideoAssembler` |
 | `src/frame/adapters/identity/` | 정체성 기준 이미지 뽑기 | `VlmCropIdentityExtractor`, `FrameIdentityExtractor`, `FakeIdentityExtractor` |

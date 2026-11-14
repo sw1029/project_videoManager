@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from frame.adapters.generator.ffmpeg import resolve_ffmpeg
+from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.application.errors import ConfigurationError
 from frame.application.ports import ArtifactStore, JobHandlerRegistry
 from frame.application.ports.llm import LLMClient

@@ -12,7 +12,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from frame.adapters.video_tools import Box
+from frame.adapters.shared.media.frames import Box
 from frame.application.ports.identity import IdentityExtractionRequest
 from frame.domain.ir import EntitySpec
 from frame.domain.services.identity import appearance_attributes

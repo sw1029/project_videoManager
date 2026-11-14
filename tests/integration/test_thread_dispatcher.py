@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from frame.adapters.common import UuidIdGenerator
 from frame.adapters.jobs import ThreadPoolJobDispatcher
+from frame.adapters.shared.runtime import UuidIdGenerator
 from frame.application.dto import CreateProjectCommand
 from frame.application.ports.jobs import Job, JobHandlerRegistry
 from frame.config import Settings, build_container

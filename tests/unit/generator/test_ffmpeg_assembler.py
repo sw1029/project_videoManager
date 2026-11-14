@@ -14,8 +14,8 @@ from frame.adapters.generator.ffmpeg import (
     FfmpegVideoAssembler,
     FfmpegVideoNormalizer,
     probe_video,
-    resolve_ffmpeg,
 )
+from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import GeneratedClip

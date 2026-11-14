@@ -6,14 +6,10 @@ import tempfile
 
 import pytest
 
-from frame.adapters.video_tools import (
-    Box,
-    VideoToolError,
-    extract_frame,
-    require_ffmpeg,
-    ssim,
-    video_size,
-)
+from frame.adapters.shared.media.ffmpeg import VideoToolError, require_ffmpeg
+from frame.adapters.shared.media.frames import Box, extract_frame
+from frame.adapters.shared.media.probe import video_size
+from frame.adapters.shared.media.similarity import ssim
 from frame.application.errors import ConfigurationError
 from tests.support.video import find_ffmpeg, make_clip
 

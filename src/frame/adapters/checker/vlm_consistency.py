@@ -25,7 +25,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from frame.adapters.video_tools import extract_frame, require_ffmpeg
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.frames import extract_frame
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome

@@ -8,14 +8,12 @@
   모든 클립이 같은 규격이라 조립(concat)이 단순해진다.
 - 조립: 규격이 같은 클립은 스트림 복사로 잇고(재인코딩 없음), 다르면 목표 규격으로 다시 인코딩한다.
 
-ffmpeg 실행 파일 찾는 순서: FRAME_VIDEO_FFMPEG -> PATH 의 ffmpeg -> imageio-ffmpeg 패키지(video extra).
-ffprobe 없이 ffmpeg 하나로 검사한다 (imageio-ffmpeg 는 ffprobe 를 담고 있지 않다).
+ffmpeg 실행 파일은 frame.adapters.shared.media.ffmpeg 의 resolve_ffmpeg 가 찾는다.
 """
 
 from __future__ import annotations
 
 import re
-import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -23,7 +21,10 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from frame.adapters.shared.media.ffmpeg import FfmpegNotRun, run_ffmpeg, tail
-from frame.application.errors import ConfigurationError, GenerationError
+from frame.adapters.shared.media.ffmpeg import (
+    resolve_ffmpeg as resolve_ffmpeg,  # 옛 경로 호환: 찾기는 공용 모듈로 옮겼다 (ADR-0031)
+)
+from frame.application.errors import GenerationError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.generator import GeneratedClip, VideoArtifact, VideoAssembler
 
@@ -63,29 +64,6 @@ class VideoNormalizer(ABC):
         self, source: bytes, *, duration_ms: int, fps: int, width: int, height: int
     ) -> NormalizedVideo:
         """원본을 duration_ms(프레임 단위 반올림)·fps·width x height 의 무음 mp4 로 바꾼다. 실패는 GenerationError."""
-
-
-def resolve_ffmpeg(explicit: str | None = None) -> str:
-    """ffmpeg 실행 파일 경로. 못 찾으면 ConfigurationError (서버 기동 시점에 실패하도록 레지스트리에서 부른다)."""
-    if explicit:
-        if Path(explicit).is_file():
-            return explicit
-        raise ConfigurationError(
-            f"FRAME_VIDEO_FFMPEG 에 지정한 ffmpeg 실행 파일이 없습니다: {explicit}"
-        )
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    try:
-        import imageio_ffmpeg  # video extra (ffmpeg 정적 빌드 동봉)
-
-        return str(imageio_ffmpeg.get_ffmpeg_exe())
-    except (ImportError, RuntimeError):
-        pass
-    raise ConfigurationError(
-        'ffmpeg 를 찾지 못했습니다. pip install -e ".[video]" (imageio-ffmpeg) 로 설치하거나, '
-        "PATH 에 ffmpeg 를 두거나, FRAME_VIDEO_FFMPEG 로 실행 파일 경로를 지정하세요"
-    )
 
 
 def probe_video(ffmpeg: str, path: str | Path, timeout_s: float = 120.0) -> VideoProbe:

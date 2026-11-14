@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
-from frame.adapters.video_tools import require_ffmpeg, ssim
+from frame.adapters.shared.media.ffmpeg import require_ffmpeg
+from frame.adapters.shared.media.similarity import ssim
 from frame.application.errors import AdapterError
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.checker import CheckContext, Checker, CheckOutcome

@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from frame.adapters.http_transport import TransportError, UrllibTransport
+from frame.adapters.shared.http import TransportError, UrllibTransport
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):

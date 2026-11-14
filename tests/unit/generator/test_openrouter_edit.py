@@ -22,7 +22,7 @@ from frame.adapters.generator.openrouter import (
     VideoModelInfo,
     compile_edit_prompt,
 )
-from frame.adapters.http_transport import TransportError
+from frame.adapters.shared.http import TransportError
 from frame.adapters.storage import InMemoryArtifactStore, LocalFileArtifactStore
 from frame.application.errors import ConfigurationError, GenerationError
 from frame.application.ports.generator import (

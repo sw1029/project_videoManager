@@ -48,12 +48,19 @@ LARGE_MODULES = frozenset(
     }
 )
 
-# 어댑터 패키지들이 함께 쓰는 모듈인데 아직 adapters/shared/ 밖에 있는 것 — L-03. 옮기면 지운다
-LEGACY_SHARED_ADAPTER_MODULES = frozenset(
+# 옛 경로에 남긴 호환 모듈 (옛 경로 -> 구현이 있는 새 자리) — L-03, ADR-0031.
+# 구현은 adapters/shared/ 로 옮겼고, 작업 중인 브랜치가 옛 경로를 import 하고 있어 이름만 다시 내보낸다.
+# 그 브랜치들이 dev 에 들어가 import 를 새 경로로 고친 뒤 지운다
+COMPAT_ADAPTER_MODULES = {
+    "frame.adapters.common": "frame.adapters.shared.runtime",
+    "frame.adapters.http_transport": "frame.adapters.shared.http",
+    "frame.adapters.video_tools": "frame.adapters.shared.media",
+    "frame.adapters.vlm_answers": "frame.adapters.shared.vlm.answers",
+}
+
+# 호환 경로를 아직 import 하는 모듈 — 다른 브랜치가 고치고 있어 지금 고치지 않는 파일. 머지 뒤에 고치고 지운다
+COMPAT_PATH_IMPORTERS = frozenset(
     {
-        "frame.adapters.common",
-        "frame.adapters.http_transport",
-        "frame.adapters.video_tools",
-        "frame.adapters.vlm_answers",
+        "frame.config.container",  # #10 · theme-series 가 고친다 (P-02)
     }
 )

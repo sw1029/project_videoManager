@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from frame.adapters.common import UuidIdGenerator
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.identity import FakeIdentityExtractor
+from frame.adapters.shared.runtime import UuidIdGenerator
 from frame.adapters.storage import LocalFileArtifactStore
 from frame.application.dto import CreateRevisionCommand
 from frame.config import Settings

@@ -12,7 +12,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from frame.adapters.common import UuidIdGenerator
+from frame.adapters.shared.runtime import UuidIdGenerator
 from frame.adapters.storage import LocalFileArtifactStore
 from frame.application.jobs import RUN_GENERATION_PIPELINE
 from frame.config import Settings

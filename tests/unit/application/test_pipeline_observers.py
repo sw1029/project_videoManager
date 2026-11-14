@@ -2,8 +2,8 @@
 
 import logging
 
-from frame.adapters.common import FixedClock, SequentialIdGenerator
 from frame.adapters.generator import FakeVideoGenerator
+from frame.adapters.shared.runtime import FixedClock, SequentialIdGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.application.pipeline import PipelineObserver
 from frame.application.pipeline.observers import LoggingObserver
