@@ -351,9 +351,12 @@ def pick_overlay(w: AdapterPicker) -> tuple[OverlayRenderer, ScreenTextReader | 
         from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
 
         client = w.vlm()
-        profile = f"vlm:{getattr(client, 'model', w.settings.vlm_model)}"
-        # 같은 화면은 한 번만 읽는다 (감사 BTS-12)
-        return CachingScreenTextReader(VlmScreenTextReader(w.ffmpeg(), client), w.store, profile)
+        reader = VlmScreenTextReader(w.ffmpeg(), client)
+        # 같은 화면은 한 번만 읽는다 (감사 BTS-12). 키에는 답을 바꿀 수 있는 것이 모두 든다:
+        # 모델 · 주소 · 읽는 방법(자르는 여백·크기·프롬프트 판) (감사 BTS-D10)
+        model = getattr(client, "model", None) or w.settings.vlm_model or w.settings.llm_model
+        address = _plain_url(w.settings.llm_base_url or OPENAI_BASE_URL)
+        return CachingScreenTextReader(reader, w.store, f"vlm:{model}@{address}:{reader.signature}")
 
     renderer: OverlayRenderer = w.pick(
         "overlay_renderer",

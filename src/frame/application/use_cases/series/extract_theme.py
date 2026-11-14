@@ -14,7 +14,8 @@
    (유료 추출 뒤의 순수 단계가 그 결과를 버리지 않는다 — 감사 BTS-D62).
 
 같은 입력의 유료 호출은 한 번 (감사 BTS-12)
-- 같은 영상(sha256)을 같은 설정(추출기의 지문·언어·자리 길이의 하한과 상한)으로 뽑은 테마가 있으면 그것을 돌려준다.
+- 같은 영상(sha256)을 같은 설정(추출기의 지문·인식기의 정체·언어·자리 길이의 하한과 상한)으로 뽑은 테마가 있으면
+  그것을 돌려준다.
   인식도 추출도 다시 부르지 않고 테마가 둘 생기지 않는다. 다시 뽑으려면 force=True.
 - 인식 결과는 인식기 쪽에서 남긴다 (CachingSpeechRecognizer). 추출이 실패해 다시 불러도 인식은 다시 과금되지 않는다.
 - 인식 서비스를 쓸 수 없으면(키 없음·인증·한도·연결) 추출로 넘어가지 않고 멈춘다. 알아듣지 못한 경우에만
@@ -218,7 +219,9 @@ class ExtractTheme:
             "language": command.language,
             "min_slot_ms": self._min_slot_ms,
             "max_slot_ms": self._max_slot_ms,
-            "speech": self._recognizer is not None,
+            # 인식기의 정체 (모델·주소, 로컬은 모델의 지문). 켬/끔만 견주면 가짜로 뽑은 테마가 실제 인식기로
+            # 바꾼 뒤에도 돌아온다 (감사 BTS-D65)
+            "speech": self._recognizer.signature if self._recognizer is not None else None,
         }
 
     def _known(self, sha256: str, command: ExtractThemeCommand) -> ThemeRecord | None:

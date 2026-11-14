@@ -1,11 +1,13 @@
 """같은 화면의 글자 읽기는 한 번만 과금한다 (감사 BTS-12, ADR-0013 의 원칙).
 
 화면 글자 읽기 어댑터를 감싸 결과를 산출물 저장소에 남긴다.
-- 키: 클립의 sha256 + 시각 + 영역들 + 읽는 쪽의 프로필(모델). 합성한 장면 클립이 그대로면 (문구를 고치지 않은 장면)
+- 키: 클립의 sha256 + 시각 + 영역들 + 읽는 쪽의 프로필 (모델·주소와 읽는 방법: 자르는 여백·크기·프롬프트 판 —
+  감사 BTS-D10). 합성한 장면 클립이 그대로면 (문구를 고치지 않은 장면)
   다시 검수해도 읽지 않는다. 문구를 고쳐 다시 합성한 장면은 클립이 달라지므로 다시 읽는다.
 - 영역 가운데 하나라도 빈 답이면 남기지 않는다. 빈 답은 '글자 없음' 일 수도 '읽지 못함' 일 수도 있어,
   읽지 못한 것을 굳히지 않는다.
 - 실패는 남기지 않는다. 저장된 문서가 깨졌으면 다시 읽는다.
+- 남기지 못해도 (StorageError · 파일 쓰기의 OSError) 읽은 결과는 돌려준다 (감사 BTS-D04·D35).
 """
 
 from __future__ import annotations
@@ -45,8 +47,8 @@ class CachingScreenTextReader(ScreenTextReader):
                     json.dumps({"texts": list(texts)}, ensure_ascii=False).encode("utf-8"),
                     "application/json",
                 )
-            except StorageError as exc:
-                log.warning("읽은 화면 문구를 남기지 못했습니다: %s", exc)
+            except (StorageError, OSError) as exc:
+                log.warning("읽은 화면 문구를 남기지 못했습니다: %s: %s", type(exc).__name__, exc)
         return texts
 
     def _key(self, clip: bytes, at_ms: int, regions: Sequence[Region]) -> str:

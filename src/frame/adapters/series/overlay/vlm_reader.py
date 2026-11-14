@@ -51,6 +51,10 @@ RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+# 읽는 방법의 판. SYSTEM_PROMPT·질의·응답 형식을 고치면 올린다 (남겨 둔 읽기 결과를 쓰지 않게)
+PROMPT_VERSION = "2026-11-14.1"
+
+
 class _BadAnswer(AdapterError):
     code = "LLM_BAD_RESPONSE"
 
@@ -73,6 +77,13 @@ class VlmScreenTextReader(ScreenTextReader):
         self.max_side = max_side
         self.timeout_s = timeout_s
         self.last_completion: JsonCompletion | None = None  # 근거·토큰 수 기록용
+
+    @property
+    def signature(self) -> str:
+        """읽는 방법의 지문: 프롬프트 판과 영역을 자르는 여백·크기. 같은 화면도 이것이 다르면 다르게 읽힌다."""
+        return (
+            f"screen-text:{PROMPT_VERSION}:pad={self.padding}:side={self.min_side}-{self.max_side}"
+        )
 
     def read(self, clip: bytes, at_ms: int, regions: Sequence[Region]) -> tuple[str, ...]:
         if not regions:

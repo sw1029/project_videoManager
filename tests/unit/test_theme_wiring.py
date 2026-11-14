@@ -196,6 +196,23 @@ class _SpyTransport:
         return HttpResponse(200, b'{"text": "", "segments": [], "words": []}')
 
 
+def test_screen_reader_cache_follows_everything_that_changes_what_is_read():
+    """화면 읽기의 캐시 키에는 모델뿐 아니라 주소와 읽는 방법(자르는 여백·크기·프롬프트 판)이 든다 (감사 BTS-D10).
+
+    글자가 잘려 읽히는 것을 여백을 넓혀 고쳐도, 키가 모델뿐이면 옛 읽기가 나온다.
+    """
+    from frame.adapters.series.overlay import vlm_reader
+    from frame.adapters.series.overlay.vlm_reader import VlmScreenTextReader
+
+    reader = VlmScreenTextReader("ffmpeg", llm=object())
+    wider = VlmScreenTextReader("ffmpeg", llm=object(), padding=0.2)
+    smaller = VlmScreenTextReader("ffmpeg", llm=object(), max_side=512)
+
+    assert vlm_reader.PROMPT_VERSION in reader.signature
+    assert len({reader.signature, wider.signature, smaller.signature}) == 3
+    assert reader.signature == VlmScreenTextReader("ffmpeg", llm=object()).signature
+
+
 def _model_folder(parent, *, without=()):
     """받아 둔 로컬 인식 모델을 흉내 낸 폴더 (내용은 가짜다)."""
     folder = parent / "turbo"

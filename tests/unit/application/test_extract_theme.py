@@ -460,6 +460,30 @@ def test_forced_or_differently_configured_extraction_runs_again():
     assert changed.extract_theme.execute(_command()).reused is False
 
 
+def test_another_recognizer_is_another_configuration():
+    """인식기가 바뀌면 (가짜 -> 실제, 모델 변경) 예전 테마를 돌려주지 않는다 (감사 BTS-D65).
+
+    기본 인식기는 가짜다. 켬/끔만 견주면, 가짜로 뽑은 테마가 실제 인식기로 바꾼 뒤에도 계속 돌아온다.
+    """
+
+    class _Whisper(FakeSpeechRecognizer):
+        signature = "whisper-1@https://api.openai.com/v1"
+
+    first = series_of(series_container()).extract_theme.execute(_command()).record
+    same = series_of(series_container())
+    same.themes.save(first)
+    assert same.extract_theme.execute(_command()).reused is True
+
+    changed = series_of(series_container(speech_recognizer=_Whisper()))
+    changed.themes.save(first)
+    again = changed.extract_theme.execute(_command())
+    assert again.reused is False
+    assert again.record.detail["speech"] == "whisper-1@https://api.openai.com/v1"
+    off = series_of(series_container(theme_settings=ThemeSettings(speech="off")))
+    off.themes.save(first)
+    assert off.extract_theme.execute(_command()).reused is False
+
+
 def test_failed_extraction_leaves_no_copy_of_the_source():
     """추출이 실패하면 영상의 사본도 남기지 않는다 (주인 없는 사본)."""
     container = series_container(theme_extractor=_BrokenExtractor("error"))

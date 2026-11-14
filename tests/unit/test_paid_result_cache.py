@@ -10,6 +10,7 @@ import pytest
 from frame.adapters.series.overlay.caching_reader import CachingScreenTextReader
 from frame.adapters.speech.caching import CachingSpeechRecognizer
 from frame.adapters.storage import InMemoryArtifactStore
+from frame.application.errors import StorageError
 from frame.application.ports.series.overlay import ScreenTextReader
 from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError, SpeechRecognizer
 from frame.domain.screen import Region
@@ -99,6 +100,48 @@ def test_broken_or_missing_cache_falls_back_to_the_recognizer():
 
     assert recognizer.transcribe(AUDIO) == HEARD and len(inner.calls) == 2
     assert recognizer.transcribe(AUDIO) == HEARD and len(inner.calls) == 2  # 다시 써 두었다
+
+
+def test_transcripts_kept_in_an_older_shape_are_not_read_back():
+    """남기는 받아쓰기의 형식이 바뀌면 (구간에 신뢰도가 더해졌다) 옛 캐시를 쓰지 않는다 (감사 BTS-D10)."""
+    from frame.adapters.speech import caching
+
+    recognizer, inner, store = _speech()
+    recognizer.transcribe(AUDIO)
+    original = caching.TRANSCRIPT_FORMAT
+    try:
+        caching.TRANSCRIPT_FORMAT = original + 1
+        newer, newer_inner, _ = _speech(store=store)
+        assert newer.transcribe(AUDIO) == HEARD and len(newer_inner.calls) == 1
+    finally:
+        caching.TRANSCRIPT_FORMAT = original
+
+
+class _FullStore(InMemoryArtifactStore):
+    """쓰기가 실패하는 저장소 (디스크가 찼거나 권한이 없다)."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self._error = error
+
+    def put(self, key, data, content_type="application/octet-stream"):
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    "error", [StorageError("디스크가 찼습니다"), OSError(28, "No space left on device")]
+)
+def test_result_is_returned_even_when_it_cannot_be_kept(error):
+    """남기지 못해도 방금 과금한 결과는 돌려준다 (감사 BTS-D04·D35).
+
+    이 브랜치의 로컬 파일 저장소는 쓰기 오류를 OSError 그대로 낸다. 그것이 포트 밖으로 나가면 과금한 결과가
+    예외와 함께 사라지고, 다시 부르면 또 과금한다.
+    """
+    recognizer, inner, _ = _speech(store=_FullStore(error))
+    assert recognizer.transcribe(AUDIO) == HEARD and len(inner.calls) == 1
+
+    reader, read_inner, _ = _reader(store=_FullStore(error))
+    assert reader.read(b"clip-a", 2000, (PRICE,)) == ("문구 1",) and len(read_inner.calls) == 1
 
 
 # ---- 화면 글자 읽기 ----
