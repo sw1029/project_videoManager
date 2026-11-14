@@ -25,6 +25,7 @@ from frame.application.errors import ConfigurationError, LLMUnavailable
 from frame.config import Settings, build_container
 from frame.domain.ir import IR_SCHEMA_VERSION
 from frame.evaluation.structuring import (
+    StructuringRunDetails,
     build_record,
     compare_records,
     format_comparison,
@@ -55,6 +56,11 @@ def test_gold_set_with_the_configured_model(live_settings, tmp_path):
         container = build_container(live_settings)
     except (LLMUnavailable, ConfigurationError) as exc:
         pytest.fail(f"{SWITCH}=1 인데 LLM 을 쓸 수 없다 (설정 오류): {exc}")
+    if not isinstance(container.structurer, StructuringRunDetails):
+        # 원본 응답이 없는 기록은 나중에 다시 채점할 수 없다. 돈을 쓰기 전에 멈춘다
+        pytest.fail(
+            "구조화기가 원본 응답·시도 횟수를 내주지 않는다 (StructuringRunDetails 가 아님)"
+        )
 
     runs = run_gold_set(container.structurer, load_gold_cases(GOLD_DIR))
     record = build_record(
@@ -70,11 +76,15 @@ def test_gold_set_with_the_configured_model(live_settings, tmp_path):
         run_at=datetime.now().astimezone().isoformat(timespec="seconds"),
     )
     target = os.environ.get("FRAME_EVAL_RECORD_DIR")
-    baseline = latest_record(Path(target) if target else COMMITTED_RECORDS)
+    # 돈 들여 받은 결과부터 남긴다. 기준 기록 읽기가 실패해도 결과를 잃지 않게 그 뒤에 읽는다
     path = write_record(record, Path(target) if target else tmp_path)
-
     print(f"\n[gold] 기록: {path}")
     print(format_summary(record))
+    try:
+        baseline = latest_record(Path(target) if target else COMMITTED_RECORDS, exclude=path)
+    except (OSError, ValueError, KeyError) as exc:
+        baseline = None
+        print(f"[gold] 기준 기록을 읽지 못해 비교를 건너뛴다: {exc}")
     if baseline is not None:
         print(format_comparison(compare_records(baseline, record)))
     assert record["summary"]["meets_target"], "목표치에 못 미침 (위 표와 기록 파일 참고)"
