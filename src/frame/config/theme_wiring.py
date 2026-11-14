@@ -262,9 +262,35 @@ def build_theme_services(
         # 같은 소리는 한 번만 과금한다: 결과를 산출물 저장소에 남긴다 (감사 BTS-12)
         return CachingSpeechRecognizer(recognizer, store, f"{ts.speech_model}@{base_url}")
 
+    def _local_recognizer() -> SpeechRecognizer:
+        from importlib.util import find_spec
+
+        from frame.adapters.speech.caching import CachingSpeechRecognizer
+        from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
+
+        if find_spec("faster_whisper") is None:
+            raise ConfigurationError(
+                "FRAME_SPEECH_RECOGNIZER=faster_whisper 에 필요한 faster-whisper 꾸러미가 없습니다. "
+                'pip install -e ".[speech-local]" 로 설치하세요'
+            )
+        local = FasterWhisperRecognizer(
+            model=ts.speech_local_model,
+            device=ts.speech_local_device,
+            compute_type=ts.speech_local_compute,
+            vad=ts.speech_local_vad,
+        )
+        # 과금은 없지만 같은 소리를 다시 받아 적지 않는다 (시간이 든다)
+        profile = f"faster-whisper:{ts.speech_local_model}:vad={ts.speech_local_vad}"
+        return CachingSpeechRecognizer(local, store, profile)
+
     recognizer: SpeechRecognizer | None = pick(
         "speech_recognizer",
-        {"fake": _fake_recognizer, "openai": _openai_recognizer, "off": lambda: None},
+        {
+            "fake": _fake_recognizer,
+            "openai": _openai_recognizer,
+            "faster_whisper": _local_recognizer,
+            "off": lambda: None,
+        },
         ts.speech,
         "FRAME_SPEECH_RECOGNIZER",
     )

@@ -6,10 +6,14 @@
 | 설정 | 값 (기본값이 앞) | 뜻 |
 |---|---|---|
 | FRAME_THEME_MEDIA | fake · ffmpeg | 겉모습 읽기와 컷 찾기 |
-| FRAME_SPEECH_RECOGNIZER | fake · off · openai | 말소리 받아 적기 (OpenAI 호환 /audio/transcriptions) |
+| FRAME_SPEECH_RECOGNIZER | fake · off · openai · faster_whisper | 말소리 받아 적기 (OpenAI 호환 API / 이 컴퓨터에서) |
 | FRAME_SPEECH_MODEL | whisper-1 | 인식 모델 (낱말 시각을 주는 모델이어야 줄 사이를 정확히 나눈다) |
 | FRAME_SPEECH_BASE_URL | (LLM 주소, 없으면 OpenAI) | 인식 API 주소. https 만 받는다 (로컬 서버는 예외) |
 | FRAME_SPEECH_KEY_FILE | (주소가 같으면 LLM 의 키) | 인식 전용 키 파일. 주소가 LLM 과 다르면 꼭 주고, 그 키만 싣는다 |
+| FRAME_SPEECH_LOCAL_MODEL | large-v3-turbo | 로컬 인식의 모델: 이름(처음 쓸 때 받는다) 또는 받아 둔 폴더 |
+| FRAME_SPEECH_LOCAL_DEVICE | auto · cpu · cuda | 로컬 인식을 돌릴 장치 (GPU 라이브러리가 없으면 CPU 로 바꾼다) |
+| FRAME_SPEECH_LOCAL_COMPUTE | default | CTranslate2 의 연산 방식 (float16 · int8 …) |
+| FRAME_SPEECH_LOCAL_VAD | on · off | 말이 있는 곳만 받아 적는다 (끄면 말이 없는 소리에서 문장을 지어낸다) |
 | FRAME_THEME_EXTRACTOR | fake · vlm | 테마 추출 (vlm 은 FRAME_VLM_MODEL 로 프레임을 읽는다) |
 | FRAME_THEME_FRAMES | 3 | vlm 추출이 장면 자리마다 보는 프레임 수 |
 | FRAME_THEME_ATTEMPTS | 2 | vlm 추출의 재질의 횟수 (프레임이 붙는 요청이라 LLM 설정과 따로 둔다) |
@@ -23,6 +27,8 @@
 | FRAME_THEME_MIN_SLOT_MS | 3000 | 다시 만들 수 있는 장면 자리의 길이 하한 |
 | FRAME_THEME_MAX_SLOT_MS | (없음) | 자리 길이의 상한. 주면 더 긴 자리를 말 멈춤에서 나눈다 |
 | FRAME_SHOT_THRESHOLD | 0.3 | ffmpeg 컷 찾기의 scene 점수 하한 |
+
+로컬 인식(faster_whisper)은 선택 설치다: pip install -e ".[speech-local]".
 """
 
 from __future__ import annotations
@@ -37,6 +43,7 @@ from frame.domain.series.shortform import ShortformPlatform
 from frame.domain.series.theme import DEFAULT_MIN_SLOT_MS
 
 N = TypeVar("N", int, float)
+OFF_WORDS = frozenset({"0", "off", "false", "no"})  # 켜고 끄는 설정에서 '끔' 으로 읽는 값
 
 
 @dataclass(frozen=True)
@@ -49,6 +56,15 @@ class ThemeSettings:
     )
     speech_key_file: str | None = None
     speech_timeout_s: float = 120.0
+    # 로컬 인식 (speech="faster_whisper"). 선택 설치: pip install -e ".[speech-local]"
+    speech_local_model: str = (
+        "large-v3-turbo"  # 모델 이름(처음 쓸 때 받는다, 약 1.6GB) 또는 받아 둔 폴더
+    )
+    speech_local_device: str = "auto"  # auto · cpu · cuda
+    speech_local_compute: str = "default"  # CTranslate2 의 연산 방식 (default · float16 · int8 …)
+    speech_local_vad: bool = (
+        True  # 말이 있는 곳만 받아 적는다 (끄면 말이 없는 소리에서 문장을 지어낸다)
+    )
     extractor: str = "fake"
     extractor_frames: int = 3
     # 프레임이 붙는 추출의 재질의 횟수. 글만 보내는 호출의 FRAME_LLM_MAX_ATTEMPTS 와 따로 둔다 (감사 BTS-22)
@@ -93,6 +109,13 @@ class ThemeSettings:
             speech_base_url=text("SPEECH_BASE_URL", "") or None,
             speech_key_file=text("SPEECH_KEY_FILE", "") or None,
             speech_timeout_s=number("SPEECH_TIMEOUT_S", base.speech_timeout_s, float),
+            speech_local_model=text("SPEECH_LOCAL_MODEL", base.speech_local_model),
+            speech_local_device=text("SPEECH_LOCAL_DEVICE", base.speech_local_device),
+            speech_local_compute=text("SPEECH_LOCAL_COMPUTE", base.speech_local_compute),
+            speech_local_vad=text(
+                "SPEECH_LOCAL_VAD", "on" if base.speech_local_vad else "off"
+            ).lower()
+            not in OFF_WORDS,
             extractor=text("THEME_EXTRACTOR", base.extractor),
             extractor_frames=number("THEME_FRAMES", base.extractor_frames, int),
             extractor_attempts=number("THEME_ATTEMPTS", base.extractor_attempts, int),

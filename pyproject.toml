@@ -20,6 +20,8 @@ dev = ["pytest>=8", "pytest-cov", "httpx>=0.27", "ruff", "mypy", "jsonschema>=4"
 llm = ["openai>=1.50"]
 # FRAME_GENERATOR=external_api 의 클립 정규화용 ffmpeg (PATH 에 ffmpeg 가 있으면 필요 없음)
 video = ["imageio-ffmpeg==0.6.0"]
+# FRAME_SPEECH_RECOGNIZER=faster_whisper: 이 컴퓨터에서 말소리를 받아 적는다 (모델은 처음 쓸 때 받는다)
+speech-local = ["faster-whisper>=1.1"]
 # 실제 모델 어댑터를 붙일 때만 설치 (문서의 개발 환경 버전 고정)
 ml = ["torch==2.5.1", "torchvision==0.20.1", "opencv-python==4.10.0.84", "numpy==1.26.4"]
 

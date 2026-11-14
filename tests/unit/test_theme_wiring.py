@@ -196,6 +196,52 @@ class _SpyTransport:
         return HttpResponse(200, b'{"text": "", "segments": [], "words": []}')
 
 
+def test_local_recognizer_needs_its_optional_package(monkeypatch):
+    """로컬 인식은 선택 설치다. 꾸러미가 없으면 조립할 때 무엇을 설치할지 알린다. 있으면 설정대로 만든다."""
+    import importlib.util
+
+    from frame.adapters.speech.caching import CachingSpeechRecognizer
+    from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
+
+    settings = ThemeSettings(
+        speech="faster_whisper", speech_local_model="models/turbo", speech_local_vad=False
+    )
+    found = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util, "find_spec", lambda name: None if name == "faster_whisper" else found(name)
+    )
+    with pytest.raises(ConfigurationError, match="speech-local"):
+        make_container(theme_settings=settings)
+
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: object() if name == "faster_whisper" else found(name),
+    )
+    recognizer = make_container(theme_settings=settings).series.recognizer
+    assert isinstance(recognizer, CachingSpeechRecognizer)
+    local = recognizer.inner
+    assert isinstance(local, FasterWhisperRecognizer)
+    assert (local.model, local.device, local.vad) == ("models/turbo", "auto", False)
+
+
+def test_local_recognizer_settings_come_from_the_environment():
+    settings = ThemeSettings.from_env(
+        {
+            "FRAME_SPEECH_RECOGNIZER": "faster_whisper",
+            "FRAME_SPEECH_LOCAL_MODEL": "small",
+            "FRAME_SPEECH_LOCAL_DEVICE": "cpu",
+            "FRAME_SPEECH_LOCAL_COMPUTE": "int8",
+            "FRAME_SPEECH_LOCAL_VAD": "off",
+        }
+    )
+
+    assert settings.speech == "faster_whisper"
+    assert (settings.speech_local_model, settings.speech_local_device) == ("small", "cpu")
+    assert settings.speech_local_compute == "int8" and settings.speech_local_vad is False
+    assert ThemeSettings.from_env({}).speech_local_vad is True
+
+
 def _recognizer(theme_settings, settings=None, **overrides):
     base = settings or Settings(jobs="recording", persistence="memory", llm_provider="fake")
     recognizer = make_container(base, theme_settings=theme_settings, **overrides).series.recognizer

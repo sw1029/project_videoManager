@@ -1,11 +1,13 @@
 """음성 인식 포트의 계약 테스트 (ADR-0025·0026): SpeechRecognizer.
 
-Fake 와 OpenAI 호환 구현이 같은 규약을 지킨다. 실제 구현은 가짜 전송으로 돌린다 (네트워크·과금 없음).
+Fake, OpenAI 호환 구현, 로컬 구현(faster-whisper)이 같은 규약을 지킨다.
+실제 구현은 가짜 전송·가짜 모델로 돌린다 (네트워크·과금·모델 파일 없음).
 """
 
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +15,7 @@ from frame.adapters.fake_media import fake_recording
 from frame.adapters.http_transport import HttpResponse, HttpTransport
 from frame.adapters.llm.key_store import LLMKeyStore
 from frame.adapters.speech import FakeSpeechRecognizer
+from frame.adapters.speech.faster_whisper import FasterWhisperRecognizer
 from frame.adapters.speech.openai import OpenAISpeechRecognizer
 from frame.application.ports.speech import SpeechAudio, SpeechRecognitionError
 from frame.config.theme_settings import ThemeSettings
@@ -43,9 +46,51 @@ def _openai_recognizer(status: int, document: dict) -> OpenAISpeechRecognizer:
     )
 
 
-@pytest.fixture(params=["fake", "openai"])
+class _CannedModel:
+    """faster-whisper 모델 흉내: 정해 둔 구간을 돌려주거나 오류를 낸다. 말이 없는 소리(b"RIFF-silence")에는 빈 결과."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self._error = error
+
+    def transcribe(self, source, **options):
+        if self._error is not None:
+            raise self._error
+        heard = [] if source.read() == b"RIFF-silence" else SAID.segments
+        segments = [
+            SimpleNamespace(
+                start=s.start_ms / 1000,
+                end=s.end_ms / 1000,
+                text=s.text,
+                words=[],
+                avg_logprob=-0.2,
+                no_speech_prob=0.01,
+            )
+            for s in heard
+        ]
+        return iter(segments), SimpleNamespace(language="ko")
+
+
+def _local_recognizer(error: Exception | None = None) -> FasterWhisperRecognizer:
+    defaults = ThemeSettings()
+    return FasterWhisperRecognizer(
+        model=defaults.speech_local_model,
+        device=defaults.speech_local_device,
+        compute_type=defaults.speech_local_compute,
+        vad=defaults.speech_local_vad,
+        loader=lambda device: _CannedModel(error),
+    )
+
+
+@pytest.fixture(params=["fake", "openai", "local"])
 def recognizer_case(request):
     """(인식기, 말이 든 음성, 말이 없는 음성, 실패하는 인식기)."""
+    if request.param == "local":
+        return (
+            _local_recognizer(),
+            SpeechAudio(b"RIFF-speech", "audio/wav", 4000),
+            SpeechAudio(b"RIFF-silence", "audio/wav", 2000),
+            _local_recognizer(ValueError("Invalid data found when processing input")),
+        )
     if request.param == "openai":
         said = {
             "language": "korean",
