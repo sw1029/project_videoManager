@@ -261,7 +261,8 @@ FRAME/
 │   │   ├── settings.py             #   FRAME_* 환경 변수 → Settings
 │   │   ├── registry.py             #   AdapterRegistry: (포트, 키) → 팩토리
 │   │   └── container.py            #   build_container(settings, overrides)
-│   └── evaluation/edit_metrics.py  # 지표 1 평가 하네스 (20건 수정 실험 집계)
+│   └── evaluation/                 # edit_metrics: 지표 1 하네스 (20건 수정 실험 집계)
+│                                   # structuring_metrics·structuring_gold: 구조화 골드셋 지표·실행·기록 (STRUCTURING_DESIGN §10)
 ├── tests/
 │   ├── support/factories.py        # 공용 컨테이너 팩토리, 예시 프롬프트, cafe_ir()
 │   ├── unit/domain/                # 상태기계 · IR · 전파 · 지표
@@ -402,7 +403,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T3 접수·조회 API | `presentation/routers/*` | 제공 |
 | T4 요구조건 블록 조회·수정 화면 | (프론트) ← `GET /versions`, `POST /revisions` | API 제공 |
 | T5 반영 결과 저장·조회 형식 | `domain/checks.py`, `domain/metrics.py`, `GET /checks` | 제공 |
-| T6 구조화·조건 반영 AC 테스트 | `tests/acceptance/test_us06_structuring.py` | 제공 (Fake 기준, 실제 모델로 재실행 가능) |
+| T6 구조화·조건 반영 AC 테스트 | `tests/acceptance/test_us06_structuring.py`, 골드셋 `tests/evaluation/` | 제공 (Fake 기준, 실제 모델로 재실행 가능). 골드셋 15건의 지표는 리플레이로 CI 검증, 실제 모델은 slow |
 | T7 선택 재생성 도구 Spike | `adapters/generator/stubs.py` (`compile_prompt`) | 뼈대 |
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
