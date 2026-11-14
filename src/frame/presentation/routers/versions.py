@@ -79,6 +79,12 @@ def _version_out(container: Container, version_id: str) -> VersionOut:
     dependencies=[Depends(enforce_rate_limit)],
     summary="DRAFT 버전의 중간표현(구조화 결과)을 고친다: 보정 -> 검증 -> 저장하고 보정 메모를 돌려준다 "
     "(생성 접수 뒤에는 409, 그때는 수정 버전을 만든다)",
+    description=(
+        "본문은 GET /api/versions/{version_id} 의 ir 과 같은 모양이다 (읽기 전용 필드는 무시한다). "
+        "객체·장면 키는 영문·숫자·밑줄로 된 64자 이하다.\n\n"
+        "수정 버전의 DRAFT 를 고치면 응답의 revision(수정 의도)은 처음 값 그대로다. "
+        "실제로 바뀐 장면은 GET /api/versions/{version_id}/comparison 의 conditions_changed 로 본다 (ADR-0023)."
+    ),
 )
 def edit_draft_ir(version_id: str, body: IRIn, container: ContainerDep) -> EditDraftIrOut:
     result = container.edit_draft_ir.execute(
