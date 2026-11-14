@@ -227,6 +227,34 @@ def test_latest_record_of_an_empty_folder_is_none(tmp_path):
     assert latest_record(tmp_path / "missing") is None
 
 
+def test_comparison_names_the_cases_found_in_only_one_record(cases):
+    """한쪽 기록에만 있는 사례를 밝힌다. 그때 대표 지표는 서로 다른 사례 집합의 값이라고 표에 적는다."""
+    ramen, dog = _case(cases, "ko-05-ramen-recipe"), _case(cases, "ko-03-dog-park")
+    both = build_record(
+        _replay_runs([ramen, dog], _perfect_responses([ramen, dog])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-14T10:00:00+09:00",
+    )
+    one = build_record(
+        _replay_runs([ramen], _perfect_responses([ramen])),
+        structurer=_STRUCTURER,
+        run_at="2026-11-15T10:00:00+09:00",
+    )
+
+    fewer = compare_records(both, one)
+    assert (fewer.only_in_baseline, fewer.only_in_candidate) == (("ko-03-dog-park",), ())
+    more = compare_records(one, both)
+    assert (more.only_in_baseline, more.only_in_candidate) == ((), ("ko-03-dog-park",))
+    table = format_comparison(fewer)
+    assert "서로 다른 사례 집합" in table
+    assert "기준에만 있는 사례: ko-03-dog-park" in table
+    table.encode("cp949")  # 한국어 Windows 콘솔에서도 쓸 수 있는 글자만
+
+    same = compare_records(both, both)
+    assert (same.only_in_baseline, same.only_in_candidate) == ((), ())
+    assert "사례 집합" not in format_comparison(same)
+
+
 def _revised(case, edit):
     """골드 한 건을 고친 사본 (edit 가 기대 IR 문서를 고친다)."""
     document = json.loads(json.dumps(case.document))

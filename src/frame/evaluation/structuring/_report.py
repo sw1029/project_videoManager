@@ -57,6 +57,12 @@ def format_comparison(comparison: RecordComparison) -> str:
             "  ※ 골드셋이 다르다. 기준 기록의 원본 응답을 지금 골드로 다시 채점한 뒤 견줄 것 "
             "(recorded_responses + ReplayLLMClient)"
         )
+    if comparison.only_in_baseline or comparison.only_in_candidate:
+        lines.append(
+            "  ※ 한쪽에만 있는 사례가 있어 대표 지표는 서로 다른 사례 집합의 값이다. "
+            f"기준에만 있는 사례: {_join(comparison.only_in_baseline)} | "
+            f"비교에만 있는 사례: {_join(comparison.only_in_candidate)}"
+        )
     for change in comparison.metrics:
         mark = "  ← 회귀" if change.regressed else ""
         delta = "" if change.delta is None else f"{change.delta:+.4f}"

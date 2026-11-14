@@ -393,6 +393,9 @@ class RecordComparison:
     metrics: tuple[MetricChange, ...]
     cases: tuple[CaseChange, ...]  # 결과가 달라진 사례만
     same_gold: bool = True  # 두 기록이 같은 골드셋으로 잰 것인가
+    # 한쪽 기록에만 있는 사례. 있으면 대표 지표는 서로 다른 사례 집합의 값이다
+    only_in_baseline: tuple[str, ...] = ()
+    only_in_candidate: tuple[str, ...] = ()
 
     @property
     def regressed(self) -> bool:
@@ -420,12 +423,17 @@ def compare_records(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
                 CaseChange(case["case_id"], f1_before, f1_now, newly_missed, newly_found)
             )
     same_gold = baseline["gold"].get("fingerprint") == candidate["gold"].get("fingerprint")
+    now = {c["case_id"] for c in candidate["cases"]}
     return RecordComparison(
         record_label(baseline),
         record_label(candidate),
         metrics,
         tuple(changes),
         same_gold=same_gold,
+        only_in_baseline=tuple(k for k in before if k not in now),
+        only_in_candidate=tuple(
+            c["case_id"] for c in candidate["cases"] if c["case_id"] not in before
+        ),
     )
 
 
