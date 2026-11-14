@@ -96,27 +96,39 @@ CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번
 
 ## 6. 첫 push 뒤 확인할 것
 
-이 게이트들은 로컬(Windows, Python 3.11)에서만 확인했다 (워크플로를 GitHub 에서 돌려 보지 못했다). 아래 수치는 dev(#31~#35)를
-합친 뒤의 것이다 (로컬 결과: 2588 통과 · 4 건너뜀 · 4 제외). 처음 돌 때 아래를 본다.
+이 게이트들은 로컬(Windows, Python 3.11)에서 만들고 확인했다. GitHub 에서는 PR #36 에서 처음 돌았다 (2026-11-14 밤).
+로컬 결과는 dev(#31~#35)를 합친 뒤 2588 통과 · 4 건너뜀 · 4 제외였고, 첫 실행에서 드러난 결함을 고친 뒤에는 2598 통과다.
 
-1. **test 잡의 실제 영상 테스트**: ffmpeg 를 쓰는 테스트 약 155개가 CI 에서 처음 돈다. 지금까지의 워크플로는 `video` extra 를
-   설치하지 않아 이 테스트들을 건너뛰었다 — dev 에 들어온 시리즈·음성 어댑터의 ffmpeg 테스트(소리 편집 · 영상 분석 · 테마 추출 ·
-   문구 합성)도 Linux 에서는 한 번도 돌지 않았다. 실행 머리말의 `ffmpeg:` 줄에 경로가 찍히는지 본다. Linux 에서만 실패하는 것이
-   있으면 그 테스트가 드러낸 문제다 (imageio-ffmpeg 가 가져오는 ffmpeg 는 OS 마다 다른 빌드다. 로컬에서 돌린 것은 Windows 용 7.1 이다).
-2. **건너뛴 테스트**: ubuntu 에서는 Windows 전용 1개만 건너뛰어야 한다. 화면 문구 합성의 ffmpeg 테스트 6개
-   (`tests/contract/test_overlay_contract.py`)는 **한글 글꼴을 찾지 못하면 조용히 건너뛴다** — `FRAME_REQUIRE_FFMPEG` 는 ffmpeg 만 본다.
-   실행 요약의 `SKIPPED … ffmpeg 또는 한글 글꼴 없음` 줄로 확인한다. 러너에 글꼴이 없어 건너뛰면 test 잡에 글꼴을 설치하는 단계
-   (`fonts-noto-cjk`)를 더할지 정한다.
-3. **커버리지 하한**: 하한(89 · 95 · 97)은 Windows 에서 잰 값(94.27 · 96.60 · 97.84)에 여유를 둔 것이다. 핵심(domain·application)의
-   여유가 0.84 로 가장 작다. ubuntu 의 값이 하한 아래면 `scripts/check.py` 의 `COVERAGE_FLOORS` 를 그 값에 맞추고, 위면 올린다.
-4. **compat 잡**: Python 3.12(ubuntu)와 Windows 러너에서 같은 테스트가 처음 돈다. dev 에 들어온 코드도 3.12 에서 전체 테스트를
-   돌린 적이 없다 (지금까지 3.12 로 돈 것은 demo-smoke 뿐이다).
-5. **audit 잡**: 결과만 본다. 고칠 것이 있으면 이슈로 올리고, 조용해지면 `continue-on-error` 를 뺀다.
-6. **릴리스**: `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다. 태그는 패키지 버전으로
-   시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
-7. **docker 잡**: `docker/Dockerfile` 로 이미지를 빌드해 띄우고 `/health` 가 답하는지 본다. 이미지 빌드는 로컬에서 돌려 보지 못했다
-   (구성 파일의 내용은 `tests/unit/test_docker_files.py` 가, compose 의 문법은 `docker compose config` 로 확인했다).
-   통과하면 `continue-on-error` 를 뺀다. 실패하면 로그의 `docker build` 단계부터 본다 (비 root 사용자의 쓰기 권한, extra 설치).
+### 첫 실행의 결과 (PR #36)
+
+| 잡 | 결과 | 본 것 |
+|---|---|---|
+| `frontend` · `demo-smoke` (세 OS) · bundle 의 `build` 5개 | 통과 | 이 브랜치가 고친 런처 · 번들 코드가 러너에서 처음 돌았다. bundle 의 `ci` · `release` 잡은 태그가 아니라 건너뛴다 |
+| `docker` | 통과 | 이미지를 처음 빌드했고 `/health` 가 답했다 |
+| `compat (windows, 3.11)` | 통과 | |
+| `test` (ubuntu, 3.11) · `compat (ubuntu, 3.12)` | **실패** — 둘 다 같은 8건 (2574 통과 · 10 건너뜀) | 아래 '실패 8건' |
+| `audit` | 실패 (머지를 막지 않는다) | 알려진 취약점 17건 / 패키지 2개: `starlette 0.46.2`, 러너의 `setuptools 79.0.1`. 보고서 §12.3 결정 10 |
+
+- **실패 8건**: 클립 정규화 3 · 최종 영상 조립 2 · 그것을 쓰는 통합 테스트 3 이 "…None 프레임 (목표 … 96 프레임)" 으로 실패했다.
+  Linux 러너의 ffmpeg 는 7.0.2 다 (imageio-ffmpeg 가 OS 마다 다른 빌드를 가져온다. Windows 는 7.1). 그 판에서는 스트림 복사 출력의 진행 줄에서
+  프레임 수가 읽히지 않았다. 테스트가 아니라 제품의 결함이다 — Linux(Docker 이미지 포함)에서 실제 생성의 정규화가 늘 실패한다 (보고서 A-42).
+  프레임 수를 패킷 목록의 줄 수로 세도록 고쳤다 (`adapters/shared/media/probe.py` 의 `read_video_packets`).
+  지금까지의 워크플로는 `video` extra 를 설치하지 않아 ffmpeg 테스트(약 155개)를 건너뛰었고, 그래서 드러나지 않았다.
+- **건너뛴 10개**: Windows 전용 1개와, 한글 글꼴을 찾지 못한 화면 문구 합성 테스트 9개 (`tests/contract/test_overlay_contract.py`).
+  `FRAME_REQUIRE_FFMPEG` 는 ffmpeg 만 본다. 글꼴 설치(`fonts-noto-cjk`)는 아직 넣지 않았다 — 보고서 §12.3 결정 11.
+
+### 다음 실행에서 볼 것
+
+1. **Linux 의 두 잡**: 고친 프레임 세기가 Linux 의 ffmpeg 7.0.2 에서 도는 것은 다음 실행이 처음이다. 로컬에서는 Windows 의 7.1 로,
+   실제 출력에서 진행 줄의 `frame=` 을 지운 조건으로 확인했다. 실패했던 8개 테스트의 뒤쪽 단언(크기 · fps · 길이)도 Linux 에서 처음 돈다.
+2. **커버리지 하한**: 첫 실행은 테스트가 실패해 Linux 의 값을 재지 못했다. 하한(89 · 95 · 97)은 Windows 에서 잰 값(94.28 · 96.60 · 97.84)에
+   여유를 둔 것이고, 핵심(domain·application)의 여유가 0.84 로 가장 작다. 문구 합성 테스트 9개가 빠지는 만큼 Linux 의 값은 더 낮을 수 있다.
+   하한 아래면 `scripts/check.py` 의 `COVERAGE_FLOORS` 를 그 값에 맞추고, 위면 올린다.
+3. **docker 잡**: 한 번 통과했다. 몇 번 더 통과하는 것을 보고 `continue-on-error` 를 뺀다.
+   실패하면 로그의 `docker build` 단계부터 본다 (비 root 사용자의 쓰기 권한, extra 설치).
+4. **audit 잡**: 결과만 본다 (보고서 §12.3 결정 10). 조용해지면 `continue-on-error` 를 뺀다.
+5. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
+   태그는 패키지 버전으로 시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
 
 ## 7. 저장소 설정 제안 (이 작업에서는 바꾸지 않았다)
 
