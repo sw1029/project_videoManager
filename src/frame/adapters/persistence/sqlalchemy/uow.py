@@ -1,3 +1,5 @@
+"""SQLAlchemy 저장 단위: 세션 하나를 열어 저장소들을 묶는다. 무결성 제약 위반은 IntegrityViolation 으로 올린다."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

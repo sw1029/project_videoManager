@@ -1,5 +1,16 @@
-"""성공 지표 평가 하네스 (T12: 단일 속성 수정 20건의 성공률·비대상 변경률 집계)."""
+"""성공 지표 평가 하네스.
 
-from .edit_metrics import EditCase, EditCaseOutcome, EditEvaluation, evaluate_case, evaluate_cases
+맡는 개념
+    연구 지표를 재는 도구다. 모델을 직접 부르지 않는다 - 잴 대상(유스케이스 · 구조화기)은 부르는 쪽(tools · 테스트)이
+    조립해 넘긴다. 이 패키지는 domain · application 만 import 한다.
 
-__all__ = ["EditCase", "EditCaseOutcome", "EditEvaluation", "evaluate_case", "evaluate_cases"]
+밖에서 쓰는 이름 - 이 패키지는 이름을 내보내지 않는다. 하위 패키지에서 import 한다 (frame.evaluation.edits 처럼).
+
+모듈 지도
+    edits/          지표 1: 단일 속성 수정 케이스의 성공률 · 비대상 변경률 (T12, ADR-0022)
+    structuring/    구조화 골드셋: 구조화 결과를 기대 IR 과 견주어 채점하고 실행을 기록 · 비교한다 (US-06)
+    _public.py      (안쪽) 커밋되는 결과 파일 · 기록에 남겨도 되는 글: 자유 문구의 이 컴퓨터 경로를 가리고
+                    URL 의 계정 · 질의를 뺀다. 두 하위 패키지가 같은 규칙을 쓴다
+"""
+
+__all__: list[str] = []

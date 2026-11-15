@@ -1,0 +1,854 @@
+{
+ "record_version": 1,
+ "run_at": "2026-11-14T11:36:31+09:00",
+ "structurer": {
+  "name": "LLMStructurer",
+  "provider": "openai",
+  "model": "gpt-4.1-mini",
+  "base_url": null,
+  "prompt_version": "2026-11-12.1",
+  "schema_version": 1,
+  "reported_models": [
+   "gpt-4.1-mini-2025-04-14"
+  ]
+ },
+ "gold": {
+  "cases": 15,
+  "case_ids": [
+   "en-01-tea-window",
+   "en-02-skateboard-sunset",
+   "en-03-cat-food",
+   "en-04-smartwatch",
+   "en-05-rainy-friends",
+   "ko-01-cafe-concept",
+   "ko-02-lipstick-ad",
+   "ko-03-dog-park",
+   "ko-04-sneaker-rain",
+   "ko-05-ramen-recipe",
+   "ko-06-umbrella-couple",
+   "ko-07-florist-cat",
+   "ko-08-laptop-desk",
+   "ko-09-jeju-travel",
+   "ko-10-gym-promo"
+  ],
+  "fingerprint": "76982b6b2fa85f55795f038c9d76c026c11fa8442e9068c718fd150eff633fc4"
+ },
+ "summary": {
+  "cases": 15,
+  "failures": 0,
+  "entity_recall": 0.9615,
+  "entity_precision": 0.8475,
+  "requirement_precision": 0.8302,
+  "requirement_recall": 0.7059,
+  "requirement_f1": 0.763,
+  "appearance_f1": 0.924,
+  "scene_count_match_rate": 1.0,
+  "mean_boundary_error_ms": 0.0,
+  "mean_duration_error_ms": 0.0,
+  "meets_target": false,
+  "targets": {
+   "entity_recall": 0.9,
+   "requirement_f1": 0.8,
+   "scene_count_match_rate": 0.8
+  },
+  "totals": {
+   "entities": {
+    "tp": 50,
+    "fp": 9,
+    "fn": 2
+   },
+   "requirements": {
+    "tp": 132,
+    "fp": 27,
+    "fn": 55
+   },
+   "appearances": {
+    "tp": 79,
+    "fp": 11,
+    "fn": 2
+   }
+  },
+  "tokens": {
+   "input": 26801,
+   "output": 9258
+  }
+ },
+ "by_language": {
+  "en": {
+   "cases": 5,
+   "failures": 0,
+   "entity_recall": 1.0,
+   "entity_precision": 0.9474,
+   "requirement_precision": 0.8491,
+   "requirement_recall": 0.7377,
+   "requirement_f1": 0.7895,
+   "appearance_f1": 0.9836,
+   "scene_count_match_rate": 1.0,
+   "mean_boundary_error_ms": 0.0,
+   "mean_duration_error_ms": 0.0,
+   "meets_target": false
+  },
+  "ko": {
+   "cases": 10,
+   "failures": 0,
+   "entity_recall": 0.9412,
+   "entity_precision": 0.8,
+   "requirement_precision": 0.8208,
+   "requirement_recall": 0.6905,
+   "requirement_f1": 0.75,
+   "appearance_f1": 0.8909,
+   "scene_count_match_rate": 1.0,
+   "mean_boundary_error_ms": 0.0,
+   "mean_duration_error_ms": 0.0,
+   "meets_target": false
+  }
+ },
+ "cases": [
+  {
+   "case_id": "en-01-tea-window",
+   "language": "en",
+   "error": null,
+   "entities": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 9,
+    "fp": 1,
+    "fn": 4
+   },
+   "appearances": {
+    "tp": 6,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.7826,
+   "scenes": {
+    "expected": 2,
+    "predicted": 2,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "pour:woman:action",
+    "pour:cup:material",
+    "closeup:cup:material",
+    "closeup:table:material"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "pouring_tea:woman:holds:glass_cup"
+   ],
+   "attempts": 3,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 2598,
+    "output": 539
+   },
+   "elapsed_ms": 13296,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"woman\",\"kind\":\"PERSON\",\"description\":\"a woman in a green sweater\"},{\"entity_key\":\"teapot\",\"kind\":\"PROP\",\"description\":\"white teapot\"},{\"entity_key\":\"glass_cup\",\"kind\":\"PROP\",\"description\":\"glass cup\"},{\"entity_key\":\"wooden_table\",\"kind\":\"PROP\",\"description\":\"wooden table\"},{\"entity_key\":\"text_morning_leaf\",\"kind\":\"TEXT\",\"description\":\"the words 'Morning Leaf'\"}],\"scenes\":[{\"scene_key\":\"pouring_tea\",\"planned_start_ms\":0,\"planned_end_ms\":5000,\"description\":\"a woman in a green sweater pours tea from a white teapot into a glass cup by a sunny window\",\"entity_keys\":[\"woman\",\"teapot\",\"glass_cup\"],\"requirements\":[{\"scene_key\":\"pouring_tea\",\"entity_key\":\"woman\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"green sweater\"},{\"scene_key\":\"pouring_tea\",\"entity_key\":\"teapot\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"white\"},{\"scene_key\":\"pouring_tea\",\"entity_key\":\"woman\",\"related_entity_key\":\"teapot\",\"predicate\":\"holds\",\"expected_value\":\"teapot\"},{\"scene_key\":\"pouring_tea\",\"entity_key\":\"woman\",\"related_entity_key\":\"glass_cup\",\"predicate\":\"holds\",\"expected_value\":\"glass_cup\"},{\"scene_key\":\"pouring_tea\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"by a sunny window\"},{\"scene_key\":\"pouring_tea\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"sunny\"}]},{\"scene_key\":\"cup_closeup\",\"planned_start_ms\":5000,\"planned_end_ms\":10000,\"description\":\"close-up of the glass cup on a wooden table with the words 'Morning Leaf' at the bottom of the screen\",\"entity_keys\":[\"glass_cup\",\"wooden_table\",\"text_morning_leaf\"],\"requirements\":[{\"scene_key\":\"cup_closeup\",\"entity_key\":\"glass_cup\",\"related_entity_key\":\"wooden_table\",\"predicate\":\"on\",\"expected_value\":\"wooden_table\"},{\"scene_key\":\"cup_closeup\",\"entity_key\":\"text_morning_leaf\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"Morning Leaf\"},{\"scene_key\":\"cup_closeup\",\"entity_key\":\"text_morning_leaf\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom of screen\"},{\"scene_key\":\"cup_closeup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"camera\",\"expected_value\":\"close up\"}]}]}"
+  },
+  {
+   "case_id": "en-02-skateboard-sunset",
+   "language": "en",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 5,
+    "fp": 3,
+    "fn": 3
+   },
+   "appearances": {
+    "tp": 6,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirement_f1": 0.625,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [
+    "red_hoodie"
+   ],
+   "missed_requirements": [
+    "ride:boy:outfit",
+    "kickflip:boy:outfit",
+    "rest:backpack:color"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "riding_skateboard:teenage_boy:wears:red_hoodie",
+    "riding_skateboard:teenage_boy:holds:skateboard",
+    "kickflip_landing:teenage_boy:holds:skateboard"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1472,
+    "output": 587
+   },
+   "elapsed_ms": 4536,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"teenage_boy\",\"kind\":\"PERSON\",\"description\":\"a teenage boy\"},{\"entity_key\":\"red_hoodie\",\"kind\":\"OTHER\",\"description\":\"red hoodie worn by the boy\"},{\"entity_key\":\"skateboard\",\"kind\":\"PROP\",\"description\":\"skateboard\"},{\"entity_key\":\"seaside_promenade\",\"kind\":\"BACKGROUND\",\"description\":\"seaside promenade\"},{\"entity_key\":\"yellow_backpack\",\"kind\":\"PROP\",\"description\":\"yellow backpack\"}],\"scenes\":[{\"scene_key\":\"riding_skateboard\",\"planned_start_ms\":0,\"planned_end_ms\":6000,\"description\":\"a teenage boy in a red hoodie rides a skateboard along a seaside promenade at sunset\",\"entity_keys\":[\"teenage_boy\",\"red_hoodie\",\"skateboard\",\"seaside_promenade\"],\"requirements\":[{\"scene_key\":\"riding_skateboard\",\"entity_key\":\"teenage_boy\",\"related_entity_key\":\"red_hoodie\",\"predicate\":\"wears\",\"expected_value\":\"red_hoodie\"},{\"scene_key\":\"riding_skateboard\",\"entity_key\":\"teenage_boy\",\"related_entity_key\":\"skateboard\",\"predicate\":\"holds\",\"expected_value\":\"skateboard\"},{\"scene_key\":\"riding_skateboard\",\"entity_key\":\"teenage_boy\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"rides skateboard\"},{\"scene_key\":\"riding_skateboard\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"seaside promenade\"},{\"scene_key\":\"riding_skateboard\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"sunset\"}]},{\"scene_key\":\"kickflip_landing\",\"planned_start_ms\":6000,\"planned_end_ms\":11000,\"description\":\"he lands a kickflip\",\"entity_keys\":[\"teenage_boy\",\"skateboard\"],\"requirements\":[{\"scene_key\":\"kickflip_landing\",\"entity_key\":\"teenage_boy\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"lands kickflip\"},{\"scene_key\":\"kickflip_landing\",\"entity_key\":\"teenage_boy\",\"related_entity_key\":\"skateboard\",\"predicate\":\"holds\",\"expected_value\":\"skateboard\"}]},{\"scene_key\":\"skateboard_and_backpack\",\"planned_start_ms\":11000,\"planned_end_ms\":15000,\"description\":\"the skateboard lies on the ground next to a yellow backpack\",\"entity_keys\":[\"skateboard\",\"yellow_backpack\"],\"requirements\":[{\"scene_key\":\"skateboard_and_backpack\",\"entity_key\":\"skateboard\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"lies on ground\"},{\"scene_key\":\"skateboard_and_backpack\",\"entity_key\":\"skateboard\",\"related_entity_key\":\"yellow_backpack\",\"predicate\":\"near\",\"expected_value\":\"yellow_backpack\"}]}]}"
+  },
+  {
+   "case_id": "en-03-cat-food",
+   "language": "en",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 8,
+    "fp": 0,
+    "fn": 3
+   },
+   "appearances": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.8421,
+   "scenes": {
+    "expected": 2,
+    "predicted": 2,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "sit:-:lighting",
+    "eat:cat:color",
+    "eat:bowl:color"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [],
+   "attempts": 2,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1941,
+    "output": 428
+   },
+   "elapsed_ms": 6934,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"cat\",\"kind\":\"ANIMAL\",\"description\":\"gray cat\"},{\"entity_key\":\"food_bowl\",\"kind\":\"PROP\",\"description\":\"blue food bowl\"},{\"entity_key\":\"text_purr_plus\",\"kind\":\"TEXT\",\"description\":\"text 'PURR PLUS'\"}],\"scenes\":[{\"scene_key\":\"scene_one\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"gray cat sits next to blue food bowl in bright kitchen\",\"entity_keys\":[\"cat\",\"food_bowl\"],\"requirements\":[{\"scene_key\":\"scene_one\",\"entity_key\":\"cat\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"gray\"},{\"scene_key\":\"scene_one\",\"entity_key\":\"food_bowl\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"blue\"},{\"scene_key\":\"scene_one\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"bright kitchen\"},{\"scene_key\":\"scene_one\",\"entity_key\":\"cat\",\"related_entity_key\":\"food_bowl\",\"predicate\":\"near\",\"expected_value\":\"food_bowl\"},{\"scene_key\":\"scene_one\",\"entity_key\":\"cat\",\"related_entity_key\":null,\"predicate\":\"pose\",\"expected_value\":\"sitting\"}]},{\"scene_key\":\"scene_two\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"cat eats from bowl with 'PURR PLUS' text at top\",\"entity_keys\":[\"cat\",\"food_bowl\",\"text_purr_plus\"],\"requirements\":[{\"scene_key\":\"scene_two\",\"entity_key\":\"cat\",\"related_entity_key\":\"food_bowl\",\"predicate\":\"near\",\"expected_value\":\"food_bowl\"},{\"scene_key\":\"scene_two\",\"entity_key\":\"cat\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"eating\"},{\"scene_key\":\"scene_two\",\"entity_key\":\"text_purr_plus\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"PURR PLUS\"},{\"scene_key\":\"scene_two\",\"entity_key\":\"text_purr_plus\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"top of screen\"}]}]}"
+  },
+  {
+   "case_id": "en-04-smartwatch",
+   "language": "en",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 9,
+    "fp": 2,
+    "fn": 3
+   },
+   "appearances": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.7826,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "rotate:watch:on:pedestal",
+    "jog:watch:color",
+    "face:watch:color"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "rotation_shot:-:location",
+    "rotation_shot:-:lighting"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1471,
+    "output": 553
+   },
+   "elapsed_ms": 4493,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"smartwatch\",\"kind\":\"PROP\",\"description\":\"black smartwatch\"},{\"entity_key\":\"pedestal\",\"kind\":\"PROP\",\"description\":\"white pedestal\"},{\"entity_key\":\"runner\",\"kind\":\"PERSON\",\"description\":\"runner jogging through park\"}],\"scenes\":[{\"scene_key\":\"rotation_shot\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"black smartwatch slowly rotates on white pedestal\",\"entity_keys\":[\"smartwatch\",\"pedestal\"],\"requirements\":[{\"scene_key\":\"rotation_shot\",\"entity_key\":\"smartwatch\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"black\"},{\"scene_key\":\"rotation_shot\",\"entity_key\":\"pedestal\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"white\"},{\"scene_key\":\"rotation_shot\",\"entity_key\":\"smartwatch\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"slowly rotates\"},{\"scene_key\":\"rotation_shot\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"studio\"},{\"scene_key\":\"rotation_shot\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]},{\"scene_key\":\"runner_check\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"runner checks the watch on her wrist while jogging through a park in the morning\",\"entity_keys\":[\"runner\",\"smartwatch\"],\"requirements\":[{\"scene_key\":\"runner_check\",\"entity_key\":\"runner\",\"related_entity_key\":\"smartwatch\",\"predicate\":\"wears\",\"expected_value\":\"smartwatch\"},{\"scene_key\":\"runner_check\",\"entity_key\":\"runner\",\"related_entity_key\":\"smartwatch\",\"predicate\":\"looks_at\",\"expected_value\":\"smartwatch\"},{\"scene_key\":\"runner_check\",\"entity_key\":\"runner\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"jogging\"},{\"scene_key\":\"runner_check\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"park\"},{\"scene_key\":\"runner_check\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"morning\"}]},{\"scene_key\":\"closeup_watch_face\",\"planned_start_ms\":8000,\"planned_end_ms\":12000,\"description\":\"close-up of the watch face showing the text '10,000 STEPS'\",\"entity_keys\":[\"smartwatch\"],\"requirements\":[{\"scene_key\":\"closeup_watch_face\",\"entity_key\":\"smartwatch\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"10,000 STEPS\"},{\"scene_key\":\"closeup_watch_face\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"camera\",\"expected_value\":\"close up\"}]}]}"
+  },
+  {
+   "case_id": "en-05-rainy-friends",
+   "language": "en",
+   "error": null,
+   "entities": {
+    "tp": 4,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 14,
+    "fp": 2,
+    "fn": 3
+   },
+   "appearances": {
+    "tp": 8,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.8485,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "bag:tall_friend:action",
+    "bag:bag:material",
+    "laugh:-:lighting"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "handing_bag:friend_taller:looks_at:friend_shorter",
+    "handing_bag:friend_shorter:looks_at:friend_taller"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1457,
+    "output": 941
+   },
+   "elapsed_ms": 7200,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"friend_taller\",\"kind\":\"PERSON\",\"description\":\"the taller friend\"},{\"entity_key\":\"friend_shorter\",\"kind\":\"PERSON\",\"description\":\"the shorter friend\"},{\"entity_key\":\"umbrella\",\"kind\":\"PROP\",\"description\":\"orange umbrella\"},{\"entity_key\":\"paper_bag\",\"kind\":\"PROP\",\"description\":\"paper bag\"},{\"entity_key\":\"neon_signs\",\"kind\":\"PROP\",\"description\":\"neon signs\"}],\"scenes\":[{\"scene_key\":\"sharing_umbrella\",\"planned_start_ms\":0,\"planned_end_ms\":3000,\"description\":\"two friends share a single orange umbrella on a rainy night street\",\"entity_keys\":[\"friend_taller\",\"friend_shorter\",\"umbrella\"],\"requirements\":[{\"scene_key\":\"sharing_umbrella\",\"entity_key\":\"umbrella\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"orange\"},{\"scene_key\":\"sharing_umbrella\",\"entity_key\":\"friend_taller\",\"related_entity_key\":\"umbrella\",\"predicate\":\"holds\",\"expected_value\":\"umbrella\"},{\"scene_key\":\"sharing_umbrella\",\"entity_key\":\"friend_shorter\",\"related_entity_key\":\"umbrella\",\"predicate\":\"holds\",\"expected_value\":\"umbrella\"},{\"scene_key\":\"sharing_umbrella\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"rainy night street\"},{\"scene_key\":\"sharing_umbrella\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"night\"},{\"scene_key\":\"sharing_umbrella\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"rainy\"}]},{\"scene_key\":\"handing_bag\",\"planned_start_ms\":3000,\"planned_end_ms\":6000,\"description\":\"the taller friend hands a paper bag to the other\",\"entity_keys\":[\"friend_taller\",\"friend_shorter\",\"paper_bag\"],\"requirements\":[{\"scene_key\":\"handing_bag\",\"entity_key\":\"friend_taller\",\"related_entity_key\":\"paper_bag\",\"predicate\":\"holds\",\"expected_value\":\"paper_bag\"},{\"scene_key\":\"handing_bag\",\"entity_key\":\"friend_taller\",\"related_entity_key\":\"friend_shorter\",\"predicate\":\"near\",\"expected_value\":\"friend_shorter\"},{\"scene_key\":\"handing_bag\",\"entity_key\":\"friend_taller\",\"related_entity_key\":\"friend_shorter\",\"predicate\":\"looks_at\",\"expected_value\":\"friend_shorter\"},{\"scene_key\":\"handing_bag\",\"entity_key\":\"friend_shorter\",\"related_entity_key\":\"friend_taller\",\"predicate\":\"looks_at\",\"expected_value\":\"friend_taller\"},{\"scene_key\":\"handing_bag\",\"entity_key\":\"friend_shorter\",\"related_entity_key\":\"paper_bag\",\"predicate\":\"holds\",\"expected_value\":\"paper_bag\"},{\"scene_key\":\"handing_bag\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"rainy night street\"},{\"scene_key\":\"handing_bag\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"night\"},{\"scene_key\":\"handing_bag\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"rainy\"}]},{\"scene_key\":\"laughing_under_neon\",\"planned_start_ms\":6000,\"planned_end_ms\":9000,\"description\":\"they laugh and look at each other under neon signs\",\"entity_keys\":[\"friend_taller\",\"friend_shorter\",\"neon_signs\"],\"requirements\":[{\"scene_key\":\"laughing_under_neon\",\"entity_key\":\"friend_taller\",\"related_entity_key\":\"friend_shorter\",\"predicate\":\"looks_at\",\"expected_value\":\"friend_shorter\"},{\"scene_key\":\"laughing_under_neon\",\"entity_key\":\"friend_shorter\",\"related_entity_key\":\"friend_taller\",\"predicate\":\"looks_at\",\"expected_value\":\"friend_taller\"},{\"scene_key\":\"laughing_under_neon\",\"entity_key\":\"friend_taller\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"laughing\"},{\"scene_key\":\"laughing_under_neon\",\"entity_key\":\"friend_shorter\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"laughing\"},{\"scene_key\":\"laughing_under_neon\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"rainy night street\"},{\"scene_key\":\"laughing_under_neon\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"night\"},{\"scene_key\":\"laughing_under_neon\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"rainy\"}]}]}"
+  },
+  {
+   "case_id": "ko-01-cafe-concept",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 2,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 17,
+    "fp": 3,
+    "fn": 1
+   },
+   "appearances": {
+    "tp": 5,
+    "fp": 3,
+    "fn": 0
+   },
+   "requirement_f1": 0.8947,
+   "scenes": {
+    "expected": 4,
+    "predicted": 4,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [
+    "camera"
+   ],
+   "missed_requirements": [
+    "smile:barista:action"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "smile:barista:looks_at:camera",
+    "show_cup:barista:looks_at:camera",
+    "wave_hand:barista:looks_at:camera"
+   ],
+   "attempts": 2,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 2377,
+    "output": 852
+   },
+   "elapsed_ms": 12724,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"barista\",\"kind\":\"PERSON\",\"description\":\"바리스타\"},{\"entity_key\":\"cup\",\"kind\":\"PROP\",\"description\":\"빨간 머그컵\"},{\"entity_key\":\"camera\",\"kind\":\"OTHER\",\"description\":\"카메라\"}],\"scenes\":[{\"scene_key\":\"smile\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"바리스타가 카페 카운터 뒤에서 카메라를 보며 미소 짓는다\",\"entity_keys\":[\"barista\",\"camera\"],\"requirements\":[{\"scene_key\":\"smile\",\"entity_key\":\"barista\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"smiles\"},{\"scene_key\":\"smile\",\"entity_key\":\"barista\",\"related_entity_key\":\"camera\",\"predicate\":\"looks_at\",\"expected_value\":\"camera\"},{\"scene_key\":\"smile\",\"entity_key\":\"barista\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"white shirt brown apron\"},{\"scene_key\":\"smile\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"cafe counter behind\"},{\"scene_key\":\"smile\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"warm\"}]},{\"scene_key\":\"show_cup\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"바리스타가 카운터에서 빨간 머그컵을 들어 보인다\",\"entity_keys\":[\"barista\",\"cup\",\"camera\"],\"requirements\":[{\"scene_key\":\"show_cup\",\"entity_key\":\"cup\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"red\"},{\"scene_key\":\"show_cup\",\"entity_key\":\"barista\",\"related_entity_key\":\"cup\",\"predicate\":\"holds\",\"expected_value\":\"cup\"},{\"scene_key\":\"show_cup\",\"entity_key\":\"barista\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"shows cup to camera\"},{\"scene_key\":\"show_cup\",\"entity_key\":\"barista\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"white shirt brown apron\"},{\"scene_key\":\"show_cup\",\"entity_key\":\"barista\",\"related_entity_key\":\"camera\",\"predicate\":\"looks_at\",\"expected_value\":\"camera\"},{\"scene_key\":\"show_cup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"cafe counter\"},{\"scene_key\":\"show_cup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"warm\"}]},{\"scene_key\":\"cup_closeup\",\"planned_start_ms\":8000,\"planned_end_ms\":12000,\"description\":\"카운터 위에 놓인 빨간 머그컵 클로즈업\",\"entity_keys\":[\"cup\"],\"requirements\":[{\"scene_key\":\"cup_closeup\",\"entity_key\":\"cup\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"red\"},{\"scene_key\":\"cup_closeup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"camera\",\"expected_value\":\"close up\"},{\"scene_key\":\"cup_closeup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"cafe counter\"},{\"scene_key\":\"cup_closeup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"warm\"}]},{\"scene_key\":\"wave_hand\",\"planned_start_ms\":12000,\"planned_end_ms\":16000,\"description\":\"바리스타가 카메라를 향해 손을 흔든다\",\"entity_keys\":[\"barista\",\"camera\"],\"requirements\":[{\"scene_key\":\"wave_hand\",\"entity_key\":\"barista\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"waves hand to camera\"},{\"scene_key\":\"wave_hand\",\"entity_key\":\"barista\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"white shirt brown apron\"},{\"scene_key\":\"wave_hand\",\"entity_key\":\"barista\",\"related_entity_key\":\"camera\",\"predicate\":\"looks_at\",\"expected_value\":\"camera\"},{\"scene_key\":\"wave_hand\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"warm\"}]}]}"
+  },
+  {
+   "case_id": "ko-02-lipstick-ad",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 1,
+    "fn": 1
+   },
+   "requirements": {
+    "tp": 10,
+    "fp": 3,
+    "fn": 6
+   },
+   "appearances": {
+    "tp": 5,
+    "fp": 1,
+    "fn": 1
+   },
+   "requirement_f1": 0.6897,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [
+    "table"
+   ],
+   "spurious_entities": [
+    "camera"
+   ],
+   "missed_requirements": [
+    "product:lipstick:on:table",
+    "product:table:material",
+    "apply:lipstick:color",
+    "smile:model:action",
+    "smile:model:hair",
+    "smile:caption:position"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "lipstick_display:lipstick:position",
+    "lipstick_display:-:location",
+    "smiling_model_with_text:model:looks_at:camera"
+   ],
+   "attempts": 2,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 2259,
+    "output": 683
+   },
+   "elapsed_ms": 9799,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"lipstick\",\"kind\":\"PROP\",\"description\":\"금색 케이스의 립스틱\"},{\"entity_key\":\"model\",\"kind\":\"PERSON\",\"description\":\"짧은 검은 머리의 모델\"},{\"entity_key\":\"new_color_text\",\"kind\":\"TEXT\",\"description\":\"'NEW COLOR' 문구\"},{\"entity_key\":\"camera\",\"kind\":\"OTHER\",\"description\":\"카메라\"}],\"scenes\":[{\"scene_key\":\"lipstick_display\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"대리석 테이블 위에 금색 케이스의 립스틱이 세워져 있고, 케이스에 'LUMI' 로고가 새겨져 있다\",\"entity_keys\":[\"lipstick\"],\"requirements\":[{\"scene_key\":\"lipstick_display\",\"entity_key\":\"lipstick\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"gold\"},{\"scene_key\":\"lipstick_display\",\"entity_key\":\"lipstick\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"standing on marble table\"},{\"scene_key\":\"lipstick_display\",\"entity_key\":\"lipstick\",\"related_entity_key\":null,\"predicate\":\"brand\",\"expected_value\":\"LUMI\"},{\"scene_key\":\"lipstick_display\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"soft pink\"},{\"scene_key\":\"lipstick_display\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"marble table\"}]},{\"scene_key\":\"applying_lipstick\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"모델이 립스틱을 들고 입술에 바른다\",\"entity_keys\":[\"model\",\"lipstick\"],\"requirements\":[{\"scene_key\":\"applying_lipstick\",\"entity_key\":\"model\",\"related_entity_key\":\"lipstick\",\"predicate\":\"holds\",\"expected_value\":\"lipstick\"},{\"scene_key\":\"applying_lipstick\",\"entity_key\":\"model\",\"related_entity_key\":null,\"predicate\":\"hair\",\"expected_value\":\"short black\"},{\"scene_key\":\"applying_lipstick\",\"entity_key\":\"model\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"applies lipstick to lips\"},{\"scene_key\":\"applying_lipstick\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"soft pink\"}]},{\"scene_key\":\"smiling_model_with_text\",\"planned_start_ms\":8000,\"planned_end_ms\":12000,\"description\":\"모델이 카메라를 보며 웃고, 화면 아래쪽에 'NEW COLOR' 문구가 나타난다\",\"entity_keys\":[\"model\",\"new_color_text\",\"camera\"],\"requirements\":[{\"scene_key\":\"smiling_model_with_text\",\"entity_key\":\"model\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"smiling\"},{\"scene_key\":\"smiling_model_with_text\",\"entity_key\":\"model\",\"related_entity_key\":\"camera\",\"predicate\":\"looks_at\",\"expected_value\":\"camera\"},{\"scene_key\":\"smiling_model_with_text\",\"entity_key\":\"new_color_text\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"NEW COLOR\"},{\"scene_key\":\"smiling_model_with_text\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"soft pink\"}]}]}"
+  },
+  {
+   "case_id": "ko-03-dog-park",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 10,
+    "fp": 0,
+    "fn": 2
+   },
+   "appearances": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.9091,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "fetch:dog:color",
+    "fetch:ball:color"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1511,
+    "output": 575
+   },
+   "elapsed_ms": 4235,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"brown_poodle\",\"kind\":\"ANIMAL\",\"description\":\"갈색 푸들\"},{\"entity_key\":\"owner\",\"kind\":\"PERSON\",\"description\":\"회색 후드티를 입은 주인\"},{\"entity_key\":\"red_ball\",\"kind\":\"PROP\",\"description\":\"빨간 공\"}],\"scenes\":[{\"scene_key\":\"scene_1\",\"planned_start_ms\":0,\"planned_end_ms\":5000,\"description\":\"맑은 날 오후, 공원 잔디밭에서 갈색 푸들이 꼬리를 흔든다\",\"entity_keys\":[\"brown_poodle\"],\"requirements\":[{\"scene_key\":\"scene_1\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"afternoon\"},{\"scene_key\":\"scene_1\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"clear\"},{\"scene_key\":\"scene_1\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"park grass field\"},{\"scene_key\":\"scene_1\",\"entity_key\":\"brown_poodle\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"brown\"},{\"scene_key\":\"scene_1\",\"entity_key\":\"brown_poodle\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"wags tail\"}]},{\"scene_key\":\"scene_2\",\"planned_start_ms\":5000,\"planned_end_ms\":10000,\"description\":\"회색 후드티를 입은 주인이 빨간 공을 멀리 던진다\",\"entity_keys\":[\"owner\",\"red_ball\"],\"requirements\":[{\"scene_key\":\"scene_2\",\"entity_key\":\"owner\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"gray hoodie\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"red_ball\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"red\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"owner\",\"related_entity_key\":\"red_ball\",\"predicate\":\"holds\",\"expected_value\":\"red_ball\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"owner\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"throws ball far\"}]},{\"scene_key\":\"scene_3\",\"planned_start_ms\":10000,\"planned_end_ms\":15000,\"description\":\"푸들이 빨간 공을 입에 물고 주인에게 달려온다\",\"entity_keys\":[\"brown_poodle\",\"red_ball\",\"owner\"],\"requirements\":[{\"scene_key\":\"scene_3\",\"entity_key\":\"brown_poodle\",\"related_entity_key\":\"red_ball\",\"predicate\":\"holds\",\"expected_value\":\"red_ball\"},{\"scene_key\":\"scene_3\",\"entity_key\":\"brown_poodle\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"runs to owner\"}]}]}"
+  },
+  {
+   "case_id": "ko-04-sneaker-rain",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 8,
+    "fp": 2,
+    "fn": 3
+   },
+   "appearances": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.7619,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "shoe_closeup:shoes:color",
+    "shoe_closeup:-:camera",
+    "finish:caption:position"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "shoe_closeup:running_shoes:action",
+    "runner_stops:-:camera"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1512,
+    "output": 571
+   },
+   "elapsed_ms": 4172,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"runner\",\"kind\":\"PERSON\",\"description\":\"러너\"},{\"entity_key\":\"running_shoes\",\"kind\":\"PROP\",\"description\":\"형광 초록색 러닝화\"},{\"entity_key\":\"run_free_text\",\"kind\":\"TEXT\",\"description\":\"'RUN FREE' 문구\"}],\"scenes\":[{\"scene_key\":\"running_night\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"비 오는 밤 도시 거리에서 러너가 형광 초록색 러닝화를 신고 달린다\",\"entity_keys\":[\"runner\",\"running_shoes\"],\"requirements\":[{\"scene_key\":\"running_night\",\"entity_key\":\"running_shoes\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"fluorescent green\"},{\"scene_key\":\"running_night\",\"entity_key\":\"runner\",\"related_entity_key\":\"running_shoes\",\"predicate\":\"wears\",\"expected_value\":\"running_shoes\"},{\"scene_key\":\"running_night\",\"entity_key\":\"runner\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"runs\"},{\"scene_key\":\"running_night\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"city street\"},{\"scene_key\":\"running_night\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"night\"},{\"scene_key\":\"running_night\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"rainy\"}]},{\"scene_key\":\"shoe_closeup\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"젖은 아스팔트 위 러닝화 클로즈업, 슬로모션\",\"entity_keys\":[\"running_shoes\"],\"requirements\":[{\"scene_key\":\"shoe_closeup\",\"entity_key\":\"running_shoes\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"slow motion\"},{\"scene_key\":\"shoe_closeup\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"wet asphalt\"}]},{\"scene_key\":\"runner_stops\",\"planned_start_ms\":8000,\"planned_end_ms\":12000,\"description\":\"러너가 멈춰 숨을 고리고 화면 가운데에 'RUN FREE' 문구가 나타난다\",\"entity_keys\":[\"runner\",\"run_free_text\"],\"requirements\":[{\"scene_key\":\"runner_stops\",\"entity_key\":\"runner\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"stops and catches breath\"},{\"scene_key\":\"runner_stops\",\"entity_key\":\"run_free_text\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"RUN FREE\"},{\"scene_key\":\"runner_stops\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"camera\",\"expected_value\":\"centered text\"}]}]}"
+  },
+  {
+   "case_id": "ko-05-ramen-recipe",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 1
+   },
+   "appearances": {
+    "tp": 6,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.9091,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "add_eggs:pot:color"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1501,
+    "output": 573
+   },
+   "elapsed_ms": 4428,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"silver_pot\",\"kind\":\"PROP\",\"description\":\"은색 냄비\"},{\"entity_key\":\"water\",\"kind\":\"PROP\",\"description\":\"끓는 물\"},{\"entity_key\":\"hand\",\"kind\":\"PERSON\",\"description\":\"손\"},{\"entity_key\":\"egg\",\"kind\":\"PROP\",\"description\":\"계란\"},{\"entity_key\":\"ramen_bowl\",\"kind\":\"PROP\",\"description\":\"완성된 라면 그릇\"},{\"entity_key\":\"text_3_min_complete\",\"kind\":\"TEXT\",\"description\":\"'3분 완성' 자막\"}],\"scenes\":[{\"scene_key\":\"boiling_water\",\"planned_start_ms\":0,\"planned_end_ms\":3000,\"description\":\"위에서 내려다본 구도로 물이 끓는 은색 냄비\",\"entity_keys\":[\"silver_pot\",\"water\"],\"requirements\":[{\"scene_key\":\"boiling_water\",\"entity_key\":\"silver_pot\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"silver\"},{\"scene_key\":\"boiling_water\",\"entity_key\":\"water\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"boiling\"},{\"scene_key\":\"boiling_water\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"camera\",\"expected_value\":\"top down\"}]},{\"scene_key\":\"adding_eggs\",\"planned_start_ms\":3000,\"planned_end_ms\":6000,\"description\":\"손이 냄비에 계란 두 개를 넣는다\",\"entity_keys\":[\"hand\",\"silver_pot\",\"egg\"],\"requirements\":[{\"scene_key\":\"adding_eggs\",\"entity_key\":\"hand\",\"related_entity_key\":\"silver_pot\",\"predicate\":\"near\",\"expected_value\":\"silver_pot\"},{\"scene_key\":\"adding_eggs\",\"entity_key\":\"hand\",\"related_entity_key\":\"egg\",\"predicate\":\"holds\",\"expected_value\":\"egg\"},{\"scene_key\":\"adding_eggs\",\"entity_key\":\"egg\",\"related_entity_key\":null,\"predicate\":\"count\",\"expected_value\":\"2\"},{\"scene_key\":\"adding_eggs\",\"entity_key\":\"hand\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"puts eggs into pot\"}]},{\"scene_key\":\"finished_ramen\",\"planned_start_ms\":6000,\"planned_end_ms\":9000,\"description\":\"완성된 라면 그릇 위에 '3분 완성' 자막이 뜬다\",\"entity_keys\":[\"ramen_bowl\",\"text_3_min_complete\"],\"requirements\":[{\"scene_key\":\"finished_ramen\",\"entity_key\":\"text_3_min_complete\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"3분 완성\"},{\"scene_key\":\"finished_ramen\",\"entity_key\":\"text_3_min_complete\",\"related_entity_key\":\"ramen_bowl\",\"predicate\":\"on\",\"expected_value\":\"ramen_bowl\"}]}]}"
+  },
+  {
+   "case_id": "ko-06-umbrella-couple",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 9,
+    "fp": 2,
+    "fn": 3
+   },
+   "appearances": {
+    "tp": 4,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirement_f1": 0.7826,
+   "scenes": {
+    "expected": 2,
+    "predicted": 2,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [
+    "navy_coat"
+   ],
+   "missed_requirements": [
+    "waiting:woman:pose",
+    "waiting:-:location",
+    "meeting:man:outfit"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "scene_1:bus_stop:location",
+    "scene_2:man:wears:navy_coat"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1487,
+    "output": 560
+   },
+   "elapsed_ms": 4417,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"woman\",\"kind\":\"PERSON\",\"description\":\"노란 우산을 든 여성\"},{\"entity_key\":\"yellow_umbrella\",\"kind\":\"PROP\",\"description\":\"노란 우산\"},{\"entity_key\":\"bus_stop\",\"kind\":\"BACKGROUND\",\"description\":\"버스 정류장\"},{\"entity_key\":\"man\",\"kind\":\"PERSON\",\"description\":\"남색 코트를 입은 남성\"},{\"entity_key\":\"navy_coat\",\"kind\":\"PROP\",\"description\":\"남색 코트\"}],\"scenes\":[{\"scene_key\":\"scene_1\",\"planned_start_ms\":0,\"planned_end_ms\":6000,\"description\":\"노란 우산을 든 여성이 버스 정류장에 서 있다\",\"entity_keys\":[\"woman\",\"yellow_umbrella\",\"bus_stop\"],\"requirements\":[{\"scene_key\":\"scene_1\",\"entity_key\":\"woman\",\"related_entity_key\":\"yellow_umbrella\",\"predicate\":\"holds\",\"expected_value\":\"yellow_umbrella\"},{\"scene_key\":\"scene_1\",\"entity_key\":\"yellow_umbrella\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"yellow\"},{\"scene_key\":\"scene_1\",\"entity_key\":\"bus_stop\",\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"bus stop\"},{\"scene_key\":\"scene_1\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"rainy\"}]},{\"scene_key\":\"scene_2\",\"planned_start_ms\":6000,\"planned_end_ms\":12000,\"description\":\"남색 코트를 입은 남성이 다가오고, 두 사람이 서로 바라보며 웃는다\",\"entity_keys\":[\"woman\",\"man\",\"yellow_umbrella\",\"navy_coat\"],\"requirements\":[{\"scene_key\":\"scene_2\",\"entity_key\":\"man\",\"related_entity_key\":\"navy_coat\",\"predicate\":\"wears\",\"expected_value\":\"navy_coat\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"man\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"approaches woman\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"woman\",\"related_entity_key\":\"man\",\"predicate\":\"looks_at\",\"expected_value\":\"man\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"man\",\"related_entity_key\":\"woman\",\"predicate\":\"looks_at\",\"expected_value\":\"woman\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"woman\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"smiling\"},{\"scene_key\":\"scene_2\",\"entity_key\":\"man\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"smiling\"},{\"scene_key\":\"scene_2\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"weather\",\"expected_value\":\"rainy\"}]}]}"
+  },
+  {
+   "case_id": "ko-07-florist-cat",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 4,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 6,
+    "fp": 1,
+    "fn": 6
+   },
+   "appearances": {
+    "tp": 4,
+    "fp": 1,
+    "fn": 0
+   },
+   "requirement_f1": 0.6316,
+   "scenes": {
+    "expected": 2,
+    "predicted": 2,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [
+    "apron"
+   ],
+   "missed_requirements": [
+    "wrapping:florist:outfit",
+    "wrapping:florist:action",
+    "wrapping:-:location",
+    "wrapping:-:lighting",
+    "cat:cat:pose",
+    "cat:-:location"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "packing_roses:florist:wears:apron"
+   ],
+   "attempts": 2,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 2020,
+    "output": 501
+   },
+   "elapsed_ms": 7581,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"florist\",\"kind\":\"PERSON\",\"description\":\"앞치마를 두른 플로리스트\"},{\"entity_key\":\"apron\",\"kind\":\"PROP\",\"description\":\"앞치마\"},{\"entity_key\":\"pink_rose_bouquet\",\"kind\":\"PROP\",\"description\":\"분홍 장미 꽃다발\"},{\"entity_key\":\"gray_cat\",\"kind\":\"ANIMAL\",\"description\":\"회색 고양이\"},{\"entity_key\":\"vase\",\"kind\":\"PROP\",\"description\":\"꽃병\"}],\"scenes\":[{\"scene_key\":\"packing_roses\",\"planned_start_ms\":0,\"planned_end_ms\":5000,\"description\":\"앞치마를 두른 플로리스트가 분홍 장미 꽃다발을 포장한다\",\"entity_keys\":[\"florist\",\"apron\",\"pink_rose_bouquet\"],\"requirements\":[{\"scene_key\":\"packing_roses\",\"entity_key\":\"florist\",\"related_entity_key\":\"apron\",\"predicate\":\"wears\",\"expected_value\":\"apron\"},{\"scene_key\":\"packing_roses\",\"entity_key\":\"florist\",\"related_entity_key\":\"pink_rose_bouquet\",\"predicate\":\"holds\",\"expected_value\":\"pink_rose_bouquet\"},{\"scene_key\":\"packing_roses\",\"entity_key\":\"pink_rose_bouquet\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"pink\"},{\"scene_key\":\"packing_roses\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"mood\",\"expected_value\":\"calm\"}]},{\"scene_key\":\"cat_by_window\",\"planned_start_ms\":5000,\"planned_end_ms\":10000,\"description\":\"창가의 꽃병 옆에 회색 고양이가 앉아 있다. 창으로 들어오는 자연광과 잔잔한 분위기를 유지한다\",\"entity_keys\":[\"gray_cat\",\"vase\"],\"requirements\":[{\"scene_key\":\"cat_by_window\",\"entity_key\":\"gray_cat\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"gray\"},{\"scene_key\":\"cat_by_window\",\"entity_key\":\"gray_cat\",\"related_entity_key\":\"vase\",\"predicate\":\"near\",\"expected_value\":\"vase\"},{\"scene_key\":\"cat_by_window\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"natural light through window\"},{\"scene_key\":\"cat_by_window\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"mood\",\"expected_value\":\"calm\"}]}]}"
+  },
+  {
+   "case_id": "ko-08-laptop-desk",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 1,
+    "fp": 0,
+    "fn": 1
+   },
+   "requirements": {
+    "tp": 3,
+    "fp": 2,
+    "fn": 5
+   },
+   "appearances": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 1
+   },
+   "requirement_f1": 0.4615,
+   "scenes": {
+    "expected": 2,
+    "predicted": 2,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [
+    "desk"
+   ],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "product:laptop:on:desk",
+    "product:desk:material",
+    "product:laptop:text",
+    "product:-:lighting",
+    "orbit:-:camera"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "living_room_scene:laptop:on:frame_os_text",
+    "camera_orbit_scene:-:action"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1485,
+    "output": 356
+   },
+   "elapsed_ms": 2669,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"laptop\",\"kind\":\"PROP\",\"description\":\"은색 노트북\"},{\"entity_key\":\"frame_os_text\",\"kind\":\"TEXT\",\"description\":\"'FRAME OS' 문구\"}],\"scenes\":[{\"scene_key\":\"living_room_scene\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"햇살이 드는 거실, 나무 책상 위에 은색 노트북이 놓여 있고 화면에 'FRAME OS' 문구가 떠 있다\",\"entity_keys\":[\"laptop\",\"frame_os_text\"],\"requirements\":[{\"scene_key\":\"living_room_scene\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"sunlit living room\"},{\"scene_key\":\"living_room_scene\",\"entity_key\":\"laptop\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"silver\"},{\"scene_key\":\"living_room_scene\",\"entity_key\":\"laptop\",\"related_entity_key\":\"frame_os_text\",\"predicate\":\"on\",\"expected_value\":\"frame_os_text\"},{\"scene_key\":\"living_room_scene\",\"entity_key\":\"frame_os_text\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"FRAME OS\"}]},{\"scene_key\":\"camera_orbit_scene\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"카메라가 노트북 주위를 천천히 돈다\",\"entity_keys\":[\"laptop\"],\"requirements\":[{\"scene_key\":\"camera_orbit_scene\",\"entity_key\":\"laptop\",\"related_entity_key\":null,\"predicate\":\"color\",\"expected_value\":\"silver\"},{\"scene_key\":\"camera_orbit_scene\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"slow orbit around laptop\"}]}]}"
+  },
+  {
+   "case_id": "ko-09-jeju-travel",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 3,
+    "fp": 4,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 7,
+    "fp": 6,
+    "fn": 5
+   },
+   "appearances": {
+    "tp": 4,
+    "fp": 4,
+    "fn": 0
+   },
+   "requirement_f1": 0.56,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [
+    "drone",
+    "red_windbreaker",
+    "seagull2",
+    "seagull3"
+   ],
+   "missed_requirements": [
+    "aerial:-:camera",
+    "seagulls:traveler:outfit",
+    "seagulls:traveler:pose",
+    "seagulls:seagulls:count",
+    "walk:traveler:outfit"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [
+    "sunrise_beach_drone_view:drone:action",
+    "sunrise_beach_drone_view:beach:position",
+    "traveler_seagulls_coastal_trail:traveler:wears:red_windbreaker",
+    "traveler_seagulls_coastal_trail:traveler:position",
+    "traveler_seagulls_coastal_trail:traveler:looks_at:seagull2",
+    "traveler_seagulls_coastal_trail:traveler:looks_at:seagull3"
+   ],
+   "attempts": 1,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 1519,
+    "output": 875
+   },
+   "elapsed_ms": 6466,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"drone\",\"kind\":\"OTHER\",\"description\":\"드론\"},{\"entity_key\":\"beach\",\"kind\":\"BACKGROUND\",\"description\":\"해변\"},{\"entity_key\":\"traveler\",\"kind\":\"PERSON\",\"description\":\"여행자\"},{\"entity_key\":\"red_windbreaker\",\"kind\":\"PROP\",\"description\":\"빨간 바람막이\"},{\"entity_key\":\"seagull1\",\"kind\":\"ANIMAL\",\"description\":\"갈매기\"},{\"entity_key\":\"seagull2\",\"kind\":\"ANIMAL\",\"description\":\"갈매기\"},{\"entity_key\":\"seagull3\",\"kind\":\"ANIMAL\",\"description\":\"갈매기\"},{\"entity_key\":\"coastal_trail\",\"kind\":\"BACKGROUND\",\"description\":\"해안 산책로\"},{\"entity_key\":\"jeju_text\",\"kind\":\"TEXT\",\"description\":\"'JEJU' 자막\"}],\"scenes\":[{\"scene_key\":\"sunrise_beach_drone_view\",\"planned_start_ms\":0,\"planned_end_ms\":5000,\"description\":\"해 뜰 무렵의 해변을 드론으로 높이 내려다본다\",\"entity_keys\":[\"drone\",\"beach\"],\"requirements\":[{\"scene_key\":\"sunrise_beach_drone_view\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"time_of_day\",\"expected_value\":\"sunrise\"},{\"scene_key\":\"sunrise_beach_drone_view\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"beach\"},{\"scene_key\":\"sunrise_beach_drone_view\",\"entity_key\":\"drone\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"flies high overhead\"},{\"scene_key\":\"sunrise_beach_drone_view\",\"entity_key\":\"beach\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"high aerial view\"}]},{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"planned_start_ms\":5000,\"planned_end_ms\":10000,\"description\":\"빨간 바람막이를 입은 여행자가 해안 산책로에 서서 갈매기 세 마리를 바라본다\",\"entity_keys\":[\"traveler\",\"red_windbreaker\",\"coastal_trail\",\"seagull1\",\"seagull2\",\"seagull3\"],\"requirements\":[{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"entity_key\":\"traveler\",\"related_entity_key\":\"red_windbreaker\",\"predicate\":\"wears\",\"expected_value\":\"red_windbreaker\"},{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"entity_key\":\"traveler\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"standing on coastal trail\"},{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"entity_key\":\"traveler\",\"related_entity_key\":\"seagull1\",\"predicate\":\"looks_at\",\"expected_value\":\"seagull1\"},{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"entity_key\":\"traveler\",\"related_entity_key\":\"seagull2\",\"predicate\":\"looks_at\",\"expected_value\":\"seagull2\"},{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"entity_key\":\"traveler\",\"related_entity_key\":\"seagull3\",\"predicate\":\"looks_at\",\"expected_value\":\"seagull3\"},{\"scene_key\":\"traveler_seagulls_coastal_trail\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"location\",\"expected_value\":\"coastal trail\"}]},{\"scene_key\":\"traveler_walking_with_text\",\"planned_start_ms\":10000,\"planned_end_ms\":15000,\"description\":\"여행자가 카메라 쪽으로 걸어오고, 화면 위쪽에 'JEJU' 자막이 나타난다\",\"entity_keys\":[\"traveler\",\"jeju_text\"],\"requirements\":[{\"scene_key\":\"traveler_walking_with_text\",\"entity_key\":\"traveler\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"walks toward camera\"},{\"scene_key\":\"traveler_walking_with_text\",\"entity_key\":\"jeju_text\",\"related_entity_key\":null,\"predicate\":\"text\",\"expected_value\":\"JEJU\"},{\"scene_key\":\"traveler_walking_with_text\",\"entity_key\":\"jeju_text\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"top of screen\"}]}]}"
+  },
+  {
+   "case_id": "ko-10-gym-promo",
+   "language": "ko",
+   "error": null,
+   "entities": {
+    "tp": 5,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirements": {
+    "tp": 12,
+    "fp": 0,
+    "fn": 7
+   },
+   "appearances": {
+    "tp": 9,
+    "fp": 0,
+    "fn": 0
+   },
+   "requirement_f1": 0.7742,
+   "scenes": {
+    "expected": 3,
+    "predicted": 3,
+    "boundary_error_ms": 0.0,
+    "duration_error_ms": 0
+   },
+   "missed_entities": [],
+   "spurious_entities": [],
+   "missed_requirements": [
+    "trainer:logo:text",
+    "trainer:-:location",
+    "treadmill:logo:text",
+    "treadmill:-:location",
+    "high_five:trainer:outfit",
+    "high_five:logo:text",
+    "high_five:-:location"
+   ],
+   "mismatched_requirements": [],
+   "spurious_requirements": [],
+   "attempts": 2,
+   "model": "gpt-4.1-mini-2025-04-14",
+   "tokens": {
+    "input": 2191,
+    "output": 664
+   },
+   "elapsed_ms": 10242,
+   "repair_notes": [],
+   "response": "{\"schema_version\":1,\"entities\":[{\"entity_key\":\"trainer\",\"kind\":\"PERSON\",\"description\":\"트레이너\"},{\"entity_key\":\"member\",\"kind\":\"PERSON\",\"description\":\"회원\"},{\"entity_key\":\"dumbbell\",\"kind\":\"PROP\",\"description\":\"덤벨\"},{\"entity_key\":\"treadmill\",\"kind\":\"PROP\",\"description\":\"러닝머신\"},{\"entity_key\":\"fit_zone_logo\",\"kind\":\"PROP\",\"description\":\"'FIT ZONE' 로고\"}],\"scenes\":[{\"scene_key\":\"trainer_with_dumbbell\",\"planned_start_ms\":0,\"planned_end_ms\":4000,\"description\":\"검은 민소매 티를 입은 트레이너가 덤벨을 들고 미소 짓는다\",\"entity_keys\":[\"trainer\",\"dumbbell\",\"fit_zone_logo\"],\"requirements\":[{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"trainer\",\"related_entity_key\":null,\"predicate\":\"outfit\",\"expected_value\":\"black sleeveless t shirt\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"trainer\",\"related_entity_key\":\"dumbbell\",\"predicate\":\"holds\",\"expected_value\":\"dumbbell\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"trainer\",\"related_entity_key\":null,\"predicate\":\"expression\",\"expected_value\":\"smiling\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":\"fit_zone_logo\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom right\"},{\"scene_key\":\"trainer_with_dumbbell\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]},{\"scene_key\":\"member_running\",\"planned_start_ms\":4000,\"planned_end_ms\":8000,\"description\":\"회원이 러닝머신 위에서 달린다\",\"entity_keys\":[\"member\",\"treadmill\",\"fit_zone_logo\"],\"requirements\":[{\"scene_key\":\"member_running\",\"entity_key\":\"member\",\"related_entity_key\":\"treadmill\",\"predicate\":\"on\",\"expected_value\":\"treadmill\"},{\"scene_key\":\"member_running\",\"entity_key\":\"member\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"running\"},{\"scene_key\":\"member_running\",\"entity_key\":\"fit_zone_logo\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom right\"},{\"scene_key\":\"member_running\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]},{\"scene_key\":\"high_five_scene\",\"planned_start_ms\":8000,\"planned_end_ms\":12000,\"description\":\"트레이너와 회원이 하이파이브를 한다\",\"entity_keys\":[\"trainer\",\"member\",\"fit_zone_logo\"],\"requirements\":[{\"scene_key\":\"high_five_scene\",\"entity_key\":\"trainer\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"raises hand for high five\"},{\"scene_key\":\"high_five_scene\",\"entity_key\":\"member\",\"related_entity_key\":null,\"predicate\":\"action\",\"expected_value\":\"raises hand for high five\"},{\"scene_key\":\"high_five_scene\",\"entity_key\":\"fit_zone_logo\",\"related_entity_key\":null,\"predicate\":\"position\",\"expected_value\":\"bottom right\"},{\"scene_key\":\"high_five_scene\",\"entity_key\":null,\"related_entity_key\":null,\"predicate\":\"lighting\",\"expected_value\":\"bright\"}]}]}"
+  }
+ ],
+ "rescored": {
+  "at": "2026-11-14T11:47:32+09:00",
+  "gold_fingerprint_before": "81904948a5b2db5434debd5fe927dd7cc124fb1a3cbf3290c4d5e802ddd7be3e"
+ }
+}

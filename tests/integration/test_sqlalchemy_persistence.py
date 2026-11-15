@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 
 from frame.adapters.persistence.sqlalchemy import (
     create_engine_from_url,
@@ -18,8 +18,9 @@ from frame.adapters.persistence.sqlalchemy.models import (
     SceneRow,
 )
 from frame.config import Settings
+from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import VersionState
-from frame.domain.models import Project, VideoVersion
+from frame.domain.models import Project, ReferenceImage, VideoVersion
 from tests.support.factories import create_draft, generate, make_container
 
 NOW = datetime(2026, 11, 7, tzinfo=UTC)
@@ -81,3 +82,128 @@ def test_full_flow_runs_on_sqlalchemy_persistence():
     assert checks.summary.requirement_reflection_rate == 1.0
     tracks = container.queries.get_entity_tracks(draft.version_id, "cup").records
     assert [t.scene_key for t in tracks] == ["intro", "closeup"]
+
+
+def test_existing_sqlite_database_gains_new_version_columns(tmp_path, ir):
+    """#2: queued_at·started_at·attempt 가 없던 예전 개발 DB 도 기동 때 열이 더해져 그대로 쓸 수 있다."""
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.commit()
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        for column in ("queued_at", "started_at", "attempt"):
+            conn.exec_driver_sql(f"ALTER TABLE video_versions DROP COLUMN {column}")
+
+    create_schema(engine)
+
+    columns = {c["name"] for c in inspect(engine).get_columns("video_versions")}
+    assert {"queued_at", "started_at", "attempt"} <= columns
+    with uow_factory() as uow:
+        version = uow.versions.get("ver_1")
+        assert (version.queued_at, version.started_at, version.attempt) == (None, None, 0)
+        assert version.ir == ir
+
+
+def test_existing_sqlite_database_gains_identity_reference_columns(tmp_path, ir):
+    """ADR-0015: 정체성 기준 열이 없던 예전 개발 DB 의 참조 이미지는 사용자 참조(USER)로 읽힌다."""
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.reference_images.add(ReferenceImage("img_1", "ver_1", "mem://refs/cup.png", "cup"))
+        uow.commit()
+    new_columns = (
+        "origin",
+        "source_scene_key",
+        "source_fingerprint",
+        "appearance_fingerprint",
+        "description",
+    )
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        for column in new_columns:
+            conn.exec_driver_sql(f"ALTER TABLE reference_images DROP COLUMN {column}")
+
+    create_schema(engine)
+
+    columns = {c["name"] for c in inspect(engine).get_columns("reference_images")}
+    assert set(new_columns) <= columns
+    with uow_factory() as uow:
+        (ref,) = uow.reference_images.list_by_version("ver_1")
+        assert ref == ReferenceImage("img_1", "ver_1", "mem://refs/cup.png", "cup")
+
+
+def test_existing_sqlite_database_gains_the_clip_metadata_column(tmp_path, ir):
+    """ADR-0016: 클립 메타데이터 열이 없던 예전 개발 DB 의 클립은 빈 메타데이터로 읽힌다."""
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        version = VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir)
+        version.clips = {"intro": GeneratedClip("intro", "mem://clips/intro", 4000, "fp")}
+        uow.versions.add(version)
+        uow.versions.save(version)
+        uow.commit()
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        conn.exec_driver_sql("ALTER TABLE scenes DROP COLUMN clip_metadata_json")
+
+    create_schema(engine)
+
+    assert "clip_metadata_json" in {c["name"] for c in inspect(engine).get_columns("scenes")}
+    with uow_factory() as uow:
+        assert uow.versions.get("ver_1").clips["intro"] == GeneratedClip(
+            "intro", "mem://clips/intro", 4000, "fp"
+        )
+
+
+def test_entity_display_name_is_stored_and_old_databases_gain_the_column(tmp_path, ir):
+    """#10: 표시 이름은 entities.display_name 열에 남고, 열이 없던 예전 개발 DB 에는 기동 때 더해진다."""
+    from dataclasses import replace
+
+    engine = create_engine_from_url(f"sqlite+pysqlite:///{(tmp_path / 'old.db').as_posix()}")
+    create_schema(engine)
+    with engine.begin() as conn:  # 이 기능 이전의 스키마로 되돌린다
+        conn.exec_driver_sql("ALTER TABLE entities DROP COLUMN display_name")
+    create_schema(engine)
+
+    named = replace(
+        ir,
+        entities=tuple(
+            replace(e, display_name="컵 01" if e.entity_key == "cup" else "") for e in ir.entities
+        ),
+    )
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=named))
+        uow.commit()
+
+    with make_session_factory(engine)() as session:
+        assert session.get(EntityRow, "prj_1:cup").display_name == "컵 01"
+        assert session.get(EntityRow, "prj_1:barista").display_name is None
+    with uow_factory() as uow:
+        assert uow.versions.get("ver_1").ir == named
+
+
+def test_replace_draft_ir_reports_a_version_it_cannot_read_back(engine, ir, monkeypatch):
+    """조건부 갱신이 한 행을 바꿨는데 다시 읽지 못하면 (불변식이 깨짐) 정규화 행을 만들지 않고 LookupError 로 알린다.
+
+    assert 로 두면 `python -O` 에서 검사가 사라지고 AttributeError 로 바뀐다 (감사 브랜치 ruff S101).
+    """
+    uow_factory = sqlalchemy_uow_factory(make_session_factory(engine))
+    with uow_factory() as uow:
+        uow.projects.add(Project("prj_1", "카페", NOW))
+        uow.versions.add(VideoVersion("ver_1", "prj_1", VersionState.DRAFT, NOW, ir=ir))
+        uow.commit()
+
+    with uow_factory() as uow:
+        monkeypatch.setattr(uow.versions, "get", lambda version_id: None)
+        with pytest.raises(LookupError) as excinfo:
+            uow.versions.replace_draft_ir("ver_1", ir)
+
+    assert "ver_1" in str(excinfo.value)

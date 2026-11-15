@@ -19,6 +19,8 @@ from frame.config import Settings, build_container
 from frame.presentation.app import create_app
 
 DEFAULT_OUTPUT = Path("docs/openapi.json")
+# 스키마를 따라 내려가는 깊이의 상한 (서로를 가리키는 스키마에서 멈춘다)
+_MAX_DEPTH = 8
 
 
 def build_spec() -> dict[str, Any]:
@@ -46,7 +48,7 @@ def _fields(
     schema: dict[str, Any], components: dict[str, Any], prefix: str, depth: int = 0
 ) -> set[str]:
     node = _resolve(schema, components)
-    if depth > 8:
+    if depth > _MAX_DEPTH:
         return set()
     if node.get("type") == "array" and "items" in node:
         return _fields(node["items"], components, f"{prefix}[]", depth + 1) or {f"{prefix}[]"}
@@ -71,9 +73,16 @@ def contract_signature(spec: dict[str, Any]) -> set[str]:
             signature.add(head)
             for param in op.get("parameters", []):
                 signature.add(f"{head} param:{param['name']}")
-            body = op.get("requestBody", {}).get("content", {}).get("application/json", {})
-            if "schema" in body:
-                signature |= {f"{head} body:{f}" for f in _fields(body["schema"], components, "")}
+            content = op.get("requestBody", {}).get("content", {})
+            for media_type in (
+                "application/json",
+                "multipart/form-data",
+            ):  # 업로드는 multipart (#12)
+                body = content.get(media_type, {})
+                if "schema" in body:
+                    signature |= {
+                        f"{head} body:{f}" for f in _fields(body["schema"], components, "")
+                    }
             for status, response in op.get("responses", {}).items():
                 signature.add(f"{head} -> {status}")
                 content = response.get("content", {}).get("application/json", {})

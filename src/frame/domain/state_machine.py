@@ -1,7 +1,8 @@
 """VIDEO_VERSION 상태 전이 규칙 (무결성 규칙 1 의 Service 측 검증 근거).
 
 STRUCTURING --성공--> DRAFT --접수(조건 고정)--> QUEUED --> PROCESSING --> COMPLETED
-     |                                             |              |
+     |                                             |    ^         |
+     |                                             |    +---------+ 워커 유실 뒤 재시도 (재시작 복구)
      +--실행 오류--> FAILED <-------------------------+--------------+
 """
 
@@ -11,13 +12,17 @@ from .errors import InvalidStateTransition
 TRANSITIONS: dict[S, frozenset[S]] = {
     S.STRUCTURING: frozenset({S.DRAFT, S.FAILED}),
     S.DRAFT: frozenset({S.QUEUED}),
+    # QUEUED -> FAILED: 지금 이 전이를 쓰는 코드는 없다 (실패는 STRUCTURING · PROCESSING 에서만 난다 - 감사 C-10).
+    # 빼려면 위 그림 · tests/unit/domain/test_state_machine.py · ARCHITECTURE.md §3.3 을 함께 고친다
     S.QUEUED: frozenset({S.PROCESSING, S.FAILED}),
-    S.PROCESSING: frozenset({S.COMPLETED, S.FAILED}),
+    # PROCESSING -> QUEUED: 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
+    S.PROCESSING: frozenset({S.COMPLETED, S.FAILED, S.QUEUED}),
     S.COMPLETED: frozenset(),
     S.FAILED: frozenset(),
 }
 
 GENERATABLE_STATES: frozenset[S] = frozenset({S.DRAFT})
+EDITABLE_STATES: frozenset[S] = frozenset({S.DRAFT})  # IR 을 직접 고칠 수 있는 상태 (#11)
 REVISABLE_STATES: frozenset[S] = frozenset({S.DRAFT, S.COMPLETED, S.FAILED})
 TERMINAL_STATES: frozenset[S] = frozenset({S.COMPLETED, S.FAILED})
 

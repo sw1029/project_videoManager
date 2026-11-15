@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from typing import Any
 
-from frame.adapters.common import FixedClock, SequentialIdGenerator
 from frame.adapters.jobs import RecordingJobDispatcher
+from frame.adapters.shared.runtime import FixedClock, SequentialIdGenerator
 from frame.application.dto import CreateProjectCommand, CreateProjectResult
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.config import Container, Settings, build_container
-from frame.domain.enums import EntityKind
+from frame.domain.enums import EntityKind, VersionState
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
-from frame.domain.models import VideoVersion
+from frame.domain.models import Project, VideoVersion
+from tests.support.clock import START
 
 # 규칙 기반 구조화 DSL 로 쓴 예시 요구사항 (컨셉 UI 의 '카페 신제품 숏폼')
 CAFE_PROMPT = """
@@ -80,6 +82,35 @@ def cafe_ir() -> IntermediateRepresentation:
     )
 
 
+CAFE_DISPLAY_NAMES = {"barista": "인물 01", "cup": "컵 01", "cafe": "배경 01"}
+
+
+def cafe_block_document() -> dict[str, Any]:
+    """블록 입력 화면(T4)이 조립해 보내는 IR 문서 (#10): cafe_ir() 과 같은 내용에 표시 이름을 붙였고,
+    요구조건의 장면 키와 관계 술어의 값은 생략했다 (서버 보정이 채운다)."""
+    document = cafe_ir().to_dict()
+    del document["schema_version"]
+    for entity in document["entities"]:
+        entity["display_name"] = CAFE_DISPLAY_NAMES[entity["entity_key"]]
+    for scene in document["scenes"]:
+        for requirement in scene["requirements"]:
+            del requirement["scene_key"]
+            if requirement["related_entity_key"]:
+                requirement["expected_value"] = ""
+    return document
+
+
+def named_cafe_ir() -> IntermediateRepresentation:
+    """cafe_block_document() 를 보정·검증한 결과: cafe_ir() 에 표시 이름을 붙인 IR."""
+    ir = cafe_ir()
+    return replace(
+        ir,
+        entities=tuple(
+            replace(e, display_name=CAFE_DISPLAY_NAMES[e.entity_key]) for e in ir.entities
+        ),
+    )
+
+
 def make_container(settings: Settings | None = None, **overrides: Any) -> Container:
     settings = settings or Settings(jobs="recording", persistence="memory")
     base: dict[str, Any] = {"ids": SequentialIdGenerator(), "clock": FixedClock()}
@@ -115,3 +146,43 @@ def generate(container: Container, version_id: str) -> VideoVersion:
 
 def version_of(container: Container, version_id: str) -> VideoVersion:
     return container.queries.get_version(version_id).version
+
+
+def with_scene_key(
+    ir: IntermediateRepresentation, old: str, new: str
+) -> IntermediateRepresentation:
+    """장면 키 하나를 바꾼 IR (그 장면의 요구조건도 새 키를 따른다). 검사하지 않는다."""
+    return replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s,
+                scene_key=new,
+                requirements=tuple(replace(r, scene_key=new) for r in s.requirements),
+            )
+            if s.scene_key == old
+            else s
+            for s in ir.scenes
+        ),
+    )
+
+
+def save_unchecked_draft(
+    container: Container, ir: IntermediateRepresentation, version_id: str = "ver_old"
+) -> str:
+    """검사를 거치지 않고 저장소에 바로 넣은 DRAFT (도메인 규칙이 생기기 전에 저장된 행 흉내). 버전 id 를 돌려준다."""
+    project_id = f"prj_{version_id}"
+    with container.uow_factory() as uow:
+        uow.projects.add(Project(project_id=project_id, title="옛 행", created_at=START))
+        uow.versions.add(
+            VideoVersion(
+                version_id=version_id,
+                project_id=project_id,
+                state=VersionState.DRAFT,
+                created_at=START,
+                target_duration_ms=ir.total_duration_ms,
+                ir=ir,
+            )
+        )
+        uow.commit()
+    return version_id

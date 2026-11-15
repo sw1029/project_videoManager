@@ -1,0 +1,54 @@
+{
+  "case_id": "en-01-tea-window",
+  "language": "en",
+  "target_duration_ms": 10000,
+  "brief": "A 10-second tea commercial. Scene 1 (5 s): a woman in a green sweater pours tea from a white teapot into a glass cup by a sunny window. Scene 2 (5 s): close-up of the glass cup on a wooden table while the words 'Morning Leaf' appear at the bottom of the screen.",
+  "covers": ["relation", "literal_text", "position", "material", "camera", "outfit", "action"],
+  "notes": "The table is a prop the cup stands on (relation on), not a location. Light and place of scene 2 are only implied.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "woman", "kind": "PERSON", "description": "woman in a green sweater", "aliases": ["woman", "lady", "girl"]},
+      {"entity_key": "teapot", "kind": "PROP", "description": "white teapot", "aliases": ["teapot", "kettle"]},
+      {"entity_key": "cup", "kind": "PROP", "description": "glass cup", "aliases": ["cup", "glass", "mug"]},
+      {"entity_key": "table", "kind": "PROP", "description": "wooden table", "aliases": ["table", "desk"]},
+      {"entity_key": "caption", "kind": "TEXT", "description": "on-screen words 'Morning Leaf'", "aliases": ["Morning Leaf", "caption", "text", "title", "words", "slogan", "tagline"]},
+      {"entity_key": "window", "kind": "BACKGROUND", "description": "sunny window", "aliases": ["window"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "pour",
+        "planned_start_ms": 0,
+        "planned_end_ms": 5000,
+        "description": "a woman pours tea from a white teapot into a glass cup by a sunny window",
+        "entity_keys": ["woman", "teapot", "cup", "window"],
+        "requirements": [
+          {"entity_key": "woman", "predicate": "outfit", "expected_value": "green sweater", "accept": ["green jumper", "green knit"]},
+          {"entity_key": "woman", "predicate": "holds", "related_entity_key": "teapot", "expected_value": "teapot"},
+          {"entity_key": "woman", "predicate": "action", "expected_value": "pours"},
+          {"entity_key": "teapot", "predicate": "color", "expected_value": "white"},
+          {"entity_key": "cup", "predicate": "material", "expected_value": "glass"},
+          {"predicate": "location", "expected_value": "window"},
+          {"predicate": "lighting", "expected_value": "sunlight", "accept": ["sunny", "sunlit", "natural", "daylight", "bright"]}
+        ]
+      },
+      {
+        "scene_key": "closeup",
+        "planned_start_ms": 5000,
+        "planned_end_ms": 10000,
+        "description": "close-up of the glass cup on a wooden table with the words 'Morning Leaf'",
+        "entity_keys": ["cup", "table", "caption", "window"],
+        "requirements": [
+          {"predicate": "camera", "expected_value": "close up"},
+          {"entity_key": "cup", "predicate": "material", "expected_value": "glass"},
+          {"entity_key": "cup", "predicate": "on", "related_entity_key": "table", "expected_value": "table"},
+          {"entity_key": "table", "predicate": "material", "expected_value": "wood", "accept": ["wooden"]},
+          {"entity_key": "caption", "predicate": "text", "expected_value": "Morning Leaf"},
+          {"entity_key": "caption", "predicate": "position", "expected_value": "bottom"},
+          {"predicate": "location", "expected_value": "window", "optional": true},
+          {"predicate": "lighting", "expected_value": "sunlight", "optional": true, "accept": ["sunny", "sunlit", "natural", "daylight", "bright"]}
+        ]
+      }
+    ]
+  }
+}

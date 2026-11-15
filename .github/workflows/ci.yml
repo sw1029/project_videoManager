@@ -1,26 +1,177 @@
 name: ci
 
+# 품질 게이트 (ADR-0030, docs/CI.md). 로컬에서는 `python scripts/check.py` 가 같은 검사를 돌린다.
 on:
   push:
     branches: [main, dev, "feature-*"]
   pull_request:
   workflow_dispatch:
+  # 릴리스(bundle.yml)가 번들을 붙이기 전에 같은 커밋으로 이 검사를 부른다
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    # 포맷 · 정적 검사 · 타입 검사 · 테스트와 커버리지 하한
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # 실제 영상 테스트(ffmpeg)를 조용히 건너뛰지 않는다. ffmpeg 는 video extra 가 가져온다
+      FRAME_REQUIRE_FFMPEG: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev,llm]"
-      - run: ruff check src tests
-      - run: pytest -m "not slow and not gpu" --cov=frame --cov-report=term-missing
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev,llm,video]"
+      - name: 포맷
+        run: python scripts/check.py format
+      - name: 정적 검사
+        run: python scripts/check.py lint
+      - name: 타입 검사
+        run: python scripts/check.py types
+      - name: 테스트와 커버리지 하한
+        run: python scripts/check.py tests --xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  compat:
+    # 같은 테스트를 번들·런처가 쓰는 Python 3.12 와 Windows 에서도 돌린다 (Windows 전용 코드가 있다)
+    name: compat (${{ matrix.os }}, py${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: windows-latest, python: "3.11" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      FRAME_REQUIRE_FFMPEG: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev,llm,video]"
+      - run: python -m pytest
+
+  audit:
+    # 의존성의 알려진 취약점. 처음에는 결과만 보고 머지를 막지 않는다 (ADR-0030)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[llm,video]" pip-audit
+      - run: pip-audit --skip-editable --progress-spinner off
+
+  overlay-font:
+    # 화면 문구 합성의 ffmpeg 테스트를, 그릴 수 있는 러너에서 돌린다 (보고서 §12.3 결정 11 · A-43).
+    # 다른 잡의 러너에서는 이 테스트 9개가 건너뛰어진다: 한글 글꼴이 없고, video extra 가 Linux 에 가져오는 ffmpeg 에는
+    # 글자를 그리는 drawtext 필터가 없다. 그래서 이 잡은 글꼴과 시스템 ffmpeg 를 깐다 (PATH 의 ffmpeg 가 먼저 쓰인다).
+    # 막는 검사다: 처음에는 결과만 봤고, 이어서 통과하는 것을 본 뒤 continue-on-error 를 뺐다 (결정 11).
+    # test 잡에 합치지 않는다: 시스템 ffmpeg 를 깔면 그 잡의 모든 영상 테스트가 번들이 아니라 러너의 ffmpeg 로 돈다
+    # (번들 ffmpeg 를 보는 잡이 없어진다). 러너의 ffmpeg 는 판이 고정돼 있지 않다 - 러너 이미지가 바뀌어 이 잡이
+    # 실패하면 오류 문구에 찍힌 ffmpeg 의 경로와 까닭부터 본다 (docs/CI.md 6절)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FRAME_REQUIRE_FFMPEG: "1"
+      # 글꼴이나 글자를 그리는 ffmpeg 를 찾지 못하면 건너뛰지 않고 실패한다 (건너뛴 채 통과로 보이지 않게)
+      FRAME_REQUIRE_KOREAN_FONT: "1"
+      FRAME_REQUIRE_DRAWTEXT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: 한글 글꼴 (Noto Sans CJK) 과 drawtext 필터가 든 ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg
+          ffmpeg -hide_banner -version
+          ffmpeg -hide_banner -filters | grep " drawtext "
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev,llm,video]"
+      - name: 화면 문구 합성 계약 테스트
+        run: python -m pytest tests/contract/test_overlay_contract.py
+
+  docker:
+    # 이미지를 빌드해 띄우고 /health 가 답하는지 본다 (이슈 #6). 그리고 그 이미지 안에서 실제 영상 경로를 돌린다 (ADR-0034):
+    # 이미지의 ffmpeg 는 배포판의 것이라 다른 잡이 쓰는 번들과 판 · 빌드가 다르다. 로컬에서 돌려 보지 못한 잡이라
+    # 처음에는 결과만 보고 머지를 막지 않는다 (ADR-0030, docs/CI.md 6절)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f docker/Dockerfile -t frame-api:ci .
+      - name: 이미지가 뜨고 건강 검사가 통과하는지
+        run: |
+          docker run -d --name frame-api -p 127.0.0.1:8000:8000 frame-api:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs frame-api
+          exit 1
+      - name: 이미지의 크기 (층마다) 와 그 안의 배포판 · ffmpeg 의 판 · drawtext 필터
+        run: |
+          docker image ls frame-api:ci
+          docker history frame-api:ci
+          docker run --rm frame-api:ci sh -ec '
+            python -c "import platform; print(platform.freedesktop_os_release())"
+            dpkg-query -W ffmpeg fonts-nanum
+            command -v ffmpeg
+            ffmpeg -hide_banner -version
+            ffmpeg -hide_banner -filters | grep " drawtext "'
+      - name: 이미지 그대로 - 화면 문구 합성 · 소리 편집 · 영상 분석을 켠 서버가 조립되는지
+        run: |
+          docker run --rm \
+            -e FRAME_OVERLAY_RENDERER=ffmpeg -e FRAME_AUDIO_EDITOR=ffmpeg -e FRAME_THEME_MEDIA=ffmpeg \
+            frame-api:ci python -c "from frame.presentation.main import create_default_app; create_default_app(); print('assembled')"
+      - name: 이미지 안에서 전체 테스트 - 배포판의 ffmpeg 와 한글 글꼴로 실제 영상 경로를 돌린다
+        # 클립 정규화(프레임 세기) · 조립 · 프레임 뽑기 · 소리 편집 · 화면 문구 합성이 이 이미지의 ffmpeg 로 되는지 본다.
+        # 저장소를 읽기 전용으로 붙여 컨테이너 안에 베끼고, 이미지의 패키지 위에 개발 도구만 더한 가상 환경에서 돌린다.
+        # 사용자는 이미지가 정한 그대로다 (서버가 도는 frame - root 로 바꾸지 않는다).
+        # ffmpeg · drawtext · 한글 글꼴이 없으면 건너뛰지 않고 실패한다. 어느 ffmpeg · 글꼴을 썼는지는 테스트의 머리 줄에 찍힌다
+        run: |
+          docker run --rm -v "$PWD":/checkout:ro frame-api:ci sh -ec '
+            work=$(mktemp -d)
+            cp -r /checkout "$work/frame"
+            cd "$work/frame"
+            python -m venv --system-site-packages "$work/venv"
+            export PATH="$work/venv/bin:$PATH"
+            python -m pip install --no-cache-dir --quiet -e ".[dev,llm]"
+            export FRAME_REQUIRE_FFMPEG=1 FRAME_REQUIRE_KOREAN_FONT=1 FRAME_REQUIRE_DRAWTEXT=1
+            python -m pytest'
 
   frontend:
-    # frontend/ 가 있는 브랜치에서만 빌드한다 (dev 에는 아직 없어 단계가 건너뛰어진다)
+    # frontend/ 가 있는 브랜치에서만 빌드한다 (없는 브랜치에서는 단계가 건너뛰어진다)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - id: detect
@@ -33,4 +184,24 @@ jobs:
         working-directory: frontend
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+          npm test
           npm run build
+
+  demo-smoke:
+    # 새 기기 시연 경로(docs/DEMO.md)를 세 OS 에서 그대로 따라 한다: setup → smoke (키·외부 호출 없음)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: python scripts/frame_demo.py setup --no-key
+      - run: python scripts/frame_demo.py smoke

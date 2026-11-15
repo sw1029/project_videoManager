@@ -1,0 +1,281 @@
+"""어댑터 레지스트리와 기본 등록 (감사 M-02): 설정 키가 어느 어댑터가 되는가.
+
+기본 등록은 포트마다 모듈 하나(frame.config.registrations)에 있다. 등록된 키, 키마다 만들어지는 것,
+팩토리끼리의 연결(글·이미지를 읽는 어댑터는 같은 레지스트리에서 LLM 을 찾는다)을 고정한다.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+from frame.adapters.llm import ReplayLLMClient
+from frame.adapters.shared.runtime import FixedClock, SequentialIdGenerator
+from frame.adapters.storage import InMemoryArtifactStore
+from frame.application.errors import ConfigurationError
+from frame.application.ports import (
+    ArtifactStore,
+    Checker,
+    IdentityReferenceExtractor,
+    JobDispatcher,
+    JobHandlerRegistry,
+    ObjectTracker,
+    RequirementStructurer,
+    UnitOfWork,
+    VideoAssembler,
+    VideoGenerator,
+)
+from frame.application.ports.change_request import ChangeRequestInterpreter
+from frame.application.ports.llm import LLMClient
+from frame.application.ports.series.audio import AudioEditor
+from frame.application.ports.series.overlay import OverlayRenderer, ScreenTextReader
+from frame.application.ports.series.planning import SeriesPlanner
+from frame.application.ports.series.repositories import EpisodeRepository, ThemeRepository
+from frame.application.ports.series.source_analysis import MediaProber, ShotDetector
+from frame.application.ports.series.theme_extraction import ThemeExtractor
+from frame.application.ports.speech import SpeechRecognizer
+from frame.config import (
+    AdapterRegistry,
+    BuildContext,
+    Settings,
+    build_container,
+    default_registry,
+)
+from frame.config.theme_settings import ThemeSettings
+
+# 포트 -> 설정에 쓸 수 있는 키 (FRAME_GENERATOR=external_api 의 external_api). 어댑터를 더하면 이 표에도 올린다
+DEFAULT_KEYS: dict[type, list[str]] = {
+    LLMClient: ["fake", "openai"],
+    RequirementStructurer: ["fake", "llm", "rule_based"],
+    ChangeRequestInterpreter: ["llm", "rule_based"],
+    VideoGenerator: ["diffusers", "external_api", "fake"],
+    VideoAssembler: ["fake", "ffmpeg"],
+    IdentityReferenceExtractor: ["fake", "frame", "off", "vlm_crop"],
+    ObjectTracker: ["fake", "opencv"],
+    Checker: [
+        "fake_consistency",
+        "fake_preservation",
+        "fake_requirement",
+        "ssim_preservation",
+        "vlm_consistency",
+        "vlm_preservation",
+        "vlm_requirement",
+    ],
+    ArtifactStore: ["local_fs", "memory"],
+    UnitOfWork: ["memory", "sqlalchemy"],
+    JobDispatcher: ["inline", "recording", "thread"],
+    # 테마·시리즈 기능의 포트. 어느 키를 쓸지는 테마 설정(FRAME_THEME_* 등)이 정한다
+    ThemeRepository: ["artifact", "memory"],
+    EpisodeRepository: ["artifact", "memory"],
+    MediaProber: ["fake", "ffmpeg"],
+    ShotDetector: ["fake", "ffmpeg"],
+    SpeechRecognizer: ["fake", "faster_whisper", "off", "openai"],
+    ThemeExtractor: ["fake", "vlm"],
+    SeriesPlanner: ["llm", "template"],
+    AudioEditor: ["fake", "ffmpeg"],
+    OverlayRenderer: ["fake", "ffmpeg"],
+    ScreenTextReader: ["fake", "off", "vlm"],
+}
+
+# 키·패키지·네트워크 같은 바깥 것이 있어야 만들어지는 어댑터. 각자의 테스트가 따로 본다
+# (openai: tests/unit/test_settings.py, external_api: tests/unit/generator/test_openrouter_config.py,
+#  로컬 인식의 꾸러미와 모델 폴더: tests/unit/test_local_speech.py, 한글 글꼴: tests/unit/test_theme_wiring.py)
+NEEDS_THE_OUTSIDE = {
+    (LLMClient, "openai"),
+    (VideoGenerator, "external_api"),
+    (SpeechRecognizer, "faster_whisper"),
+    (OverlayRenderer, "ffmpeg"),
+}
+
+# 자리(설정 키)는 있지만 구현이 아직 없는 뼈대 어댑터. 고르면 서버가 뜨지 않는다 (감사 A-31)
+SKELETONS = [(VideoGenerator, "diffusers"), (ObjectTracker, "opencv")]
+
+BUILDABLE_OFFLINE = [
+    (port, key)
+    for port, keys in DEFAULT_KEYS.items()
+    for key in keys
+    if (port, key) not in NEEDS_THE_OUTSIDE and (port, key) not in SKELETONS
+]
+
+
+@pytest.fixture
+def context(tmp_path):
+    """팩토리가 기대는 것을 다 갖춘 조립 맥락. ffmpeg 는 경로만 확인하므로 빈 파일을 준다."""
+    ffmpeg = tmp_path / "ffmpeg"
+    ffmpeg.write_bytes(b"")
+    settings = Settings(
+        llm_provider="fake",
+        llm_model="text-model",
+        vlm_model="vision-model",
+        video_ffmpeg=str(ffmpeg),
+        artifact_dir=str(tmp_path / "artifacts"),
+    )
+    return BuildContext(
+        settings=settings,
+        ids=SequentialIdGenerator(),
+        clock=FixedClock(),
+        artifact_store=InMemoryArtifactStore(),
+        handlers=JobHandlerRegistry(),
+        theme_settings=ThemeSettings(),
+    )
+
+
+def test_llm_requests_go_where_frame_says_whatever_the_shell_says(monkeypatch, context):
+    """LLM 클라이언트의 주소는 조립이 정한다: FRAME_LLM_BASE_URL, 없으면 OpenAI (감사 BTS-D05).
+
+    음성 인식이 '주소를 따로 주지 않으면 LLM 과 같은 곳' 이라고 할 때의 그 주소와 같은 값이다 (llm_address).
+    셸의 OPENAI_BASE_URL 은 따르지 않는다 — 따르면 LLM 요청만 그 주소로 가고 같은 키의 인식 요청은 OpenAI 로 간다.
+    """
+    pytest.importorskip("openai")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    # 화면 키 입력을 켜면 키 없이 조립된다 (SDK 클라이언트는 호출할 때 만든다)
+    settings = replace(context.settings, llm_provider="openai", llm_runtime_key=True)
+
+    client = default_registry().build(LLMClient, "openai", replace(context, settings=settings))
+    assert client.base_url == "https://api.openai.com/v1"
+
+    local = replace(settings, llm_base_url=" http://localhost:8001/v1/ ")
+    client = default_registry().build(LLMClient, "openai", replace(context, settings=local))
+    assert client.base_url == "http://localhost:8001/v1"
+
+
+@pytest.mark.parametrize("port", DEFAULT_KEYS, ids=lambda port: port.__name__)
+def test_the_default_registry_offers_these_keys(port):
+    assert default_registry().keys(port) == DEFAULT_KEYS[port]
+
+
+@pytest.mark.parametrize(
+    ("port", "key"), BUILDABLE_OFFLINE, ids=lambda value: getattr(value, "__name__", value)
+)
+def test_every_default_adapter_can_be_built(port, key, context):
+    built = default_registry().build(port, key, context)
+
+    if key == "off":
+        assert (
+            built is None
+        )  # 그 일을 하지 않는다 (기준 이미지 · 말소리 받아 적기 · 화면의 글자 읽기)
+    elif port is UnitOfWork:
+        assert isinstance(built(), UnitOfWork)  # 저장 단위를 여는 팩토리를 돌려준다
+    else:
+        assert isinstance(built, port)
+    if hasattr(built, "shutdown"):
+        built.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("port", "key"), SKELETONS, ids=lambda value: getattr(value, "__name__", value)
+)
+def test_a_skeleton_adapter_is_refused_when_it_is_built(port, key, context):
+    """뼈대 어댑터는 부르면 언제나 실패한다. 조립할 때 거절하지 않으면 유료 생성이 끝난 뒤에야 실패한다."""
+    with pytest.raises(ConfigurationError, match="뼈대") as raised:
+        default_registry().build(port, key, context)
+
+    assert key in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("settings", "variable"),
+    [
+        (Settings(tracker="opencv"), "FRAME_TRACKER"),
+        (Settings(generator="diffusers"), "FRAME_GENERATOR"),
+    ],
+    ids=["tracker", "generator"],
+)
+def test_choosing_a_skeleton_adapter_stops_the_server_from_starting(settings, variable):
+    """다른 어댑터와 같은 원칙이다: 쓸 수 없는 구성은 요청을 받기 전에, 기동할 때 실패한다."""
+    with pytest.raises(ConfigurationError, match=variable):
+        build_container(settings)
+
+
+def test_an_unknown_key_names_the_port_and_the_available_keys(context):
+    with pytest.raises(ConfigurationError) as raised:
+        default_registry().build(VideoGenerator, "sora", context)
+
+    message = str(raised.value)
+    assert "VideoGenerator" in message and "'sora'" in message
+    assert all(key in message for key in DEFAULT_KEYS[VideoGenerator])
+
+
+def test_an_unknown_key_names_the_setting_when_the_caller_gives_it(context):
+    """키를 정한 설정 변수의 이름을 넘기면, 없는 키를 알릴 때 그 이름을 댄다 (무엇을 고칠지 보이게)."""
+    with pytest.raises(ConfigurationError) as raised:
+        default_registry().build(MediaProber, "magic", context, setting="FRAME_THEME_MEDIA")
+
+    message = str(raised.value)
+    assert "FRAME_THEME_MEDIA" in message and "'magic'" in message
+    assert all(key in message for key in DEFAULT_KEYS[MediaProber])
+
+
+def test_a_registered_factory_replaces_the_one_under_the_same_key(context):
+    registry = AdapterRegistry()
+    registry.register(ArtifactStore, "memory", lambda ctx: "first")
+    registry.register(ArtifactStore, "memory", lambda ctx: "second")
+
+    assert registry.keys(ArtifactStore) == ["memory"]
+    assert registry.build(ArtifactStore, "memory", context) == "second"
+
+
+@pytest.mark.parametrize(
+    ("port", "key", "missing"),
+    [
+        (VideoGenerator, "fake", "artifact_store"),
+        (VideoAssembler, "fake", "artifact_store"),
+        (IdentityReferenceExtractor, "fake", "artifact_store"),
+        (Checker, "ssim_preservation", "artifact_store"),
+        (JobDispatcher, "inline", "handlers"),
+        (ThemeRepository, "artifact", "artifact_store"),
+        (ShotDetector, "ffmpeg", "theme_settings"),
+        (SpeechRecognizer, "openai", "theme_settings"),
+    ],
+    ids=lambda value: getattr(value, "__name__", value),
+)
+def test_a_factory_says_which_prerequisite_is_not_built_yet(port, key, missing, context):
+    setattr(context, missing, None)
+
+    with pytest.raises(ConfigurationError, match=missing):
+        default_registry().build(port, key, context)
+
+
+def test_adapters_that_read_text_or_images_find_the_llm_in_the_same_registry(context):
+    """구조화·변경 요청 해석은 FRAME_LLM_MODEL, 이미지를 읽는 어댑터는 FRAME_VLM_MODEL 로 LLM 을 얻는다."""
+    registry = default_registry()
+    asked: list[str] = []
+
+    def recording_llm(ctx: BuildContext) -> LLMClient:
+        asked.append(ctx.settings.llm_model)
+        return ReplayLLMClient()
+
+    registry.register(LLMClient, "fake", recording_llm)
+
+    registry.build(RequirementStructurer, "llm", context)
+    registry.build(ChangeRequestInterpreter, "llm", context)
+    registry.build(SeriesPlanner, "llm", context)
+    assert asked == ["text-model"] * 3
+
+    asked.clear()
+    registry.build(IdentityReferenceExtractor, "vlm_crop", context)
+    for key in ("vlm_consistency", "vlm_requirement", "vlm_preservation"):
+        registry.build(Checker, key, context)
+    registry.build(ThemeExtractor, "vlm", context)
+    registry.build(ScreenTextReader, "vlm", context)
+    assert asked == ["vision-model"] * 6
+
+
+def test_the_vlm_model_falls_back_to_the_llm_model(context):
+    registry = default_registry()
+    asked: list[str] = []
+
+    def recording_llm(ctx: BuildContext) -> LLMClient:
+        asked.append(ctx.settings.llm_model)
+        return ReplayLLMClient()
+
+    registry.register(LLMClient, "fake", recording_llm)
+    context.settings = Settings(
+        llm_provider="fake", llm_model="text-model", video_ffmpeg=context.settings.video_ffmpeg
+    )
+
+    registry.build(Checker, "vlm_consistency", context)
+
+    assert asked == ["text-model"]

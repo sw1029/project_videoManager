@@ -1,0 +1,54 @@
+{
+  "case_id": "ko-06-umbrella-couple",
+  "language": "ko",
+  "target_duration_ms": 12000,
+  "brief": "비 오는 날 감성 숏폼 12초. 장면 1 (6초): 노란 우산을 든 여성이 버스 정류장에 서 있다. 장면 2 (6초): 남색 코트를 입은 남성이 다가오고, 두 사람이 서로 바라보며 웃는다. 영상 내내 비가 내린다.",
+  "covers": ["relation", "multi_person", "action", "outfit", "weather"],
+  "notes": "서로 바라보기는 looks_at 관계 두 개다. 비는 '영상 내내' 라 모든 장면에 필수. 장면 2 의 우산·정류장·서 있는 자세는 이어진다고 짐작될 뿐이라 선택이다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "woman", "kind": "PERSON", "description": "노란 우산을 든 여성", "aliases": ["여성", "여자", "woman", "girl", "lady"]},
+      {"entity_key": "umbrella", "kind": "PROP", "description": "노란 우산", "aliases": ["우산", "umbrella"]},
+      {"entity_key": "man", "kind": "PERSON", "description": "남색 코트를 입은 남성", "aliases": ["남성", "남자", "man", "guy"]},
+      {"entity_key": "bus_stop", "kind": "BACKGROUND", "description": "버스 정류장", "aliases": ["정류장", "bus stop"], "optional": true}
+    ],
+    "scenes": [
+      {
+        "scene_key": "waiting",
+        "planned_start_ms": 0,
+        "planned_end_ms": 6000,
+        "description": "노란 우산을 든 여성이 버스 정류장에 서 있다",
+        "entity_keys": ["woman", "umbrella", "bus_stop"],
+        "requirements": [
+          {"entity_key": "woman", "predicate": "holds", "related_entity_key": "umbrella", "expected_value": "umbrella"},
+          {"entity_key": "umbrella", "predicate": "color", "expected_value": "yellow"},
+          {"entity_key": "woman", "predicate": "pose", "expected_value": "standing", "accept_predicates": ["action"], "accept": ["waits"]},
+          {"predicate": "location", "expected_value": "bus stop"},
+          {"predicate": "weather", "expected_value": "rain"}
+        ]
+      },
+      {
+        "scene_key": "meeting",
+        "planned_start_ms": 6000,
+        "planned_end_ms": 12000,
+        "description": "남성이 다가오고 두 사람이 서로 바라보며 웃는다",
+        "entity_keys": ["woman", "umbrella", "man", "bus_stop"],
+        "optional_entities": ["umbrella"],
+        "requirements": [
+          {"entity_key": "man", "predicate": "outfit", "expected_value": "navy coat"},
+          {"entity_key": "man", "predicate": "action", "expected_value": "approaches", "accept": ["walks toward", "walks up", "comes closer", "walks over"]},
+          {"entity_key": "woman", "predicate": "looks_at", "related_entity_key": "man", "expected_value": "man"},
+          {"entity_key": "man", "predicate": "looks_at", "related_entity_key": "woman", "expected_value": "woman"},
+          {"entity_key": "woman", "predicate": "expression", "expected_value": "smile", "accept": ["laugh"]},
+          {"entity_key": "man", "predicate": "expression", "expected_value": "smile", "accept": ["laugh"]},
+          {"predicate": "weather", "expected_value": "rain"},
+          {"entity_key": "woman", "predicate": "holds", "related_entity_key": "umbrella", "expected_value": "umbrella"},
+          {"entity_key": "umbrella", "predicate": "color", "expected_value": "yellow"},
+          {"entity_key": "woman", "predicate": "pose", "expected_value": "standing", "optional": true, "accept_predicates": ["action"]},
+          {"predicate": "location", "expected_value": "bus stop", "optional": true}
+        ]
+      }
+    ]
+  }
+}

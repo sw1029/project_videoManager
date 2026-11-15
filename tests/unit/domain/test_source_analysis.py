@@ -1,0 +1,222 @@
+"""영상 관찰값의 규칙과 직렬화.
+
+영역(domain/screen) · 샷·화면 문구·묶음(domain/series/source_analysis) · 말소리(domain/speech).
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from frame.domain.errors import ValidationError
+from frame.domain.media import MediaInfo
+from frame.domain.screen import Region, TextRole, TextSource
+from frame.domain.series.source_analysis import (
+    ScreenText,
+    Shot,
+    VideoAnalysis,
+    shots_from_cuts,
+    validate_shots,
+)
+from frame.domain.speech import (
+    SpeechSegment,
+    Transcript,
+    Word,
+    ordered_segments,
+    spoken_characters,
+)
+
+
+# ---- 영역 ----
+def test_region_must_stay_inside_the_screen():
+    Region(0.0, 0.0, 1.0, 1.0)
+    for bad in ((0.9, 0.0, 0.2, 0.1), (0.0, 0.0, 0.0, 0.5), (-0.1, 0.0, 0.5, 0.5)):
+        with pytest.raises(ValidationError):
+            Region(*bad)
+    with pytest.raises(ValidationError):
+        Region(float("nan"), 0.0, 0.5, 0.5)
+
+
+def test_clamped_cuts_a_model_box_to_the_screen():
+    cut = Region.clamped(0.8, 0.9, 0.5, 0.5)
+
+    assert cut is not None
+    assert (cut.x, cut.y) == (0.8, 0.9)
+    assert (cut.w, cut.h) == (pytest.approx(0.2), pytest.approx(0.1))
+    assert Region.clamped(1.2, 0.0, 0.5, 0.5) is None
+    assert Region.clamped(float("nan"), 0.0, 0.5, 0.5) is None
+    assert Region.clamped("x", 0.0, 0.5, 0.5) is None
+    # 모델이 좌표 하나를 빼먹으면 (None) 영역이 없는 것이다. 오류가 아니다
+    assert Region.clamped(None, 0.0, 0.5, 0.5) is None
+    assert Region.clamped(0.1, 0.2, None, 0.5) is None
+
+
+def test_region_helpers():
+    title = Region(0.1, 0.05, 0.8, 0.1)
+    assert title.anchor == "top" and Region(0.1, 0.8, 0.8, 0.1).anchor == "bottom"
+    assert Region(0.1, 0.45, 0.8, 0.1).anchor == "middle"
+    assert title.center == (pytest.approx(0.5), pytest.approx(0.1))
+    assert title.iou(title) == pytest.approx(1.0)
+    assert title.iou(Region(0.1, 0.5, 0.8, 0.1)) == 0.0
+    padded = title.padded(0.5)
+    assert padded.x == pytest.approx(0.0) and padded.y == pytest.approx(0.0)  # 화면 안으로 잘린다
+    assert Region.from_dict(title.to_dict()) == title
+
+
+# ---- 샷 ----
+def test_shots_from_cuts_covers_the_whole_video():
+    shots = shots_from_cuts([4000, 8000, 12000], 16000)
+
+    assert [(s.start_ms, s.end_ms) for s in shots] == [
+        (0, 4000),
+        (4000, 8000),
+        (8000, 12000),
+        (12000, 16000),
+    ]
+    assert [s.index for s in shots] == [0, 1, 2, 3]
+    validate_shots(shots, 16000)
+    assert shots_from_cuts([], 5000) == (Shot(0, 0, 5000),)
+
+
+def test_cuts_outside_the_video_or_too_close_are_dropped():
+    shots = shots_from_cuts([0, 300, 4000, 4200, 15800, 16000, 99999], 16000, min_shot_ms=500)
+
+    assert [(s.start_ms, s.end_ms) for s in shots] == [(0, 4000), (4000, 16000)]
+
+
+def test_shots_must_be_contiguous():
+    with pytest.raises(ValidationError):
+        validate_shots([], 1000)
+    with pytest.raises(ValidationError):
+        validate_shots([Shot(0, 0, 1000), Shot(1, 1500, 2000)])
+    with pytest.raises(ValidationError):
+        validate_shots([Shot(0, 0, 1000)], 2000)
+
+
+# ---- 말소리 ----
+def _transcript() -> Transcript:
+    return Transcript(
+        language="ko",
+        segments=(
+            SpeechSegment(500, 2500, "오늘의 메뉴는 바닐라 라떼!", (Word(500, 1200, "오늘의"),)),
+            SpeechSegment(4500, 6500, "가격은 4,500원입니다."),
+        ),
+    )
+
+
+def test_transcript_text_and_pace():
+    transcript = _transcript()
+
+    assert transcript.text == "오늘의 메뉴는 바닐라 라떼! 가격은 4,500원입니다."
+    assert transcript.speech_ms == 4000
+    # 공백·문장부호를 뺀 글자 수 ÷ 말한 시간
+    assert spoken_characters("오늘의 메뉴는 바닐라 라떼!") == 11
+    assert spoken_characters("가격은 4,500원입니다.") == 11
+    assert transcript.pace_cps == pytest.approx(22 / 4.0)
+    assert [s.text for s in transcript.within(4000, 8000)] == ["가격은 4,500원입니다."]
+
+
+def test_segments_are_put_in_order_without_overlap_inside_the_sound():
+    """인식기는 구간을 순서 없이, 겹치게, 소리 길이를 조금 넘겨 주는 일이 있다. 포트의 계약에 맞게 정리한다."""
+    messy = (
+        SpeechSegment(3000, 5000, "b", (Word(3000, 3300, "b1"), Word(3500, 5000, "b2"))),
+        SpeechSegment(0, 3400, "a"),  # 뒤 구간과 겹친다
+        SpeechSegment(
+            7500, 8300, "c", (Word(7500, 7900, "c1"), Word(7900, 8300, "c2"))
+        ),  # 길이를 넘는다
+        SpeechSegment(8100, 8200, "d"),  # 남는 것이 없다
+    )
+
+    ordered = ordered_segments(messy, 8000)
+
+    assert [(s.start_ms, s.end_ms, s.text) for s in ordered] == [
+        (0, 3400, "a"),
+        (3400, 5000, "b"),
+        (7500, 8000, "c"),
+    ]
+    Transcript("ko", ordered).validate(8000)
+    # 앞이 잘린 구간은 낱말 시각을 믿지 않는다 (잘린 범위 밖의 낱말이 있다)
+    assert ordered[1].words == ()
+    # 끝만 조금 넘은 구간의 낱말은 남기고 끝을 맞춘다
+    assert [(w.start_ms, w.end_ms, w.text) for w in ordered[2].words] == [
+        (7500, 7900, "c1"),
+        (7900, 8000, "c2"),
+    ]
+    # 길이를 모르면 순서와 겹침만 본다
+    assert [(s.start_ms, s.end_ms) for s in ordered_segments(messy, None)] == [
+        (0, 3400),
+        (3400, 5000),
+        (7500, 8300),
+    ]
+    assert ordered_segments((), 1000) == ()
+
+
+def test_empty_transcript_has_no_pace():
+    silent = Transcript(language=None, segments=())
+    assert silent.is_empty and silent.pace_cps is None and silent.text == ""
+    assert Transcript(segments=(SpeechSegment(0, 1000, "  "),)).is_empty
+
+
+@pytest.mark.parametrize("marks", ["♪", "♪♪ ♪", "...", "…!", "(♪)"])
+def test_transcript_with_no_letters_is_not_speech(marks):
+    """음악만 있는 소리에 인식기가 '♪' 같은 표시를 적는 일이 있다. 글자·숫자가 없으면 말이 없는 것이다.
+
+    말 빠르기가 0.0 이 되면 테마의 규칙('빠르기는 0 보다 크다')에 걸려 추출이 늘 실패한다 (감사 BTS-D30).
+    """
+    noise = Transcript("ko", (SpeechSegment(0, 2000, marks), SpeechSegment(3000, 5000, marks)))
+
+    assert noise.is_empty and noise.speech_ms == 0 and noise.pace_cps is None
+
+
+def test_marks_between_speech_do_not_slow_the_pace_down():
+    mixed = Transcript(
+        "ko", (SpeechSegment(0, 2000, "♪"), SpeechSegment(2000, 4000, "안녕하세요, 반가워요."))
+    )
+
+    assert (
+        not mixed.is_empty and mixed.speech_ms == 2000
+    )  # 말한 시간에 표시만 있는 구간은 들지 않는다
+    assert mixed.pace_cps == pytest.approx(9 / 2.0)
+
+
+def test_transcript_segments_must_be_ordered_and_inside_the_audio():
+    _transcript().validate(7000)
+    with pytest.raises(ValidationError):
+        _transcript().validate(6000)
+    with pytest.raises(ValidationError):
+        Transcript(
+            segments=(SpeechSegment(1000, 2000, "a"), SpeechSegment(1500, 2500, "b"))
+        ).validate()
+    with pytest.raises(ValidationError):
+        Transcript(segments=(SpeechSegment(2000, 1000, "a"),)).validate()
+
+
+# ---- 묶음 ----
+def test_analysis_round_trips_and_validates():
+    analysis = VideoAnalysis(
+        media=MediaInfo(480, 854, 16000, fps=30.0, has_audio=True),
+        shots=shots_from_cuts([4000, 8000, 12000], 16000),
+        transcript=_transcript(),
+    )
+
+    analysis.validate()
+    assert VideoAnalysis.from_dict(analysis.to_dict()) == analysis
+    without_speech = VideoAnalysis(analysis.media, analysis.shots)
+    assert VideoAnalysis.from_dict(without_speech.to_dict()).transcript is None
+    with pytest.raises(ValidationError):
+        VideoAnalysis(analysis.media, shots_from_cuts([4000], 8000)).validate()
+
+
+def test_screen_text_round_trips():
+    text = ScreenText(
+        "오늘의 메뉴",
+        0,
+        4000,
+        Region(0.1, 0.05, 0.8, 0.1),
+        TextRole.TITLE,
+        TextSource.OVERLAY,
+        "white bold on dark band",
+    )
+
+    assert ScreenText.from_dict(text.to_dict()) == text
+    bare = ScreenText.from_dict({"text": "FRAME", "start_ms": 0, "end_ms": 1000})
+    assert bare.region is None and bare.role is TextRole.OTHER and bare.source is TextSource.OVERLAY

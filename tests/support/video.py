@@ -1,0 +1,69 @@
+"""실제 ffmpeg 로 만든 작은 합성 클립 (프레임 추출·SSIM 테스트용). ffmpeg 가 없으면 테스트가 건너뛴다."""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from frame.adapters.series.overlay.ffmpeg_renderer import resolve_font
+from frame.adapters.shared.media.ffmpeg import available_filters, resolve_ffmpeg
+from frame.application.errors import AdapterError, ConfigurationError
+
+
+def find_ffmpeg() -> str | None:
+    try:
+        return resolve_ffmpeg()
+    except ConfigurationError:
+        return None
+
+
+def can_draw_text(ffmpeg: str | None) -> bool:
+    """이 ffmpeg 에 글자를 그리는 필터(drawtext)가 있는가. 없으면 화면 문구 합성 테스트는 건너뛴다.
+
+    video extra 가 Linux 에 가져오는 ffmpeg 에는 없다 (감사 A-43).
+    """
+    return drawtext_problem(ffmpeg) is None
+
+
+def drawtext_problem(ffmpeg: str | None) -> str | None:
+    """이 ffmpeg 로 글자를 그릴 수 없는 까닭. 그릴 수 있으면 None.
+
+    어느 ffmpeg 인지와, '필터가 없다' 인지 '목록을 읽지 못했다' 인지를 적는다. 둘은 고치는 곳이 다르다
+    (ffmpeg 를 바꾼다 / 목록을 읽는 법을 본다).
+    """
+    if ffmpeg is None:
+        return "ffmpeg 를 찾지 못했습니다"
+    try:
+        filters = available_filters(ffmpeg)
+    except AdapterError as exc:
+        return f"{ffmpeg} 의 필터 목록을 읽지 못했습니다: {exc}"
+    if "drawtext" not in filters:
+        return f"{ffmpeg} 에 drawtext 필터가 없습니다 (목록에서 읽은 필터 {len(filters)}개)"
+    return None
+
+
+def find_korean_font() -> str | None:
+    """화면 문구 합성이 쓸 한글 글꼴 파일. 없으면 None 이고, 그 테스트들은 건너뛴다."""
+    try:
+        return resolve_font()
+    except ConfigurationError:
+        return None
+
+
+def make_clip(
+    ffmpeg: str,
+    path: Path,
+    *,
+    seconds: float = 4.0,
+    size: str = "64x114",
+    fps: int = 10,
+    source: str = "testsrc2",
+) -> bytes:
+    """움직이는 시험 무늬(testsrc2) 또는 단색(color=c=red 등) 클립. 9:16 에 가까운 작은 크기."""
+    pattern = source if "=" in source else f"{source}="
+    separator = "" if pattern.endswith("=") else ":"
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"]
+    cmd += [f"{pattern}{separator}size={size}:rate={fps}:duration={seconds}"]
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return path.read_bytes()

@@ -8,21 +8,29 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from frame import __version__
 from frame.application.errors import ConfigurationError
-from frame.config.container import Container
+from frame.config.container import Container, change_interpreter_key
 from frame.config.settings import Settings
 
+from . import mappers
 from .errors import register_error_handlers
 from .rate_limit import SlidingWindowRateLimiter
-from .routers import projects, versions, vocabulary
+from .recovery import RecoveryLoop
+from .routers import projects, reference_images, versions, vocabulary
+from .routers import settings as settings_router
 from .schemas import HealthAdaptersOut, HealthOut
+
+log = logging.getLogger(__name__)
 
 STRUCTURING_INPUT = {"rule_based": "dsl", "llm": "natural_language"}
 
@@ -33,6 +41,7 @@ def create_app(container: Container) -> FastAPI:
         title="FRAME API",
         version=__version__,
         description="구조화된 중간 표현 기반 숏폼 비디오 선택적 편집·일관성 제어 프레임워크",
+        lifespan=_recovery_lifespan(container),
     )
     app.state.container = container
     app.state.rate_limiter = (
@@ -44,20 +53,23 @@ def create_app(container: Container) -> FastAPI:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
-            allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+            # API 가 쓰는 메서드 전부 (DELETE: 화면 키 지우기, PUT: DRAFT IR 수정. 감사 A-04)
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             allow_headers=["*"],
             expose_headers=["Content-Range", "Accept-Ranges", "Retry-After"],
         )
 
     prefix = settings.api_prefix
     app.include_router(projects.router, prefix=prefix)
+    app.include_router(reference_images.router, prefix=prefix)
     app.include_router(versions.router, prefix=prefix)
     app.include_router(vocabulary.router, prefix=prefix)
+    app.include_router(settings_router.router, prefix=prefix)
     register_error_handlers(app)
 
     @app.get("/health", tags=["ops"], response_model=HealthOut)
-    def health() -> HealthOut:
-        return _health(settings)
+    def health(request: Request) -> HealthOut:
+        return _health(container, request)
 
     if settings.frontend_dist:  # 라우트 뒤에 붙여야 /api·/health 를 가리지 않는다
         dist = Path(settings.frontend_dist)
@@ -67,9 +79,45 @@ def create_app(container: Container) -> FastAPI:
     return app
 
 
-def _health(s: Settings) -> HealthOut:
+def _recovery_lifespan(
+    container: Container,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """재시작 복구 (#2, ADR-0013): 요청을 받기 전에 지난 프로세스가 남긴 버전을 복구하고, 주기 검사를 띄운다.
+
+    기동 복구를 요청 처리보다 먼저 끝내므로, 새로 접수된 버전을 '사라진 작업' 으로 오인하지 않는다.
+    FRAME_JOBS=inline 이면 복구한 작업이 기동 중에 실행돼 기동이 늦어진다 (thread 권장).
+    """
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        recover = container.recover_pending_versions
+        try:
+            recover.execute(startup=True)
+        except Exception:  # noqa: BLE001 - 복구 실패가 서버 기동을 막지 않게 한다 (로그로 알린다)
+            log.exception(
+                "기동 복구에 실패했습니다. 남은 QUEUED·PROCESSING 버전은 다음 기동 때 다시 봅니다"
+            )
+        loop = RecoveryLoop(recover.execute, container.settings.recovery_interval_s)
+        loop.start()
+        try:
+            yield
+        finally:
+            loop.stop()
+
+    return lifespan
+
+
+def _health(container: Container, request: Request) -> HealthOut:
+    s: Settings = container.settings
     uses_llm = s.structurer == "llm"
+    keys = container.llm_keys
+    key_status = None
+    # 입력 가능 여부는 요청한 기기 기준 (다른 기기에는 '서버 기기에서 입력' 안내)
+    if keys is not None:
+        allowed = settings_router.entry_allowed(request, s)
+        key_status = mappers.llm_key_out(keys.status(), s, entry_allowed=allowed)
     return HealthOut(
+        llm_key=key_status,
         status="ok",
         version=__version__,
         structuring_input=STRUCTURING_INPUT.get(s.structurer, "any"),  # type: ignore[arg-type]
@@ -78,6 +126,8 @@ def _health(s: Settings) -> HealthOut:
             generator=s.generator,
             tracker=s.tracker,
             checkers=list(s.checkers),
+            identity=s.identity,
+            change_interpreter=change_interpreter_key(s),
             persistence=s.persistence,
             jobs=s.jobs,
             llm_provider=s.llm_provider if uses_llm else None,

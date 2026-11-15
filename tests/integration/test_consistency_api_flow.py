@@ -1,0 +1,262 @@
+"""API 로 본 전체 흐름: 정체성 기준 이미지 + 부모 클립 편집 + 실제 보존 검수 (ADR-0015, 0016).
+
+실제 구성 요소를 그대로 쓴다: 환경 변수 설정 -> 컨테이너, OpenRouter 어댑터(urllib 전송),
+ffmpeg 정규화·조립·프레임 추출, SQLite 파일, 로컬 산출물 폴더.
+위쪽 모델만 루프백 가짜 서버다 (과금 없음). ffmpeg 가 없으면 건너뛴다.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from frame.config import Settings, build_container
+from frame.presentation.app import create_app
+from tests.support.openrouter_server import FakeOpenRouterServer
+from tests.support.video import find_ffmpeg
+
+FFMPEG = find_ffmpeg()
+pytestmark = pytest.mark.skipif(FFMPEG is None, reason="ffmpeg 없음 (video extra 미설치)")
+
+# 카페 예시와 같은 구성, 장면만 2초 (빠르게 돌도록)
+PROMPT = """
+scene intro 0-2000 : 바리스타가 카운터에서 컵을 들어 보인다
+scene closeup 2000-4000 : 컵 클로즈업
+scene outro 4000-6000 : 바리스타가 손을 흔든다
+entity barista PERSON : 흰 셔츠를 입은 바리스타
+entity cup PROP : 세라믹 머그컵
+in intro: barista, cup
+in closeup: cup
+in outro: barista
+cup.color = red
+barista.outfit = white shirt
+barista holds -> cup @ intro
+"""
+
+
+@pytest.fixture
+def upstream(tmp_path):
+    server = FakeOpenRouterServer(FFMPEG, tmp_path)
+    yield server
+    server.close()
+
+
+def _client(tmp_path, upstream, **env) -> TestClient:
+    key_file = tmp_path / "open.txt"
+    key_file.write_text("sk-or-v1-" + "f00d" * 16, encoding="utf-8")
+    base = {
+        "FRAME_GENERATOR": "external_api",
+        "FRAME_ASSEMBLER": "ffmpeg",
+        "FRAME_VIDEO_BASE_URL": upstream.base_url,
+        "FRAME_VIDEO_KEY_FILE": str(key_file),
+        "FRAME_VIDEO_RESOLUTION": "360p",
+        "FRAME_VIDEO_POLL_INTERVAL_S": "0.01",
+        "FRAME_CHECKERS": "fake_requirement,fake_consistency,ssim_preservation",
+        "FRAME_PERSISTENCE": "sqlalchemy",
+        "FRAME_DB_URL": f"sqlite+pysqlite:///{(tmp_path / 'frame.db').as_posix()}",
+        "FRAME_ARTIFACT_STORE": "local_fs",
+        "FRAME_ARTIFACT_DIR": str(tmp_path / "artifacts"),
+        "FRAME_JOBS": "inline",
+        "FRAME_IDENTITY": "frame",
+    }
+    base.update(env)
+    return TestClient(create_app(build_container(Settings.from_env(base))))
+
+
+def _generate(client, version_id):
+    assert client.post(f"/api/versions/{version_id}/generations").status_code == 202
+    version = client.get(f"/api/versions/{version_id}").json()
+    assert version["state"] == "COMPLETED", version["error_message"]
+    return version
+
+
+def _revise(client, version_id, value="teal"):
+    response = client.post(
+        f"/api/versions/{version_id}/revisions",
+        json={"entity_key": "cup", "predicate": "color", "new_value": value},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["version_id"]
+
+
+def _preservation(client, version_id):
+    results = client.get(f"/api/versions/{version_id}/checks").json()["results"]
+    return {r["scene_key"]: r for r in results if r["check_type"] == "PRESERVATION"}
+
+
+@pytest.mark.ac("AC-01")
+@pytest.mark.ac("AC-31")
+def test_identity_anchors_and_parent_clip_editing_through_the_api(tmp_path, upstream):
+    client = _client(tmp_path, upstream, FRAME_VIDEO_EDIT_MODE="video_reference")
+    created = client.post("/api/projects", json={"title": "카페", "prompt": PROMPT, "seed": 7})
+    original_id = created.json()["version_id"]
+
+    original = _generate(client, original_id)
+
+    # 1) 원본: intro 는 기준 없이, 뒤 장면은 intro 에서 뽑은 기준 이미지를 참조로 받는다
+    intro, closeup, outro = upstream.submits
+    assert upstream.image_references(intro) == []
+    assert len(upstream.image_references(closeup)) == 1
+    assert len(upstream.image_references(outro)) == 1
+    assert upstream.image_references(outro)[0].startswith("data:image/jpeg;base64,")
+    assert "- barista (person, Image 1)" in outro["prompt"]
+    assert outro["prompt"].splitlines()[-1].startswith("Consistency:")
+    anchors = [r for r in original["reference_images"] if r["origin"] == "DERIVED"]
+    assert sorted((r["entity_key"], r["source_scene_key"]) for r in anchors) == [
+        ("barista", "intro"),
+        ("cup", "intro"),
+    ]
+    assert client.get(original["video_url"]).headers["content-type"] == "video/mp4"
+
+    # 2) 수정(컵 색): 컵이 나오는 intro·closeup 만 부모 클립을 편집해서 만든다
+    edited_id = _revise(client, original_id)
+    _generate(client, edited_id)
+
+    edit_intro, edit_closeup = upstream.submits[3:]
+    for body in (edit_intro, edit_closeup):
+        (video,) = upstream.video_references(body)
+        assert video.startswith("http://127.0.0.1") and "/files/gen-vid-" in video  # 저장본 주소
+        assert not upstream.image_references(body)
+        assert body["prompt"].splitlines()[:2] == [
+            "Edit the input video. Apply only these changes:",
+            "- cup: color changes from red to teal",
+        ]
+    preserved = _preservation(client, edited_id)
+    assert preserved["outro"]["detail"]["reason"] == "clip_reused"
+    for scene_key in ("intro", "closeup"):  # 가짜 편집 모델은 화면을 그대로 돌려준다
+        assert preserved[scene_key]["verdict"] == "PASS" and preserved[scene_key]["score"] > 0.95
+    comparison = client.get(f"/api/versions/{edited_id}/comparison").json()
+    assert comparison["summary"]["status_counts"]["REUSED"] == 1
+
+    # 3) 같은 수정을 편집 없이: 장면을 새로 만들되 바리스타 기준은 이어 간다. 화면은 달라진다
+    plain = _client(tmp_path, upstream)
+    regenerated_id = _revise(plain, original_id)
+    _generate(plain, regenerated_id)
+
+    regen_intro, regen_closeup = upstream.submits[5:]
+    assert not upstream.video_references(regen_intro)
+    assert len(upstream.image_references(regen_intro)) == 1  # 부모 intro 에서 뽑은 바리스타
+    assert "- barista (person, Image 1)" in regen_intro["prompt"]
+    assert "cup (prop, Image" not in regen_intro["prompt"]  # 색이 바뀐 컵은 기준 없음
+    assert len(upstream.image_references(regen_closeup)) == 1  # 새 intro 에서 뽑은 청록 컵
+    changed = _preservation(plain, regenerated_id)
+    assert changed["outro"]["score"] == 1.0
+    assert changed["intro"]["verdict"] == "FAIL" and changed["intro"]["score"] < 0.9
+    assert changed["intro"]["warnings"][0]["scene_key"] == "intro"
+
+    # 4) previous_job_id 를 받지 않는 모델: 편집 요청은 거절되고, 3) 에서 만든 결과를 다시 쓴다 (또 생성하지 않음)
+    continuing = _client(tmp_path, upstream, FRAME_VIDEO_EDIT_MODE="previous_job")
+    fallback_id = _revise(continuing, original_id)
+    fallback = _generate(continuing, fallback_id)
+
+    attempts = upstream.submits[7:]
+    assert len(attempts) == 2 and all("previous_job_id" in body for body in attempts)
+    assert upstream.rejected == 2
+    regenerated = plain.get(f"/api/versions/{regenerated_id}").json()
+    clips = {s["scene_key"]: s["clip_uri"] for s in fallback["ir"]["scenes"]}
+    assert clips == {s["scene_key"]: s["clip_uri"] for s in regenerated["ir"]["scenes"]}
+
+
+@pytest.mark.ac("AC-01")
+def test_the_plan_tells_whether_a_scene_can_be_edited_and_keeps_the_address(tmp_path, upstream):
+    """변경 계획이 편집이 될지 알려 주고, 그때 받아 둔 부모 클립 주소로 편집한다 (ADR-0020).
+
+    2차 실호출: 저장본 주소는 작업이 끝난 뒤 늦게 나왔고, 나온 뒤에도 몇 분씩 상태 응답에서 빠졌다.
+    """
+    client = _client(
+        tmp_path,
+        upstream,
+        FRAME_VIDEO_EDIT_MODE="video_reference",
+        FRAME_VIDEO_EDIT_PARENT_WAIT_S="0",  # 주소가 없으면 한 번만 묻는다 (테스트가 기다리지 않게)
+    )
+    created = client.post("/api/projects", json={"title": "카페", "prompt": PROMPT, "seed": 7})
+    original_id = created.json()["version_id"]
+    _generate(client, original_id)
+    plans = f"/api/versions/{original_id}/revision-plans"
+    change = {"entity_key": "cup", "predicate": "color", "new_value": "teal"}
+
+    # 1) 방금 만든 영상: 저장본 주소가 아직 없다 -> 새로 생성될 것이고, 왜 편집하지 못하는지 알려 준다
+    upstream.serve_stored_urls = False
+    early = client.post(plans, json=change).json()
+    targets = [s for s in early["scenes"] if s["will_regenerate"]]
+    assert [s["scene_key"] for s in targets] == ["intro", "closeup"]
+    assert all(s["production"]["method"] == "GENERATE" for s in targets)
+    assert "저장본" in targets[0]["production"]["edit_unavailable_reason"]
+    assert early["estimate"]["edit_scene_count"] == 0
+
+    # 2) 주소가 나온 뒤 계획을 다시 확인한다 (받은 revision_request 를 그대로 보낸다): 편집으로 바뀐다
+    upstream.serve_stored_urls = True
+    plan = client.post(plans, json=early["revision_request"]).json()
+    assert [s["production"]["method"] for s in plan["scenes"] if s["will_regenerate"]] == [
+        "EDIT",
+        "EDIT",
+    ]
+    assert plan["estimate"]["edit_scene_count"] == 2
+    assert plan["estimate"]["cost_usd"] == pytest.approx(0.12)  # 2초 x $0.03 x 2장면
+    assert len(upstream.submits) == 3  # 계획은 아무것도 제출하지 않는다
+
+    # 3) 확인하는 사이 주소가 다시 응답에서 빠진다. 계획 때 받아 둔 주소로 편집된다
+    upstream.serve_stored_urls = False
+    revised = client.post(f"/api/versions/{original_id}/revisions", json=plan["revision_request"])
+    assert revised.status_code == 201, revised.text
+    edited = _generate(client, revised.json()["version_id"])
+
+    edit_intro, edit_closeup = upstream.submits[3:]
+    for body in (edit_intro, edit_closeup):
+        (video,) = upstream.video_references(body)
+        assert "/files/gen-vid-" in video
+    made = {s["scene_key"]: s["clip_production"] for s in edited["ir"]["scenes"]}
+    assert (made["intro"]["method"], made["closeup"]["method"]) == ("EDITED", "EDITED")
+    assert made["intro"]["edit_fallback_reason"] is None
+    assert made["outro"]["method"] == "GENERATED"  # 다시 만들지 않은 장면: 부모 때의 기록
+
+
+@pytest.mark.ac("AC-01")
+def test_a_revision_regenerated_for_want_of_the_address_can_be_redone_as_an_edit(
+    tmp_path, upstream
+):
+    """편집하지 못한 사정이 일시적이면 새로 생성한 결과를 편집 요청의 키에 남기지 않는다 (ADR-0021).
+
+    방금 만든 영상을 바로 수정해 새로 생성됐더라도, 주소가 나온 뒤 같은 수정을 다시 실행하면 편집으로 만들어진다.
+    생성 캐시와 작업 원장을 모두 켠 구성이다.
+    """
+    client = _client(
+        tmp_path,
+        upstream,
+        FRAME_VIDEO_EDIT_MODE="video_reference",
+        FRAME_VIDEO_EDIT_PARENT_WAIT_S="0",
+    )
+    created = client.post("/api/projects", json={"title": "카페", "prompt": PROMPT, "seed": 7})
+    original_id = created.json()["version_id"]
+    _generate(client, original_id)
+
+    # 1) 저장본 주소가 아직 없다: 수정은 새로 생성으로 처리되고, 임시 결과라고 알려 준다
+    upstream.serve_stored_urls = False
+    regenerated = _generate(client, _revise(client, original_id))
+    made = {s["scene_key"]: s["clip_production"] for s in regenerated["ir"]["scenes"]}
+    assert (made["intro"]["method"], made["intro"]["provisional"]) == ("GENERATED", True)
+    assert "다시 요청" in made["intro"]["edit_fallback_reason"]
+    assert made["outro"]["provisional"] is False  # 다시 만들지 않은 장면
+    assert len(upstream.submits) == 5
+    assert not any(upstream.video_references(body) for body in upstream.submits[3:])
+
+    # 2) 주소가 나온 뒤 같은 수정을 다시 실행한다: 앞선 결과를 다시 쓰지 않고 편집한다
+    upstream.serve_stored_urls = True
+    plan = client.post(
+        f"/api/versions/{original_id}/revision-plans",
+        json={"entity_key": "cup", "predicate": "color", "new_value": "teal"},
+    ).json()
+    assert plan["estimate"]["edit_scene_count"] == 2  # 계획도 편집이라고 알려 준다
+    edited = _generate(client, _revise(client, original_id))
+    made = {s["scene_key"]: s["clip_production"] for s in edited["ir"]["scenes"]}
+    assert (made["intro"]["method"], made["closeup"]["method"]) == ("EDITED", "EDITED")
+    assert made["intro"]["provisional"] is False
+    assert len(upstream.submits) == 7
+    assert all(len(upstream.video_references(body)) == 1 for body in upstream.submits[5:])
+
+    # 3) 한 번 더 실행하면 편집 결과를 다시 쓴다 (또 제출하지 않는다)
+    again = _generate(client, _revise(client, original_id))
+    assert len(upstream.submits) == 7
+    assert {s["scene_key"]: s["clip_uri"] for s in again["ir"]["scenes"]} == {
+        s["scene_key"]: s["clip_uri"] for s in edited["ir"]["scenes"]
+    }

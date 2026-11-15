@@ -3,13 +3,19 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 artifacts/
 # 프론트엔드 빌드 산출물 (frontend/ 병합 대비)
 node_modules/
 frontend/dist/
 *.db
+*.sqlite
+*.sqlite3
 .env
+.env.*
+!.env.example
 .ruff_cache/
 .mypy_cache/
 # API 키 파일은 절대 커밋하지 않는다
@@ -18,3 +24,10 @@ key.txt
 *.egg-info/
 
 .DS_Store
+
+# 시연 상태 (DB · 산출물 · API 키 파일)
+.demo/
+
+# OS별 시연 번들 빌드 (작업 폴더 · 결과물)
+/build/
+/dist/

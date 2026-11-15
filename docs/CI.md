@@ -1,0 +1,198 @@
+# 품질 검사 안내 — 로컬과 CI
+
+무엇을 검사하는지, 로컬에서 어떻게 돌리는지, 걸렸을 때 어떻게 고치는지를 적는다. 결정의 배경은
+[ADR-0030](adr/0030-ci-quality-gates-and-baselines.md) 과
+[ADR-0032](adr/0032-no-machine-paths-single-source-settings.md)(절대 경로 · 설정값의 출처 · 이름 없는 수),
+[ADR-0033](adr/0033-fastapi-starlette-upgrade-for-known-vulnerabilities.md)(FastAPI · Starlette 의 고정)에 있다.
+
+## 1. 한 번에 돌리기
+
+```
+pip install -e ".[dev,llm,video]"     # 처음 한 번. video 는 실제 영상 테스트에 쓰는 ffmpeg 를 가져온다
+python scripts/check.py               # 포맷 -> 정적 검사 -> 타입 검사 -> 테스트와 커버리지 하한
+python scripts/check.py lint types    # 고른 것만
+python scripts/check.py --list
+```
+
+- CI 의 test 잡이 같은 스크립트를 단계별로 부른다. 로컬에서 통과하면 CI 에서도 같은 것을 본다.
+- **worktree 에서 작업할 때**: `scripts/check.py` 는 지금 폴더의 `src` 를 쓰도록 `PYTHONPATH` 를 맞춘다.
+  손으로 `python -m frame.…` 을 칠 때는 `PYTHONPATH=src` 를 직접 준다. 가상환경의 편집 설치(`pip install -e`)가 다른 폴더를 가리키고 있으면
+  그냥 친 명령은 그 폴더의 코드를 돌린다 (`python -c "import frame; print(frame.__file__)"` 로 확인). pytest 는 설정(`pythonpath = ["src"]`) 덕에 괜찮다.
+- **출력을 파일·파이프로 받을 때** (`python scripts/check.py > check.log 2>&1`): 로그는 UTF-8 이다. 셸의 코드 페이지를 따르지 않는다
+  (한국어 Windows 의 기본은 cp949 다). 도구들(ruff · mypy · pytest · coverage)도 UTF-8 모드(`PYTHONUTF8=1`)로 돌아 로컬과 CI 가 같은 조건이다.
+  콘솔에 바로 찍을 때는 그대로다. PowerShell 에서 파이프로 받은 한글이 깨져 보이면 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` 을 먼저 친다.
+  다른 인코딩이 필요하면 `PYTHONIOENCODING` 이나 `PYTHONUTF8` 을 직접 정한다 — 스크립트가 그것을 따르고, 그 인코딩이 못 담는 글자는 `\uXXXX` 로 찍는다.
+- 유료 API 는 부르지 않는다. 네트워크도 쓰지 않는다 (3절).
+
+## 2. 검사하는 것
+
+| 검사 | 명령 (scripts/check.py 가 부르는 것) | 걸리면 |
+|---|---|---|
+| 포맷 | `ruff format --check src tests scripts` | `python -m ruff format src tests scripts` 로 고친다 |
+| 정적 검사 | `ruff check src tests scripts` | 4절 |
+| 타입 검사 | `mypy` (`src` 전체. `domain` 은 strict 수준) | 형을 적는다. 가드 변수로 좁힌 값은 `isinstance` 를 조건에 직접 쓴다 |
+| 구조 규칙 | `pytest tests/architecture` (전체 테스트에 들어 있다) | 5절 |
+| 테스트 | `pytest` (slow·gpu 는 기본으로 빠진다) | — |
+| 커버리지 하한 | 전체 89% · 제품 코드(tools 제외) 95% · 핵심(domain·application) 97% | 테스트를 더한다. 하한은 `scripts/check.py` 의 `COVERAGE_FLOORS` 에 있고 올리기만 한다 |
+
+CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번 더 (compat 잡), 의존성 취약점 검사 (audit 잡, 실패해도 막지 않는다),
+화면 문구 합성 테스트를 한글 글꼴과 글자를 그리는 ffmpeg 가 있는 러너에서 (overlay-font 잡 — 막는 검사다. 6절의 5),
+Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트를 (docker 잡, 실패해도 막지 않는다 — ADR-0034),
+화면 빌드 (frontend 잡), 시연 경로 점검 (demo-smoke 잡), 번들 빌드와 릴리스 (`bundle.yml`).
+실패해도 워크플로가 통과로 끝나는 잡은 audit 와 docker 둘뿐이다. 그 목록은 `tests/unit/test_ci_workflow.py` 가 지킨다 —
+잡을 결과만 보는 잡으로 두거나 막는 검사로 옮길 때 그 테스트의 표(`MAY_FAIL`)를 함께 고친다.
+
+## 3. 유료 테스트와 테스트 환경
+
+- 기본 `pytest` 는 실제 호출 테스트(`slow`)와 GPU 테스트를 뺀다. 돌릴 때는 `-m slow` 를 준다.
+- `tests/live` 의 테스트는 **`FRAME_LIVE_TESTS=1` 을 명시했을 때만** 돈다. 서버를 띄울 때 쓰는 `FRAME_GENERATOR=external_api` 나
+  `FRAME_STRUCTURER=llm` 이 셸에 남아 있어도 이 스위치 없이는 부르지 않는다.
+
+  ```
+  FRAME_LIVE_TESTS=1 FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live -m slow -s
+  ```
+
+  실제 호출은 비용이 든다. 돌리기 전에 그 테스트 파일 머리의 예상 비용을 읽는다.
+- 그 밖의 테스트는 셸의 `FRAME_*` 와 `OPENAI_API_KEY`·`OPENROUTER_API_KEY` 를 지운 채로 돌고, 이 기기 밖으로 연결하면 실패한다
+  (`tests/conftest.py`). 설정이 필요한 테스트는 `monkeypatch.setenv` 나 `Settings(...)` 로 직접 준다.
+- 새 실제 호출 테스트는 `tests/live/` 에 두고 `pytestmark = pytest.mark.slow` 를 단다.
+- ffmpeg 가 없으면 실제 영상 테스트는 건너뛴다 (실행 머리말의 `ffmpeg:` 줄에 보인다). CI 는 `FRAME_REQUIRE_FFMPEG=1` 로 돌아 없으면 실패한다.
+- 한글 글꼴이 없으면 화면 문구 합성 테스트 9개는 건너뛴다 (머리말의 `한글 글꼴:` 줄). `FRAME_REQUIRE_KOREAN_FONT=1` 을 주면 글꼴이 없을 때 실패한다 — 글꼴을 깐 overlay-font 잡이 쓴다.
+  ffmpeg 에 글자를 그리는 drawtext 필터가 없어도 그 테스트들은 건너뛴다 (머리말의 `ffmpeg:` 줄에 적힌다). video extra 가 Linux 에 가져오는 ffmpeg 가 그렇다 (보고서 A-43).
+  `FRAME_REQUIRE_DRAWTEXT=1` 을 주면 그때 실패한다 — 같은 잡이 쓴다. 로컬 Linux 에서 돌리려면 drawtext 가 든 ffmpeg 를 PATH 에 둔다 (`apt install ffmpeg`).
+- **설치된 판이 `pyproject.toml` 의 고정(`==`)과 다르면** `test_the_installed_packages_are_the_pinned_ones` 가 실패한다. `pip install -e ".[dev,llm,video]"` 로 다시 설치한다.
+  고정을 올린 변경이 들어오기 전의 브랜치를 새 판이 깔린 환경에서 돌리면 명세 스냅숏 테스트가 실패할 수 있다 — dev 를 합치면 없어진다 (ADR-0033).
+
+## 4. 정적 검사에 걸렸을 때
+
+- 고칠 수 있으면 고친다. `python -m ruff check --fix src tests scripts` 가 안전한 것은 스스로 고친다.
+- 규칙이 맞지 않는 자리라면 그 줄에 이유를 적은 예외를 단다: `# noqa: S310 - 주소는 설정에서 검증한 것만 온다`.
+  이유 없는 `# noqa` 와 규칙 번호 없는 `# noqa` 는 쓰지 않는다.
+- 자주 걸리는 것
+
+  | 규칙 | 뜻 | 보통의 처리 |
+  |---|---|---|
+  | `S101` | src 의 `assert` | 실행 중 확인은 명시적 오류(`raise`)로 쓴다. 형을 좁히려는 것이면 조건문으로 |
+  | `S310`·`S607`·`S104` | URL 열기, PATH 의 실행 파일, 0.0.0.0 바인드 | 입력을 검증한 뒤 이유를 적은 noqa |
+  | `T201` | `print` | 로그(`logging`)로. 명령줄 도구(`src/frame/tools/`)와 `tests/live/` 는 허용 |
+  | `BLE001` | 넓은 `except Exception` | 잡을 예외를 좁힌다. 일부러 넓게 잡는 곳은 이유를 적은 noqa |
+  | `C901` | 복잡도 19 초과 | 함수를 나눈다 |
+  | `ERA001` | 주석으로 남긴 코드 | 지운다 (git 에 남아 있다) |
+  | `ISC004` | 목록 안에서 줄을 넘겨 이어 쓴 문자열 | 괄호로 묶는다 |
+  | `PLR2004` | 비교식의 이름 없는 수 (`if status == 429`, `if n > 8`) | 상태 코드는 `http.HTTPStatus`, 상한 · 임계값은 뜻을 적은 이름 붙은 상수로. "둘 미만" 은 `<= 1` 로 적는다. tests 는 예외 (ADR-0032) |
+
+- 파일 단위 예외(`pyproject.toml` 의 `per-file-ignores`)는 기준선이다. 새 파일을 더하지 않는다.
+
+## 5. 구조 규칙에 걸렸을 때
+
+`tests/architecture/` 가 지키는 것과 고치는 방법이다. 규칙의 표는 ADR-0030 §3 에 있다.
+
+| 실패한 테스트 | 뜻 | 고치는 방법 |
+|---|---|---|
+| `test_dependencies_point_inward` | 바깥 계층을 import 했다 (예: domain → adapters) | 포트를 두고 구현을 어댑터로 옮긴다. 조립은 `config/` 에서 한다 |
+| `test_adapters_use_only_ports_and_errors_of_the_application` | 어댑터가 유스케이스·DTO 를 import 했다 | 필요한 타입을 포트로 옮기거나 도메인 타입을 쓴다 |
+| `test_the_domain_uses_only_the_standard_library` | 도메인이 외부 패키지를 썼다 | 그 일을 포트 뒤로 보낸다 |
+| `test_third_party_packages_stay_in_their_layer` | 외부 패키지를 정해진 자리 밖에서 썼다 | 새 패키지라면 테스트의 `THIRD_PARTY_HOMES` 에 자리를 적는다 (ADR 에 적을 만한 결정이다) |
+| `test_adapter_packages_do_not_import_each_other` | 어댑터 패키지가 다른 어댑터 패키지를 import 했다 | 함께 쓰는 코드를 `adapters/shared/` 로 옮긴다 |
+| `test_there_are_no_modules_at_the_top_of_adapters` | `adapters/` 바로 아래에 모듈을 뒀다 | 그 개념의 패키지나 `adapters/shared/` 로 옮긴다 |
+| `test_removed_paths_do_not_come_back` · `test_nothing_imports_a_removed_path` | 옮긴 모듈의 옛 경로가 다시 생겼거나 그 경로로 import 했다 (옛 브랜치를 가져올 때 생긴다) | 실패 문구가 알려 주는 새 자리로 고친다. 표는 `tests/architecture/test_moved_paths.py` 의 `MOVED` (ADR-0031 3절) |
+| `test_the_table_points_at_places_that_exist` | 모듈을 또 옮겼는데 `MOVED` 의 새 자리가 옛 이름이다 | 표의 새 자리를 지금 이름으로 고친다. 모듈을 옮길 때는 그 표에 옛 경로 → 새 자리를 더한다 |
+| `test_every_package_says_what_it_is_for` · `…lists_its_public_names` | 패키지 `__init__.py` 에 설명이나 `__all__` 이 없다 | 머리에 "맡는 개념 · 밖에서 쓰는 이름 · 안의 모듈 지도" 를 적고 `__all__` 을 둔다 |
+| `test_private_modules_are_not_imported_from_outside_their_package` | `_` 로 시작하는 모듈을 패키지 밖에서 import 했다 | 패키지 `__init__.py` 가 내보내는 이름을 쓴다 |
+| `test_modules_stay_small_enough_to_read` | 새 모듈이 500줄을 넘는다 | 개념 단위로 나눈다 (줄 수는 신호이고, 나누는 기준은 개념이다) |
+| `test_the_adr_index_lists_every_adr` | ADR 을 더했는데 색인에 없다 | `docs/adr/README.md` 의 표에 한 줄 |
+| `test_the_module_map_lists_every_package` | 패키지를 더하거나 옮겼는데 모듈 지도에 없다 | `docs/MODULE_MAP.md` §2 의 표를 고친다 |
+| `test_documented_live_test_commands_carry_the_switch` | README · `docs/` 바로 아래의 문서 · `tests/live` 와 `src` 의 머리말에 적은 실제 호출 테스트의 실행 명령에 `FRAME_LIVE_TESTS=1` 이 없다 | 그 명령 앞에 `FRAME_LIVE_TESTS=1` 을 붙인다. 없으면 그대로 친 사람은 '모두 건너뜀' 을 통과로 본다 (3절) |
+| `test_the_example_environment_lists_every_setting_the_server_reads` | `Settings` · `ThemeSettings` 가 읽는 `FRAME_*` 설정이 `.env.example` 에 없다. 또는 예시에만 있고 서버가 읽지 않는 이름이 있다 | `.env.example` 에 그 설정의 줄(기본값과 한 줄 설명)을 더한다. 없앤 설정이면 그 줄을 지운다 |
+| `test_no_machine_bound_paths_are_committed` | 커밋되는 글에 드라이브 문자 경로나 홈 · 설치 · 임시 폴더에서 시작하는 경로가 있다 | 설정 · 상대 경로 · `tmp_path` · 자리표시(`path/to/…`)로 바꾼다. 경로를 거절 · 변환 · 가리는지 시험하는 입력처럼 꼭 있어야 하면 `tests/architecture/test_machine_paths.py` 의 `ALLOWED` 에 이유와 함께 적는다 (ADR-0032) |
+| `test_every_allowed_path_is_still_there` | 허용 목록에 적은 줄이 없어졌다 | `ALLOWED` 에서 그 항목을 지운다 |
+| `test_arguments_that_come_from_settings_have_no_default_of_their_own` | 조립이 설정에서 넘기는 인자에 생성자가 기본값을 또 갖고 있다 | 생성자의 기본값을 지운다. 값은 설정에만 두고 조립이 넘긴다. 그 클래스를 직접 만드는 테스트는 값을 직접 준다 (ADR-0032) |
+| `test_address_and_model_defaults_are_written_only_in_the_config` | 설정의 주소 · 모델 기본값을 `frame/config/` 밖의 코드에 다시 적었다 | 그 값을 인자로 받아 쓴다 |
+| `test_shared_values_are_written_in_one_place` | 여러 모듈이 같은 글자로 맞추는 값(예상 밖 오류의 코드 `UNEXPECTED_ERROR`, 객체 · 장면 키의 규칙, 테마 · 편 문서 id 의 규칙, LLM 주소를 주지 않았을 때의 OpenAI 주소)을 그 값의 집이 아닌 곳에 다시 적었다 | 실패 문구가 알려 주는 이름을 가져다 쓴다 (`frame.application.errors.UNEXPECTED_ERROR` · `frame.domain.ir.KEY_PATTERN` · `frame.domain.series.ids.DOCUMENT_ID_PATTERN` · `frame.adapters.llm.openai_client.OPENAI_BASE_URL`). 그런 값이 새로 생기면 `tests/architecture/test_single_source_values.py` 의 `SINGLE_SOURCE` 에 집과 함께 더한다 |
+
+"이제 … 기준선에서 지운다" 로 실패하면 고친 것이다. `tests/architecture/baselines.py` 에서 그 줄을 지운다.
+
+### 기준선을 더해도 되는 경우
+게이트가 생기기 전에 갈라진 브랜치가 dev 에 들어올 때뿐이다. 그 브랜치의 것을 이유와 함께 더하고, 뒤에 줄인다.
+새로 쓰는 코드를 위해 기준선에 더하지 않는다.
+
+## 6. 첫 push 뒤 확인할 것
+
+이 게이트들은 로컬(Windows, Python 3.11)에서 만들고 확인했다. GitHub 에서는 PR #36 에서 처음 돌았다 (2026-11-14 밤).
+로컬 결과는 dev(#31~#35)를 합친 뒤 2588 통과 · 4 건너뜀 · 4 제외였고, 첫 실행에서 드러난 결함을 고친 뒤에는 2598 통과다.
+
+### 첫 실행의 결과 (PR #36)
+
+| 잡 | 결과 | 본 것 |
+|---|---|---|
+| `frontend` · `demo-smoke` (세 OS) · bundle 의 `build` 5개 | 통과 | 이 브랜치가 고친 런처 · 번들 코드가 러너에서 처음 돌았다. bundle 의 `ci` · `release` 잡은 태그가 아니라 건너뛴다 |
+| `docker` | 통과 | 이미지를 처음 빌드했고 `/health` 가 답했다 |
+| `compat (windows, 3.11)` | 통과 | |
+| `test` (ubuntu, 3.11) · `compat (ubuntu, 3.12)` | **실패** — 둘 다 같은 8건 (2574 통과 · 10 건너뜀) | 아래 '실패 8건' |
+| `audit` | 실패 (머지를 막지 않는다) | 알려진 취약점 17건 / 패키지 2개: `starlette 0.46.2`, 러너의 `setuptools 79.0.1`. 보고서 §12.3 결정 10 |
+
+- **실패 8건**: 클립 정규화 3 · 최종 영상 조립 2 · 그것을 쓰는 통합 테스트 3 이 "…None 프레임 (목표 … 96 프레임)" 으로 실패했다.
+  Linux 러너의 ffmpeg 는 7.0.2 다 (imageio-ffmpeg 가 OS 마다 다른 빌드를 가져온다. Windows 는 7.1). 그 판에서는 스트림 복사 출력의 진행 줄에서
+  프레임 수가 읽히지 않았다. 테스트가 아니라 제품의 결함이다 — Linux(Docker 이미지 포함)에서 실제 생성의 정규화가 늘 실패한다 (보고서 A-42).
+  프레임 수를 패킷 목록의 줄 수로 세도록 고쳤다 (`adapters/shared/media/probe.py` 의 `read_video_packets`).
+  지금까지의 워크플로는 `video` extra 를 설치하지 않아 ffmpeg 테스트(약 155개)를 건너뛰었고, 그래서 드러나지 않았다.
+- **건너뛴 10개**: Windows 전용 1개와, 한글 글꼴을 찾지 못한 화면 문구 합성 테스트 9개 (`tests/contract/test_overlay_contract.py`).
+  `FRAME_REQUIRE_FFMPEG` 는 ffmpeg 만 본다. 글꼴 설치(`fonts-noto-cjk`)는 아직 넣지 않았다 — 보고서 §12.3 결정 11.
+
+### 다음 실행에서 볼 것
+
+1. **Linux 의 두 잡**: 고친 프레임 세기가 Linux 의 ffmpeg 7.0.2 에서 도는 것은 다음 실행이 처음이다. 로컬에서는 Windows 의 7.1 로,
+   실제 출력에서 진행 줄의 `frame=` 을 지운 조건으로 확인했다. 실패했던 8개 테스트의 뒤쪽 단언(크기 · fps · 길이)도 Linux 에서 처음 돈다.
+2. **커버리지 하한**: 첫 실행은 테스트가 실패해 Linux 의 값을 재지 못했다. 하한(89 · 95 · 97)은 Windows 에서 잰 값(94.28 · 96.60 · 97.84)에
+   여유를 둔 것이고, 핵심(domain·application)의 여유가 0.84 로 가장 작다. 문구 합성 테스트 9개가 빠지는 만큼 Linux 의 값은 더 낮을 수 있다.
+   하한 아래면 `scripts/check.py` 의 `COVERAGE_FLOORS` 를 그 값에 맞추고, 위면 올린다.
+3. **docker 잡** (ADR-0034 · 보고서 §12.3 결정 12): 이미지를 빌드해 `/health` 를 보는 것은 첫 실행에서 통과했다. 그 뒤 이미지가 바뀌었다 —
+   배포판의 ffmpeg 와 나눔 글꼴을 넣고 video extra 를 뺐다. 잡에는 세 단계가 더해졌다. 로컬에서는 돌려 보지 못했고
+   (이미지를 만들지 못했다) CI 에서 처음 돌았다. 단계마다 보는 것:
+   - `docker build`: apt 층이 되는지 (`ffmpeg` · `fonts-nanum`). 여기서 실패하면 꾸러미 이름과 바탕 이미지의 태그를 본다.
+   - 크기와 판: `docker image ls` · `docker history` 의 값을 보고서(§12.2 '머지 뒤 묶음 4')의 어림(약 +400MB)과 견준다.
+     `ffmpeg -version` 이 7.1.x 인지, 필터 목록의 drawtext 줄이 찍히는지 본다 (없으면 이 단계가 실패한다).
+   - 이미지 그대로 조립: 문구 합성 · 소리 편집 · 영상 분석을 ffmpeg 로 켠 서버가 만들어지는지. 실패 문구가 까닭을 말한다 (글꼴 · 필터).
+   - 이미지 안 전체 테스트: 머리말의 `ffmpeg:` 줄이 PATH 의 것이고 `한글 글꼴:` 줄이 나눔 글꼴인지 본다. 실패한 것이 영상 테스트라면
+     배포판의 ffmpeg 가 번들과 다르게 군 것이다 (A-42 · A-43 과 같은 종류 — 제품의 결함으로 다룬다). 영상과 무관한 테스트가 실패하면
+     이미지의 환경 차이다 (사용자 `frame`, 가상 환경, 이미지에 없는 도구).
+
+   **첫 실행 (PR #42, 2026-11-15)에서 모두 통과했다**: Debian 13.7 (trixie) · ffmpeg `7:7.1.5-0+deb13u1` · fonts-nanum `20200506-1` · drawtext 있음,
+   이미지 그대로 조립 통과, 이미지 안 전체 테스트 2641 통과 · 1 건너뜀 · 4 제외 (105초).
+   크기: apt 층 491MB · pip 층 115MB · 소스 층 2.54MB, 이미지 전체 1.01GB (내려받는 크기 261MB).
+
+   통과하는 것을 몇 번 보고 `continue-on-error` 를 뺄지 정한다 (보고서 §12.3 결정 12 의 남은 결정).
+4. **audit 잡**: 결과만 본다 (보고서 §12.3 결정 10). 조용해지면 `continue-on-error` 를 뺀다.
+   FastAPI · Starlette 를 올린 뒤(ADR-0033)의 첫 실행에서 Starlette 의 것이 없어졌는지 본다. 러너 환경의 `setuptools` 두 건은 남는다 (프로젝트의 의존성이 아니고, 손대지 않기로 했다).
+5. **overlay-font 잡** (보고서 §12.3 결정 11 · A-43): 첫 실행(PR #40)에서 실패했다. 글꼴은 깔렸는데 문구를 그리는 테스트 넷이
+   "Error initializing a simple filtergraph" 로 실패했다 — video extra 가 Linux 에 가져오는 ffmpeg 에 drawtext 필터가 없어서다 (A-43).
+   지금은 그 잡이 `fonts-noto-cjk` 와 시스템 `ffmpeg` 를 깔고 (PATH 의 ffmpeg 가 먼저 쓰인다), 설치한 ffmpeg 의 판과 drawtext 를 찍은 뒤
+   `tests/contract/test_overlay_contract.py` 만 돌린다. 글꼴이나 drawtext 가 없으면 테스트를 모으기 전에 실패한다
+   (`FRAME_REQUIRE_KOREAN_FONT=1` · `FRAME_REQUIRE_DRAWTEXT=1`).
+   다음 실행에서 볼 것: 그 테스트들이 Ubuntu 의 ffmpeg 와 Noto Sans CJK 로 통과하는지 (Linux 에서 통과한 적이 없다 — 글꼴과 ffmpeg 의 판이 달라
+   글자 크기 · 유사도 값이 갈릴 수 있다). 실패하면 오류 문구에 ffmpeg 가 찍은 까닭이 실린다 (출력의 끝 다섯 줄).
+   test · compat 잡에서는 그 테스트 아홉이 계속 건너뛰어진다 (번들 ffmpeg 에 drawtext 가 없다). 필수로 옮길지는 통과를 본 뒤에 정한다.
+   둘째 실행(PR #41)도 실패했다: 러너의 apt ffmpeg 는 8.0.1 이고 drawtext 가 있는데, 테스트가 시작하기 전에 "drawtext 필터가 없습니다" 로 멈췄다.
+   ffmpeg 8.0 이 `-filters` 의 줄 머리 표시를 셋에서 둘로 줄여, 세 글자만 읽던 우리 코드가 목록을 하나도 읽지 못한 것이다 (보고서 A-43 의 '둘째 실패').
+   지금은 두 모양을 다 읽고, 실패 문구에 **어느 ffmpeg 를 찾았는지와 까닭**(필터가 없다 / 목록을 읽지 못했다)이 찍힌다.
+   이 잡이 통과하면 ffmpeg 8 에서 문구 합성 테스트가 도는 것도 처음이다 — 실패하면 그 테스트의 문구부터 본다.
+   셋째 실행(고친 뒤, PR #41)에서 **통과했다**: ffmpeg 8.0.1-3ubuntu2 · Noto Sans CJK, 23 통과. 화면 문구 합성이 Linux 에서 도는 것을 처음 확인했다.
+   **막는 검사로 옮겼다 (2026-11-15, 보고서 §12.3 결정 11)**: 그 뒤로 다섯 번 이어 통과했고 (오케스트레이터가 전한 값 — `51feb93` 과 `1189b1c` 의
+   push · PR, dev 의 `e9ec614`), 사용자가 고른 것이 '통과가 확인되면 필수로' 였다. `continue-on-error` 를 뺐다 — 이 잡이 실패하면 워크플로가 실패하고,
+   릴리스(`bundle.yml` 의 `ci`)도 멈춘다.
+   test 잡에 합치지는 않았다: 시스템 ffmpeg 를 깔면 PATH 의 것이 번들보다 먼저 쓰여 그 잡의 모든 영상 테스트가 러너의 ffmpeg 로 옮겨 가고,
+   번들 ffmpeg(Linux 는 7.0.2 — pip 로 설치한 사용자가 받는 것)를 보는 잡이 없어진다.
+   알아 둘 것: 러너의 apt ffmpeg 는 판이 고정돼 있지 않다. 러너 이미지가 바뀌면 코드가 그대로여도 이 잡이 실패할 수 있다 (ffmpeg 8 때처럼) —
+   그때는 실패 문구에 찍힌 ffmpeg 의 경로와 까닭부터 본다. 머지 버튼을 실제로 막는 것은 브랜치 보호의 필수 검사다 (7절 — 저장소 설정은 바꾸지 않았다.
+   필수 검사 목록에 이 잡을 넣을지는 그 설정을 정할 때 함께 정한다).
+6. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
+   태그는 패키지 버전으로 시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
+
+## 7. 저장소 설정 제안 (이 작업에서는 바꾸지 않았다)
+
+- `dev` 브랜치 보호: 필수 검사 `test`, `frontend`, `demo-smoke (ubuntu-latest)`. 머지 전 최신 상태 요구. `compat` 는 안정된 뒤에 더한다.
+- 기본 브랜치를 `dev` 로: 지금 `main` 에는 워크플로 파일이 없어 수동 실행(workflow_dispatch)을 쓸 수 없다.
+- `v*` 태그 보호: 릴리스 태그를 아무 커밋에나 달 수 없게.
+- 같은 저장소의 `feature-*` 브랜치는 push 와 pull_request 가 둘 다 돌아 잡이 두 배다. push 를 `main`·`dev` 로 줄이면 반으로 준다
+  (PR 을 열지 않은 브랜치는 CI 가 돌지 않게 되므로 팀의 흐름에 맞는지 정해야 한다).
+- 의존성의 정확한 버전을 잠금 파일로 고정하면 CI·Docker·번들이 같은 조합을 쓴다 (도구 설치가 필요해 아직 정하지 않았다).

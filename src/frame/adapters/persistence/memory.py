@@ -20,6 +20,7 @@ from frame.application.ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
 from frame.domain.errors import IntegrityViolation
+from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import Project, ReferenceImage, VideoVersion
 from frame.domain.state_machine import assert_transition
 from frame.domain.tracking import TrackRecord
@@ -66,6 +67,10 @@ class InMemoryVersionRepository(VersionRepository):
             copy.deepcopy(v) for v in self._store.versions.values() if v.project_id == project_id
         ]
 
+    def list_by_state(self, state: VersionState) -> list[VideoVersion]:
+        found = [v for v in self._store.versions.values() if v.state is state]
+        return [copy.deepcopy(v) for v in sorted(found, key=lambda v: (v.created_at, v.version_id))]
+
     def save(self, version: VideoVersion) -> None:
         if version.version_id not in self._store.versions:
             raise IntegrityViolation(f"저장되지 않은 version_id: {version.version_id}")
@@ -79,6 +84,13 @@ class InMemoryVersionRepository(VersionRepository):
             return False
         assert_transition(from_state, to_state)
         stored.state = to_state
+        return True
+
+    def replace_draft_ir(self, version_id: str, ir: IntermediateRepresentation) -> bool:
+        stored = self._store.versions.get(version_id)
+        if stored is None or stored.state is not VersionState.DRAFT or stored.is_frozen:
+            return False
+        stored.ir = ir  # IR 은 불변 값 객체라 복사하지 않아도 된다
         return True
 
 

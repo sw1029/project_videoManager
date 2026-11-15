@@ -7,6 +7,12 @@ from typing import Any
 
 from .enums import CheckType, Verdict
 
+# PRESERVATION 결과의 detail["method"]: 그 결과를 무엇으로 쟀는가.
+# 보존 검수기가 이 이름을 적고, 지표 1 평가(evaluation)가 기준별로 비대상 변경률을 낼 때 같은 이름으로 가른다
+PRESERVATION_BY_KEEP = "vlm_keep"  # 유지 요소 판정 (요소 하나가 결과 하나, 그대로 1.0 · 달라짐 0.0)
+PRESERVATION_BY_SSIM = "ssim"  # 부모 클립 대비 구조 유사도 (다시 만든 장면 하나가 결과 하나)
+PRESERVATION_REUSED = "identical"  # 부모 클립을 그대로 쓴 장면 (재지 않는다. 어느 검수기든 1.0)
+
 
 @dataclass(frozen=True)
 class WarningInterval:

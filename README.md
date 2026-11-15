@@ -7,7 +7,24 @@
 - TDD 워크플로: [docs/TDD_WORKFLOW.md](docs/TDD_WORKFLOW.md)
 - 결정 기록: [docs/adr](docs/adr)
 
-## 빠른 시작
+## 새 기기에서 시연 (Windows · macOS · Linux)
+
+화면과 API 를 서버 하나로 띄우고 입력 프리셋까지 채워 주는 런처가 있다. 자세한 내용은 [docs/DEMO.md](docs/DEMO.md).
+
+**설치 없이**: OS별 번들(`frame-demo-<대상>.zip|tar.gz`, 휴대용 Python·화면 동봉, 약 30MB)을 Releases 에서 받아
+압축을 풀고 `run.cmd`(Windows) 또는 `sh run.sh`(macOS·Linux)를 실행한다. 번들은 `v*` 태그를 올리면 CI 가 만든다.
+
+**저장소에서** (Python 3.11+, Node.js 18+ 필요):
+
+| OS | 설치 (한 번) | 실행 |
+|---|---|---|
+| Windows | `scripts\setup.cmd` | `scripts\run.cmd` |
+| macOS · Linux | `sh scripts/setup.sh` | `sh scripts/run.sh` |
+
+`run --offline` 은 키·인터넷 없이 DSL 프리셋으로, `run --lan` 은 같은 네트워크의 iPhone·iPad 에서 보기용으로 띄운다.
+OpenAI 키는 설치 때 입력하거나(`.demo/openai.key`, git 제외) 실행 후 화면의 키 칸에 넣는다(서버 메모리에만, 같은 기기에서만).
+
+## 빠른 시작 (개발)
 
 ```bash
 python -m venv .venv
@@ -30,24 +47,41 @@ curl -X POST localhost:8000/api/projects -H "Content-Type: application/json" -d 
 1. 응답의 `version_id` 로 `GET /api/versions/{id}` → `DRAFT` 와 IR 확인
 2. `POST /api/versions/{id}/generations` → `202 QUEUED` → 잠시 후 `COMPLETED`
 3. `GET /api/versions/{id}/checks`, `GET /api/versions/{id}/entities/cup/tracks`
-4. `POST /api/versions/{id}/revisions` `{"entity_key":"cup","predicate":"color","new_value":"teal"}` → 새 DRAFT → 2~3 반복 → 두 버전 비교
+4. `POST /api/versions/{id}/revisions` `{"entity_key":"cup","predicate":"color","new_value":"teal"}` → 새 DRAFT → 2~3 반복
+5. `GET /api/versions/{새 id}/comparison` → 부모 대비 장면별 재사용(`REUSED`)·재생성, 바뀐 요구조건과 판정, 검수 지표 차이
+6. `GET /api/projects/{project_id}/dashboard` → 버전 트리, 버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전
 
 ## 구성 (환경 변수 `FRAME_*`, `.env.example` 참고)
 
 | 키 | 값 | 의미 |
 |---|---|---|
 | `FRAME_STRUCTURER` | `rule_based`(DSL 입력) · `llm`(자연어 입력) · `fake` | 요구사항 구조화 모델 |
-| `FRAME_GENERATOR` | `fake` · `diffusers` · `external_api` | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`) |
+| `FRAME_GENERATOR` | `fake` · `external_api`(OpenRouter) · `diffusers`(뼈대) | 영상 생성 모델 (+`FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`: 기본 켜짐, 같은 조건·설정의 장면은 재시작 뒤에도 한 번만 생성) |
+| `FRAME_VIDEO_MODEL` / `FRAME_VIDEO_RESOLUTION` | OpenRouter 영상 모델 id (기본 `alibaba/wan-3.0`) / `480p` · `720p`(기본) · `1080p` | `external_api` 의 모델과 해상도 (화면비 `FRAME_VIDEO_ASPECT_RATIO`=`9:16`, 클립 fps `FRAME_VIDEO_FPS`=30) |
+| `FRAME_VIDEO_KEY_FILE` | 키 파일 경로 (또는 환경 변수 `OPENROUTER_API_KEY`) | OpenRouter 키 (`sk-or-...`). 저장소에 넣지 않는다 |
+| `FRAME_VIDEO_FFMPEG` | 실행 파일 경로 (비우면 PATH → `video` extra 의 imageio-ffmpeg) | 클립 정규화·조립용 ffmpeg |
+| `FRAME_ASSEMBLER` | `fake` · `ffmpeg` | 최종 영상 조립 (`ffmpeg` 은 장면 클립을 이어 mp4 로. 실제 영상 생성기와 함께 쓴다) |
 | `FRAME_TRACKER` | `fake` · `opencv` | 객체 추적 모델 |
-| `FRAME_CHECKERS` | 쉼표 목록 | 검수기 (요구사항·일관성·보존) |
+| `FRAME_CHECKERS` | 쉼표 목록 (`fake_requirement` · `fake_consistency` · `fake_preservation` · `vlm_requirement` · `vlm_consistency` · `vlm_preservation` · `ssim_preservation`) | 검수기 (요구사항·일관성·보존). `vlm_consistency` 는 표본 프레임을 VLM 이 판정해 고정 속성 유지율을 재고, `ssim_preservation` 은 다시 만든 장면을 부모 클립과 SSIM 으로 비교한다. `vlm_requirement` 는 요구조건마다 반영 여부를 판정하고(지표 2), `vlm_preservation` 은 다시 만든 장면에서 유지할 요소가 그대로인지 부모 클립과 견준다 ([ADR-0018](docs/adr/0018-requirement-and-keep-checkers.md)) (ffmpeg 필요, [ADR-0015](docs/adr/0015-identity-references-and-consistency-check.md)·[0016](docs/adr/0016-parent-clip-editing.md)) |
+| `FRAME_IDENTITY` | `off`(기본) · `vlm_crop` · `frame` · `fake` | 장면 사이 객체 일관성: 객체가 나온 클립에서 정체성 기준 이미지를 뽑아 그 객체가 나오는 다른 장면 생성에 참조로 넘긴다. `vlm_crop` 은 VLM 으로 객체를 잘라 내고 `frame` 은 화면 전체를 쓴다 (+`FRAME_IDENTITY_KINDS`=`PERSON,ANIMAL,PROP,OTHER`, `FRAME_IDENTITY_MAX_REFERENCES`=3, `FRAME_IDENTITY_VERIFY_ATTRIBUTES`=true: 요구한 고정 속성과 다르게 나온 객체는 기준으로 쓰지 않음). 조사·실험 기록은 [docs/research/character-consistency.md](docs/research/character-consistency.md) |
+| `FRAME_VLM_MODEL` | 모델 이름 (비우면 `FRAME_LLM_MODEL`) | 이미지를 읽는 모델. `vlm_crop`·`vlm_consistency` 가 쓴다. 공급자·키·주소는 `FRAME_LLM_*` 와 같다 |
+| `FRAME_VIDEO_EDIT_MODE` / `FRAME_VIDEO_EDIT_MODEL` | `off`(기본) · `previous_job` · `video_reference` / 편집 모델 id | 수정 버전에서 다시 만드는 장면을 부모 클립 편집으로 만든다. 편집 요청이 거절되면 새로 생성한다. 실호출로 확인한 조합은 `video_reference` + `black-forest-labs/flux-video-edit` 이고, 부모 클립을 만든 작업의 저장본이 남아 있는 약 24시간 안에만 된다 ([ADR-0016](docs/adr/0016-parent-clip-editing.md)) |
+| `FRAME_VIDEO_EDIT_PARENT_WAIT_S` | `10`(기본, 초) | `video_reference` 편집에서 부모 작업의 저장본 주소가 상태 응답에 없을 때 다시 묻는 시간. 넘기면 새로 생성한다. 방금 만든 영상은 주소가 몇 분 늦게 나오므로, 생성 직후의 수정도 편집으로 만들려면 늘린다 (그만큼 기다린다). 변경 계획(`POST /versions/{id}/revision-plans`)을 먼저 요청하면 편집이 될지 미리 알려 주고, 그때 받은 주소를 메모리에 30분 들고 있다가 쓴다. [ADR-0016](docs/adr/0016-parent-clip-editing.md) · [ADR-0020](docs/adr/0020-production-preview-and-held-parent-url.md) |
+| `FRAME_CHANGE_INTERPRETER` | `auto`(기본) · `rule_based` · `llm` | 글로 쓴 변경 요청(`POST /versions/{id}/revision-plans` 의 `request_text`)을 구조화하는 해석기. `auto` 는 구조화기를 따른다 (`FRAME_STRUCTURER=llm` 이면 `llm`). `rule_based` 는 `cup.color = teal @ 장면; keep: barista.action` 형식만 읽는다 ([ADR-0019](docs/adr/0019-revision-plan-and-change-request.md)). 수정의 종류(`CHANGE`·`REPAIR`)와 유지할 요소는 [ADR-0017](docs/adr/0017-revision-intent-repair-and-keep.md), 컨셉 화면 관점의 검토는 [docs/research/concept-ux-review.md](docs/research/concept-ux-review.md) |
 | `FRAME_PERSISTENCE` / `FRAME_DB_URL` | `memory` · `sqlalchemy` / MySQL·SQLite URL | 저장소 |
 | `FRAME_ARTIFACT_STORE` / `FRAME_ARTIFACT_DIR` | `memory` · `local_fs` | 산출물 저장 |
 | `FRAME_JOBS` | `inline` · `thread` · `recording` | 비동기 실행 |
+| `FRAME_GENERATOR_TIMEOUT_S` | 초 (0·빈 값 = 끔, 기본 끔) | 장면 하나 생성의 범용 시간 제한. 넘으면 `GENERATION_TIMEOUT` 으로 실패하고 재시도하지 않는다. `external_api` 는 `FRAME_VIDEO_TIMEOUT_S` + 300초 이상 ([ADR-0012](docs/adr/0012-generation-timeout-partial-results-progress.md)) |
+| `FRAME_WORKER_LEASE_S` / `FRAME_WORKER_MAX_ATTEMPTS` / `FRAME_RECOVERY_INTERVAL_S` | 초(1800) / 횟수(3) / 초(60, 0 = 기동 때만) | 재시작 복구 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)): 기동 때 QUEUED·STRUCTURING 은 다시 실행하고 PROCESSING 은 재시도, 실행 중에는 리스를 넘긴 PROCESSING 을 재시도. 시도 상한이면 `FAILED(WORKER_LOST)` |
 | `FRAME_CORS_ORIGINS` | 쉼표 목록 | 다른 출처 화면 허용 (기본 꺼짐) |
 | `FRAME_FRONTEND_DIST` | 폴더 경로 | 빌드된 화면을 같은 출처 `/` 에서 서빙 |
-| `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 POST 요청 제한 (0 = 꺼짐) |
+| `FRAME_RATE_LIMIT_PER_MINUTE` | 정수 | 공개 데모용 IP 별 변경 요청(POST·PUT) 제한 (0 = 꺼짐) |
+| `FRAME_REFERENCE_IMAGE_MAX_BYTES` | 정수 (기본 10485760 = 10 MiB) | 참조 이미지 업로드(`POST /api/reference-images`)의 크기 상한. PNG·JPEG·WebP 만 받는다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)) |
+| `FRAME_LLM_RUNTIME_KEY` | `true` · `false`(기본) | 화면에서 OpenAI 키 입력 허용 (키 없이 기동, 메모리에만 보관, 같은 기기에서만) |
 
-Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`
+Docker (API + MySQL 8.4): `docker compose -f docker/docker-compose.yml up --build`.
+이미지에는 ffmpeg(배포판의 것)와 한글 글꼴이 들어 있어, 실제 영상 경로와 화면 문구 얹기(`FRAME_OVERLAY_RENDERER=ffmpeg`)를 그대로 켤 수 있다
+([ADR-0034](docs/adr/0034-docker-image-distribution-ffmpeg-and-in-image-checks.md)).
 
 ## 프론트엔드 연동
 
@@ -57,8 +91,22 @@ API 계약 전문은 [docs/openapi.json](docs/openapi.json) 이다. API 를 바�
 - **오류 형식**: 모든 오류는 `{error_code, error_message}` 이고, 요청 형식 오류(422)만 `details[{loc, message}]` 를 더한다.
 - **상태 갱신**: 구조화·생성은 비동기다. 화면은 상태가 STRUCTURING·QUEUED·PROCESSING 인 동안 `GET /api/versions/{id}` 를 주기적으로 조회한다.
 - **영상**: `video_url`, `clip_url` 을 `<video src>` 에 그대로 쓴다. `*_media_type` 이 `video/` 가 아니면 Fake 매니페스트(JSON)이므로 대체 화면을 보여준다.
+- **전후 비교**: `GET /api/versions/{id}/comparison` (`?against=` 생략 시 부모) 한 번으로 양쪽 영상, 장면별 `status`
+  (`REUSED`·`REGENERATED`·`ADDED`·`REMOVED`·`UNAVAILABLE`=클립 없음)와 양쪽 `clip_url`, 요구조건별 변경·판정, `checks_delta` 를 받는다 ([ADR-0014](docs/adr/0014-comparison-and-dashboard-api.md)).
+- **대시보드**: `GET /api/projects/{id}/dashboard` 가 버전 트리(`parent_version_id`·`child_version_ids`·`depth`)와 버전별 상태·오류·영상·검수 요약·
+  `changed_scene_count`, 상태별 개수·최신 버전을 한 번에 준다.
 - **입력 예시**: `/health` 의 `structuring_input` 이 `dsl` 이면 DSL 예시를, `natural_language` 이면 자연어 예시를 보여준다.
 - **장면 수준 조건 수정**: `POST /revisions` 에서 `entity_key` 를 생략하면 장소·조명·분위기 같은 장면 조건을 바꾼다.
+- **블록 입력 (IR 직접 입력)**: `POST /api/projects` 에 `prompt` 대신 `ir`(GET 의 `ir` 과 같은 모양)을 보내면 LLM 없이 보정·검증만 거쳐
+  바로 DRAFT 가 된다 (201, `repair_notes` 에 서버가 고친 것). 객체·장면 키는 영문·숫자·밑줄로 된 64자 이하이고
+  (대소문자만 다른 키는 같은 키),
+  객체의 화면 라벨(한글 이름 등)은 `display_name` 에 둔다 (생성 조건이 아니다).
+- **구조화 결과 수정**: DRAFT 에서 `PUT /api/versions/{id}/ir` 로 고친 IR 을 보내면 보정·검증 뒤 저장하고 고친 버전과
+  `repair_notes` 를 돌려준다. 생성이 접수된 뒤에는 409 `VERSION_NOT_EDITABLE` ([ADR-0023](docs/adr/0023-direct-ir-input-draft-edit-and-display-name.md)).
+- **참조 이미지 업로드**: `POST /api/reference-images` 에 multipart `file`(PNG·JPEG·WebP)을 올리면 `image_uri` 를 돌려준다.
+  그 값을 `POST /api/projects` 의 `reference_images[].image_uri` 에 쓰면 서버가 `refs/{project_id}/` 로 옮겨 버전의 참조 이미지로 남기고,
+  `reference_images[].image_url` 로 내려받을 수 있다. 서버 저장소의 주소(`local://`·`mem://`)는 업로드 결과만 받고(그 밖은 422),
+  외부 주소는 `http`·`https` 만 그대로 남긴다 ([ADR-0024](docs/adr/0024-reference-image-upload.md)).
 
 화면 개발용 백엔드 실행 예시 (데이터 유지 + 비동기 실행 + 영상 Range 지원):
 
@@ -82,21 +130,124 @@ docs/{ARCHITECTURE.md,TDD_WORKFLOW.md,adr/}
 ## LLM 구조화 호출 테스트
 
 `FRAME_STRUCTURER=llm` 이면 자연어 브리프를 OpenAI(또는 OpenAI 호환 로컬 서버)로 구조화한다. API 키는 환경 변수
-`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로만 전달하고 저장소에는 넣지 않는다. 키나 `llm` 추가 패키지가 없으면
-서버가 기동 단계에서 실패한다.
+`OPENAI_API_KEY` 나 키 파일(`FRAME_LLM_KEY_FILE`)로 전달하고 저장소에는 넣지 않는다. 키나 `llm` 추가 패키지가 없으면
+서버가 기동 단계에서 실패한다. 시연용으로 `FRAME_LLM_RUNTIME_KEY=true` 를 켜면 키 없이 기동하고, 같은 기기에서 연 화면의
+키 칸(`PUT /api/settings/llm-key`)으로 넣은 키를 메모리에만 둔다 ([ADR-0010](docs/adr/0010-demo-runtime-key-and-launcher.md)).
 
 ```bash
 pip install -e ".[dev,llm]"
 ```
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
+FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=path/to/openai.key python -m frame.tools.structure_cli --duration-ms 12000 --brief "카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 컵 클로즈업. 장면 3 (4초): 바리스타가 손을 흔든다."
 ```
 
 ```bash
-FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=F:/key.txt python -m pytest tests/live -m slow -s
+FRAME_LIVE_TESTS=1 FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=path/to/openai.key python -m pytest tests/live -m slow -s
+```
+
+구조화 품질은 골드셋 15건(브리프 → 기대 IR)으로 잰다. 객체 재현율·요구조건 F1·장면 수 일치를 내고,
+`docs/evaluation/structuring/` 의 가장 최근 기록과 견준다 ([STRUCTURING_DESIGN §10](docs/STRUCTURING_DESIGN.md)).
+이 실제 실행 테스트는 서버 설정이 아니라 스위치 둘로 켠다 — 실제 호출 테스트 공통의 `FRAME_LIVE_TESTS=1` 과 이 테스트만의
+`FRAME_EVAL_STRUCTURING_LIVE=1` (1회 약 $0.03~0.04, 어림).
+기록을 저장소에 남길 때는 `FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring` 을 더한다.
+
+```bash
+FRAME_LIVE_TESTS=1 FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live/test_structuring_gold_live.py -m slow -s
 ```
 
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,
 `FRAME_LLM_MODEL=<서빙 모델명>`, `FRAME_LLM_STRICT_SCHEMA=false` 를 더한다. 모델 호출은 `LLMClient` 포트 뒤에 있어
-유스케이스·API·테스트는 바뀌지 않는다.
+유스케이스·API·테스트는 바뀌지 않는다. 요청이 가는 주소는 `FRAME_LLM_BASE_URL` 로만 바꾼다 — 비워 두면 OpenAI 이고,
+셸의 `OPENAI_BASE_URL` 은 따르지 않는다 (주소를 따로 주지 않은 음성 인식도 같은 주소로 간다).
+
+## 영상 생성 (OpenRouter) 호출 테스트
+
+`FRAME_GENERATOR=external_api` 이면 장면마다 OpenRouter 영상 API(`POST /api/v1/videos` → 폴링 → `/content` 다운로드)로
+클립을 만들고, ffmpeg 로 장면 길이·fps·해상도에 맞춘 무음 mp4 로 바꿔 저장한다. `FRAME_ASSEMBLER=ffmpeg` 면 장면 클립을 이어 최종 mp4 를 만든다 ([ADR-0011](docs/adr/0011-openrouter-video-generator.md)).
+모델은 `FRAME_VIDEO_MODEL` 하나로 바꾸고(기본 Wan 3.0), 허용 길이·화면비·seed 지원은 키 없이 받는 모델 메타데이터를 따른다.
+키는 `OPENROUTER_API_KEY` 나 키 파일(`FRAME_VIDEO_KEY_FILE`, `sk-or-...`)로만 전달한다. 키나 ffmpeg 가 없으면 서버가 기동 단계에서 실패한다.
+
+```bash
+pip install -e ".[dev,video]"
+```
+
+```bash
+FRAME_LIVE_TESTS=1 FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
+```
+
+카페 예시의 4초 장면 하나를 만들고(Wan 3.0 480p 약 $0.20, 720p 약 $0.40) 비용(`usage.cost`)·소요 시간·출력 규격을 출력한다.
+결과는 `./artifacts/clips/live-<시각>/intro.mp4` 에 남는다. 접수된 작업이 실패하거나 시간을 넘기면 과금 여부를 알 수 없어
+다시 제출하지 않는다 (`FRAME_GENERATOR_RETRIES` 도 건너뜀). 같은 조건·같은 설정의 장면은 생성 캐시(`FRAME_GENERATOR_CACHE`, 기본 켜짐)와
+작업 원장으로 재시작 뒤에도 다시 제출하지 않는다 ([ADR-0013](docs/adr/0013-restart-recovery-and-persistent-generation-cache.md)).
+이 테스트를 같은 조건으로 24시간 안에 다시 돌리면 원장이 이전 결과를 다시 쓰고 실패하므로, 실제 호출을 다시 보려면 `./artifacts/ledger/openrouter` 를 지운다.
+
+## 지표 1 평가 (단일 속성 수정 20건, T12)
+
+수정 성공률(목표 80% 이상)과 비대상 변경률(목표 10% 이하)을 잰다. 케이스 하나가 단일 속성 수정 하나이고, 케이스마다
+변경 계획 → 수정 버전 생성 → 생성 접수 → 완료 대기 → 검수 결과 수집을 차례로 한다. 서버를 띄우지 않고 같은 설정(`FRAME_*`)으로
+유스케이스를 직접 부른다 ([ADR-0022](docs/adr/0022-edit-evaluation-cli.md)).
+
+1. 원본(부모 버전)을 화면이나 API 로 만들어 끝까지(`COMPLETED`) 생성한다.
+2. 케이스 파일에 원본의 버전 ID 와 수정할 객체·술어·새 값을 적는다. 예시: [docs/evaluation/edit_cases.example.json](docs/evaluation/edit_cases.example.json)
+   (필드 이름은 `POST /revisions` 와 같다. `kind`·`keep`·`scope`·`scene_keys`·`current_value`·`note` 는 선택이고, `kind` 를 비우면 계획이 정한다).
+3. 원본을 만든 서버를 끄고, 서버와 같은 DB·산출물 폴더를 가리켜 실행한다 (시연 런처로 만든 원본은 `.demo/frame.db`·`.demo/artifacts`).
+
+```bash
+FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_ARTIFACT_STORE=local_fs FRAME_ARTIFACT_DIR=./artifacts python -m frame.tools.evaluate_edits --cases docs/evaluation/edit_cases.example.json --out eval/result.json
+```
+
+- 케이스마다 진행이 표준 오류로, 끝나면 요약이 표준 출력으로 나온다. 결과 파일은 케이스가 끝날 때마다 다시 쓰므로 중간에 끊겨도
+  끝난 케이스가 남는다 (`complete: false`). 파일을 쓰지 못해도(다른 프로그램이 잡은 경우 등) 실행은 계속하고 다음 케이스 뒤에 다시 쓴다.
+  마지막까지 못 쓰면 같은 폴더의 `<이름>.fallback.json`, 그다음 임시 폴더에 쓰고 종료 코드 3 으로 알린다.
+- 결과 파일이 이미 있으면 앞 결과(과금된 실행)를 지키려고 아무것도 돌리지 않는다 (종료 코드 2). 덮어쓰려면 `--overwrite`.
+- Ctrl+C 로 멈추면 하던 케이스와 그 케이스의 수정 버전 ID·상태가 `interrupted` 에 남고, 하던 케이스와 시작하지 않은 케이스만 담은
+  `<이름>.remaining.json` 이 생긴다. 이어 돌릴 때는 그 파일을 `--cases` 로, 다른 파일을 `--out` 으로 준다 (끝난 케이스의 검수를
+  다시 과금하지 않는다). `FRAME_GENERATOR_TIMEOUT_S` 를 켜 둬도 Ctrl+C 는 곧 먹는다 (장면을 기다리는 동안 0.2초마다 확인한다).
+  그때 만들고 있던 장면의 작업은 멈추지 않지만, 다시 시도하거나 새로 제출하지 않는다.
+- 케이스 하나의 오류(부모 없음, 생성 실패, 계획을 받지 못함, DB 잠금 같은 예상 밖 오류 등)는 그 케이스의 `error` 에 남기고 다음 케이스로 간다.
+- 오류나 Ctrl+C 로 끝난 케이스의 수정 버전이 접수된 채(`QUEUED`·`PROCESSING`) 남으면 진행 줄과 요약(`summary.unfinished_versions`)에
+  알린다. 같은 DB 로 서버를 켜면 재시작 복구가 그 버전을 이어서 실행해 남은 생성·검수가 과금될 수 있다.
+- 결과 JSON: `summary`(성공률·평균 비대상 변경률·`meets_target`, 기준별 `by_basis`, 끝나지 않은 수정 버전, 기록된 영상 비용, 검수 VLM 토큰)와
+  `cases[]`(입력, 계획, 수정 버전 ID·상태·오류, 대상 요구조건 키, 판정 `outcome`·`by_basis`, 장면별 클립 URI 와 부모 클립 URI,
+  검수 결과 전부와 그 `detail`). 건수는 겹칠 수 있다: 생성은 끝났는데 검수 결과를 읽지 못한 케이스는 `completed` 와 `errors` 에 함께 든다.
+- 저장소에 기록할 수 있게 DB 주소·키 파일·이 컴퓨터의 폴더 경로는 남기지 않는다. 설정에는 산출물 폴더의 종류만, 케이스 파일은 이름만 남기고,
+  오류 문구·검수 사유·경고에 섞인 절대 경로는 `<경로>` 로 가린다.
+- 수정 성공 = 다시 만든 장면의 (대상 객체, 술어) 요구조건이 모두 PASS 이고 비대상 변경률이 10% 이하. 미판정·실패한 케이스는 성공으로 세지 않는다.
+- `--preservation vlm_keep|ssim`: 목표 판정에 쓸 비대상 변경률의 기준. 두 기준 모두 결과에 남는다. `vlm_keep` 은 `vlm_preservation` 의
+  유지 요소 판정(기본), `ssim` 은 `ssim_preservation` 의 부모 클립 대비 SSIM 이다. 어느 쪽으로 잴지는 아직 정하지 않았다
+  ([연구 문서 §7 결정 2](docs/research/concept-ux-review.md)).
+- `--plan-only`: 변경 계획만 보고 수정 버전을 만들지 않는다. 다시 만들 장면 수·편집 여부·어림 비용으로 실험 전에 비용을 적는다.
+- 종료 코드: 0 = 끝까지 돌고 결과를 남김, 2 = 케이스 파일·설정 오류 또는 결과 파일이 이미 있음 (`FRAME_PERSISTENCE=memory` 포함,
+  아무것도 실행하지 않음), 3 = 결과를 `--out` 에 쓰지 못함 (쓴 곳을 알린다), 130 = Ctrl+C 로 멈춤 (그때까지의 결과를 남김).
+- git worktree 처럼 가상환경을 다른 체크아웃과 함께 쓰면 명령 앞에 `PYTHONPATH=src` 를 둔다. 편집 설치(`pip install -e`)가
+  가리키는 다른 체크아웃의 코드가 돌 수 있다 (pytest 는 `pythonpath = ["src"]` 라 괜찮다).
+
+### 실제 모델로 돌리기 (비용 발생, 승인 뒤에)
+
+```bash
+pip install -e ".[dev,llm,video]"
+```
+
+```bash
+FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_ARTIFACT_STORE=local_fs FRAME_ARTIFACT_DIR=./artifacts \
+FRAME_GENERATOR=external_api FRAME_ASSEMBLER=ffmpeg FRAME_VIDEO_KEY_FILE=<OpenRouter 키 파일> FRAME_VIDEO_RESOLUTION=480p \
+FRAME_VIDEO_EDIT_MODE=video_reference FRAME_VIDEO_EDIT_MODEL=black-forest-labs/flux-video-edit \
+FRAME_CHECKERS=vlm_requirement,vlm_preservation,ssim_preservation FRAME_LLM_KEY_FILE=<OpenAI 키 파일> FRAME_VLM_MODEL=gpt-4.1 \
+python -m frame.tools.evaluate_edits --cases eval/cases.json --out eval/plan.json --plan-only
+```
+
+1. 먼저 `--plan-only` 로 계획을 본다 (영상 생성 없음): 요약의 `regenerate_scenes`·`edit_scenes`·`estimated_cost_usd`. 편집되지 않을 장면은
+   `cases[].plan.scenes[].production.edit_unavailable_reason` 에 사유가 있다. 원본을 만든 직후에는 부모 저장본 주소가 늦게 나와
+   새로 생성될 수 있으니 원본은 미리 만들어 둔다 ([연구 문서 §6.3](docs/research/concept-ux-review.md)).
+2. 비용을 적어 승인을 받은 뒤 `--plan-only` 를 빼고 `--out eval/result.json` 으로 같은 명령을 돌린다.
+
+| 항목 | 단가 (480p·4초 장면, 연구 문서 §6.1 실측) |
+|---|---|
+| 다시 만드는 장면 — 부모 클립 편집 (FLUX Video Edit) | $0.12 |
+| 다시 만드는 장면 — 새로 생성 (Wan 3.0) | $0.2125 |
+| 재검수 (gpt-4.1) | 수정 한 번에 약 $0.04~0.05 |
+
+20건이면 장면 2개씩 기준으로 편집 약 $5.8 ~ 새로 생성 약 $9.5 (장면 1~3개가 섞이면 약 $3.4~$13.8), 시간은 약 40~110분이다.
+원본이 없으면 4장면 원본 하나에 약 $0.90 이 더 든다. 20건은 예를 들어 원본 4개 × 속성 5종(색·의상·재질·조명·장소 등)으로 짠다.
+`tests/live/test_evaluate_edits_live.py` 는 같은 설정에 `FRAME_LIVE_TESTS=1` 과 `FRAME_EVAL_CASES=<케이스 파일>` 을 줄 때만 돈다 (`-m slow`).

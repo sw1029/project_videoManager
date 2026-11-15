@@ -14,7 +14,8 @@ class Job:
     payload: Mapping[str, Any] = field(default_factory=dict)
 
 
-JobHandler = Callable[[Job], None]
+# 핸들러가 돌려주는 값은 쓰지 않는다 (유스케이스의 실행 메서드를 그대로 올릴 수 있다)
+JobHandler = Callable[[Job], object]
 
 
 class JobHandlerRegistry:

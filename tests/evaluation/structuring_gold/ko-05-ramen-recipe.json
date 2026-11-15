@@ -1,0 +1,61 @@
+{
+  "case_id": "ko-05-ramen-recipe",
+  "language": "ko",
+  "target_duration_ms": 9000,
+  "brief": "라면 레시피 숏폼 9초. 장면 1 (3초): 위에서 내려다본 구도로 물이 끓는 은색 냄비. 장면 2 (3초): 손이 냄비에 계란 두 개를 넣는다. 장면 3 (3초): 완성된 라면 그릇 위에 '3분 완성' 자막이 뜬다.",
+  "covers": ["count", "camera", "literal_text", "action", "korean_literal"],
+  "notes": "계란 두 개는 객체 하나와 count=2 로 적는다. 끓는 물은 냄비의 상태나 물 객체로 쓸 수 있어 선택이다. 손은 사람의 일부라 PERSON 이지만 OTHER 도 받는다. 라면과 그릇은 하나로 써도 둘로 써도 된다 (그릇은 선택). 첫 실제 실행(2026-11-14) 뒤 보완: 냄비에 계란을 넣는 손은 냄비 곁에 있으므로 hand near pot 을 선택으로 받는다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "pot", "kind": "PROP", "description": "은색 냄비", "aliases": ["냄비", "pot", "saucepan"]},
+      {"entity_key": "water", "kind": "PROP", "description": "끓는 물", "aliases": ["물", "water"], "optional": true},
+      {"entity_key": "hand", "kind": "PERSON", "description": "냄비에 계란을 넣는 손", "aliases": ["손", "요리사", "hand", "cook", "chef"], "accept_kinds": ["OTHER"]},
+      {"entity_key": "eggs", "kind": "PROP", "description": "계란 두 개", "aliases": ["계란", "달걀", "egg"]},
+      {"entity_key": "ramen", "kind": "PROP", "description": "완성된 라면", "aliases": ["라면", "ramen", "noodle"]},
+      {"entity_key": "bowl", "kind": "PROP", "description": "라면 그릇", "aliases": ["그릇", "bowl"], "optional": true},
+      {"entity_key": "caption", "kind": "TEXT", "description": "'3분 완성' 자막", "aliases": ["3분 완성", "자막", "문구", "caption", "subtitle", "text", "title"]}
+    ],
+    "scenes": [
+      {
+        "scene_key": "boiling",
+        "planned_start_ms": 0,
+        "planned_end_ms": 3000,
+        "description": "위에서 내려다본 구도로 물이 끓는 은색 냄비",
+        "entity_keys": ["pot", "water"],
+        "requirements": [
+          {"entity_key": "pot", "predicate": "color", "expected_value": "silver"},
+          {"predicate": "camera", "expected_value": "top down", "accept": ["overhead", "top view", "bird's eye", "from above", "high angle"]},
+          {"entity_key": "pot", "predicate": "action", "expected_value": "boiling", "optional": true, "accept_predicates": ["state"]},
+          {"entity_key": "water", "predicate": "action", "expected_value": "boiling", "accept_predicates": ["state"]}
+        ]
+      },
+      {
+        "scene_key": "add_eggs",
+        "planned_start_ms": 3000,
+        "planned_end_ms": 6000,
+        "description": "손이 냄비에 계란 두 개를 넣는다",
+        "entity_keys": ["hand", "pot", "eggs"],
+        "requirements": [
+          {"entity_key": "hand", "predicate": "action", "expected_value": "puts", "accept": ["adds", "drops", "cracks", "places"]},
+          {"entity_key": "eggs", "predicate": "count", "expected_value": "2"},
+          {"entity_key": "pot", "predicate": "color", "expected_value": "silver"},
+          {"entity_key": "hand", "predicate": "holds", "related_entity_key": "eggs", "expected_value": "eggs", "optional": true},
+          {"entity_key": "hand", "predicate": "near", "related_entity_key": "pot", "expected_value": "pot", "optional": true},
+          {"predicate": "camera", "expected_value": "top down", "optional": true, "accept": ["overhead", "top view", "bird's eye", "from above", "high angle"]}
+        ]
+      },
+      {
+        "scene_key": "done",
+        "planned_start_ms": 6000,
+        "planned_end_ms": 9000,
+        "description": "완성된 라면 그릇 위에 '3분 완성' 자막",
+        "entity_keys": ["ramen", "bowl", "caption"],
+        "requirements": [
+          {"entity_key": "caption", "predicate": "text", "expected_value": "3분 완성"},
+          {"entity_key": "caption", "predicate": "on", "related_entity_key": "ramen", "expected_value": "ramen", "optional": true}
+        ]
+      }
+    ]
+  }
+}

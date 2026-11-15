@@ -2,17 +2,28 @@
 
 import pytest
 
-from frame.adapters.checker import FakeRequirementChecker
+from frame.adapters.checker import FakeConsistencyChecker, FakeRequirementChecker
 from frame.adapters.generator import FakeVideoGenerator
 from frame.adapters.storage import InMemoryArtifactStore
 from frame.adapters.tracker import FakeObjectTracker
 from frame.application.dto import CreateRevisionCommand
 from frame.application.errors import TrackingError
 from frame.application.ports.checker import Checker
+from frame.application.ports.generator import VideoGenerator
 from frame.domain.enums import CheckType, TrackingStatus, Verdict, VersionState
 from frame.domain.errors import InvalidStateTransition
-from frame.domain.services.propagation import AttributeChange
-from tests.support.factories import create_draft, generate, make_container, version_of
+from frame.domain.revision import AttributeChange
+from tests.support.clock import ManualClock
+from tests.support.factories import (
+    cafe_ir,
+    create_draft,
+    dispatcher_of,
+    generate,
+    make_container,
+    save_unchecked_draft,
+    version_of,
+    with_scene_key,
+)
 
 
 def test_pipeline_completes_and_persists_video_tracks_and_checks(container, draft):
@@ -60,18 +71,33 @@ def test_tracking_error_aborts_following_stages():
     assert "[track]" in version.error_message
 
 
-def test_unexpected_checker_exception_is_recorded_not_raised():
+def test_a_checker_that_crashes_leaves_its_verdict_undetermined_and_the_version_completes():
+    """검수기의 예상 밖 오류는 버전을 실패로 만들지 않는다. 유료 생성은 이미 끝났고, 실패는 되돌릴 수 없는 상태다.
+
+    그 검수기의 판정만 미판정으로 남고 다른 검수기의 결과는 그대로 저장된다 (감사 A-13).
+    """
+
     class ExplodingChecker(Checker):
         check_type = CheckType.REQUIREMENT
 
         def check(self, ctx):
             raise RuntimeError("boom")
 
-    container = make_container(checkers=(ExplodingChecker(),))
+    container = make_container(checkers=(ExplodingChecker(), FakeConsistencyChecker()))
     draft = create_draft(container)
+
     version = generate(container, draft.version_id)
-    assert (version.state, version.error_code) == (VersionState.FAILED, "UNEXPECTED_ERROR")
-    assert "RuntimeError: boom" in version.error_message
+
+    assert (version.state, version.error_code) == (VersionState.COMPLETED, None)
+    results = container.queries.get_checks(draft.version_id).results
+    crashed = [r for r in results if r.check_type is CheckType.REQUIREMENT]
+    assert [r.verdict for r in crashed] == [Verdict.UNDETERMINED]
+    assert crashed[0].detail["error"] == "RuntimeError" and "boom" not in str(crashed[0].detail)
+    assert {r.entity_key for r in results if r.check_type is CheckType.CONSISTENCY} == {
+        "barista",
+        "cup",
+        "cafe",
+    }
 
 
 def test_failed_tracking_of_an_entity_makes_its_requirements_undetermined():
@@ -93,6 +119,33 @@ def test_failed_tracking_of_an_entity_makes_its_requirements_undetermined():
 def test_run_requires_queued_state(container, draft):
     with pytest.raises(InvalidStateTransition):
         container.run_generation_pipeline.execute(draft.version_id)
+
+
+def test_a_queued_version_whose_scene_key_points_elsewhere_fails_at_the_store(container, draft):
+    """접수의 키 검사를 지나친 행(그 검사가 생기기 전에 접수됐다)은 저장소의 키 검사가 마지막으로 막는다.
+
+    델타 감사 B10-D06 을 병합한 트리에서 재현한 것이다: 장면 키가 '../<다른 버전>/intro' 인 옛 행을 생성하면
+    FAILED(STORAGE_ERROR)이고 그 다른 버전의 클립은 그대로다. #10 만 있는 트리에서는 COMPLETED 였고 그 클립이
+    덮어써졌다 (감사 P-20).
+    """
+    victim = generate(container, draft.version_id)
+    store = container.artifact_store
+    before = {key: store.get(clip.uri) for key, clip in victim.clips.items()}
+    bad = with_scene_key(cafe_ir(), "intro", f"../{victim.version_id}/intro")
+    version_id = save_unchecked_draft(container, bad)
+    with container.uow_factory() as uow:  # 접수가 하는 일에서 키 검사만 뺀 것
+        assert uow.versions.try_transition(version_id, VersionState.DRAFT, VersionState.QUEUED)
+        queued = uow.versions.get(version_id)
+        queued.freeze_conditions()
+        uow.versions.save(queued)
+        uow.commit()
+
+    container.run_generation_pipeline.execute(version_id)
+
+    failed = version_of(container, version_id)
+    assert (failed.state, failed.error_code) == (VersionState.FAILED, "STORAGE_ERROR")
+    assert failed.clips == {}
+    assert {key: store.get(clip.uri) for key, clip in victim.clips.items()} == before
 
 
 @pytest.mark.ac("AC-01")
@@ -161,3 +214,106 @@ def test_requirement_checker_fail_still_completes_version():
     assert version.state is VersionState.COMPLETED
     summary = container.queries.get_checks(draft.version_id).summary
     assert summary.failed == 1 and summary.requirement_reflection_rate == 7 / 8
+
+
+def test_run_records_the_start_time_and_counts_the_attempt():
+    """#2: QUEUED -> PROCESSING 때 시작 시각을 남기고 시도 횟수를 1 늘린다."""
+    clock = ManualClock()
+    container = make_container(clock=clock)
+    draft = create_draft(container)
+    container.accept_generation.execute(draft.version_id)
+    queued_at = clock.current
+    started_at = clock.advance(seconds=30)
+
+    dispatcher_of(container).run_all()
+
+    version = version_of(container, draft.version_id)
+    assert version.state is VersionState.COMPLETED
+    assert (version.queued_at, version.started_at, version.attempt) == (queued_at, started_at, 1)
+
+
+class _ProcessDied(BaseException):
+    """작업 도중 프로세스가 죽었다 (어떤 처리기도 잡지 않는다)."""
+
+
+class _DyingGenerator(VideoGenerator):
+    def generate_scene(self, request):
+        raise _ProcessDied
+
+
+def test_start_is_committed_before_the_stages_run():
+    """생성 도중 프로세스가 죽어도 '언제 몇 번째로 시작했는지' 는 남아 복구가 판단할 수 있다."""
+    clock = ManualClock()
+    container = make_container(clock=clock, generator=_DyingGenerator())
+    draft = create_draft(container)
+    container.accept_generation.execute(draft.version_id)
+
+    with pytest.raises(_ProcessDied):
+        dispatcher_of(container).run_all()
+
+    version = version_of(container, draft.version_id)
+    assert (version.state, version.started_at, version.attempt) == (
+        VersionState.PROCESSING,
+        clock.current,
+        1,
+    )
+
+
+# ---- 부모 클립 전달 (ADR-0016) ---------------------------------------------------------
+
+
+def test_regenerated_scenes_receive_their_parent_clip_and_conditions():
+    store = InMemoryArtifactStore()
+    generator = FakeVideoGenerator(store)
+    container = make_container(artifact_store=store, generator=generator)
+    draft = create_draft(container)
+    original = generate(container, draft.version_id)
+    assert all(r.parent is None for r in generator.requests)  # 원본 버전에는 부모가 없다
+    generator.requests.clear()
+
+    revision = container.create_revision.execute(
+        CreateRevisionCommand(draft.version_id, AttributeChange("cup", "color", "teal"))
+    )
+    generate(container, revision.version_id)
+
+    by_scene = {r.scene.scene_key: r for r in generator.requests}
+    assert set(by_scene) == {"intro", "closeup"}
+    for scene_key, request in by_scene.items():
+        parent = request.parent
+        assert parent.version_id == draft.version_id
+        assert parent.clip == original.clips[scene_key]
+        assert parent.clip.metadata["generator"] == "fake"  # 부모 클립의 생성 기록
+        # 부모 쪽 조건: 컵이 아직 빨강이다 (지금 요청은 청록)
+        assert ("color", "red") in {
+            (r.predicate, r.expected_value) for r in parent.scene.requirements
+        }
+        assert ("color", "teal") in {
+            (r.predicate, r.expected_value) for r in request.scene.requirements
+        }
+        assert [e.entity_key for e in parent.entities] == list(parent.scene.entity_keys)
+
+
+def test_revision_of_a_failed_parent_passes_no_parent_clip_for_missing_scenes():
+    store = InMemoryArtifactStore()
+    container = make_container(
+        artifact_store=store, generator=FakeVideoGenerator(store, fail_scene_keys={"closeup"})
+    )
+    draft = create_draft(container)
+    generate(container, draft.version_id)  # intro 만 만들고 실패
+
+    generator = FakeVideoGenerator(store)
+    retry = make_container(
+        artifact_store=store,
+        generator=generator,
+        uow_factory=container.uow_factory,
+        ids=container.ids,
+        clock=container.clock,
+    )
+    revision = retry.create_revision.execute(
+        CreateRevisionCommand(draft.version_id, AttributeChange("cup", "color", "teal"))
+    )
+    generate(retry, revision.version_id)
+
+    by_scene = {r.scene.scene_key: r for r in generator.requests}
+    assert by_scene["intro"].parent is not None
+    assert by_scene["closeup"].parent is None and by_scene["outro"].parent is None

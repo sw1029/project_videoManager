@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -38,6 +39,15 @@ class VersionRow(Base):
         ForeignKey("video_versions.version_id"), nullable=True
     )
     state: Mapped[str] = mapped_column(String(16), nullable=False)
+    queued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # 확장 (#2 재시작 복구)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # 확장 (#2)
+    attempt: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )  # 확장 (#2)
     source_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)  # 확장
     target_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 확장
     seed: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 확장 (생성 조건)
@@ -47,6 +57,10 @@ class VersionRow(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     frozen_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확장
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 확장 (단계·장면 진행)
+    # 확장 (ADR-0017): 장면별 seed 재지정과, 수정 버전의 의도(종류·대상·유지할 요소·요청 원문)
+    scene_seeds_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intent_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class EntityRow(Base):
@@ -57,6 +71,8 @@ class EntityRow(Base):
     entity_key: Mapped[str] = mapped_column(String(64), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # 확장
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")  # 확장
+    # 확장 (#10, ADR-0023): 화면에 보여 줄 이름. 생성 조건이 아니다. 없으면 NULL
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class SceneRow(Base):
@@ -73,6 +89,8 @@ class SceneRow(Base):
     clip_uri: Mapped[str | None] = mapped_column(String(1024), nullable=True)  # 확장 (장면 클립)
     clip_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확장
     clip_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 확장
+    # 확장 (ADR-0016): 클립을 만든 생성기의 기록(모델·작업 id·비용 등). 부모 클립 편집에 쓴다
+    clip_metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SceneEntityRow(Base):
@@ -96,6 +114,14 @@ class ReferenceImageRow(Base):
         String(64), nullable=True
     )  # 구조화 전엔 키만 보관
     image_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
+    # 확장 (ADR-0015 정체성 기준 이미지). 사용자 참조는 origin=USER 이고 나머지는 비어 있다
+    origin: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="USER", server_default=text("'USER'")
+    )
+    source_scene_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    appearance_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class RequirementRow(Base):

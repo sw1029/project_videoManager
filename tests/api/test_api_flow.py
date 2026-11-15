@@ -4,7 +4,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frame.presentation.app import create_app
-from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container
+from tests.support.factories import (
+    CAFE_PROMPT,
+    cafe_ir,
+    dispatcher_of,
+    make_container,
+    save_unchecked_draft,
+    with_scene_key,
+)
 
 
 @pytest.fixture
@@ -62,6 +69,8 @@ def test_generation_is_accepted_then_completed(api):
     body = client.get(f"/api/versions/{version_id}").json()
     assert body["state"] == "COMPLETED" and body["video_uri"]
     assert all(s["clip_uri"] for s in body["ir"]["scenes"])
+    # 장면마다 클립이 어떻게 만들어졌는지 (Fake 생성기는 늘 새로 생성)
+    assert {s["clip_production"]["method"] for s in body["ir"]["scenes"]} == {"GENERATED"}
 
 
 @pytest.mark.ac("AC-12")
@@ -144,6 +153,22 @@ def test_generation_on_non_draft_returns_409(api):
     }
 
 
+def test_generation_of_a_version_saved_before_the_key_rules_returns_409():
+    """키 규칙(#10)이 생기기 전에 저장된 행: 생성을 접수하지 않고, 무엇을 고칠지 알린다 (감사 P-20)."""
+    container = make_container()
+    client = TestClient(create_app(container))
+    version_id = save_unchecked_draft(container, with_scene_key(cafe_ir(), "closeup", "Intro"))
+
+    response = client.post(f"/api/versions/{version_id}/generations")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error_code"] == "VERSION_NOT_GENERATABLE"
+    assert "대소문자" in body["error_message"] and "중간표현" in body["error_message"]
+    assert client.get(f"/api/versions/{version_id}").json()["state"] == "DRAFT"
+    assert dispatcher_of(container).pending == []
+
+
 def test_failed_version_exposes_error_code_and_message(api):
     client, dispatcher = api
     body = _create(client, dispatcher, prompt="자연어만 있는 요구사항")
@@ -213,3 +238,94 @@ def test_revision_can_change_a_relation_with_current_value(api):
         "intro:barista:holds:phone",
         "ENTITY",
     )
+
+
+# ---- 정체성 기준 이미지 (ADR-0015) ------------------------------------------------------
+
+
+def test_identity_references_are_listed_with_their_origin():
+    from frame.config import Settings
+    from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container
+
+    container = make_container(Settings(jobs="recording", identity="fake"))
+    client = TestClient(create_app(container))
+    assert client.get("/health").json()["adapters"]["identity"] == "fake"
+
+    created = client.post(
+        "/api/projects",
+        json={
+            "title": "카페",
+            "prompt": CAFE_PROMPT,
+            "reference_images": [{"image_uri": "https://example.com/refs/style.png"}],
+        },
+    ).json()
+    dispatcher_of(container).run_all()
+    version_id = created["version_id"]
+    client.post(f"/api/versions/{version_id}/generations")
+    dispatcher_of(container).run_all()
+
+    references = client.get(f"/api/versions/{version_id}").json()["reference_images"]
+
+    by_origin = {}
+    for ref in references:
+        by_origin.setdefault(ref["origin"], []).append(ref)
+    assert [r["image_uri"] for r in by_origin["USER"]] == ["https://example.com/refs/style.png"]
+    assert by_origin["USER"][0]["source_scene_key"] is None
+    derived = {r["entity_key"]: r for r in by_origin["DERIVED"]}
+    assert set(derived) == {"barista", "cup"}
+    assert all(r["source_scene_key"] == "intro" for r in derived.values())
+
+    # 저장소에 있는 기준 이미지는 HTTP 로 내려받을 수 있다 (객체 썸네일·객체별 전후 비교, ADR-0019)
+    cup = derived["cup"]
+    assert cup["image_url"] == (
+        f"/api/versions/{version_id}/reference-images/{cup['reference_image_id']}"
+    )
+    image = client.get(cup["image_url"])
+    assert image.status_code == 200 and image.headers["content-type"].startswith("image/")
+    # 저장소 밖의 주소(사용자가 준 외부 참조)는 경로를 주지 않고, 요청해도 내려 주지 않는다
+    user_ref = by_origin["USER"][0]
+    assert user_ref["image_url"] is None
+    outside = client.get(
+        f"/api/versions/{version_id}/reference-images/{user_ref['reference_image_id']}"
+    )
+    assert outside.status_code == 404 and outside.json()["error_code"] == "MEDIA_NOT_AVAILABLE"
+    missing = client.get(f"/api/versions/{version_id}/reference-images/img_missing")
+    assert missing.status_code == 404 and missing.json()["error_code"] == "NOT_FOUND"
+
+
+def test_a_reference_made_stale_by_a_revision_is_marked_not_current():
+    """2차 실호출: 컵 색을 바꾼 수정 버전의 참조 이미지에 예전(빨간) 기준과 새(청록) 기준이 함께 나왔다.
+
+    화면이 객체 카드의 썸네일과 객체별 전후 이미지를 고를 수 있게, 이 버전의 조건과 맞는 기준인지 알려 준다.
+    """
+    from frame.config import Settings
+    from tests.support.factories import CAFE_PROMPT, dispatcher_of, make_container
+
+    container = make_container(Settings(jobs="recording", identity="fake"))
+    client = TestClient(create_app(container))
+    created = client.post(
+        "/api/projects",
+        json={
+            "title": "카페",
+            "prompt": CAFE_PROMPT,
+            "reference_images": [{"image_uri": "https://example.com/refs/style.png"}],
+        },
+    ).json()
+    dispatcher_of(container).run_all()
+    version_id = created["version_id"]
+    client.post(f"/api/versions/{version_id}/generations")
+    dispatcher_of(container).run_all()
+    original = client.get(f"/api/versions/{version_id}").json()["reference_images"]
+    assert original and all(r["is_current"] for r in original)
+
+    revised = client.post(
+        f"/api/versions/{version_id}/revisions",
+        json={"entity_key": "cup", "predicate": "color", "new_value": "teal"},
+    ).json()
+    client.post(f"/api/versions/{revised['version_id']}/generations")
+    dispatcher_of(container).run_all()
+
+    references = client.get(f"/api/versions/{revised['version_id']}").json()["reference_images"]
+    cups = [r for r in references if r["entity_key"] == "cup"]
+    assert sorted(r["is_current"] for r in cups) == [False, True]  # 빨간 컵의 기준, 청록 컵의 기준
+    assert all(r["is_current"] for r in references if r["entity_key"] != "cup")

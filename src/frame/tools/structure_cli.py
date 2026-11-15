@@ -4,7 +4,7 @@
     python -m frame.tools.structure_cli --file brief.txt
 
 어댑터는 환경 변수로 고른다 (.env.example 참고):
-    FRAME_STRUCTURER=llm FRAME_LLM_PROVIDER=openai FRAME_LLM_KEY_FILE=F:/key.txt FRAME_LLM_MODEL=gpt-4.1-mini
+    FRAME_STRUCTURER=llm FRAME_LLM_PROVIDER=openai FRAME_LLM_KEY_FILE=path/to/openai.key FRAME_LLM_MODEL=gpt-4.1-mini
 로컬 3090 (vLLM 등 OpenAI 호환 서버):
     FRAME_LLM_BASE_URL=http://localhost:8001/v1 FRAME_LLM_MODEL=<모델명> FRAME_LLM_STRICT_SCHEMA=false
 """
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="IR 을 JSON 으로 출력")
     args = parser.parse_args(argv)
 
-    brief = args.brief if args.brief else Path(args.file).read_text(encoding="utf-8")
+    brief = args.brief or Path(args.file).read_text(encoding="utf-8")
     settings = replace(Settings.from_env(), jobs="recording", persistence="memory")
     try:
         container = build_container(settings)

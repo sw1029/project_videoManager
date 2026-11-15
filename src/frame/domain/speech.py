@@ -1,0 +1,166 @@
+"""받아 적은 말소리: 구간(SpeechSegment)과 낱말(Word)의 시각이 붙은 글 (Transcript).
+
+음성 인식의 결과다. 테마 추출(원본 영상의 말소리)과 녹음 붙이기(사람의 녹음)가 함께 쓰는 일반 타입이라
+시리즈 도메인 밖에 둔다. 말이 없으면 구간이 비어 있다. 빠르기는 초당 글자 수(pace_cps)로 잰다.
+"""
+
+from __future__ import annotations
+
+import unicodedata
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
+from typing import Any
+
+from frame.domain.errors import ValidationError
+
+
+@dataclass(frozen=True)
+class Word:
+    start_ms: int
+    end_ms: int
+    text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"start_ms": self.start_ms, "end_ms": self.end_ms, "text": self.text}
+
+
+@dataclass(frozen=True)
+class SpeechSegment:
+    start_ms: int
+    end_ms: int
+    text: str
+    words: tuple[Word, ...] = ()  # 낱말 시각 (인식기가 줄 때만)
+    confidence: float | None = (
+        None  # 0..1. 인식기가 이 구간의 글을 얼마나 믿는가 (주지 않으면 None)
+    )
+    no_speech: float | None = None  # 0..1. 이 구간이 말소리가 아닐 가능성 (주지 않으면 None)
+
+    @property
+    def duration_ms(self) -> int:
+        return self.end_ms - self.start_ms
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "text": self.text,
+            "words": [w.to_dict() for w in self.words],
+            "confidence": self.confidence,
+            "no_speech": self.no_speech,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> SpeechSegment:
+        return cls(
+            start_ms=int(data["start_ms"]),
+            end_ms=int(data["end_ms"]),
+            text=str(data.get("text", "")),
+            words=tuple(
+                Word(int(w["start_ms"]), int(w["end_ms"]), str(w.get("text", "")))
+                for w in data.get("words", ())
+            ),
+            confidence=_unit_interval(data.get("confidence")),
+            no_speech=_unit_interval(data.get("no_speech")),
+        )
+
+
+def _unit_interval(value: Any) -> float | None:
+    return None if value is None else min(1.0, max(0.0, float(value)))
+
+
+def ordered_segments(
+    segments: Iterable[SpeechSegment], duration_ms: int | None = None
+) -> tuple[SpeechSegment, ...]:
+    """음성 인식 포트의 계약에 맞춘 구간: 시간 순서, 서로 겹치지 않음, (길이를 알면) 소리 길이 안.
+
+    인식기는 구간을 순서 없이, 이웃과 겹치게, 끝을 소리 길이보다 조금 넘겨 주는 일이 있다. 앞 구간과 겹치는
+    앞부분과 길이를 넘는 뒷부분을 잘라 내고, 남는 것이 없는 구간은 버린다. 인식 어댑터들이 같이 쓴다.
+    낱말은 잘라 낸 범위에 걸친 것만 남기고 그 안으로 맞춘다. 범위 밖에 놓인 낱말이 하나라도 있으면
+    (구간과 낱말의 시각이 어긋났다) 그 구간의 낱말 시각을 믿지 않는다.
+    """
+    ordered: list[SpeechSegment] = []
+    previous_end = 0
+    for segment in sorted(segments, key=lambda s: (s.start_ms, s.end_ms)):
+        start = max(segment.start_ms, previous_end)
+        end = segment.end_ms if duration_ms is None else min(segment.end_ms, duration_ms)
+        if end <= start:
+            continue
+        inside = [w for w in segment.words if w.start_ms < end and w.end_ms >= start]
+        words = (
+            tuple(
+                replace(w, start_ms=max(w.start_ms, start), end_ms=min(w.end_ms, end))
+                for w in inside
+            )
+            if len(inside) == len(segment.words)
+            else ()
+        )
+        ordered.append(replace(segment, start_ms=start, end_ms=end, words=words))
+        previous_end = end
+    return tuple(ordered)
+
+
+def spoken_characters(text: str) -> int:
+    """말한 분량: 글자·숫자의 수 (공백·문장부호 제외). 말 빠르기와 대본 길이 예산의 단위다."""
+    return sum(1 for ch in unicodedata.normalize("NFC", text) if ch.isalnum())
+
+
+@dataclass(frozen=True)
+class Transcript:
+    language: str | None = None
+    segments: tuple[SpeechSegment, ...] = ()
+
+    @property
+    def text(self) -> str:
+        return " ".join(s.text.strip() for s in self.segments if s.text.strip())
+
+    @property
+    def is_empty(self) -> bool:
+        """말이 없다: 글자·숫자가 하나도 없다.
+
+        음악만 있는 소리에 인식기가 '♪'·'...' 같은 표시를 적는 일이 있다. 그런 받아쓰기도 말이 없는 것이다
+        (말로 치면 말 빠르기가 0.0 이 되어 테마의 규칙에 걸린다 — 감사 BTS-D30).
+        """
+        return spoken_characters(self.text) == 0
+
+    @property
+    def speech_ms(self) -> int:
+        """말한 시간: 글자가 든 구간의 길이를 더한 것 (표시만 있는 구간은 들지 않는다)."""
+        return sum(max(0, s.duration_ms) for s in self.segments if spoken_characters(s.text) > 0)
+
+    @property
+    def pace_cps(self) -> float | None:
+        """말 빠르기: 초당 글자 수 (공백·문장부호 제외). 말이 없으면 None. 0 이 되는 일은 없다."""
+        if self.speech_ms <= 0:
+            return None
+        return spoken_characters(self.text) / (self.speech_ms / 1000)
+
+    def within(self, start_ms: int, end_ms: int) -> tuple[SpeechSegment, ...]:
+        """구간의 가운데가 [start_ms, end_ms) 안에 드는 말소리 구간."""
+        return tuple(s for s in self.segments if start_ms <= (s.start_ms + s.end_ms) / 2 < end_ms)
+
+    def validate(self, duration_ms: int | None = None) -> None:
+        previous_end = 0
+        for segment in self.segments:
+            if segment.start_ms < 0 or segment.end_ms < segment.start_ms:
+                raise ValidationError(
+                    f"말소리 구간이 잘못되었습니다: {segment.start_ms}~{segment.end_ms} ms"
+                )
+            if segment.start_ms < previous_end:
+                raise ValidationError(
+                    f"말소리 구간이 시간 순서가 아니거나 겹칩니다: {segment.start_ms} ms"
+                )
+            previous_end = segment.end_ms
+        if duration_ms is not None and previous_end > duration_ms:
+            raise ValidationError(
+                f"말소리 구간이 소리 길이({duration_ms} ms)를 넘습니다: {previous_end} ms"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"language": self.language, "segments": [s.to_dict() for s in self.segments]}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Transcript:
+        return cls(
+            language=data.get("language"),
+            segments=tuple(SpeechSegment.from_dict(s) for s in data.get("segments", ())),
+        )

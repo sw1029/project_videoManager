@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from frame.application.errors import LLMBadResponse
-from frame.application.ports.llm import JsonCompletion, LLMClient
+from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient
 
 
 class ReplayLLMClient(LLMClient):
@@ -23,6 +23,7 @@ class ReplayLLMClient(LLMClient):
         *,
         schema_name: str = "response",
         timeout_s: float | None = None,
+        images: Sequence[ImageInput] = (),
     ) -> JsonCompletion:
         self.calls.append(
             {
@@ -31,6 +32,7 @@ class ReplayLLMClient(LLMClient):
                 "schema_name": schema_name,
                 "schema": dict(json_schema),
                 "timeout_s": timeout_s,
+                "images": tuple(images),
             }
         )
         if not self._responses:

@@ -19,7 +19,7 @@ Fake 어댑터만으로 전체 흐름(접수 → 구조화 → 생성 접수 →
 | 선택적 수정 전략 | **장면 단위 생성 + 생성 조건 fingerprint**. 수정 버전은 조건이 바뀐 장면만 재생성하고 나머지 장면 클립은 재사용(바이트 동일) → AC-01 비대상 보존의 1차 보장 |
 | 상태·무결성 | 문서의 상태 enum(STRUCTURING→DRAFT→QUEUED→PROCESSING→COMPLETED/FAILED)과 무결성 규칙 5개를 도메인(상태 전이표·IR.validate)과 DB(조건부 UPDATE·UNIQUE·FK) 양쪽에서 강제 |
 | TDD | 5단 테스트 피라미드(도메인 → 유스케이스(Fake) → 어댑터 계약 → 통합(SQLite) → API/인수). AC 번호를 `@pytest.mark.ac("AC-xx")` 로 추적 |
-| 스택 | Python 3.11 · FastAPI 0.115.13 · SQLAlchemy 2.x(MySQL 8.4 운영, SQLite 테스트) · pytest · Docker (문서의 개발 환경 그대로) |
+| 스택 | Python 3.11 · FastAPI 0.133.0 · Starlette 1.3.1 · SQLAlchemy 2.x(MySQL 8.4 운영, SQLite 테스트) · pytest · Docker (과제 문서의 개발 환경에서 FastAPI 만 올렸다 — 문서의 0.115.13 이 묶는 Starlette 에 알려진 취약점이 있다, ADR-0033) |
 
 ---
 
@@ -33,7 +33,7 @@ Fake 어댑터만으로 전체 흐름(접수 → 구조화 → 생성 접수 →
 | §3.1 ERD + Enum | PROJECT/VIDEO_VERSION/SCENE/ENTITY/SCENE_ENTITY/REFERENCE_IMAGE/REQUIREMENT/CHECK_RESULT, VersionState·TrackingStatus·CheckType·Verdict | `domain/enums.py`, `domain/models.py`, SQLAlchemy 모델 |
 | §3.1 무결성 규칙 1~5 | DRAFT 에서만 접수, 키 유일성, 같은 프로젝트/버전 참조 | §7 표 참조 |
 | §3.2 Endpoint Catalog | 7개 API, 202/201/409 | `presentation/routers` |
-| §1.3 성공 지표 | 수정 성공률 ≥80% · 비대상 변경률 ≤10% · 반영률 ≥80% · 고정 속성 유지율 ≥90% | `domain/metrics.py`, `evaluation/edit_metrics.py` |
+| §1.3 성공 지표 | 수정 성공률 ≥80% · 비대상 변경률 ≤10% · 반영률 ≥80% · 고정 속성 유지율 ≥90% | `domain/metrics.py`, `evaluation/edits/` |
 | 문제정의서 §4.3 리스크 | GPU 부족·긴 생성 시간 / 구조화·매핑 오류 / 일관성 저하 | 재시도·캐시 Decorator, 장면 단위 재사용, 구조화 결과 사용자 확인(DRAFT 단계), UNDETERMINED 판정 |
 | Won't 목록 | 픽셀 단위 편집·완전 자동 역추출·오디오 편집 제외 | 마스크는 추적 결과(박스)까지만 제공, 편집 단위는 장면 |
 
@@ -58,7 +58,7 @@ flowchart LR
   end
   subgraph AD["Adapters (교체 가능)"]
     ST["Structurer: rule_based · fake · llm"]
-    GE["Generator: fake · diffusers · external_api (+Retry/Cache)"]
+    GE["Generator: fake · external_api(OpenRouter) · diffusers (+Retry/Cache)"]
     TR["Tracker: fake · opencv"]
     CK["Checker: requirement · consistency · preservation"]
     PS["Persistence: memory · sqlalchemy (MySQL/SQLite)"]
@@ -129,20 +129,23 @@ sequenceDiagram
 ```
 
 수정 흐름(Core Flow 2)은 `POST /revisions` → `CreateRevision`(원본 IR 복제 + 변경 전파 → 새 DRAFT, `parent_version_id` 연결) 뒤에
-위와 같은 생성 흐름을 탄다. 전후 비교는 두 버전을 각각 `GET /versions/{id}` 로 조회하면 된다.
+위와 같은 생성 흐름을 탄다. 전후 비교는 `GET /versions/{id}/comparison`(기본: 부모 대비) 한 번으로 장면별 클립 재사용·바뀐 요구조건과
+판정·검수 지표 차이를 받고, 프로젝트 대시보드는 `GET /projects/{id}/dashboard` 로 버전 트리와 버전별 요약을 받는다 (ADR-0014).
 
 ### 3.3 버전 상태 기계
 
 ```mermaid
 stateDiagram-v2
-  [*] --> STRUCTURING : POST /projects
+  [*] --> STRUCTURING : POST /projects {prompt}
+  [*] --> DRAFT : POST /projects {ir} (블록 IR 직접 입력, ADR-0023)
   STRUCTURING --> DRAFT : 구조화 성공 (IR 저장)
   STRUCTURING --> FAILED : 구조화 실패
   DRAFT --> QUEUED : POST /generations (조건부 갱신 + 조건 고정)
   QUEUED --> PROCESSING : 워커 시작
   QUEUED --> FAILED : 실행 불가
   PROCESSING --> COMPLETED : 생성·추적·검수 완료 (검수 FAIL/UNDETERMINED 여도)
-  PROCESSING --> FAILED : 실행 오류·시간초과
+  PROCESSING --> FAILED : 실행 오류·시간초과·워커 유실 상한(WORKER_LOST)
+  PROCESSING --> QUEUED : 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
   note right of DRAFT
     POST /revisions 는 DRAFT·COMPLETED·FAILED(IR 보유) 버전에서
     새 DRAFT 를 분기한다. 원본은 어떤 상태도 바뀌지 않는다.
@@ -169,6 +172,21 @@ RunGenerationPipeline
 - 수정 버전은 부모의 `seed` 와 참조 이미지를 그대로 물려받으므로, 바뀌지 않은 장면은 fingerprint 가 같아 **재생성되지 않는다**.
   이것이 "비대상 객체/배경 90% 이상 유지"(AC-01)를 모델 품질과 무관하게 장면 단위에서 보장하는 장치다.
   재생성된 장면 내부의 보존은 `PreservationChecker` 가 점수로 판정한다.
+- **장면 사이 객체 일관성** (ADR-0015, `FRAME_IDENTITY`): 객체가 나온 클립에서 정체성 기준 이미지를 뽑아 버전에 저장하고,
+  그 객체가 나오는 다른 장면을 생성할 때 `identity_references` 로 넘긴다. 기준 이미지는 조건 fingerprint 에 들어가지 않고
+  생성 캐시·작업 원장 키(`generation_fingerprint`)에만 들어가므로, 위의 재사용 규칙은 그대로다.
+- **부모 클립 편집** (ADR-0016, `FRAME_VIDEO_EDIT_MODE`): 다시 만드는 장면의 요청에는 부모 클립과 부모 쪽 장면 조건이 실린다.
+  편집을 지원하는 생성기는 부모 클립에서 바뀐 조건만 고치고, 지원하지 않으면 지금처럼 새로 만든다.
+  어느 쪽으로 만들었는지는 장면 응답의 `clip_production` 으로 나간다 (방식·모델·비용·시간·편집하지 못한 사유).
+  편집하지 못한 사정이 일시적이면 그 결과는 임시 결과(`provisional`)다: 편집 요청의 키로 캐시·원장에 남기지 않아,
+  같은 수정을 다시 실행하면 편집을 다시 시도한다 (ADR-0021).
+- **수정 의도** (ADR-0017): 수정 버전은 무엇을 하려는 수정인지 남긴다. `CHANGE` 는 요구조건의 값을 바꾸고, `REPAIR` 는 요구조건은
+  그대로 두고 그 요구조건이 걸린 장면의 seed 를 다시 지정해 그 장면만 새로 만든다 (영상이 요구와 어긋났을 때).
+  그대로 둘 요소(`keep`)는 다시 만드는 장면의 생성 요청(`directive`)에 실려 편집 지시문에 들어가고, 재검수가 요소별로 판정한다.
+- **변경 계획 미리보기** (ADR-0019): `POST /versions/{id}/revision-plans` 가 글로 쓴 요청을 구조화하고(해석기), 수정의 종류·다시 만들 장면·
+  어림 비용을 돌려준다. 상태는 바꾸지 않는다. 확인한 계획(`revision_request`)을 그대로 `POST /revisions` 에 보낸다.
+  다시 만들 장면마다 생성기의 미리보기(`VideoGenerator.preview`, ADR-0020)를 실어, 편집으로 만들어질지 새로 생성될지와
+  그 어림 비용을 알려 준다. 계획과 생성 단계는 같은 요청 구성 규칙(`application/pipeline/requests.py`)을 쓴다.
 
 ### 3.5 조건 고정과 재현성
 
@@ -181,6 +199,7 @@ RunGenerationPipeline
 |---|---|---|
 | 술어 어휘 | 술어는 `domain/vocabulary.py` 로 정규화된다 (`colour`·`색상` → `color`). 등록 술어는 값 종류(COLOR/TEXT/NUMBER/POSITION/ENTITY)와 관계 여부를 가진다. 미등록 술어도 정규화 후 허용 | `RequirementSpec.__post_init__`, `AttributeChange.__post_init__` |
 | 관계 조건 | 관계 술어(holds, wears, near, looks_at, on)는 `related_entity_key` 필수, `expected_value` 는 상대 객체 키와 동일. 속성 술어는 상대 객체 금지 | `IR.validate()` |
+| 키 형식 | 객체·장면 키는 영문·숫자·밑줄로 된 64자 이하, 영문·숫자로 시작 (`KEY_PATTERN`), 유일성은 대소문자를 가리지 않는다. 키가 클립 저장 경로·요구조건 키·URL·DB id 에 그대로 들어가기 때문 (감사 A-01, 델타 D02, ADR-0023) | `IR.validate()`, IR 입력 스키마 |
 | 요구조건 키 | `장면:객체:술어[:상대객체]`. 장면 안에서 유일 (SQL `requirement_id` 도 같은 키에서 파생) | `IR.validate()`, DB PK |
 | 장면 수준 조건 | `entity_key=None` (분위기·조명·카메라). DSL: `scene.mood = calm @ a` | `RuleBasedStructurer` |
 | 타임라인 | 장면은 0 ms 에서 시작, 겹침·빈 구간 없이 이어짐. 길이 합계는 목표 길이와 허용 오차(500 ms 또는 10%) 안 | `IR.validate()`, `StructureRequirements` |
@@ -228,7 +247,7 @@ FRAME/
 │   │   ├── dto.py / jobs.py / errors.py
 │   ├── adapters/                   # [교체 가능 구현]
 │   │   ├── structurer/             #   rule_based(DSL) · fake · llm_stub
-│   │   ├── generator/              #   fake · decorators(Caching/Retrying) · stubs(diffusers/external_api/ffmpeg + compile_prompt)
+│   │   ├── generator/              #   fake · decorators(Caching/Retrying) · openrouter(external_api) · ffmpeg(클립 정규화·조립) · stubs(diffusers + compile_prompt)
 │   │   ├── tracker/                #   fake · opencv_stub
 │   │   ├── checker/                #   fake(요구사항/일관성/보존)
 │   │   ├── persistence/            #   memory(깊은 복사) · sqlalchemy(models/repositories/uow/engine)
@@ -244,7 +263,10 @@ FRAME/
 │   │   ├── settings.py             #   FRAME_* 환경 변수 → Settings
 │   │   ├── registry.py             #   AdapterRegistry: (포트, 키) → 팩토리
 │   │   └── container.py            #   build_container(settings, overrides)
-│   └── evaluation/edit_metrics.py  # 지표 1 평가 하네스 (20건 수정 실험 집계)
+│   ├── evaluation/                 # 성공 지표 평가 하네스
+│   │   ├── edits/                  #   지표 1 (20건 수정 실험, ADR-0022): 케이스 파일 · 실행 · 판정과 결과 파일 · 지표 식
+│   │   └── structuring/            #   구조화 골드셋 채점 · 기록 · 비교
+│   └── tools/evaluate_edits.py     # 지표 1 평가 CLI (python -m frame.tools.evaluate_edits)
 ├── tests/
 │   ├── support/factories.py        # 공용 컨테이너 팩토리, 예시 프롬프트, cafe_ir()
 │   ├── unit/domain/                # 상태기계 · IR · 전파 · 지표
@@ -252,7 +274,7 @@ FRAME/
 │   ├── contract/                   # 포트별 계약 (구현을 params 로 추가)
 │   ├── integration/                # SQLAlchemy(SQLite) 정규화·FK·전체 흐름
 │   ├── api/                        # TestClient 로 Endpoint Catalog 7개
-│   └── acceptance/                 # US-06 / US-01 / US-03 AC 시나리오
+│   └── acceptance/                 # US-06 / US-01 / US-03 / US-04 AC 시나리오
 ├── docker/ Dockerfile · docker-compose.yml (api + MySQL 8.4)
 └── .github/workflows/ci.yml       # ruff + pytest
 ```
@@ -264,10 +286,12 @@ FRAME/
 | 요소 | 포트 (application/ports) | 기본·테스트 구현 | 실제 구현 후보 | 설정 키 | 계약 테스트 |
 |---|---|---|---|---|---|
 | 요구사항 구조화 모델 | `RequirementStructurer` | `rule_based`(DSL) · `fake` | `llm`(OpenAI/Anthropic/vLLM, `LLMStructurer._complete` 구현) · VLM(참조 이미지 → 속성) | `FRAME_STRUCTURER` | `tests/contract/test_structurer_contract.py` |
-| 영상 생성 모델 | `VideoGenerator` | `fake` | `diffusers`(CogVideoX/Wan 로컬) · `external_api`(Runway/Veo/Kling) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE` | `test_generator_contract.py` |
-| 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg` | `FRAME_ASSEMBLER` | 〃 |
+| 영상 생성 모델 | `VideoGenerator` | `fake` | `external_api`(OpenRouter 영상 API, 기본 Wan 3.0 · ADR-0011) · `diffusers`(CogVideoX/Wan 로컬, 뼈대) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`, `FRAME_VIDEO_*` | `test_generator_contract.py` |
+| 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
 | 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
-| 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | CLIP/VLM 속성 판정 · 색상 히스토그램 시계열 · 프레임 차분/SSIM | `FRAME_CHECKERS` (쉼표 목록) | 인수 테스트 재사용 |
+| 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | `vlm_requirement`(요구조건별 프레임 판정, ADR-0018) · `vlm_consistency`(표본 프레임 VLM 판정, ADR-0015) · `vlm_preservation`(유지 요소를 부모 클립과 견줌, ADR-0018) · `ssim_preservation`(부모 클립 대비 SSIM, ADR-0016) · CLIP/임베딩 속성 판정 | `FRAME_CHECKERS` (쉼표 목록), `FRAME_REQUIREMENT_*`, `FRAME_CONSISTENCY_*`, `FRAME_PRESERVATION_*` | `test_checker_contract.py` · `test_vlm_requirement_checker.py` · `test_vlm_preservation_checker.py` |
+| 정체성 기준 추출 | `IdentityReferenceExtractor` | `off`(없음) · `fake` | `vlm_crop`(VLM 박스로 잘라 냄) · `frame`(화면 전체) · 추적 박스·마스크 | `FRAME_IDENTITY`, `FRAME_IDENTITY_KINDS`, `FRAME_IDENTITY_MAX_REFERENCES`, `FRAME_IDENTITY_VERIFY_ATTRIBUTES`, `FRAME_VLM_MODEL` | `test_identity_extractor_contract.py` |
+| 변경 요청 해석 | `ChangeRequestInterpreter` | `rule_based`(`cup.color = teal` 형식) | `llm`(자연어, ADR-0019) | `FRAME_CHANGE_INTERPRETER` (`auto` 는 구조화기를 따른다) | `test_change_request_interpreters.py` |
 | DB | `UnitOfWork` + 5개 `Repository` | `memory` | `sqlalchemy` (MySQL 8.4 / SQLite) | `FRAME_PERSISTENCE`, `FRAME_DB_URL` | `test_repository_contract.py` |
 | 산출물 저장 | `ArtifactStore` | `memory` | `local_fs` · Google Drive · S3 | `FRAME_ARTIFACT_STORE`, `FRAME_ARTIFACT_DIR` | generator 계약 내 `exists()` |
 | 비동기 실행 | `JobDispatcher` | `inline` · `recording` | `thread` · Celery/RQ(Redis) | `FRAME_JOBS` | 유스케이스 테스트 |
@@ -296,7 +320,7 @@ FRAME/
 | Template Method | `pipeline/stage.py` | 단계 공통 절차(관찰자 통지·시간 측정)와 본문 분리 |
 | Chain(순차 파이프라인) + Observer | `pipeline/runner.py`, `PipelineObserver` | 단계 순서·중단 규칙 고정, 진행 상황 관찰(로그·진행률) |
 | Composite | `application/checks.py` `CheckSuite` | 검수기 N 개를 하나처럼 실행 |
-| Decorator | `adapters/generator/decorators.py` | 재시도·결과 캐시를 어떤 생성기에도 덧씌움 (리스크 1 대응) |
+| Decorator | `adapters/generator/resilience.py` | 재시도·결과 캐시를 어떤 생성기에도 덧씌움 (리스크 1 대응) |
 | Command + Dispatcher | `ports/jobs.py`, `adapters/jobs/*` | 비동기 작업 추상화: 테스트는 Recording, 데모는 Inline/Thread, 운영은 Celery |
 | State (명시적 전이표) | `domain/state_machine.py`, `VideoVersion.transition_to` | 무결성 규칙 1, 불법 전이 차단 |
 | Prototype (복제 후 변경) | `CreateRevision` + 전파 정책 | 원본 버전 보존 |
@@ -312,7 +336,7 @@ FRAME/
 | ERD | 도메인 객체 | SQL 테이블 (확장 컬럼) |
 |---|---|---|
 | PROJECT | `Project` | `projects` |
-| VIDEO_VERSION | `VideoVersion` (+ `ir`, `clips`) | `video_versions` (+ `source_prompt`, `target_duration_ms`, `seed`, `ir_json`, `frozen_fingerprint`) |
+| VIDEO_VERSION | `VideoVersion` (+ `ir`, `clips`) | `video_versions` (+ `source_prompt`, `target_duration_ms`, `seed`, `ir_json`, `frozen_fingerprint`, `queued_at`, `started_at`, `attempt`) |
 | SCENE | `SceneSpec` (IR 안) | `scenes` (+ `description`, `clip_uri`, `clip_fingerprint`, `clip_duration_ms`) |
 | ENTITY | `EntitySpec` (IR 안, 프로젝트 범위) | `entities` (+ `kind`, `description`) |
 | SCENE_ENTITY | `TrackRecord` | `scene_entities` (+ `track_json`) |
@@ -339,15 +363,19 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 
 | Method | Endpoint | 유스케이스 | 성공 | 거부 |
 |---|---|---|---|---|
-| POST | `/api/projects` | `CreateProject` | 202 `{project_id, version_id, STRUCTURING}` | 422 |
+| POST | `/api/projects` | `CreateProject` | 202 `{project_id, version_id, STRUCTURING}` (글) · 201 `{…, DRAFT, repair_notes}` (`ir` 직접 입력, 보정·검증만, ADR-0023) | 422 / 429 |
 | GET | `/api/projects/{project_id}` | `ProjectQueries.get_project` | 200 버전 목록 | 404 |
 | GET | `/api/versions/{version_id}` | `get_version` | 200 IR·상태·`video_url`/`clip_url`·미디어 형식 (FAILED 면 `error_code`/`error_message`) | 404 |
 | GET | `/api/versions/{version_id}/video` | `get_video_uri` | 200 결과 영상 (파일 저장소는 Range 206) | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
 | GET | `/api/versions/{version_id}/scenes/{scene_key}/clip` | `get_clip_uri` | 200 장면 클립 | 404 `NOT_FOUND` / `MEDIA_NOT_AVAILABLE` |
+| POST | `/api/reference-images` | `UploadReferenceImage` | 201 `{image_uri, media_type, size_bytes}` (multipart `file`, PNG·JPEG·WebP, `refs/uploads/` 에 저장. `POST /projects` 가 `refs/{project_id}/` 로 옮긴다, ADR-0024) | 411 `LENGTH_REQUIRED` / 413 `PAYLOAD_TOO_LARGE` / 415 `UNSUPPORTED_MEDIA_TYPE` / 422 / 429 |
+| PUT | `/api/versions/{version_id}/ir` | `EditDraftIr` | 200 고친 뒤의 버전 + `repair_notes` (DRAFT 의 구조화 결과 수정: 보정 → 검증 → 조건부 저장, ADR-0023) | 404 / 409 `VERSION_NOT_EDITABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/revisions` | `CreateRevision` | 201 `{version_id, parent_version_id, DRAFT, changed_scene_keys}`. `entity_key` 생략 시 장면 수준 조건 | 404 / 409 `VERSION_NOT_REVISABLE` / 422 / 429 |
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
 | GET | `/api/versions/{version_id}/entities/{entity_id}/tracks` | `get_entity_tracks` | 200 등장 구간·박스·상태 (`entity_key` 또는 `project_id:entity_key`) | 404 |
+| GET | `/api/versions/{version_id}/comparison?against=` | `compare_versions` | 200 양쪽 요약·장면별 `REUSED`/`REGENERATED`/`ADDED`/`REMOVED`/`UNAVAILABLE`·요구조건 변경과 판정·`checks_delta` (`against` 생략 시 부모) | 404 / 409 `VERSION_NOT_COMPARABLE` / 422 |
+| GET | `/api/projects/{project_id}/dashboard` | `get_dashboard` | 200 버전 트리·버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전 | 404 |
 | GET | `/api/vocabulary/predicates` | (어휘 조회) | 200 술어 이름·값 종류·관계 여부·별칭 (화면의 속성 블록용) | — |
 | GET | `/health` | (상태 확인) | 200 버전·어댑터·`structuring_input`(dsl / natural_language)·LLM 공급자 | — |
 
@@ -368,7 +396,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 
 - 실제 모델·외부 API 테스트는 `slow`/`gpu` 마커로 분리하고 CI 기본 실행에서 제외한다 (`-m "not slow and not gpu"`).
 - Definition of Done 의 "정상·오류 입력 포함 단위/통합 테스트 통과" 는 1~4단계, "모든 AC 충족" 은 5단계 마커 리포트로 확인한다.
-- 지표 1(수정 20건)은 `evaluation/edit_metrics.py` 하네스로 집계하며, 하네스 자체는 Fake 로 단위 테스트한다.
+- 지표 1(수정 20건)은 `python -m frame.tools.evaluate_edits` 로 실행·집계하며(`evaluation/` 하네스, ADR-0022), 하네스 자체는 Fake 로 단위·통합 테스트한다.
 
 ---
 
@@ -382,17 +410,18 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | T4 요구조건 블록 조회·수정 화면 | (프론트) ← `GET /versions`, `POST /revisions` | API 제공 |
 | T5 반영 결과 저장·조회 형식 | `domain/checks.py`, `domain/metrics.py`, `GET /checks` | 제공 |
 | T6 구조화·조건 반영 AC 테스트 | `tests/acceptance/test_us06_structuring.py` | 제공 (Fake 기준, 실제 모델로 재실행 가능) |
-| T7 선택 재생성 도구 Spike | `adapters/generator/stubs.py` (`compile_prompt`) | 뼈대 |
+| T7 선택 재생성 도구 Spike | `adapters/generator/diffusers_stub.py` (`compile_prompt`) | 뼈대 |
 | T8 생성 접수·상태 전이 API | `AcceptGeneration`, `try_transition`, 409 | 제공 |
 | T9 원본 보존 버전 분기·전파 | `CreateRevision`, `DefaultPropagationPolicy` | 제공 |
-| T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | 뼈대 (`diffusers`/`external_api`) |
-| T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks` | API 제공 |
-| T12 선택 변경·비대상 보존 평가 | `evaluation/edit_metrics.py` | 제공 |
+| T10 생성 어댑터 연동 | `VideoGenerator` 실제 구현 | `external_api`(OpenRouter) 구현, `diffusers` 뼈대 |
+| T11 생성·재생성 결과 확인 화면 | (프론트) ← `GET /versions`, `GET /checks`, `GET /comparison`, `GET /dashboard` | API 제공 |
+| T12 선택 변경·비대상 보존 평가 | `evaluation/*`, `tools/evaluate_edits.py` | 제공 (평가 CLI, 실제 모델 실행은 승인 뒤) |
 | T13 원본 보존·상태·오류 통합 테스트 | `tests/integration`, `tests/api` | 제공 |
 | T14 README·시연 절차 | `README.md` | 제공 |
 
 Sprint 2 확장 포인트: `opencv`/SAM2 추적 어댑터(US-03), 실제 검수기 3종, 마스크 산출물(`TrackRecord.boxes` → 마스크 URI), Celery 디스패처,
-Alembic 마이그레이션, 대시보드용 집계 쿼리(프로젝트 단위 버전 비교) — 모두 **포트 추가 없이** 어댑터·유스케이스 추가로 끝난다.
+Alembic 마이그레이션 — 모두 **포트 추가 없이** 어댑터·유스케이스 추가로 끝난다. 대시보드용 집계(프로젝트 단위 버전 비교)는
+ADR-0014 에서 포트 추가 없이 조회 유스케이스로 제공했다.
 
 ---
 
@@ -422,3 +451,14 @@ python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"      # Windows (Li
 | [0007](adr/0007-predicate-vocabulary-and-relations.md) | 술어 어휘 · 관계 조건 규칙 · 요구조건 키 · 장면 타임라인 검증 |
 | [0008](adr/0008-value-normalization-and-relation-kinds.md) | 값 정규화 · ANIMAL 종류 · 관계의 배경 객체 금지 (실호출 결과 반영) |
 | [0009](adr/0009-frontend-integration-contract.md) | 프론트 연동 계약: 오류 형식 통일 · 영상 조회 경로 · 상태 확인 정보 · CORS·같은 출처 서빙 · 요청 제한 |
+| [0013](adr/0013-restart-recovery-and-persistent-generation-cache.md) | 재시작 복구(기동 복구·워커 리스·시도 상한) · 생성 결과 캐시 영속화 · 외부 작업 원장 |
+| [0015](adr/0015-identity-references-and-consistency-check.md) | 장면 사이 객체 일관성: 정체성 기준 이미지(클립에서 추출·버전 상속·참조 전달) · VLM 일관성 검수기 |
+| [0016](adr/0016-parent-clip-editing.md) | 수정 버전의 부모 클립 편집 포트 · 클립 메타데이터 저장 · SSIM 보존 검수기 |
+| [0017](adr/0017-revision-intent-repair-and-keep.md) | 수정 의도: 다시 맞추기(REPAIR, 장면별 seed 재지정) · 그대로 둘 요소 · 생성기에 넘기는 수정 지시 |
+| [0018](adr/0018-requirement-and-keep-checkers.md) | 실제 요구 반영 검수기(요구조건별 판정, 부모 판정 상속) · 유지 요소 검수기 |
+| [0019](adr/0019-revision-plan-and-change-request.md) | 변경 계획 미리보기 · 글로 쓴 변경 요청의 해석 · 참조 이미지 HTTP 경로 |
+| [0020](adr/0020-production-preview-and-held-parent-url.md) | 생성기의 만들기 전 미리보기(편집·새로 생성, 어림값) · 계획 때 받은 부모 주소를 메모리에 들고 있다가 편집 |
+| [0021](adr/0021-provisional-results.md) | 일시적인 사정으로 낸 임시 결과(`provisional`)는 요청의 키에 남기지 않는다 · 작업 원장의 `released` |
+| [0022](adr/0022-edit-evaluation-cli.md) | 지표 1 평가 CLI: 인프로세스 실행(계획→수정→생성→검수) · 측정 기준(`vlm_keep`·`ssim`)별 비대상 변경률 · 대상 요구조건은 키로 |
+| [0023](adr/0023-direct-ir-input-draft-edit-and-display-name.md) | IR 직접 입력(블록, 바로 DRAFT) · DRAFT IR 수정(조건부 저장, 보정 메모) · 객체의 표시 이름 `display_name`(생성 조건 아님) |
+| [0024](adr/0024-reference-image-upload.md) | 참조 이미지 업로드(multipart, 내용으로 형식 판별·크기 상한) · 임시 자리 `refs/uploads/` → 프로젝트를 만들 때 `refs/{project_id}/` 로 옮김 |

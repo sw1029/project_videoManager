@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "description": "시연용 입력 프리셋. 이 파일(빌드 후 dist/presets.json)을 고치면 다시 빌드하지 않고도 기기별로 바꿀 수 있다. mode 는 natural_language(LLM) 또는 dsl(규칙 기반).",
+  "presets": [
+    {
+      "id": "cafe-nl",
+      "mode": "natural_language",
+      "label": "카페 신제품 (자연어)",
+      "title": "카페 신제품 숏폼",
+      "duration_s": 12,
+      "prompt": "카페 신제품 숏폼. 장면 1 (4초): 검은 머리의 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 빨간 머그컵을 클로즈업한다. 장면 3 (4초): 바리스타가 손을 흔든다."
+    },
+    {
+      "id": "drink-nl",
+      "mode": "natural_language",
+      "label": "편의점 신상 음료 (자연어)",
+      "title": "편의점 신상 음료 숏폼",
+      "duration_s": 15,
+      "prompt": "편의점 신상 음료 15초 숏폼. 장면 1: 노란 캔 음료가 냉장고 선반에 놓여 있다. 장면 2: 대학생이 캔을 집어 들고 웃는다. 장면 3: 캔 클로즈업, 'FRESH' 문구가 보인다. 밝고 경쾌한 분위기."
+    },
+    {
+      "id": "dog-nl",
+      "mode": "natural_language",
+      "label": "강아지 공원 (모호한 기획)",
+      "title": "강아지 공원 숏폼",
+      "duration_s": 15,
+      "prompt": "귀여운 강아지가 공원에서 노는 밝은 느낌의 15초 영상. 중간에 주인이 공을 던져주고 강아지가 물어온다."
+    },
+    {
+      "id": "cafe-dsl",
+      "mode": "dsl",
+      "label": "카페 신제품 (DSL)",
+      "title": "카페 신제품 숏폼 (DSL)",
+      "duration_s": 8,
+      "prompt": "scene intro 0-4000 : 바리스타가 컵을 들어 보인다\nscene closeup 4000-8000 : 컵 클로즈업\nentity barista PERSON : 바리스타\nentity cup PROP : 빨간 머그컵\nin intro: barista, cup\nin closeup: cup\ncup.color = red\nbarista holds -> cup @ intro\nscene.location = cafe counter\nscene.mood = cozy"
+    },
+    {
+      "id": "drink-dsl",
+      "mode": "dsl",
+      "label": "편의점 음료 (DSL)",
+      "title": "편의점 신상 음료 숏폼 (DSL)",
+      "duration_s": 15,
+      "prompt": "scene shelf 0-5000 : 노란 캔 음료가 냉장고 선반에 놓여 있다\nscene pick 5000-10000 : 대학생이 캔을 집어 들고 웃는다\nscene closeup 10000-15000 : 캔 클로즈업\nentity can PROP : 노란 캔 음료\nentity student PERSON : 대학생\nentity fresh_text TEXT : FRESH 문구\nin shelf: can\nin pick: student, can\nin closeup: can, fresh_text\ncan.color = yellow\nstudent holds -> can @ pick\nstudent.expression = smiling @ pick\nfresh_text.text = FRESH @ closeup\nscene.mood = bright"
+    }
+  ]
+}

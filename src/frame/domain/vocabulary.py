@@ -37,6 +37,9 @@ class PredicateSpec:
     relational: bool = False
     aliases: tuple[str, ...] = ()
     description: str = ""
+    # 장면마다 달라지는 것이 정상인 술어(행동·자세·표정·위치). 객체의 '고정 속성'(색·형상·의상 등)이 아니므로
+    # 정체성 기준 이미지의 유효성·충돌 판정과 일관성 검수의 고정 속성 목록에서 뺀다 (ADR-0015)
+    transient: bool = False
 
 
 BUILTIN_PREDICATES: tuple[PredicateSpec, ...] = (
@@ -48,7 +51,13 @@ BUILTIN_PREDICATES: tuple[PredicateSpec, ...] = (
     PredicateSpec("material", ValueKind.TEXT, aliases=("재질", "소재"), description="재질"),
     PredicateSpec("shape", ValueKind.TEXT, aliases=("형태", "모양"), description="형태"),
     PredicateSpec("size", ValueKind.TEXT, aliases=("크기",), description="크기"),
-    PredicateSpec("position", ValueKind.POSITION, aliases=("위치",), description="화면 내 위치"),
+    PredicateSpec(
+        "position",
+        ValueKind.POSITION,
+        aliases=("위치",),
+        description="화면 내 위치",
+        transient=True,
+    ),
     PredicateSpec(
         "text",
         ValueKind.LITERAL,
@@ -57,10 +66,18 @@ BUILTIN_PREDICATES: tuple[PredicateSpec, ...] = (
     ),
     PredicateSpec("brand", ValueKind.LITERAL, aliases=("브랜드",), description="브랜드명"),
     PredicateSpec(
-        "action", ValueKind.TEXT, aliases=("행동", "동작"), description="객체의 행동·움직임"
+        "action",
+        ValueKind.TEXT,
+        aliases=("행동", "동작"),
+        description="객체의 행동·움직임",
+        transient=True,
     ),
-    PredicateSpec("pose", ValueKind.TEXT, aliases=("포즈", "자세"), description="자세"),
-    PredicateSpec("expression", ValueKind.TEXT, aliases=("표정",), description="인물 표정"),
+    PredicateSpec(
+        "pose", ValueKind.TEXT, aliases=("포즈", "자세"), description="자세", transient=True
+    ),
+    PredicateSpec(
+        "expression", ValueKind.TEXT, aliases=("표정",), description="인물 표정", transient=True
+    ),
     PredicateSpec("outfit", ValueKind.TEXT, aliases=("의상", "옷"), description="의상"),
     PredicateSpec("hair", ValueKind.TEXT, aliases=("머리", "헤어"), description="머리 모양·색"),
     PredicateSpec("age", ValueKind.TEXT, aliases=("나이", "연령"), description="연령대"),
@@ -171,6 +188,11 @@ class PredicateVocabulary:
     def value_kind(self, name: str) -> ValueKind | None:
         spec = self.spec(name)
         return None if spec is None else spec.value_kind
+
+    def is_transient(self, name: str) -> bool:
+        """장면마다 달라지는 술어인가 (행동·자세·표정·위치). 미등록 술어는 고정 속성으로 본다."""
+        spec = self.spec(name)
+        return spec is not None and spec.transient
 
     def names(self) -> tuple[str, ...]:
         return tuple(self._specs)

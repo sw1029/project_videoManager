@@ -1,4 +1,4 @@
-"""공개 데모용 요청 제한. 클라이언트 IP 별로 최근 60초 동안의 변경 요청(POST) 수를 센다.
+"""공개 데모용 요청 제한. 클라이언트 IP 별로 최근 60초 동안의 변경 요청(POST·PUT) 수를 센다.
 
 FRAME_RATE_LIMIT_PER_MINUTE 가 0 이면 꺼진다(기본). 리버스 프록시 뒤에서는 uvicorn --proxy-headers 로
 실제 클라이언트 IP 가 request.client 에 들어오게 해야 한다.

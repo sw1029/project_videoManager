@@ -1,0 +1,72 @@
+{
+  "description": "지표 1 평가 케이스 예시 (README '지표 1 평가', ADR-0022). parent_version_id 를 실제 원본(COMPLETED) 버전 ID 로 바꾼다. 객체 키(cup·barista·cafe)는 시연 흐름의 카페 예시(규칙 기반 DSL)의 것이다. LLM 으로 구조화한 원본이면 GET /api/versions/{id} 의 ir.entities 에서 키를 확인한다. 맨 위의 cases 밖 필드는 읽지 않는다.",
+  "cases": [
+    {
+      "case_id": "cup-color-teal",
+      "parent_version_id": "ver_REPLACE_ME",
+      "entity_key": "cup",
+      "predicate": "color",
+      "new_value": "teal",
+      "keep": [
+        {"aspect": "APPEARANCE", "entity_key": "barista"},
+        {"aspect": "BACKGROUND"}
+      ],
+      "note": "컨셉 화면의 예: 컵 색만 청록으로, 인물과 배경은 유지 (컵이 나오는 모든 장면)"
+    },
+    {
+      "case_id": "shirt-color-black",
+      "parent_version_id": "ver_REPLACE_ME",
+      "entity_key": "barista",
+      "predicate": "shirt_color",
+      "new_value": "black",
+      "keep": [
+        {"aspect": "ACTION", "entity_key": "barista"},
+        {"aspect": "BACKGROUND"}
+      ],
+      "note": "인물의 옷 색. 동작과 배경은 그대로"
+    },
+    {
+      "case_id": "cafe-lighting-cool",
+      "parent_version_id": "ver_REPLACE_ME",
+      "entity_key": "cafe",
+      "predicate": "lighting",
+      "new_value": "cool",
+      "keep": [
+        {"aspect": "APPEARANCE", "entity_key": "barista"}
+      ],
+      "note": "배경 객체의 조명 (배경이 나오는 세 장면을 모두 다시 만든다)"
+    },
+    {
+      "case_id": "cup-material-glass",
+      "parent_version_id": "ver_REPLACE_ME",
+      "entity_key": "cup",
+      "predicate": "material",
+      "new_value": "glass",
+      "note": "원본에 없던 속성: 컵이 나오는 장면마다 요구조건이 더해진다. keep 을 비우면 기본 요소(바꾸지 않은 객체의 모습·배경)를 본다"
+    },
+    {
+      "case_id": "shirt-color-navy-outro",
+      "parent_version_id": "ver_REPLACE_ME",
+      "entity_key": "barista",
+      "predicate": "shirt_color",
+      "new_value": "navy",
+      "scope": "SCENES",
+      "scene_keys": ["outro"],
+      "note": "지정한 장면(outro)에만 반영"
+    },
+    {
+      "case_id": "cup-repair-closeup",
+      "parent_version_id": "ver_REPLACE_ME",
+      "entity_key": "cup",
+      "predicate": "color",
+      "new_value": "red",
+      "kind": "REPAIR",
+      "scope": "SCENES",
+      "scene_keys": ["closeup"],
+      "keep": [
+        {"aspect": "BACKGROUND"}
+      ],
+      "note": "다시 맞추기: 요구조건(red)은 그대로 두고 closeup 장면만 다시 만든다 (영상이 요구와 어긋났을 때)"
+    }
+  ]
+}

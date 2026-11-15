@@ -25,6 +25,7 @@ from frame.domain.state_machine import (
         (S.QUEUED, S.FAILED),
         (S.PROCESSING, S.COMPLETED),
         (S.PROCESSING, S.FAILED),
+        (S.PROCESSING, S.QUEUED),  # 워커 유실 뒤 재시도 (재시작 복구, ADR-0013)
     ],
 )
 def test_allowed_transitions(src, dst):
@@ -56,7 +57,7 @@ def test_terminal_states_have_no_outgoing_transitions():
 
 
 def test_only_draft_accepts_generation():
-    assert GENERATABLE_STATES == frozenset({S.DRAFT})
+    assert frozenset({S.DRAFT}) == GENERATABLE_STATES
 
 
 def _version(state: S) -> VideoVersion:

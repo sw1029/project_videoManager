@@ -1,4 +1,4 @@
-"""LLM 호출 포트. 구조화(US-06)와 (향후) VLM 기반 검수가 공통으로 쓴다.
+"""LLM 호출 포트. 구조화(US-06)와 VLM 기반 검수·정체성 기준 추출(US-03, ADR-0015)이 공통으로 쓴다.
 
 구현 (adapters/llm/)
 - replay : 미리 준비한 응답을 돌려주는 테스트·CI 용
@@ -8,9 +8,41 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class LLMKeyStatus:
+    """키 상태. 키 자체는 담지 않는다 (hint 는 끝 4자리만)."""
+
+    configured: bool
+    source: str | None = None  # runtime(화면 입력) | config | env | file
+    hint: str | None = None
+
+
+class LLMKeySource(ABC):
+    """LLM API 키를 어디서 얻을지 결정한다. 화면 입력 키는 메모리에만 둔다.
+
+    계약: resolve() 는 키 문자열 또는 None. 키를 로그·예외·repr 에 남기지 않는다.
+    """
+
+    @abstractmethod
+    def resolve(self) -> str | None: ...
+
+    @abstractmethod
+    def status(self) -> LLMKeyStatus: ...
+
+    @abstractmethod
+    def set_runtime_key(self, key: str) -> None: ...
+
+    @abstractmethod
+    def clear_runtime_key(self) -> None: ...
+
+    @abstractmethod
+    def describe_missing(self) -> str:
+        """키가 없을 때 사용자에게 보여줄 안내 (키 내용 없음)."""
 
 
 @dataclass(frozen=True)
@@ -21,9 +53,19 @@ class JsonCompletion:
     output_tokens: int | None = None
 
 
+@dataclass(frozen=True)
+class ImageInput:
+    """모델에 함께 보여 줄 이미지 (영상에서 뽑은 프레임 등). label 은 이미지 바로 앞에 붙는 짧은 이름이다."""
+
+    data: bytes
+    media_type: str = "image/jpeg"
+    label: str = ""
+
+
 class LLMClient(ABC):
     """계약
     - json_schema 에 맞는 JSON 문자열을 돌려준다. strict 모드가 아니면 호출자가 검증한다.
+    - images 를 주면 user 글 뒤에 순서대로 붙여 보낸다 (이미지를 읽는 모델이어야 한다).
     - 실패는 LLMError 하위 예외로 보고한다: LLM_TIMEOUT / LLM_RATE_LIMITED / LLM_UNAVAILABLE / LLM_BAD_RESPONSE.
     - API 키 등 비밀을 예외 메시지·로그·반환값에 남기지 않는다.
     """
@@ -37,4 +79,5 @@ class LLMClient(ABC):
         *,
         schema_name: str = "response",
         timeout_s: float | None = None,
+        images: Sequence[ImageInput] = (),
     ) -> JsonCompletion: ...

@@ -1,0 +1,210 @@
+{
+  "case_id": "ko-01-cafe-concept",
+  "model": "gpt-4.1-mini",
+  "source": "concept-ux 2차 e2e(2026-11-12) 3·4·5회차에서 gpt-4.1-mini 가 같은 브리프를 구조화한 결과. API 응답(GET /versions/{id})에서 IR 다섯 필드만 되살렸으므로 원본 completion 문자열이 아니라 보정·검증을 거친 IR 이다. c3 는 옛 프롬프트(2026-11-07.2), c4·c5 는 키 규칙을 고친 프롬프트(2026-11-12.1).",
+  "responses": [
+    {
+      "run": "c3",
+      "prompt_version": "2026-11-07.2",
+      "created_at": "2026-11-12",
+      "ir": {
+        "schema_version": 1,
+        "entities": [
+          {"entity_key": "barista", "kind": "PERSON", "description": "바리스타, 흰 셔츠에 갈색 앞치마 착용"},
+          {"entity_key": "red_mug", "kind": "PROP", "description": "빨간 머그컵"}
+        ],
+        "scenes": [
+          {
+            "scene_key": "scene_1",
+            "planned_start_ms": 0,
+            "planned_end_ms": 4000,
+            "description": "바리스타가 카페 카운터 뒤에서 카메라를 보며 미소 짓는다",
+            "entity_keys": ["barista"],
+            "requirements": [
+              {"scene_key": "scene_1", "entity_key": "barista", "related_entity_key": null, "predicate": "expression", "expected_value": "smiling"},
+              {"scene_key": "scene_1", "entity_key": "barista", "related_entity_key": null, "predicate": "pose", "expected_value": "looking at camera"},
+              {"scene_key": "scene_1", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+              {"scene_key": "scene_1", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "behind cafe counter"},
+              {"scene_key": "scene_1", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          },
+          {
+            "scene_key": "scene_2",
+            "planned_start_ms": 4000,
+            "planned_end_ms": 8000,
+            "description": "바리스타가 카운터에서 빨간 머그컵을 들어 보인다",
+            "entity_keys": ["barista", "red_mug"],
+            "requirements": [
+              {"scene_key": "scene_2", "entity_key": "barista", "related_entity_key": "red_mug", "predicate": "holds", "expected_value": "red_mug"},
+              {"scene_key": "scene_2", "entity_key": "barista", "related_entity_key": null, "predicate": "action", "expected_value": "shows red mug to camera"},
+              {"scene_key": "scene_2", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+              {"scene_key": "scene_2", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "scene_2", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          },
+          {
+            "scene_key": "scene_3",
+            "planned_start_ms": 8000,
+            "planned_end_ms": 12000,
+            "description": "카운터 위에 놓인 빨간 머그컵 클로즈업",
+            "entity_keys": ["red_mug"],
+            "requirements": [
+              {"scene_key": "scene_3", "entity_key": "red_mug", "related_entity_key": null, "predicate": "color", "expected_value": "red"},
+              {"scene_key": "scene_3", "entity_key": null, "related_entity_key": null, "predicate": "camera", "expected_value": "close up"},
+              {"scene_key": "scene_3", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "on cafe counter"},
+              {"scene_key": "scene_3", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          },
+          {
+            "scene_key": "scene_4",
+            "planned_start_ms": 12000,
+            "planned_end_ms": 16000,
+            "description": "바리스타가 카메라를 향해 손을 흔든다",
+            "entity_keys": ["barista"],
+            "requirements": [
+              {"scene_key": "scene_4", "entity_key": "barista", "related_entity_key": null, "predicate": "action", "expected_value": "waves hand to camera"},
+              {"scene_key": "scene_4", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+              {"scene_key": "scene_4", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "run": "c4",
+      "prompt_version": "2026-11-12.1",
+      "created_at": "2026-11-12",
+      "ir": {
+        "schema_version": 1,
+        "entities": [
+          {"entity_key": "barista", "kind": "PERSON", "description": "바리스타"},
+          {"entity_key": "cup", "kind": "PROP", "description": "빨간 머그컵"}
+        ],
+        "scenes": [
+          {
+            "scene_key": "smile",
+            "planned_start_ms": 0,
+            "planned_end_ms": 4000,
+            "description": "바리스타가 카페 카운터 뒤에서 카메라를 보며 미소 짓는다",
+            "entity_keys": ["barista"],
+            "requirements": [
+              {"scene_key": "smile", "entity_key": "barista", "related_entity_key": null, "predicate": "expression", "expected_value": "smiling"},
+              {"scene_key": "smile", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+              {"scene_key": "smile", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter behind"},
+              {"scene_key": "smile", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          },
+          {
+            "scene_key": "show_cup",
+            "planned_start_ms": 4000,
+            "planned_end_ms": 8000,
+            "description": "바리스타가 카운터에서 빨간 머그컵을 들어 보인다",
+            "entity_keys": ["barista", "cup"],
+            "requirements": [
+              {"scene_key": "show_cup", "entity_key": "barista", "related_entity_key": "cup", "predicate": "holds", "expected_value": "cup"},
+              {"scene_key": "show_cup", "entity_key": "barista", "related_entity_key": null, "predicate": "action", "expected_value": "shows cup to camera"},
+              {"scene_key": "show_cup", "entity_key": "cup", "related_entity_key": null, "predicate": "color", "expected_value": "red"},
+              {"scene_key": "show_cup", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+              {"scene_key": "show_cup", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "show_cup", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          },
+          {
+            "scene_key": "cup_closeup",
+            "planned_start_ms": 8000,
+            "planned_end_ms": 12000,
+            "description": "카운터 위에 놓인 빨간 머그컵 클로즈업",
+            "entity_keys": ["cup"],
+            "requirements": [
+              {"scene_key": "cup_closeup", "entity_key": "cup", "related_entity_key": null, "predicate": "color", "expected_value": "red"},
+              {"scene_key": "cup_closeup", "entity_key": null, "related_entity_key": null, "predicate": "camera", "expected_value": "close up"},
+              {"scene_key": "cup_closeup", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "cup_closeup", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          },
+          {
+            "scene_key": "wave_hand",
+            "planned_start_ms": 12000,
+            "planned_end_ms": 16000,
+            "description": "바리스타가 카메라를 향해 손을 흔든다",
+            "entity_keys": ["barista"],
+            "requirements": [
+              {"scene_key": "wave_hand", "entity_key": "barista", "related_entity_key": null, "predicate": "action", "expected_value": "waves hand to camera"},
+              {"scene_key": "wave_hand", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt and brown apron"},
+              {"scene_key": "wave_hand", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "wave_hand", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm cafe lighting"}
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "run": "c5",
+      "prompt_version": "2026-11-12.1",
+      "created_at": "2026-11-12",
+      "ir": {
+        "schema_version": 1,
+        "entities": [
+          {"entity_key": "barista", "kind": "PERSON", "description": "바리스타"},
+          {"entity_key": "cup", "kind": "PROP", "description": "빨간 머그컵"}
+        ],
+        "scenes": [
+          {
+            "scene_key": "smile",
+            "planned_start_ms": 0,
+            "planned_end_ms": 4000,
+            "description": "바리스타가 카페 카운터 뒤에서 카메라를 보며 미소 짓는다",
+            "entity_keys": ["barista"],
+            "requirements": [
+              {"scene_key": "smile", "entity_key": "barista", "related_entity_key": null, "predicate": "expression", "expected_value": "smiles"},
+              {"scene_key": "smile", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt brown apron"},
+              {"scene_key": "smile", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter behind"},
+              {"scene_key": "smile", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm"}
+            ]
+          },
+          {
+            "scene_key": "show_cup",
+            "planned_start_ms": 4000,
+            "planned_end_ms": 8000,
+            "description": "바리스타가 카운터에서 빨간 머그컵을 들어 보인다",
+            "entity_keys": ["barista", "cup"],
+            "requirements": [
+              {"scene_key": "show_cup", "entity_key": "barista", "related_entity_key": "cup", "predicate": "holds", "expected_value": "cup"},
+              {"scene_key": "show_cup", "entity_key": "barista", "related_entity_key": null, "predicate": "action", "expected_value": "shows cup to camera"},
+              {"scene_key": "show_cup", "entity_key": "cup", "related_entity_key": null, "predicate": "color", "expected_value": "red"},
+              {"scene_key": "show_cup", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt brown apron"},
+              {"scene_key": "show_cup", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "show_cup", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm"}
+            ]
+          },
+          {
+            "scene_key": "cup_closeup",
+            "planned_start_ms": 8000,
+            "planned_end_ms": 12000,
+            "description": "카운터 위에 놓인 빨간 머그컵 클로즈업",
+            "entity_keys": ["cup"],
+            "requirements": [
+              {"scene_key": "cup_closeup", "entity_key": "cup", "related_entity_key": null, "predicate": "color", "expected_value": "red"},
+              {"scene_key": "cup_closeup", "entity_key": null, "related_entity_key": null, "predicate": "camera", "expected_value": "close up"},
+              {"scene_key": "cup_closeup", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "cup_closeup", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm"}
+            ]
+          },
+          {
+            "scene_key": "wave",
+            "planned_start_ms": 12000,
+            "planned_end_ms": 16000,
+            "description": "바리스타가 카메라를 향해 손을 흔든다",
+            "entity_keys": ["barista"],
+            "requirements": [
+              {"scene_key": "wave", "entity_key": "barista", "related_entity_key": null, "predicate": "action", "expected_value": "waves hand to camera"},
+              {"scene_key": "wave", "entity_key": "barista", "related_entity_key": null, "predicate": "outfit", "expected_value": "white shirt brown apron"},
+              {"scene_key": "wave", "entity_key": null, "related_entity_key": null, "predicate": "location", "expected_value": "cafe counter"},
+              {"scene_key": "wave", "entity_key": null, "related_entity_key": null, "predicate": "lighting", "expected_value": "warm"}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

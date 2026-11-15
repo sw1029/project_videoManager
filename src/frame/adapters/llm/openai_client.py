@@ -1,23 +1,51 @@
 """OpenAI Chat Completions 기반 JSON 클라이언트 (구조화 출력 json_schema, strict).
 
-- 키 해석 순서: 명시 인자 → OPENAI_API_KEY 환경 변수 → 키 파일(FRAME_LLM_KEY_FILE). 키는 로그·예외에 남기지 않는다.
+- 키는 LLMKeySource 에서 호출 시점에 얻는다: 화면 입력 키 > 설정 키 > OPENAI_API_KEY > 키 파일.
+  키가 바뀌면 SDK 클라이언트를 새로 만든다. 키는 로그·예외에 남기지 않는다.
+  OpenRouter 키(sk-or-...)는 OpenAI 주소로 보내지 않는다 (다른 회사에 키가 드러난다).
+- require_key_at_start=True(기본)면 생성 시점에 키가 없을 때 바로 실패한다 (서버 기동 단계 조기 실패).
+  화면 키 입력(FRAME_LLM_RUNTIME_KEY)을 쓰면 False 로 두어 키 없이 기동하고, 키가 없을 때의 호출만 실패시킨다.
 - base_url 을 주면 OpenAI 호환 서버(vLLM, Ollama 등 로컬 3090 환경)를 같은 코드로 호출한다.
+  주지 않으면 OpenAI 의 주소(OPENAI_BASE_URL)를 적어 넘긴다. SDK 에 주소를 비워 넘기지 않는다: 비우면 SDK 가
+  셸의 OPENAI_BASE_URL 환경 변수를 따라, 조립이 아는 LLM 주소(음성 인식이 같은 키를 보내는 곳)와 달라진다
+  (감사 BTS-D05). 주소는 FRAME 의 설정(FRAME_LLM_BASE_URL)만 따른다.
   로컬 서버가 strict json_schema 를 지원하지 않으면 strict=False 로 두고 호출자(LLMStructurer)의 검증·재시도에 맡긴다.
 - 추론 모델(o*, gpt-5*)은 temperature 를 받지 않으므로 보내지 않는다.
+- images 를 주면 user 메시지를 글 + 이미지(data URI) 조각으로 보낸다 (이미지를 읽는 모델이어야 한다).
+- SDK 의 자동 재시도는 max_retries(기본 1)로 명시한다. 호출 하나는 시간 제한 x (max_retries + 1) 까지 걸릴 수 있다.
+  SDK 기본값(2)에 맡기면 응답하지 않는 서버에서 VLM 호출 하나(180초)가 9분까지 걸린다.
+- 실패는 모두 LLMError 로 알린다: SDK 가 내는 오류 전부와, 응답에 choices·message 가 없거나 본문이 글이 아닌 경우까지.
+  다른 예외가 새면 부르는 쪽(검수기·구조화기)이 '판정 불가·구조화 실패' 로 다루지 못한다.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
-import re
-from collections.abc import Mapping
+import threading
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from frame.application.errors import LLMBadResponse, LLMRateLimited, LLMTimeout, LLMUnavailable
-from frame.application.ports.llm import JsonCompletion, LLMClient
+from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient, LLMKeySource
 
-_KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]+")
+from .key_store import LLMKeyStore
+from .keys import OPENROUTER_PREFIX, mask_key, read_key_file
+
+__all__ = [
+    "OPENAI_BASE_URL",
+    "OpenAIJsonClient",
+    "is_reasoning_model",
+    "mask_key",
+    "resolve_api_key",
+]
+
+# 주소를 주지 않았을 때 요청이 가는 곳. 조립도 이 값을 'LLM 주소' 로 본다 (config/registrations 의 llm_address)
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+
 _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
 
 
@@ -37,27 +65,21 @@ def resolve_api_key(
         path = Path(key_file)
         if not path.is_file():
             raise LLMUnavailable(f"키 파일이 없습니다: {path}")
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        match = _KEY_TOKEN.search(text)
-        if match:
-            return match.group(0)
-        for line in text.splitlines():
-            if "=" in line:
-                value = line.split("=", 1)[1].strip().strip("\"'")
-                if value:
-                    return value
+        found = read_key_file(path)
+        if found:
+            return found
         raise LLMUnavailable(f"키 파일에서 API 키를 찾지 못했습니다: {path}")
     raise LLMUnavailable(
         "OpenAI API 키가 없습니다. OPENAI_API_KEY 환경 변수 또는 FRAME_LLM_KEY_FILE 을 설정하세요"
     )
 
 
-def mask_key(key: str) -> str:
-    return f"{key[:3]}...{key[-4:]}" if len(key) > 8 else "***"
-
-
 def is_reasoning_model(model: str) -> bool:
     return model.lower().startswith(_REASONING_PREFIXES)
+
+
+def _fingerprint(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 class OpenAIJsonClient(LLMClient):
@@ -68,26 +90,77 @@ class OpenAIJsonClient(LLMClient):
         api_key: str | None = None,
         key_file: str | Path | None = None,
         base_url: str | None = None,
-        timeout_s: float = 60.0,
-        temperature: float | None = 0.0,
-        strict: bool = True,
+        # 아래 셋은 설정(FRAME_LLM_*)에서 온다 (ADR-0032). temperature 의 None 은 '보내지 않음' 이다
+        timeout_s: float,
+        temperature: float | None,
+        strict: bool,
         sdk_client: Any | None = None,
         env: Mapping[str, str] | None = None,
+        key_source: LLMKeySource | None = None,
+        sdk_factory: Callable[[str], Any] | None = None,
+        require_key_at_start: bool = True,
+        image_detail: str = "high",
+        max_retries: int = 1,
     ) -> None:
         self.model = model
-        self.base_url = base_url
+        # SDK 가 연결 실패·시간 초과·429·5xx 에서 스스로 다시 보내는 횟수 (0 이면 다시 보내지 않는다)
+        self.max_retries = max(0, int(max_retries))
+        self.image_detail = image_detail  # 이미지 해상도 수준 (high: 얼굴·문구 같은 세부를 본다)
+        # 비어 있으면 OpenAI. SDK 에는 늘 이 주소를 적어 넘긴다 (비우면 SDK 가 셸의 OPENAI_BASE_URL 을 따른다)
+        self.base_url = (base_url or "").strip() or OPENAI_BASE_URL
         self.timeout_s = timeout_s
         self.temperature = temperature
         self.strict = strict
-        if sdk_client is None:
-            import openai  # 지연 import: openai 패키지는 llm extra
+        self._fixed_sdk = sdk_client  # 테스트용 주입: 키 해석을 건너뛴다
+        self._cached: tuple[str, Any] | None = None  # (키 지문, SDK 클라이언트)
+        self._lock = threading.Lock()
+        self.key_source: LLMKeySource | None = None
+        if sdk_client is not None:
+            return
+        import openai  # 지연 import: openai 패키지는 llm extra (없으면 ImportError)
 
-            key = resolve_api_key(api_key, env, key_file)
-            sdk_client = openai.OpenAI(api_key=key, base_url=base_url, timeout=timeout_s)
-            self.key_hint = mask_key(key)  # 진단 출력용 (키 자체는 보관하지 않는다)
-        else:
-            self.key_hint = "(injected)"
-        self._sdk = sdk_client
+        self.key_source = key_source or LLMKeyStore(key_file=key_file, env=env, explicit=api_key)
+        self._sdk_factory = sdk_factory or (
+            lambda key: openai.OpenAI(
+                api_key=key,
+                base_url=self.base_url,
+                timeout=timeout_s,
+                max_retries=self.max_retries,
+            )
+        )
+        if require_key_at_start:
+            self._sdk()
+
+    @property
+    def key_hint(self) -> str:
+        if self._fixed_sdk is not None:
+            return "(injected)"
+        status = self.key_source.status() if self.key_source else None
+        return status.hint if status and status.hint else "(미설정)"
+
+    def _sdk(self) -> Any:
+        if self._fixed_sdk is not None:
+            return self._fixed_sdk
+        assert self.key_source is not None
+        key = self.key_source.resolve()
+        if not key:
+            raise LLMUnavailable(self.key_source.describe_missing())
+        if key.startswith(OPENROUTER_PREFIX) and _goes_to_openai(self.base_url):
+            raise LLMUnavailable(
+                "설정된 키는 OpenRouter 키(sk-or-...)라서 OpenAI 주소로 보내지 않습니다. "
+                "OpenAI 키를 설정하거나 FRAME_LLM_BASE_URL 을 그 키를 받는 주소로 바꾸세요"
+            )
+        fingerprint = _fingerprint(key)
+        with self._lock:
+            if self._cached is None or self._cached[0] != fingerprint:
+                self._cached = (fingerprint, self._sdk_factory(key))
+            return self._cached[1]
+
+    def _user_content(self, user: str, images: Sequence[ImageInput]) -> Any:
+        """이미지가 없으면 예전처럼 문자열, 있으면 글 + 이미지 조각."""
+        if not images:
+            return user
+        return [{"type": "text", "text": user}, *_image_parts(images, self.image_detail)]
 
     def complete_json(
         self,
@@ -97,14 +170,16 @@ class OpenAIJsonClient(LLMClient):
         *,
         schema_name: str = "response",
         timeout_s: float | None = None,
+        images: Sequence[ImageInput] = (),
     ) -> JsonCompletion:
         import openai
 
+        sdk = self._sdk()
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {"role": "user", "content": self._user_content(user, images)},
             ],
             "response_format": {
                 "type": "json_schema",
@@ -121,7 +196,7 @@ class OpenAIJsonClient(LLMClient):
             kwargs["timeout"] = timeout_s
 
         try:
-            response = self._sdk.chat.completions.create(**kwargs)
+            response = sdk.chat.completions.create(**kwargs)
         except openai.APITimeoutError as exc:
             raise LLMTimeout(f"OpenAI 응답 시간 초과 ({timeout_s or self.timeout_s}s)") from exc
         except openai.APIConnectionError as exc:
@@ -132,14 +207,26 @@ class OpenAIJsonClient(LLMClient):
             raise LLMUnavailable("OpenAI 인증 실패 (401): API 키를 확인하세요") from exc
         except openai.APIStatusError as exc:
             raise LLMUnavailable(f"OpenAI 오류 {exc.status_code}: {_safe_message(exc)}") from exc
+        except openai.APIResponseValidationError as exc:
+            raise LLMBadResponse("OpenAI 응답의 형식이 예상과 다릅니다") from exc
+        except (
+            openai.OpenAIError
+        ) as exc:  # SDK 가 내는 그 밖의 오류도 이 클라이언트 밖으로는 LLMError 다
+            raise LLMUnavailable(f"OpenAI 호출 실패: {type(exc).__name__}") from exc
 
-        message = response.choices[0].message
-        refusal = getattr(message, "refusal", None)
+        try:
+            message = response.choices[0].message
+            refusal = getattr(message, "refusal", None)
+            content = message.content
+        except (AttributeError, IndexError, TypeError) as exc:
+            # OpenAI 호환 서버는 choices 를 비우거나 빼고 답할 때가 있다
+            raise LLMBadResponse("응답에 choices·message 가 없습니다") from exc
         if refusal:
             raise LLMBadResponse(f"모델이 응답을 거부했습니다: {refusal}")
-        content = message.content
         if not content:
             raise LLMBadResponse("빈 응답을 받았습니다")
+        if not isinstance(content, str):
+            raise LLMBadResponse("응답 본문이 글이 아닙니다")
         usage = getattr(response, "usage", None)
         return JsonCompletion(
             text=content,
@@ -147,6 +234,27 @@ class OpenAIJsonClient(LLMClient):
             input_tokens=getattr(usage, "prompt_tokens", None),
             output_tokens=getattr(usage, "completion_tokens", None),
         )
+
+
+def _goes_to_openai(base_url: str) -> bool:
+    """요청이 OpenAI 의 주소로 가는가."""
+    host = urlsplit(base_url).hostname or ""
+    return host == "openai.com" or host.endswith(".openai.com")
+
+
+def _image_parts(images: Sequence[ImageInput], detail: str) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    for image in images:
+        if image.label:
+            parts.append({"type": "text", "text": image.label})
+        encoded = base64.b64encode(image.data).decode("ascii")
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.media_type};base64,{encoded}", "detail": detail},
+            }
+        )
+    return parts
 
 
 def _safe_message(exc: Exception) -> str:

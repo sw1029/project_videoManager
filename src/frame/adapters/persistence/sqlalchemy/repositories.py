@@ -11,8 +11,11 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import Update, delete, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,11 +28,13 @@ from frame.application.ports.repositories import (
 )
 from frame.domain.artifacts import GeneratedClip
 from frame.domain.checks import CheckResult, WarningInterval
-from frame.domain.enums import CheckType, TrackingStatus, Verdict, VersionState
+from frame.domain.enums import CheckType, ReferenceOrigin, TrackingStatus, Verdict, VersionState
 from frame.domain.errors import IntegrityViolation
 from frame.domain.identifiers import entity_id, requirement_id, scene_id
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import Project, ReferenceImage, VideoVersion
+from frame.domain.progress import PipelineProgress
+from frame.domain.revision import RevisionIntent
 from frame.domain.state_machine import assert_transition
 from frame.domain.tracking import TrackRecord
 
@@ -52,6 +57,21 @@ def _flush(session: Session) -> None:
     except IntegrityError as exc:
         session.rollback()
         raise IntegrityViolation(f"DB 무결성 제약 위반: {exc.orig}") from exc
+
+
+def _changed_rows(session: Session, statement: Update) -> int:
+    """조건부 UPDATE 가 바꾼 행의 수.
+
+    갱신문을 실행한 결과는 행 수를 아는 CursorResult 다. Session.execute 의 타입은 그보다 넓은 Result 라 좁혀서 읽는다.
+    """
+    return cast("CursorResult[Any]", session.execute(statement)).rowcount
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """SQLite·MySQL DATETIME 은 시간대를 버리고 돌려준다. 늘 UTC 로 쓰므로 UTC 로 되붙인다 (리스 계산용)."""
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=UTC)
 
 
 class SqlAlchemyProjectRepository(ProjectRepository):
@@ -104,13 +124,37 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self, version_id: str, from_state: VersionState, to_state: VersionState
     ) -> bool:
         assert_transition(from_state, to_state)
-        result = self._session.execute(
+        changed = _changed_rows(
+            self._session,
             update(VersionRow)
             .where(VersionRow.version_id == version_id, VersionRow.state == str(from_state))
-            .values(state=str(to_state))
+            .values(state=str(to_state)),
         )
         self._session.expire_all()
-        return result.rowcount == 1
+        return changed == 1
+
+    def replace_draft_ir(self, version_id: str, ir: IntermediateRepresentation) -> bool:
+        # 조건부 UPDATE 로 행을 잡은 뒤에 정규화 행을 다시 만든다. 동시에 온 생성 접수의 조건부 갱신은
+        # 이 트랜잭션이 끝날 때까지 기다리거나(행 잠금) 이미 바뀐 상태를 보고 이쪽이 0 행으로 끝난다
+        changed = _changed_rows(
+            self._session,
+            update(VersionRow)
+            .where(
+                VersionRow.version_id == version_id,
+                VersionRow.state == str(VersionState.DRAFT),
+                VersionRow.frozen_fingerprint.is_(None),
+            )
+            .values(ir_json=ir.to_json()),
+        )
+        self._session.expire_all()
+        if changed != 1:
+            return False
+        version = self.get(version_id)
+        # 방금 바꾼 행을 같은 트랜잭션에서 읽지 못함 = 불변식이 깨짐 (save() 와 같은 예외)
+        if version is None:
+            raise LookupError(f"조건부 갱신 직후 version_id {version_id} 을 다시 읽지 못했습니다")
+        self._sync_ir_rows(version)
+        return True
 
     # ---- 읽기 -------------------------------------------------------------
     def get(self, version_id: str) -> VideoVersion | None:
@@ -123,6 +167,14 @@ class SqlAlchemyVersionRepository(VersionRepository):
         ).all()
         return [self._to_domain(r) for r in rows]
 
+    def list_by_state(self, state: VersionState) -> list[VideoVersion]:
+        rows = self._session.scalars(
+            select(VersionRow)
+            .where(VersionRow.state == str(state))
+            .order_by(VersionRow.created_at, VersionRow.version_id)
+        ).all()
+        return [self._to_domain(r) for r in rows]
+
     # ---- 매핑 -------------------------------------------------------------
     @staticmethod
     def _to_row(version: VideoVersion, row: VersionRow) -> VersionRow:
@@ -130,6 +182,9 @@ class SqlAlchemyVersionRepository(VersionRepository):
         row.project_id = version.project_id
         row.parent_version_id = version.parent_version_id
         row.state = str(version.state)
+        row.queued_at = version.queued_at
+        row.started_at = version.started_at
+        row.attempt = version.attempt
         row.source_prompt = version.source_prompt
         row.target_duration_ms = version.target_duration_ms
         row.seed = version.seed
@@ -139,6 +194,21 @@ class SqlAlchemyVersionRepository(VersionRepository):
         row.error_message = version.error_message
         row.frozen_fingerprint = version.frozen_fingerprint
         row.created_at = version.created_at
+        row.progress_json = (
+            json.dumps(version.progress.to_dict(), ensure_ascii=False)
+            if version.progress is not None
+            else None
+        )
+        row.scene_seeds_json = (
+            json.dumps(version.scene_seeds, ensure_ascii=False, sort_keys=True)
+            if version.scene_seeds
+            else None
+        )
+        row.intent_json = (
+            json.dumps(version.intent.to_dict(), ensure_ascii=False)
+            if version.intent is not None
+            else None
+        )
         return row
 
     def _to_domain(self, row: VersionRow) -> VideoVersion:
@@ -152,11 +222,17 @@ class SqlAlchemyVersionRepository(VersionRepository):
                     uri=scene.clip_uri,
                     duration_ms=scene.clip_duration_ms or 0,
                     fingerprint=scene.clip_fingerprint or "",
+                    metadata=json.loads(scene.clip_metadata_json)
+                    if scene.clip_metadata_json
+                    else {},
                 )
         return VideoVersion(
             version_id=row.version_id,
             project_id=row.project_id,
             state=VersionState(row.state),
+            queued_at=_utc(row.queued_at),
+            started_at=_utc(row.started_at),
+            attempt=row.attempt or 0,
             created_at=row.created_at,
             parent_version_id=row.parent_version_id,
             source_prompt=row.source_prompt,
@@ -168,6 +244,19 @@ class SqlAlchemyVersionRepository(VersionRepository):
             error_message=row.error_message,
             frozen_fingerprint=row.frozen_fingerprint,
             clips=clips,
+            progress=(
+                PipelineProgress.from_dict(json.loads(row.progress_json))
+                if row.progress_json
+                else None
+            ),
+            scene_seeds=(
+                {str(k): int(v) for k, v in json.loads(row.scene_seeds_json).items()}
+                if row.scene_seeds_json
+                else {}
+            ),
+            intent=(
+                RevisionIntent.from_dict(json.loads(row.intent_json)) if row.intent_json else None
+            ),
         )
 
     def _sync_ir_rows(self, version: VideoVersion) -> None:
@@ -178,7 +267,7 @@ class SqlAlchemyVersionRepository(VersionRepository):
         self._session.execute(delete(RequirementRow).where(RequirementRow.scene_id.in_(scene_ids)))
         self._session.execute(delete(SceneEntityRow).where(SceneEntityRow.scene_id.in_(scene_ids)))
         self._session.execute(delete(SceneRow).where(SceneRow.version_id == vid))
-        # ENTITY 는 프로젝트 범위: 없으면 만들고 있으면 설명만 갱신
+        # ENTITY 는 프로젝트 범위: 없으면 만들고 있으면 종류·설명·표시 이름만 갱신
         for e in ir.entities:
             eid = entity_id(pid, e.entity_key)
             existing = self._session.get(EntityRow, eid)
@@ -190,10 +279,12 @@ class SqlAlchemyVersionRepository(VersionRepository):
                         entity_key=e.entity_key,
                         kind=str(e.kind),
                         description=e.description,
+                        display_name=e.display_name or None,
                     )
                 )
             else:
                 existing.kind, existing.description = str(e.kind), e.description
+                existing.display_name = e.display_name or None
         _flush(self._session)
         # relationship() 없이 FK 만 선언했으므로 부모 행(SCENE)을 먼저 flush 해야 자식 행 INSERT 순서가 보장된다
         for s in ir.scenes:
@@ -238,6 +329,11 @@ class SqlAlchemyVersionRepository(VersionRepository):
                 scene.clip_uri = clip.uri
                 scene.clip_fingerprint = clip.fingerprint
                 scene.clip_duration_ms = clip.duration_ms
+                scene.clip_metadata_json = (
+                    json.dumps(dict(clip.metadata), ensure_ascii=False, default=str)
+                    if clip.metadata
+                    else None
+                )
         _flush(self._session)
 
 
@@ -252,8 +348,14 @@ class SqlAlchemyReferenceImageRepository(ReferenceImageRepository):
                 version_id=image.version_id,
                 entity_key=image.entity_key,
                 image_uri=image.image_uri,
+                origin=str(image.origin),
+                source_scene_key=image.source_scene_key,
+                source_fingerprint=image.source_fingerprint,
+                appearance_fingerprint=image.appearance_fingerprint,
+                description=image.description or None,
             )
         )
+        _flush(self._session)
 
     def list_by_version(self, version_id: str) -> list[ReferenceImage]:
         rows = self._session.scalars(
@@ -265,6 +367,11 @@ class SqlAlchemyReferenceImageRepository(ReferenceImageRepository):
                 version_id=r.version_id,
                 image_uri=r.image_uri,
                 entity_key=r.entity_key,
+                origin=ReferenceOrigin(r.origin or ReferenceOrigin.USER),
+                source_scene_key=r.source_scene_key,
+                source_fingerprint=r.source_fingerprint,
+                appearance_fingerprint=r.appearance_fingerprint,
+                description=r.description or "",
             )
             for r in rows
         ]

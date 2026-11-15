@@ -24,6 +24,24 @@ class ValidationError(DomainError):
     code = "VALIDATION_ERROR"
 
 
+class UnsupportedMediaType(ValidationError):
+    """올린 파일이 받을 수 있는 형식이 아닐 때 (API 415, #12)."""
+
+    code = "UNSUPPORTED_MEDIA_TYPE"
+
+
+class PayloadTooLarge(ValidationError):
+    """올린 파일이 크기 상한을 넘을 때 (API 413, #12)."""
+
+    code = "PAYLOAD_TOO_LARGE"
+
+
+class PermissionDenied(DomainError):
+    """허용되지 않은 요청 (예: 다른 기기에서 API 키 입력). API 403."""
+
+    code = "FORBIDDEN"
+
+
 class IntegrityViolation(DomainError):
     code = "INTEGRITY_VIOLATION"
 
@@ -33,7 +51,10 @@ class InvalidStateTransition(DomainError):
 
 
 class VersionNotGeneratable(InvalidStateTransition):
-    """DRAFT 가 아닌 버전에 생성을 접수하려 할 때 (API 409)."""
+    """생성을 접수할 수 없는 버전일 때 (API 409).
+
+    DRAFT 가 아니거나, 중간표현이 없거나, 중간표현의 키가 규칙에 맞지 않는다 (키 규칙이 생기기 전에 저장된 행).
+    """
 
     code = "VERSION_NOT_GENERATABLE"
 
@@ -42,3 +63,9 @@ class VersionNotRevisable(InvalidStateTransition):
     """중간표현이 없거나 처리 중인 버전을 수정하려 할 때 (API 409)."""
 
     code = "VERSION_NOT_REVISABLE"
+
+
+class VersionNotEditable(InvalidStateTransition):
+    """DRAFT 가 아니거나 조건이 고정된 버전의 중간표현을 고치려 할 때 (API 409, #11)."""
+
+    code = "VERSION_NOT_EDITABLE"

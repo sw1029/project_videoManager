@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from frame.domain.checks import CheckResult
 from frame.domain.enums import VersionState
+from frame.domain.ir import IntermediateRepresentation
 from frame.domain.models import Project, ReferenceImage, VideoVersion
 from frame.domain.tracking import TrackRecord
 
@@ -30,6 +31,10 @@ class VersionRepository(ABC):
     def list_by_project(self, project_id: str) -> list[VideoVersion]: ...
 
     @abstractmethod
+    def list_by_state(self, state: VersionState) -> list[VideoVersion]:
+        """그 상태인 버전 전부 (만든 순). 재시작 복구가 QUEUED·PROCESSING 을 찾을 때 쓴다 (#2)."""
+
+    @abstractmethod
     def save(self, version: VideoVersion) -> None:
         """상태·IR·결과·오류 필드를 저장한다. (IR 은 조건 고정 전까지만 바뀐다)"""
 
@@ -40,6 +45,14 @@ class VersionRepository(ABC):
         """현재 상태가 from_state 일 때만 to_state 로 바꾼다 (조건부 갱신, 무결성 규칙 1).
 
         동시에 두 요청이 들어와도 하나만 True 를 받는다.
+        """
+
+    @abstractmethod
+    def replace_draft_ir(self, version_id: str, ir: IntermediateRepresentation) -> bool:
+        """DRAFT 이고 조건이 고정되지 않은 버전일 때만 IR(과 그 정규화 행)을 바꾼다 (조건부 갱신, #11).
+
+        IR 만 바꾸고 다른 필드는 건드리지 않는다. 생성 접수(DRAFT->QUEUED, 조건 고정)와 동시에 와도
+        고정된 IR 은 바뀌지 않는다 (무결성 규칙 1). 바꿨으면 True, 버전이 없거나 바꿀 수 없으면 False.
         """
 
 

@@ -1,0 +1,64 @@
+{
+  "case_id": "ko-02-lipstick-ad",
+  "language": "ko",
+  "target_duration_ms": 12000,
+  "brief": "립스틱 신제품 광고 12초. 장면 1 (4초): 대리석 테이블 위에 금색 케이스의 립스틱이 세워져 있고, 케이스에 'LUMI' 로고가 새겨져 있다. 장면 2 (4초): 짧은 검은 머리의 모델이 립스틱을 들고 입술에 바른다. 장면 3 (4초): 모델이 카메라를 보며 웃고, 화면 아래쪽에 'NEW COLOR' 문구가 나타난다. 영상 전체에 부드러운 핑크빛 조명.",
+  "covers": ["relation", "literal_text", "position", "material", "action", "scene_level"],
+  "notes": "테이블은 립스틱이 놓인 소품 객체다 (장소로 쓰면 안 됨). 케이스의 'LUMI' 는 text 또는 brand, 금색은 color 또는 material 로 받는다. 문구는 장면 1 에서만 말했으므로 장면 2 에서는 선택이다.",
+  "expected": {
+    "schema_version": 1,
+    "entities": [
+      {"entity_key": "lipstick", "kind": "PROP", "description": "금색 케이스의 립스틱", "aliases": ["립스틱", "lipstick"]},
+      {"entity_key": "table", "kind": "PROP", "description": "대리석 테이블", "aliases": ["테이블", "table"]},
+      {"entity_key": "model", "kind": "PERSON", "description": "짧은 검은 머리의 모델", "aliases": ["모델", "여성", "여자", "model", "woman"]},
+      {"entity_key": "caption", "kind": "TEXT", "description": "'NEW COLOR' 문구", "aliases": ["NEW COLOR", "문구", "자막", "caption", "text", "title", "slogan", "tagline"]}
+    ],
+    "scenes": [
+      {
+        "scene_key": "product",
+        "planned_start_ms": 0,
+        "planned_end_ms": 4000,
+        "description": "대리석 테이블 위에 세워진 금색 립스틱, 케이스에 LUMI 로고",
+        "entity_keys": ["lipstick", "table"],
+        "requirements": [
+          {"entity_key": "lipstick", "predicate": "color", "expected_value": "gold", "accept_predicates": ["material"], "accept": ["golden"]},
+          {"entity_key": "lipstick", "predicate": "text", "expected_value": "LUMI", "accept_predicates": ["brand"]},
+          {"entity_key": "lipstick", "predicate": "on", "related_entity_key": "table", "expected_value": "table"},
+          {"entity_key": "table", "predicate": "material", "expected_value": "marble"},
+          {"entity_key": "lipstick", "predicate": "pose", "expected_value": "upright", "optional": true, "accept": ["standing"]},
+          {"predicate": "lighting", "expected_value": "pink", "accept": ["rosy"]}
+        ]
+      },
+      {
+        "scene_key": "apply",
+        "planned_start_ms": 4000,
+        "planned_end_ms": 8000,
+        "description": "모델이 립스틱을 들고 입술에 바른다",
+        "entity_keys": ["model", "lipstick"],
+        "requirements": [
+          {"entity_key": "model", "predicate": "hair", "expected_value": "short black"},
+          {"entity_key": "model", "predicate": "holds", "related_entity_key": "lipstick", "expected_value": "lipstick"},
+          {"entity_key": "model", "predicate": "action", "expected_value": "applies", "accept": ["puts on", "paints lips"]},
+          {"entity_key": "lipstick", "predicate": "color", "expected_value": "gold", "accept_predicates": ["material"], "accept": ["golden"]},
+          {"entity_key": "lipstick", "predicate": "text", "expected_value": "LUMI", "optional": true, "accept_predicates": ["brand"]},
+          {"predicate": "lighting", "expected_value": "pink", "accept": ["rosy"]}
+        ]
+      },
+      {
+        "scene_key": "smile",
+        "planned_start_ms": 8000,
+        "planned_end_ms": 12000,
+        "description": "모델이 카메라를 보며 웃고 화면 아래쪽에 NEW COLOR 문구",
+        "entity_keys": ["model", "caption"],
+        "requirements": [
+          {"entity_key": "model", "predicate": "expression", "expected_value": "smile", "accept": ["laugh"]},
+          {"entity_key": "model", "predicate": "action", "expected_value": "looking at camera", "accept_predicates": ["pose"], "accept": ["facing camera"]},
+          {"entity_key": "model", "predicate": "hair", "expected_value": "short black"},
+          {"entity_key": "caption", "predicate": "text", "expected_value": "NEW COLOR"},
+          {"entity_key": "caption", "predicate": "position", "expected_value": "bottom"},
+          {"predicate": "lighting", "expected_value": "pink", "accept": ["rosy"]}
+        ]
+      }
+    ]
+  }
+}
