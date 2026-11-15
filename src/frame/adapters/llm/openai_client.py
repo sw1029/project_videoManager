@@ -6,6 +6,9 @@
 - require_key_at_start=True(기본)면 생성 시점에 키가 없을 때 바로 실패한다 (서버 기동 단계 조기 실패).
   화면 키 입력(FRAME_LLM_RUNTIME_KEY)을 쓰면 False 로 두어 키 없이 기동하고, 키가 없을 때의 호출만 실패시킨다.
 - base_url 을 주면 OpenAI 호환 서버(vLLM, Ollama 등 로컬 3090 환경)를 같은 코드로 호출한다.
+  주지 않으면 OpenAI 의 주소(OPENAI_BASE_URL)를 적어 넘긴다. SDK 에 주소를 비워 넘기지 않는다: 비우면 SDK 가
+  셸의 OPENAI_BASE_URL 환경 변수를 따라, 조립이 아는 LLM 주소(음성 인식이 같은 키를 보내는 곳)와 달라진다
+  (감사 BTS-D05). 주소는 FRAME 의 설정(FRAME_LLM_BASE_URL)만 따른다.
   로컬 서버가 strict json_schema 를 지원하지 않으면 strict=False 로 두고 호출자(LLMStructurer)의 검증·재시도에 맡긴다.
 - 추론 모델(o*, gpt-5*)은 temperature 를 받지 않으므로 보내지 않는다.
 - images 를 주면 user 메시지를 글 + 이미지(data URI) 조각으로 보낸다 (이미지를 읽는 모델이어야 한다).
@@ -32,7 +35,16 @@ from frame.application.ports.llm import ImageInput, JsonCompletion, LLMClient, L
 from .key_store import LLMKeyStore
 from .keys import OPENROUTER_PREFIX, mask_key, read_key_file
 
-__all__ = ["OpenAIJsonClient", "is_reasoning_model", "mask_key", "resolve_api_key"]
+__all__ = [
+    "OPENAI_BASE_URL",
+    "OpenAIJsonClient",
+    "is_reasoning_model",
+    "mask_key",
+    "resolve_api_key",
+]
+
+# 주소를 주지 않았을 때 요청이 가는 곳. 조립도 이 값을 'LLM 주소' 로 본다 (config/registrations 의 llm_address)
+OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
 
@@ -94,7 +106,8 @@ class OpenAIJsonClient(LLMClient):
         # SDK 가 연결 실패·시간 초과·429·5xx 에서 스스로 다시 보내는 횟수 (0 이면 다시 보내지 않는다)
         self.max_retries = max(0, int(max_retries))
         self.image_detail = image_detail  # 이미지 해상도 수준 (high: 얼굴·문구 같은 세부를 본다)
-        self.base_url = base_url
+        # 비어 있으면 OpenAI. SDK 에는 늘 이 주소를 적어 넘긴다 (비우면 SDK 가 셸의 OPENAI_BASE_URL 을 따른다)
+        self.base_url = (base_url or "").strip() or OPENAI_BASE_URL
         self.timeout_s = timeout_s
         self.temperature = temperature
         self.strict = strict
@@ -109,7 +122,10 @@ class OpenAIJsonClient(LLMClient):
         self.key_source = key_source or LLMKeyStore(key_file=key_file, env=env, explicit=api_key)
         self._sdk_factory = sdk_factory or (
             lambda key: openai.OpenAI(
-                api_key=key, base_url=base_url, timeout=timeout_s, max_retries=self.max_retries
+                api_key=key,
+                base_url=self.base_url,
+                timeout=timeout_s,
+                max_retries=self.max_retries,
             )
         )
         if require_key_at_start:
@@ -220,12 +236,9 @@ class OpenAIJsonClient(LLMClient):
         )
 
 
-def _goes_to_openai(base_url: str | None) -> bool:
-    """요청이 OpenAI 의 주소로 가는가. 주소를 주지 않으면 SDK 가 OPENAI_BASE_URL, 없으면 OpenAI 로 보낸다."""
-    target = base_url or os.environ.get("OPENAI_BASE_URL")
-    if not target:
-        return True
-    host = urlsplit(target).hostname or ""
+def _goes_to_openai(base_url: str) -> bool:
+    """요청이 OpenAI 의 주소로 가는가."""
+    host = urlsplit(base_url).hostname or ""
     return host == "openai.com" or host.endswith(".openai.com")
 
 

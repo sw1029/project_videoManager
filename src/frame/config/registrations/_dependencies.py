@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from frame.adapters.llm.openai_client import OPENAI_BASE_URL
 from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
 from frame.application.errors import ConfigurationError
 from frame.application.ports import ArtifactStore, JobHandlerRegistry
@@ -15,8 +16,6 @@ from frame.application.ports.llm import LLMClient
 
 from ..registry import AdapterRegistry, BuildContext, Factory
 from ..theme_settings import ThemeSettings
-
-OPENAI_BASE_URL = "https://api.openai.com/v1"  # LLM 주소를 주지 않았을 때 요청이 가는 곳
 
 
 def artifact_store(ctx: BuildContext) -> ArtifactStore:
@@ -68,7 +67,11 @@ def llm_client(registry: AdapterRegistry, ctx: BuildContext) -> LLMClient:
 
 
 def llm_address(ctx: BuildContext) -> str:
-    """LLM 요청이 가는 주소: FRAME_LLM_BASE_URL, 없으면 OpenAI. 앞뒤 공백과 끝의 / 를 뗀다."""
+    """LLM 요청이 가는 주소: FRAME_LLM_BASE_URL, 없으면 OpenAI. 앞뒤 공백과 끝의 / 를 뗀다.
+
+    LLM 클라이언트도 이 주소를 받고 (셸의 OPENAI_BASE_URL 을 따르지 않는다), 음성 인식이 'LLM 과 같은 곳' 이라고
+    할 때도 이 주소다. 둘이 다르면 한 키가 두 곳으로 간다 (감사 BTS-D05).
+    """
     return (ctx.settings.llm_base_url or OPENAI_BASE_URL).strip().rstrip("/")
 
 

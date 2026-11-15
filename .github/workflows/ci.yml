@@ -90,10 +90,12 @@ jobs:
     # 화면 문구 합성의 ffmpeg 테스트를, 그릴 수 있는 러너에서 돌린다 (보고서 §12.3 결정 11 · A-43).
     # 다른 잡의 러너에서는 이 테스트 9개가 건너뛰어진다: 한글 글꼴이 없고, video extra 가 Linux 에 가져오는 ffmpeg 에는
     # 글자를 그리는 drawtext 필터가 없다. 그래서 이 잡은 글꼴과 시스템 ffmpeg 를 깐다 (PATH 의 ffmpeg 가 먼저 쓰인다).
-    # Linux 에서 통과한 적이 없는 테스트라 결과만 보고 머지를 막지 않는다. 통과하는 것을 본 뒤에 필수로 할지 정한다
+    # 막는 검사다: 처음에는 결과만 봤고, 이어서 통과하는 것을 본 뒤 continue-on-error 를 뺐다 (결정 11).
+    # test 잡에 합치지 않는다: 시스템 ffmpeg 를 깔면 그 잡의 모든 영상 테스트가 번들이 아니라 러너의 ffmpeg 로 돈다
+    # (번들 ffmpeg 를 보는 잡이 없어진다). 러너의 ffmpeg 는 판이 고정돼 있지 않다 - 러너 이미지가 바뀌어 이 잡이
+    # 실패하면 오류 문구에 찍힌 ffmpeg 의 경로와 까닭부터 본다 (docs/CI.md 6절)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    continue-on-error: true
     env:
       FRAME_REQUIRE_FFMPEG: "1"
       # 글꼴이나 글자를 그리는 ffmpeg 를 찾지 못하면 건너뛰지 않고 실패한다 (건너뛴 채 통과로 보이지 않게)

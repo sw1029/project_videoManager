@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from frame.domain.enums import VersionState
+from frame.domain.errors import ValidationError
 from frame.domain.ir import IntermediateRepresentation
 from frame.domain.series.episode import EpisodeBrief, EpisodePlan
 from frame.domain.series.narration import LineAlignment, LineStatus, Placement, PlacementStatus
@@ -134,6 +135,10 @@ class Episode:
         - COMPLETED: 그 버전이 기준 버전이 된다. 계획의 IR 도 그 버전의 것으로 바꾼다 (조건을 고친 수정이면 달라진다).
           그 버전에서 클립이 바뀐 장면(remade_scene_keys)의 가린 문구는 계획에서 뺀다: 옛 클립의 자리를 가린 것이라
           새 클립 위에 얹으면 안 된다 (감사 BTS-D01). 새 클립의 글자는 그 버전의 검수가 다시 본다.
+          다만 그 버전의 IR 을 계획이 따를 수 없으면 (EpisodePlan.following) 기준 버전으로 삼지 않고 잊는다
+          (메모를 남긴다). 편의 수정은 조건의 값만 바꾸므로, 장면의 짜임이 달라진 IR 은 편 밖에서 고친 것이다 —
+          수정 버전의 초안에는 일반 IR 편집(PUT /versions/{id}/ir)이 닿는다. 맞지 않는 계획을 저장하지 않는다
+          (감사 P-20).
         - FAILED 또는 없어짐: 수정 버전을 잊는다. 기준 버전은 그대로라 편은 계속 쓸 수 있다.
         - 그 밖(초안·대기·만드는 중): 그대로 둔다.
         """
@@ -141,11 +146,32 @@ class Episode:
             return self
         if state is VersionState.COMPLETED and ir is not None:
             moved = self.with_version(self.pending_version_id)
-            plan = replace(moved.plan.without_patches_of(remade_scene_keys), ir=ir)
+            try:
+                plan = moved.plan.without_patches_of(remade_scene_keys).following(ir)
+            except ValidationError as exc:
+                note = (
+                    f"수정 버전 {self.pending_version_id} 의 중간표현을 편의 계획이 따를 수 없어 "
+                    f"기준 버전으로 삼지 않았습니다 ({exc.message})"
+                )
+                kept = replace(self.plan, notes=(*self.plan.notes, note))
+                return replace(self, plan=kept, pending_version_id=None)
             return replace(moved, plan=plan, pending_version_id=None)
         if state is None or state is VersionState.FAILED:
             return replace(self, pending_version_id=None)
         return self
+
+    def following_base(self, ir: IntermediateRepresentation) -> Episode:
+        """기준 버전의 IR 이 계획의 것과 달라졌을 때, 계획이 그 IR 을 따른 편. 따를 수 없으면 ValidationError.
+
+        편의 유스케이스만 쓰면 둘은 늘 같다. 달라졌다면 버전의 IR 을 편 밖에서 고친 것이다 (일반 IR 편집 — 버전이
+        초안일 때 닿는다). 버전의 IR 이 실제로 만드는 영상의 조건이므로 계획이 따른다: 옛 조건을 들고 있으면
+        화면 검수가 만들지 않은 조건으로 견준다. 따른 것은 메모로 남긴다 (감사 P-20).
+        """
+        plan = self.plan.following(ir)
+        note = (
+            f"기준 버전 {self.version_id} 의 중간표현이 편 밖에서 바뀌어 계획이 그것을 따랐습니다"
+        )
+        return replace(self, plan=replace(plan, notes=(*plan.notes, note)))
 
     def to_dict(self) -> dict[str, Any]:
         return {

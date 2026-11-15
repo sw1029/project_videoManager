@@ -64,6 +64,8 @@
   `tests/architecture/test_single_source_values.py` 의 표(`SINGLE_SOURCE`)에 그 값과 집(모듈 · 이름)을 적으면, `src` 의 다른 곳이 같은 글자를
   다시 적었을 때 실패하고 가져다 쓸 이름을 알린다. 지금은 셋이다: 예상 밖 오류의 코드 `UNEXPECTED_ERROR`, 객체 · 장면 키의 식, 테마 · 편 문서 id 의 식.
   테마의 키 규칙은 IR 의 것을 베낀 사본이었고, 저장소의 id 규칙은 테마의 것과 손으로 맞춘 것이었다 — 브랜치들이 dev 에서 만나며 생긴 사본이다.
+  넷째를 더했다 (2026-11-15, 감사 BTS-D05): LLM 주소를 주지 않았을 때의 OpenAI 주소. LLM 클라이언트가 SDK 에 넘기는 주소와, 조립이
+  '음성 인식은 LLM 과 같은 곳' 이라고 할 때의 주소가 같은 값이어야 한다 (`adapters/llm/openai_client.py` 의 `OPENAI_BASE_URL`).
 
 ## 결과
 - 설정의 기본값을 바꾸면 그 값을 쓰는 모든 곳이 따라 바뀐다. 한쪽만 바뀌는 일이 없다.

@@ -30,6 +30,9 @@ SINGLE_SOURCE: dict[str, Home] = {
     r"[A-Za-z0-9][A-Za-z0-9_]{0,63}": Home("frame.domain.ir", "KEY_PATTERN"),
     # 테마 · 편 문서의 id 형식. 도메인이 검사하는 것과 저장소가 받는 것이 같아야 한다
     r"[a-z0-9][a-z0-9_-]{0,63}": Home("frame.domain.series.ids", "DOCUMENT_ID_PATTERN"),
+    # LLM 주소를 주지 않았을 때 요청이 가는 곳. LLM 클라이언트가 SDK 에 넘기는 주소와, 조립이 '음성 인식은
+    # LLM 과 같은 곳' 이라고 할 때의 주소가 같아야 한다 (감사 BTS-D05)
+    "https://api.openai.com/v1": Home("frame.adapters.llm.openai_client", "OPENAI_BASE_URL"),
 }
 
 

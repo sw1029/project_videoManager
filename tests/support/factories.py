@@ -11,9 +11,10 @@ from frame.adapters.shared.runtime import FixedClock, SequentialIdGenerator
 from frame.application.dto import CreateProjectCommand, CreateProjectResult
 from frame.application.ports.structurer import ReferenceImageInput
 from frame.config import Container, Settings, build_container
-from frame.domain.enums import EntityKind
+from frame.domain.enums import EntityKind, VersionState
 from frame.domain.ir import EntitySpec, IntermediateRepresentation, RequirementSpec, SceneSpec
-from frame.domain.models import VideoVersion
+from frame.domain.models import Project, VideoVersion
+from tests.support.clock import START
 
 # 규칙 기반 구조화 DSL 로 쓴 예시 요구사항 (컨셉 UI 의 '카페 신제품 숏폼')
 CAFE_PROMPT = """
@@ -145,3 +146,43 @@ def generate(container: Container, version_id: str) -> VideoVersion:
 
 def version_of(container: Container, version_id: str) -> VideoVersion:
     return container.queries.get_version(version_id).version
+
+
+def with_scene_key(
+    ir: IntermediateRepresentation, old: str, new: str
+) -> IntermediateRepresentation:
+    """장면 키 하나를 바꾼 IR (그 장면의 요구조건도 새 키를 따른다). 검사하지 않는다."""
+    return replace(
+        ir,
+        scenes=tuple(
+            replace(
+                s,
+                scene_key=new,
+                requirements=tuple(replace(r, scene_key=new) for r in s.requirements),
+            )
+            if s.scene_key == old
+            else s
+            for s in ir.scenes
+        ),
+    )
+
+
+def save_unchecked_draft(
+    container: Container, ir: IntermediateRepresentation, version_id: str = "ver_old"
+) -> str:
+    """검사를 거치지 않고 저장소에 바로 넣은 DRAFT (도메인 규칙이 생기기 전에 저장된 행 흉내). 버전 id 를 돌려준다."""
+    project_id = f"prj_{version_id}"
+    with container.uow_factory() as uow:
+        uow.projects.add(Project(project_id=project_id, title="옛 행", created_at=START))
+        uow.versions.add(
+            VideoVersion(
+                version_id=version_id,
+                project_id=project_id,
+                state=VersionState.DRAFT,
+                created_at=START,
+                target_duration_ms=ir.total_duration_ms,
+                ir=ir,
+            )
+        )
+        uow.commit()
+    return version_id

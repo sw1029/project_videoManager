@@ -51,7 +51,10 @@ class InvalidStateTransition(DomainError):
 
 
 class VersionNotGeneratable(InvalidStateTransition):
-    """DRAFT 가 아닌 버전에 생성을 접수하려 할 때 (API 409)."""
+    """생성을 접수할 수 없는 버전일 때 (API 409).
+
+    DRAFT 가 아니거나, 중간표현이 없거나, 중간표현의 키가 규칙에 맞지 않는다 (키 규칙이 생기기 전에 저장된 행).
+    """
 
     code = "VERSION_NOT_GENERATABLE"
 

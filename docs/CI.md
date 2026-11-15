@@ -36,9 +36,11 @@ python scripts/check.py --list
 | 커버리지 하한 | 전체 89% · 제품 코드(tools 제외) 95% · 핵심(domain·application) 97% | 테스트를 더한다. 하한은 `scripts/check.py` 의 `COVERAGE_FLOORS` 에 있고 올리기만 한다 |
 
 CI 에만 있는 것: 같은 테스트를 Python 3.12 와 Windows 에서 한 번 더 (compat 잡), 의존성 취약점 검사 (audit 잡, 실패해도 막지 않는다),
-화면 문구 합성 테스트를 한글 글꼴이 있는 러너에서 (overlay-font 잡, 실패해도 막지 않는다),
+화면 문구 합성 테스트를 한글 글꼴과 글자를 그리는 ffmpeg 가 있는 러너에서 (overlay-font 잡 — 막는 검사다. 6절의 5),
 Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트를 (docker 잡, 실패해도 막지 않는다 — ADR-0034),
 화면 빌드 (frontend 잡), 시연 경로 점검 (demo-smoke 잡), 번들 빌드와 릴리스 (`bundle.yml`).
+실패해도 워크플로가 통과로 끝나는 잡은 audit 와 docker 둘뿐이다. 그 목록은 `tests/unit/test_ci_workflow.py` 가 지킨다 —
+잡을 결과만 보는 잡으로 두거나 막는 검사로 옮길 때 그 테스트의 표(`MAY_FAIL`)를 함께 고친다.
 
 ## 3. 유료 테스트와 테스트 환경
 
@@ -100,11 +102,13 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
 | `test_modules_stay_small_enough_to_read` | 새 모듈이 500줄을 넘는다 | 개념 단위로 나눈다 (줄 수는 신호이고, 나누는 기준은 개념이다) |
 | `test_the_adr_index_lists_every_adr` | ADR 을 더했는데 색인에 없다 | `docs/adr/README.md` 의 표에 한 줄 |
 | `test_the_module_map_lists_every_package` | 패키지를 더하거나 옮겼는데 모듈 지도에 없다 | `docs/MODULE_MAP.md` §2 의 표를 고친다 |
+| `test_documented_live_test_commands_carry_the_switch` | README · `docs/` 바로 아래의 문서 · `tests/live` 와 `src` 의 머리말에 적은 실제 호출 테스트의 실행 명령에 `FRAME_LIVE_TESTS=1` 이 없다 | 그 명령 앞에 `FRAME_LIVE_TESTS=1` 을 붙인다. 없으면 그대로 친 사람은 '모두 건너뜀' 을 통과로 본다 (3절) |
+| `test_the_example_environment_lists_every_setting_the_server_reads` | `Settings` · `ThemeSettings` 가 읽는 `FRAME_*` 설정이 `.env.example` 에 없다. 또는 예시에만 있고 서버가 읽지 않는 이름이 있다 | `.env.example` 에 그 설정의 줄(기본값과 한 줄 설명)을 더한다. 없앤 설정이면 그 줄을 지운다 |
 | `test_no_machine_bound_paths_are_committed` | 커밋되는 글에 드라이브 문자 경로나 홈 · 설치 · 임시 폴더에서 시작하는 경로가 있다 | 설정 · 상대 경로 · `tmp_path` · 자리표시(`path/to/…`)로 바꾼다. 경로를 거절 · 변환 · 가리는지 시험하는 입력처럼 꼭 있어야 하면 `tests/architecture/test_machine_paths.py` 의 `ALLOWED` 에 이유와 함께 적는다 (ADR-0032) |
 | `test_every_allowed_path_is_still_there` | 허용 목록에 적은 줄이 없어졌다 | `ALLOWED` 에서 그 항목을 지운다 |
 | `test_arguments_that_come_from_settings_have_no_default_of_their_own` | 조립이 설정에서 넘기는 인자에 생성자가 기본값을 또 갖고 있다 | 생성자의 기본값을 지운다. 값은 설정에만 두고 조립이 넘긴다. 그 클래스를 직접 만드는 테스트는 값을 직접 준다 (ADR-0032) |
 | `test_address_and_model_defaults_are_written_only_in_the_config` | 설정의 주소 · 모델 기본값을 `frame/config/` 밖의 코드에 다시 적었다 | 그 값을 인자로 받아 쓴다 |
-| `test_shared_values_are_written_in_one_place` | 여러 모듈이 같은 글자로 맞추는 값(예상 밖 오류의 코드 `UNEXPECTED_ERROR`, 객체 · 장면 키의 규칙, 테마 · 편 문서 id 의 규칙)을 그 값의 집이 아닌 곳에 다시 적었다 | 실패 문구가 알려 주는 이름을 가져다 쓴다 (`frame.application.errors.UNEXPECTED_ERROR` · `frame.domain.ir.KEY_PATTERN` · `frame.domain.series.ids.DOCUMENT_ID_PATTERN`). 그런 값이 새로 생기면 `tests/architecture/test_single_source_values.py` 의 `SINGLE_SOURCE` 에 집과 함께 더한다 |
+| `test_shared_values_are_written_in_one_place` | 여러 모듈이 같은 글자로 맞추는 값(예상 밖 오류의 코드 `UNEXPECTED_ERROR`, 객체 · 장면 키의 규칙, 테마 · 편 문서 id 의 규칙, LLM 주소를 주지 않았을 때의 OpenAI 주소)을 그 값의 집이 아닌 곳에 다시 적었다 | 실패 문구가 알려 주는 이름을 가져다 쓴다 (`frame.application.errors.UNEXPECTED_ERROR` · `frame.domain.ir.KEY_PATTERN` · `frame.domain.series.ids.DOCUMENT_ID_PATTERN` · `frame.adapters.llm.openai_client.OPENAI_BASE_URL`). 그런 값이 새로 생기면 `tests/architecture/test_single_source_values.py` 의 `SINGLE_SOURCE` 에 집과 함께 더한다 |
 
 "이제 … 기준선에서 지운다" 로 실패하면 고친 것이다. `tests/architecture/baselines.py` 에서 그 줄을 지운다.
 
@@ -173,7 +177,14 @@ Docker 이미지를 빌드해 띄우고 그 이미지 안에서 전체 테스트
    지금은 두 모양을 다 읽고, 실패 문구에 **어느 ffmpeg 를 찾았는지와 까닭**(필터가 없다 / 목록을 읽지 못했다)이 찍힌다.
    이 잡이 통과하면 ffmpeg 8 에서 문구 합성 테스트가 도는 것도 처음이다 — 실패하면 그 테스트의 문구부터 본다.
    셋째 실행(고친 뒤, PR #41)에서 **통과했다**: ffmpeg 8.0.1-3ubuntu2 · Noto Sans CJK, 23 통과. 화면 문구 합성이 Linux 에서 도는 것을 처음 확인했다.
-   필수 잡으로 옮길지는 사용자가 정한다 (보고서 §12.3 결정 11).
+   **막는 검사로 옮겼다 (2026-11-15, 보고서 §12.3 결정 11)**: 그 뒤로 다섯 번 이어 통과했고 (오케스트레이터가 전한 값 — `51feb93` 과 `1189b1c` 의
+   push · PR, dev 의 `e9ec614`), 사용자가 고른 것이 '통과가 확인되면 필수로' 였다. `continue-on-error` 를 뺐다 — 이 잡이 실패하면 워크플로가 실패하고,
+   릴리스(`bundle.yml` 의 `ci`)도 멈춘다.
+   test 잡에 합치지는 않았다: 시스템 ffmpeg 를 깔면 PATH 의 것이 번들보다 먼저 쓰여 그 잡의 모든 영상 테스트가 러너의 ffmpeg 로 옮겨 가고,
+   번들 ffmpeg(Linux 는 7.0.2 — pip 로 설치한 사용자가 받는 것)를 보는 잡이 없어진다.
+   알아 둘 것: 러너의 apt ffmpeg 는 판이 고정돼 있지 않다. 러너 이미지가 바뀌면 코드가 그대로여도 이 잡이 실패할 수 있다 (ffmpeg 8 때처럼) —
+   그때는 실패 문구에 찍힌 ffmpeg 의 경로와 까닭부터 본다. 머지 버튼을 실제로 막는 것은 브랜치 보호의 필수 검사다 (7절 — 저장소 설정은 바꾸지 않았다.
+   필수 검사 목록에 이 잡을 넣을지는 그 설정을 정할 때 함께 정한다).
 6. **릴리스**: 아직 돌려 보지 못했다. `v` 태그를 올리면 `bundle.yml` 의 `ci` 잡이 `ci.yml` 을 부르고, 통과해야 release 가 돈다.
    태그는 패키지 버전으로 시작해야 한다 (버전 0.1.0 → `v0.1.0`, `v0.1.0-demo`).
 

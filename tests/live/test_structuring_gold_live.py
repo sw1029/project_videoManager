@@ -1,9 +1,10 @@
 """골드셋 15건을 실제 모델로 구조화해 지표를 기록한다 (slow, 비용 발생). 이 테스트만의 스위치로 켠다.
 
-    FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> \
+    FRAME_LIVE_TESTS=1 FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> \
         pytest -m slow tests/live/test_structuring_gold_live.py -s
 
-- 켜는 것은 FRAME_EVAL_STRUCTURING_LIVE=1 하나다. 서버 설정(FRAME_STRUCTURER)을 보지 않고 LLM 구조화기로 돈다.
+- 스위치는 둘이다: 이 폴더 공통의 FRAME_LIVE_TESTS=1 (tests/live/conftest.py) 과 이 테스트만의
+  FRAME_EVAL_STRUCTURING_LIVE=1. 서버 설정(FRAME_STRUCTURER)을 보지 않고 LLM 구조화기로 돈다.
   켰는데 키·패키지가 없으면 건너뛰지 않고 실패한다 (설정 오류).
 - 비용: gpt-4.1-mini 로 1회 약 $0.03~0.04 (15건, 2026-11-14 첫 실행).
   기록된 토큰(사례마다 마지막 시도)으로는 $0.026 이다. 기록되지 않는 자기수정 재시도분은 어림이다.

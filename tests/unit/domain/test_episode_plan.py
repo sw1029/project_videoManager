@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 import pytest
 
 from frame.domain.enums import EntityKind
 from frame.domain.errors import NotFound, ValidationError
-from frame.domain.ir import EntitySpec, RequirementSpec
+from frame.domain.ir import EntitySpec, RequirementSpec, SceneSpec
 from frame.domain.screen import Region, TextRole
 from frame.domain.series.episode import (
     DEFAULT_REGIONS,
@@ -312,6 +313,73 @@ def test_plan_round_trips(plan):
     assert restored == plan
     restored.validate()
     assert EpisodeBrief.from_dict(matcha_brief().to_dict()) == matcha_brief()
+
+
+# ---- 계획이 다른 IR 을 따를 때 (감사 P-20: 편의 버전을 편 밖에서 고쳤을 때) ----
+def test_a_plan_follows_an_ir_with_the_same_scene_layout(plan):
+    """장면의 설명 · 조건의 값이 달라져도 장면의 짜임(키 · 순서 · 시간)이 같으면 계획은 그 IR 을 따른다."""
+    show = plan.ir.scene("show")
+    pink = tuple(
+        replace(r, expected_value="pink") if r.key == "show:latte:color" else r
+        for r in show.requirements
+    )
+    changed = plan.ir.with_scene(replace(show, description="다시 쓴 장면 설명", requirements=pink))
+
+    followed = plan.following(changed)
+
+    assert followed.ir == changed != plan.ir
+    assert replace(followed, ir=plan.ir) == plan  # 대본 · 화면 문구 · 메모는 그대로다
+    followed.validate()
+    assert plan.following(plan.ir) == plan
+
+
+def _without_last(ir):
+    return replace(ir, scenes=ir.scenes[:-1])
+
+
+def _with_one_more(ir):
+    return replace(ir, scenes=(*ir.scenes, SceneSpec("extra", 16000, 20000, "덧붙인 장면")))
+
+
+def _longer_outro(ir):
+    return ir.with_scene(replace(ir.scene("outro"), planned_end_ms=18000))
+
+
+def _renamed_outro(ir):
+    return replace(ir, scenes=(*ir.scenes[:-1], replace(ir.scenes[-1], scene_key="ending")))
+
+
+def _reversed(ir):
+    return replace(ir, scenes=tuple(reversed(ir.scenes)))
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        (_without_last, "없어진 장면 ['outro']"),
+        (_with_one_more, "새로 생긴 장면 ['extra']"),
+        (_longer_outro, "시간이 달라진 장면 ['outro']"),
+        (_renamed_outro, "없어진 장면 ['outro'], 새로 생긴 장면 ['ending']"),
+        (_reversed, "장면의 순서가 다릅니다"),
+    ],
+    ids=["removed", "added", "retimed", "renamed", "reordered"],
+)
+def test_a_plan_does_not_follow_an_ir_with_another_scene_layout(plan, change, words):
+    """계획의 대본 줄과 화면 문구는 장면의 짜임에 맞춰 만든 것이다. 짜임이 다른 IR 은 따르지 않는다.
+
+    장면이 늘거나 길어진 IR 은 계획의 검사(validate)만으로는 걸리지 않는다 — 문구와 대본이 가리키는 장면은
+    그대로 있다. 그래도 말할 시간(budget_ms)과 문구의 시간은 옛 짜임으로 잡은 값이다.
+    """
+    with pytest.raises(ValidationError, match=re.escape(words)):
+        plan.following(change(plan.ir))
+
+
+def test_a_plan_does_not_follow_an_ir_that_breaks_its_own_rules(plan):
+    show = plan.ir.scene("show")
+    broken = plan.ir.with_scene(replace(show, entity_keys=(*show.entity_keys, "ghost")))
+
+    with pytest.raises(ValidationError, match="정의되지 않은 객체"):
+        plan.following(broken)
 
 
 # ---- 편 안에서 객체의 모습은 장면마다 같다 ----

@@ -148,16 +148,18 @@ FRAME_LIVE_TESTS=1 FRAME_STRUCTURER=llm FRAME_LLM_KEY_FILE=path/to/openai.key py
 
 구조화 품질은 골드셋 15건(브리프 → 기대 IR)으로 잰다. 객체 재현율·요구조건 F1·장면 수 일치를 내고,
 `docs/evaluation/structuring/` 의 가장 최근 기록과 견준다 ([STRUCTURING_DESIGN §10](docs/STRUCTURING_DESIGN.md)).
-이 실제 실행 테스트는 서버 설정이 아니라 전용 스위치 `FRAME_EVAL_STRUCTURING_LIVE=1` 로만 켜진다 (1회 약 $0.03~0.04, 어림).
+이 실제 실행 테스트는 서버 설정이 아니라 스위치 둘로 켠다 — 실제 호출 테스트 공통의 `FRAME_LIVE_TESTS=1` 과 이 테스트만의
+`FRAME_EVAL_STRUCTURING_LIVE=1` (1회 약 $0.03~0.04, 어림).
 기록을 저장소에 남길 때는 `FRAME_EVAL_RECORD_DIR=docs/evaluation/structuring` 을 더한다.
 
 ```bash
-FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live/test_structuring_gold_live.py -m slow -s
+FRAME_LIVE_TESTS=1 FRAME_EVAL_STRUCTURING_LIVE=1 FRAME_LLM_KEY_FILE=<키 파일> python -m pytest tests/live/test_structuring_gold_live.py -m slow -s
 ```
 
 로컬 3090 에서 vLLM 등 OpenAI 호환 서버를 띄웠다면 같은 명령에 `FRAME_LLM_BASE_URL=http://localhost:8001/v1`,
 `FRAME_LLM_MODEL=<서빙 모델명>`, `FRAME_LLM_STRICT_SCHEMA=false` 를 더한다. 모델 호출은 `LLMClient` 포트 뒤에 있어
-유스케이스·API·테스트는 바뀌지 않는다.
+유스케이스·API·테스트는 바뀌지 않는다. 요청이 가는 주소는 `FRAME_LLM_BASE_URL` 로만 바꾼다 — 비워 두면 OpenAI 이고,
+셸의 `OPENAI_BASE_URL` 은 따르지 않는다 (주소를 따로 주지 않은 음성 인식도 같은 주소로 간다).
 
 ## 영상 생성 (OpenRouter) 호출 테스트
 
@@ -171,7 +173,7 @@ pip install -e ".[dev,video]"
 ```
 
 ```bash
-FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
+FRAME_LIVE_TESTS=1 FRAME_GENERATOR=external_api FRAME_VIDEO_KEY_FILE=<키 파일> FRAME_VIDEO_RESOLUTION=480p python -m pytest tests/live/test_openrouter_live.py -m slow -s
 ```
 
 카페 예시의 4초 장면 하나를 만들고(Wan 3.0 480p 약 $0.20, 720p 약 $0.40) 비용(`usage.cost`)·소요 시간·출력 규격을 출력한다.
@@ -201,8 +203,8 @@ FRAME_PERSISTENCE=sqlalchemy FRAME_DB_URL=sqlite+pysqlite:///./frame.db FRAME_AR
 - 결과 파일이 이미 있으면 앞 결과(과금된 실행)를 지키려고 아무것도 돌리지 않는다 (종료 코드 2). 덮어쓰려면 `--overwrite`.
 - Ctrl+C 로 멈추면 하던 케이스와 그 케이스의 수정 버전 ID·상태가 `interrupted` 에 남고, 하던 케이스와 시작하지 않은 케이스만 담은
   `<이름>.remaining.json` 이 생긴다. 이어 돌릴 때는 그 파일을 `--cases` 로, 다른 파일을 `--out` 으로 준다 (끝난 케이스의 검수를
-  다시 과금하지 않는다). `FRAME_GENERATOR_TIMEOUT_S` 를 켜 두면 Windows 에서는 Ctrl+C 가 그 장면의 생성이 끝날(또는 제한에 닿을) 때까지
-  늦게 먹을 수 있다.
+  다시 과금하지 않는다). `FRAME_GENERATOR_TIMEOUT_S` 를 켜 둬도 Ctrl+C 는 곧 먹는다 (장면을 기다리는 동안 0.2초마다 확인한다).
+  그때 만들고 있던 장면의 작업은 멈추지 않지만, 다시 시도하거나 새로 제출하지 않는다.
 - 케이스 하나의 오류(부모 없음, 생성 실패, 계획을 받지 못함, DB 잠금 같은 예상 밖 오류 등)는 그 케이스의 `error` 에 남기고 다음 케이스로 간다.
 - 오류나 Ctrl+C 로 끝난 케이스의 수정 버전이 접수된 채(`QUEUED`·`PROCESSING`) 남으면 진행 줄과 요약(`summary.unfinished_versions`)에
   알린다. 같은 DB 로 서버를 켜면 재시작 복구가 그 버전을 이어서 실행해 남은 생성·검수가 과금될 수 있다.
@@ -248,4 +250,4 @@ python -m frame.tools.evaluate_edits --cases eval/cases.json --out eval/plan.jso
 
 20건이면 장면 2개씩 기준으로 편집 약 $5.8 ~ 새로 생성 약 $9.5 (장면 1~3개가 섞이면 약 $3.4~$13.8), 시간은 약 40~110분이다.
 원본이 없으면 4장면 원본 하나에 약 $0.90 이 더 든다. 20건은 예를 들어 원본 4개 × 속성 5종(색·의상·재질·조명·장소 등)으로 짠다.
-`tests/live/test_evaluate_edits_live.py` 는 같은 설정에 `FRAME_EVAL_CASES=<케이스 파일>` 을 줄 때만 돈다 (`-m slow`).
+`tests/live/test_evaluate_edits_live.py` 는 같은 설정에 `FRAME_LIVE_TESTS=1` 과 `FRAME_EVAL_CASES=<케이스 파일>` 을 줄 때만 돈다 (`-m slow`).

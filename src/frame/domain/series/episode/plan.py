@@ -245,6 +245,20 @@ class EpisodePlan:
         kept = tuple(o for o in self.overlays if o not in stale)
         return replace(self, overlays=kept, notes=(*self.notes, *notes))
 
+    def following(self, ir: IntermediateRepresentation) -> EpisodePlan:
+        """조건을 그 IR 의 것으로 바꾼 계획. 계획이 따를 수 없는 IR 이면 ValidationError.
+
+        대본 줄의 말할 시간과 화면 문구의 시간은 장면의 짜임(키 · 순서 · 시간)에 맞춰 잡은 값이다. 그래서 짜임이
+        같은 IR 만 따른다 — 장면의 설명 · 객체 · 조건은 달라도 된다. 짜임이 달라졌으면 계획을 다시 세워야 한다
+        (장면이 늘거나 길어진 IR 은 validate 만으로는 걸리지 않는다).
+        """
+        difference = _layout_difference(self.ir, ir)
+        if difference:
+            raise ValidationError(f"장면의 짜임이 계획과 다릅니다: {difference}")
+        plan = replace(self, ir=ir)
+        plan.validate()
+        return plan
+
     def validate(self) -> None:
         self.ir.validate()
         durations = {scene.scene_key: scene.duration_ms for scene in self.ir.scenes}
@@ -288,3 +302,20 @@ class EpisodePlan:
             notes=tuple(str(n) for n in data.get("notes", ())),
             seed=data.get("seed"),
         )
+
+
+def _layout_difference(
+    planned: IntermediateRepresentation, given: IntermediateRepresentation
+) -> str:
+    """두 IR 의 장면 짜임(키 · 순서 · 시간)이 어떻게 다른가. 같으면 빈 글."""
+    before = {s.scene_key: (s.planned_start_ms, s.planned_end_ms) for s in planned.scenes}
+    after = {s.scene_key: (s.planned_start_ms, s.planned_end_ms) for s in given.scenes}
+    found = (
+        ("없어진 장면", [key for key in before if key not in after]),
+        ("새로 생긴 장면", [key for key in after if key not in before]),
+        ("시간이 달라진 장면", [k for k in before if k in after and before[k] != after[k]]),
+    )
+    parts = [f"{label} {keys}" for label, keys in found if keys]
+    if not parts and list(before) != list(after):
+        parts.append(f"장면의 순서가 다릅니다 ({list(before)} -> {list(after)})")
+    return ", ".join(parts)

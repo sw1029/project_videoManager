@@ -10,7 +10,8 @@
   --write 를 주면 그 기록 파일을 다시 채점한 내용으로 고쳐 쓴다 (실행 정보는 그대로).
   골드 폴더가 없거나 비었거나, 기록의 사례가 골드에 없으면 아무것도 쓰지 않고 종료 코드 2 로 멈춘다.
   골드 폴더의 기본값은 지금 폴더 기준이라 저장소 루트에서 실행하거나 --gold 를 준다.
-기록을 새로 만드는 실제 모델 실행은 tests/live/test_structuring_gold_live.py (FRAME_EVAL_STRUCTURING_LIVE=1) 다.
+기록을 새로 만드는 실제 모델 실행은 tests/live/test_structuring_gold_live.py 다
+(FRAME_LIVE_TESTS=1 과 FRAME_EVAL_STRUCTURING_LIVE=1 을 함께 준다).
 """
 
 from __future__ import annotations
