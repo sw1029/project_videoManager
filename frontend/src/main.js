@@ -1,4 +1,5 @@
 import './style.css';
+import { installUX, syncUX, recordUXProject, collectUXKeep } from './ux-enhancements.js';
 import { initSetup } from './setup.js';
 
 const $ = s => document.querySelector(s);
@@ -79,6 +80,7 @@ function mainMarkup(){return `
  <footer>FRAME · AI 숏폼 선택적 편집 · 현재 시스템의 실제 기능과 디자인 예시는 구분해서 표시됩니다. · OpenAI API 키는 브라우저에 저장하지 않고 이 기기의 서버 메모리에만 둡니다.</footer>
 </main><div id="notice" class="notice" hidden role="status"></div><dialog id="guide-modal"><h2>FRAME 사용 가이드</h2><p>① 아래의 새 프로젝트 영역에서 요구사항을 입력합니다.</p><p>② 구조화 결과와 장면을 확인한 다음 생성 요청을 진행합니다.</p><p>③ 수정할 객체·속성·새 값을 선택하면 원본을 보존한 새 버전을 만듭니다.</p><p>④ Fake 생성기에서는 영상 대신 JSON 결과가 만들어집니다. 실제 영상은 연결된 모델이 있어야 표시됩니다.</p><button id="close-guide" class="primary">확인</button></dialog>`;}
 $('#app').innerHTML=mainMarkup();
+installUX({state,api,refreshVersion,toast});
 function setInputMode(){const mode=state.health?.structuring_input;$('#input-mode').textContent=mode==='natural_language'?'자연어 분석 모드':mode==='dsl'?'DSL 형식 입력 모드':'서버 미연결 · DSL 예시';$('#prompt-input').value=mode==='natural_language'?DEMO_NL:DEMO_DSL;$('#duration-input').value=mode==='natural_language'?'12':'8';}
 function selectEntity(key){state.selectedEntity=key;state.tracks=null;render();loadTracks().catch(()=>{});}
 function render(){
@@ -116,6 +118,7 @@ function render(){
   document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('selected',b.dataset.view===state.view));
   $('#viewer').classList.toggle('single',state.view==='focus');
   if(state.view==='focus')$('#video-grid').firstElementChild?.classList.add('hidden-in-focus');
+  syncUX();
 }
 function timelineHTML(){
   let scenes=currentScenes();let d=durationMs();if(!scenes.length)return `<div class="timeline-empty">${ico('film',24)}<b>아직 영상 타임라인이 없습니다</b><p>프로젝트를 생성하면 장면과 객체 정보를 확인할 수 있습니다.</p></div>`;
@@ -156,6 +159,7 @@ $('#create-form').addEventListener('submit',e=>{e.preventDefault();run(async()=>
   const title=$('#title-input').value.trim(),prompt=$('#prompt-input').value.trim();if(!title||!prompt)throw new Error('제목과 요구사항을 입력하세요.');
   stopPoll();state.checks=null;state.tracks=null;state.parent=null;state.selectedEntity='';state.selectedScene='';
   const created=await api('POST','/api/projects',{title,prompt,target_duration_ms:Math.round(Number($('#duration-input').value)*1000)||undefined,reference_images:[]});
+  recordUXProject({project_id:created.project_id,title,version_id:created.version_id});
   state.project=created;state.version=null;await refreshVersion(created.version_id,{silent:true});toast('프로젝트가 접수됐습니다. 구조화가 진행 중이면 상태가 자동 갱신됩니다.');
 });});
 $('#refresh-btn').addEventListener('click',()=>run(async()=>{if(state.version)await refreshVersion(state.version.version_id)}));
@@ -168,7 +172,7 @@ $('#revise-btn').addEventListener('click',()=>run(async()=>{
   if(!entity_key||!predicate||!new_value)throw new Error('수정 대상, 속성, 새 값을 모두 입력하세요.');
   const scope=state.scope,scene_keys=scope==='SCENES'?[state.selectedScene]:[];
   if(scope==='SCENES'&&!state.selectedScene)throw new Error('수정할 장면을 선택해 주세요.');
-  const r=await api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/revisions`,{entity_key,predicate,new_value,scope,scene_keys});
+  const r=await api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/revisions`,{entity_key,predicate,new_value,scope,scene_keys,keep:collectUXKeep(state),request_text:$('#request-text')?.value.trim()||null});
   state.parent=v;state.checks=null;state.tracks=null;await refreshVersion(r.version_id,{silent:true});toast(`수정 버전 생성 완료. 영향받는 장면: ${r.changed_scene_keys?.join(', ')||'없음'}. 실제 영상은 새 버전에서 생성해야 합니다.`);
 }));
 $('#entity-chips').addEventListener('click',e=>{const b=e.target.closest('[data-entity]');if(b)selectEntity(b.dataset.entity);});

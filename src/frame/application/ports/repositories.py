@@ -19,6 +19,10 @@ class ProjectRepository(ABC):
     @abstractmethod
     def get(self, project_id: str) -> Project | None: ...
 
+    def list_recent(self, limit: int) -> list[Project]:
+        """Optional listing capability for project browser."""
+        raise NotImplementedError
+
 
 class VersionRepository(ABC):
     @abstractmethod

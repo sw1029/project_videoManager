@@ -9,7 +9,7 @@ from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.errors import MediaNotAvailable, NotFound, ValidationError
 from frame.domain.identifiers import entity_id as make_entity_id
 from frame.domain.metrics import summarize
-from frame.domain.models import VideoVersion
+from frame.domain.models import Project, VideoVersion
 
 from ..dto import (
     ChecksView,
@@ -27,6 +27,10 @@ from ..ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 class ProjectQueries:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
+
+    def list_projects(self, limit: int = 100) -> list[Project]:
+        with self._uow_factory() as uow:
+            return uow.projects.list_recent(min(max(limit, 1), 100))
 
     def get_project(self, project_id: str) -> ProjectDetail:
         with self._uow_factory() as uow:
