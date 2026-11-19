@@ -76,3 +76,11 @@ def test_the_test_jobs_keep_running_on_the_bundled_ffmpeg():
     for name in ("test", "compat"):
         assert "apt-get" not in jobs[name], name
         assert '".[dev,llm,video]"' in jobs[name], name
+
+
+def test_the_test_job_runs_the_tracker_tests_with_opencv():
+    """커버리지 하한을 재는 test 잡은 tracking extra 를 깔고, OpenCV 가 없으면 건너뛰지 않고 실패한다 (ADR-0036)."""
+    test_job = _jobs()["test"]
+
+    assert 'pip install -e ".[tracking]"' in test_job
+    assert 'FRAME_REQUIRE_OPENCV: "1"' in test_job

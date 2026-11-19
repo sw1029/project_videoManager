@@ -68,6 +68,14 @@ def create_project(
     )
 
 
+@router.get("", summary="프로젝트 목록을 서버 저장소에서 최신순 조회한다")
+def list_projects(container: ContainerDep) -> list[dict[str, str]]:
+    return [
+        {"project_id": p.project_id, "title": p.title, "created_at": p.created_at.isoformat()}
+        for p in container.queries.list_projects(limit=100)
+    ]
+
+
 @router.get(
     "/{project_id}",
     response_model=ProjectOut,

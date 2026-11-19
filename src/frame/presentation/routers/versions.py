@@ -14,7 +14,7 @@ from frame.domain.enums import ChangeScope, KeepAspect, RevisionKind
 from frame.domain.errors import MediaNotAvailable
 from frame.domain.revision import AttributeChange, KeepItem
 
-from .. import mappers
+from .. import mappers, track_mappers
 from ..dependencies import get_container
 from ..media import artifact_response
 from ..rate_limit import enforce_rate_limit
@@ -31,6 +31,7 @@ from ..schemas import (
     RevisionPlanOut,
     VersionComparisonOut,
     VersionOut,
+    VersionTracksOut,
 )
 
 router = APIRouter(prefix="/versions", tags=["versions"])
@@ -61,6 +62,7 @@ def _version_out(container: Container, version_id: str) -> VersionOut:
         api_prefix=container.settings.api_prefix,
         media_type_of=container.artifact_store.content_type,
         is_stored=_stored_in(container),
+        planned_stages=container.run_generation_pipeline.stage_names,
     )
 
 
@@ -266,7 +268,22 @@ def get_checks(version_id: str, container: ContainerDep) -> ChecksOut:
     summary="선택 객체의 등장 구간·위치·추적 상태를 조회한다",
 )
 def get_entity_tracks(version_id: str, entity_id: str, container: ContainerDep) -> EntityTracksOut:
-    return mappers.tracks_out(container.queries.get_entity_tracks(version_id, entity_id))
+    return track_mappers.tracks_out(container.queries.get_entity_tracks(version_id, entity_id))
+
+
+@router.get(
+    "/{version_id}/tracks",
+    response_model=VersionTracksOut,
+    responses={404: {"model": ErrorOut}},
+    summary="모든 객체의 추적 구간·박스를 한 번에 조회한다 (재생 중 영상 위에 박스를 겹쳐 그릴 때)",
+    description=(
+        "박스의 t_ms 는 영상 타임라인의 시각(장면 시작부터)이고 x·y·w·h 는 화면에 대한 비율(0~1)이다. "
+        "FRAME_TRACKER=opencv 면 프레임을 따라간 실제 위치를 FRAME_TRACKER_SAMPLE_MS 간격으로, "
+        "fake 면 자리 표시용 박스를 준다. 박스 사이의 시각은 앞뒤 박스를 이어 그린다 (ADR-0036)."
+    ),
+)
+def get_version_tracks(version_id: str, container: ContainerDep) -> VersionTracksOut:
+    return track_mappers.version_tracks_out(container.queries.get_version_tracks(version_id))
 
 
 @router.get(

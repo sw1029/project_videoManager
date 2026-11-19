@@ -15,7 +15,16 @@ class Settings:
     change_interpreter: str = "auto"
     generator: str = "fake"
     assembler: str = "fake"
+    # 객체 추적 (US-03, ADR-0036): fake | opencv (프레임마다 따라가는 박스 — tracking extra 필요)
     tracker: str = "fake"
+    # opencv: 프레임을 따라가는 방법 csrt(정확·느림) | kcf(빠름) | mil. 시작 위치는 VLM(FRAME_VLM_*)이 찾는다
+    tracker_algorithm: str = "csrt"
+    tracker_sample_ms: int = 100  # 박스를 남기는 간격(ms). 화면은 그 사이를 이어 그린다
+    # 장면의 객체를 모두 VLM 으로 다시 찾는 간격(ms): 놓친·늦게 나온 객체를 찾고, 어긋난 박스를 다시 맞춘다.
+    # 0 이면 첫 프레임과 컷에서만 찾는다
+    tracker_redetect_ms: int = 1000
+    # VLM 이 짚은 박스를 잘라 그 객체가 맞는지 한 번 더 묻는다 (아니면 버린다. 따라가던 박스는 맞다고 해야 옮긴다)
+    tracker_verify_boxes: bool = True
     checkers: tuple[str, ...] = ("fake_requirement", "fake_consistency", "fake_preservation")
     artifact_store: str = "memory"
     artifact_dir: str = "./artifacts"
@@ -27,10 +36,11 @@ class Settings:
     generator_timeout_s: float = 0.0
     generator_retries: int = 0
     generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
-    # --- 장면 사이 객체 일관성 (ADR-0015) ---
-    # off | fake | frame(클립 가운데 프레임 전체) | vlm_crop(VLM 으로 객체 위치를 찾아 잘라냄, FRAME_VLM_* 사용)
+    # --- 장면 사이 객체 일관성 (ADR-0015 · ADR-0035) ---
+    # auto | off | fake | frame(클립 가운데 프레임 전체) | vlm_crop(VLM 으로 객체 위치를 찾아 잘라냄, FRAME_VLM_* 사용)
     # 켜면 객체가 처음 나온 클립에서 정체성 기준 이미지를 뽑아 그 객체가 나오는 다른 장면 생성에 참조로 넘긴다.
-    identity: str = "off"
+    # auto(기본): 실제 영상 생성기(fake 가 아닌 FRAME_GENERATOR)면 vlm_crop, 가짜 생성기면 off (container.identity_key)
+    identity: str = "auto"
     identity_kinds: tuple[str, ...] = ("PERSON", "ANIMAL", "PROP", "OTHER")  # 우선순위 순
     identity_max_references: int = 3  # 장면 요청 하나에 넘기는 기준 이미지 상한
     # vlm_crop: 요구한 고정 속성과 분명히 다르게 나온 객체는 기준으로 쓰지 않는다 (잘못 나온 모습이 번지지 않게)
@@ -119,6 +129,11 @@ class Settings:
             generator=text("GENERATOR", base.generator),
             assembler=text("ASSEMBLER", base.assembler),
             tracker=text("TRACKER", base.tracker),
+            tracker_algorithm=text("TRACKER_ALGORITHM", "").strip().lower()
+            or base.tracker_algorithm,
+            tracker_sample_ms=int(text("TRACKER_SAMPLE_MS", "") or base.tracker_sample_ms),
+            tracker_redetect_ms=int(text("TRACKER_REDETECT_MS", "") or base.tracker_redetect_ms),
+            tracker_verify_boxes=flag("TRACKER_VERIFY_BOXES", base.tracker_verify_boxes),
             checkers=tuple(c.strip() for c in checkers_raw.split(",") if c.strip()),
             artifact_store=text("ARTIFACT_STORE", base.artifact_store),
             artifact_dir=text("ARTIFACT_DIR", base.artifact_dir),

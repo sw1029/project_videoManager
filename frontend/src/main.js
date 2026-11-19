@@ -1,5 +1,7 @@
 import './style.css';
+import { installUX, syncUX, recordUXProject } from './ux-enhancements.js';
 import { initSetup } from './setup.js';
+import { keepItems, keepPanelHtml, pruneKeep } from './keep.js';
 
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,8 +30,9 @@ const iconPaths = {
 function ico(name, sz=20) { return `<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name]||iconPaths.info}</svg>`; }
 const DEMO_DSL = `scene intro 0-4000 : 바리스타가 빨간 컵을 들어 보인다\nscene closeup 4000-8000 : 컵 클로즈업\nentity barista PERSON\nentity cup PROP\nin intro: barista, cup\nin closeup: cup\ncup.color = red\nbarista holds -> cup @ intro`;
 const DEMO_NL = '카페 신제품 숏폼. 장면 1 (4초): 바리스타가 빨간 머그컵을 들어 보인다. 장면 2 (4초): 빨간 머그컵을 클로즈업한다. 장면 3 (4초): 바리스타가 손을 흔든다.';
-const state = {health:null,project:null,version:null,parent:null,checks:null,tracks:null,selectedEntity:'',selectedScene:'',scope:'ALL_APPEARANCES',view:'side',busy:false,poll:null,creating:false};
+const state = {health:null,project:null,version:null,parent:null,checks:null,tracks:null,selectedEntity:'',selectedScene:'',scope:'ALL_APPEARANCES',view:'side',busy:false,poll:null,creating:false,keep:new Set()};
 let noticeTimer;
+let mediaHtml = ''; // 영상 칸에 마지막으로 그린 내용. 같으면 다시 그리지 않는다 (폴링·선택 때마다 새로 만들면 재생 중인 영상이 끊긴다)
 const isVideo = type => String(type||'').startsWith('video/');
 const fmt = ms => `${Math.round((Number(ms)||0)/1000*10)/10}초`;
 const time = ms => {let n=Math.max(0,Math.round((Number(ms)||0)/1000));return `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;};
@@ -70,15 +73,16 @@ function mainMarkup(){return `
  <section class="timeline-card"><div class="timeline-head"><h2>${ico('film',20)} 객체 타임라인</h2><p>요소가 등장하는 장면을 확인하고 수정할 범위를 선택하세요.</p><span id="timeline-status" class="subtle-badge">장면 기준</span></div><div id="timeline-content" class="timeline-body"></div></section>
  </section>
  <section class="edit-panel" id="edit"><div class="edit-col target"><h2>${ico('sliders',21)} 수정할 대상</h2><p>변경할 객체를 선택하세요.</p><div id="entity-chips" class="entity-chips"></div><label class="field-label" for="scene-select">장면 범위</label><select id="scene-select"></select><label class="checkline"><input id="all-appearances" type="checkbox" checked/> 모든 등장 장면에 적용</label></div>
- <div class="edit-col request"><h2>${ico('edit',21)} 변경 요청</h2><p>변경할 속성과 새 값을 선택하세요.</p><div class="two-col"><label>속성<select id="predicate-select"></select></label><label>새 값<input id="new-value" placeholder="예: blue, teal" maxlength="300"/></label></div><label class="field-label" for="request-text">요청 설명 (참고용)</label><textarea id="request-text" rows="3" placeholder="컵 색상을 청록색으로 바꾸고 배경은 유지해 주세요."></textarea><small class="field-note">현재 API에는 객체·속성·새 값만 전달됩니다. 자유형 요청과 보존 체크는 향후 백엔드 지원이 필요합니다.</small></div>
- <div class="edit-col protect"><h2>${ico('shield',21)} 유지할 요소</h2><p>변경되지 않아야 할 조건</p><label class="protect-item"><input type="checkbox" checked disabled/> 인물 · 동작 <small>보존 요청 UI</small></label><label class="protect-item"><input type="checkbox" checked disabled/> 배경 · 조명 <small>보존 요청 UI</small></label><label class="protect-item"><input type="checkbox" checked disabled/> 컵 형태 · 크기 <small>보존 요청 UI</small></label><small class="field-note">이 체크 항목은 아직 API 요청에 반영되지 않습니다.</small></div>
+ <div class="edit-col request"><h2>${ico('edit',21)} 변경 요청</h2><p>변경할 속성과 새 값을 선택하세요.</p><div class="two-col"><label>속성<select id="predicate-select"></select></label><label>새 값<input id="new-value" placeholder="예: blue, teal" maxlength="300"/></label></div><label class="field-label" for="request-text">요청 메모 (기록용 · 생성에는 쓰지 않음)</label><textarea id="request-text" rows="3" placeholder="수정 이유나 메모 (예: 브랜드 색에 맞춤)"></textarea><small class="field-note">메모는 수정 버전에 함께 기록됩니다. 그대로 둘 요소는 '유지할 요소'에서 고르세요.</small></div>
+ <div class="edit-col protect"><h2>${ico('shield',21)} 유지할 요소</h2><p>다시 만드는 장면에서 그대로 둘 요소를 고르세요. 바꾸는 속성과 겹치는 요소(예: 컵 색을 바꾸면서 컵의 모습)는 고를 수 없습니다.</p><div id="keep-options" class="keep-options"></div></div>
  <div class="edit-col run"><h2>${ico('spark',21)} 실행</h2><p>원본은 보존하고 새 수정 버전을 생성합니다.</p><button id="revise-btn" class="primary large" data-action="revise">${ico('spark',20)} 수정 버전 만들기</button><button id="generate-btn" class="outline" data-action="generate">${ico('play',18)} 영상 생성 요청</button><span class="run-note">실제 부분 영상 재생성은 생성 모델의 지원이 필요합니다.</span></div></section>
- <section class="secondary-panel" id="project-tools"><div class="panel-section"><h2>${ico('file',21)} 새 프로젝트 · 요구사항</h2><p>프로젝트 생성 후 구조화된 장면을 확인할 수 있습니다.</p><div id="llm-key-panel" class="key-panel" hidden></div><form id="create-form"><label>시연 프리셋<select id="preset-select"><option value="">직접 입력</option></select></label><div class="two-col"><label>프로젝트 제목<input id="title-input" name="title" required value="카페 신제품 홍보 숏폼"/></label><label>목표 길이 (초)<input id="duration-input" name="duration" type="number" min="1" max="300" value="8"/></label></div><label class="input-label">영상 요구사항<textarea id="prompt-input" name="prompt" rows="5" required></textarea></label><div class="form-actions"><span id="input-mode" class="subtle-badge">서버 확인 중</span><button type="submit" data-action="create" class="primary">${ico('spark',17)} 요구사항 분석 시작</button></div></form></div>
+ <section class="secondary-panel" id="project-tools"><div class="panel-section"><h2>${ico('file',21)} 새 프로젝트 · 요구사항</h2><p>프로젝트 생성 후 구조화된 장면을 확인할 수 있습니다.</p><div id="llm-key-panel" class="key-panel" hidden></div><form id="create-form"><label>시연 프리셋<select id="preset-select"><option value="">직접 입력</option></select></label><div class="two-col"><label>프로젝트 제목<input id="title-input" name="title" required value="카페 신제품 홍보 숏폼"/></label><label>목표 길이 (초)<input id="duration-input" name="duration" type="number" min="1" max="300" value="8"/></label></div><label class="input-label">영상 요구사항<textarea id="prompt-input" name="prompt" rows="5" required></textarea></label><div class="form-actions"><span id="input-mode" class="subtle-badge">서버 확인 중</span><button type="submit" id="create-btn" data-action="create" class="primary">${ico('spark',17)} 요구사항 분석 시작</button></div></form></div>
  <div class="panel-section"><h2>${ico('layers',21)} 현재 프로젝트 · 버전</h2><div class="id-block"><span>PROJECT ID</span><b id="project-id">—</b><span>VERSION ID</span><b id="version-id">—</b></div><div class="form-actions"><input id="version-input" placeholder="기존 Version ID" aria-label="기존 버전 ID"/><button id="load-btn" data-action="load" class="outline small">불러오기</button></div><div class="form-actions"><span id="status-pill" class="status-pill">프로젝트 없음</span><button id="refresh-btn" data-action="refresh" class="outline small">${ico('refresh',16)} 새로고침</button></div><div id="scene-list" class="scene-list">생성한 장면이 여기에 표시됩니다.</div></div>
  <div class="panel-section"><h2>${ico('shield',21)} 품질 검수</h2><p>실제 서버의 검수 결과를 조회합니다.</p><div class="metric-grid"><div><span>요구사항 반영률</span><b id="metric-reflection">—</b></div><div><span>일관성</span><b id="metric-consistency">—</b></div><div><span>비대상 보존율</span><b id="metric-preservation">—</b></div></div><button class="outline small" data-action="checks" id="checks-btn">${ico('refresh',16)} 검수 결과 불러오기</button><div id="checks-list" class="checks-list">검수 데이터 없음</div><small class="field-note">Fake 생성·검수 환경의 점수는 실제 영상 성능을 의미하지 않습니다.</small></div></section>
  <footer>FRAME · AI 숏폼 선택적 편집 · 현재 시스템의 실제 기능과 디자인 예시는 구분해서 표시됩니다. · OpenAI API 키는 브라우저에 저장하지 않고 이 기기의 서버 메모리에만 둡니다.</footer>
 </main><div id="notice" class="notice" hidden role="status"></div><dialog id="guide-modal"><h2>FRAME 사용 가이드</h2><p>① 아래의 새 프로젝트 영역에서 요구사항을 입력합니다.</p><p>② 구조화 결과와 장면을 확인한 다음 생성 요청을 진행합니다.</p><p>③ 수정할 객체·속성·새 값을 선택하면 원본을 보존한 새 버전을 만듭니다.</p><p>④ Fake 생성기에서는 영상 대신 JSON 결과가 만들어집니다. 실제 영상은 연결된 모델이 있어야 표시됩니다.</p><button id="close-guide" class="primary">확인</button></dialog>`;}
 $('#app').innerHTML=mainMarkup();
+installUX({state,api,refreshVersion,openVersion,revisionRequest,run,toast});
 function setInputMode(){const mode=state.health?.structuring_input;$('#input-mode').textContent=mode==='natural_language'?'자연어 분석 모드':mode==='dsl'?'DSL 형식 입력 모드':'서버 미연결 · DSL 예시';$('#prompt-input').value=mode==='natural_language'?DEMO_NL:DEMO_DSL;$('#duration-input').value=mode==='natural_language'?'12':'8';}
 function selectEntity(key){state.selectedEntity=key;state.tracks=null;render();loadTracks().catch(()=>{});}
 function render(){
@@ -98,7 +102,9 @@ function render(){
   $('#predicate-select').innerHTML=predicates.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')||'<option value="">속성 없음</option>';
   if(predicates.includes(prevPred))$('#predicate-select').value=prevPred;
   $('#all-appearances').checked=state.scope==='ALL_APPEARANCES';
-  $('#video-grid').innerHTML=mediaBox(state.parent,'수정 전')+`<span class="between-arrow">${ico('arrow',20)}</span>`+mediaBox(v,'수정 후');
+  state.keep=pruneKeep(state.keep,ents);$('#keep-options').innerHTML=keepPanelHtml(ents,state.keep,esc);
+  const media=mediaBox(state.parent,'수정 전')+`<span class="between-arrow">${ico('arrow',20)}</span>`+mediaBox(v,'수정 후');
+  if(media!==mediaHtml){$('#video-grid').innerHTML=media;mediaHtml=media;}
   $('#change-summary').innerHTML=v?.parent_version_id?`<span class="mini-cup">${ico('edit',20)}</span><div><b>선택적 수정 버전</b><small>원본 버전 보존 · 수정 범위 확인</small></div>${ico('check',17)}`:v?`<span class="mini-cup">${ico('film',20)}</span><div><b>초기 생성 버전</b><small>변경 이력이 없습니다.</small></div>`:`<span class="mini-cup">${ico('cup',20)}</span><div><b>컵 색상 변경</b><small>빨간색 → 청록색</small></div>${ico('check',17)}`;
   $('#change-bar').innerHTML=v?`${ico('layers',19)} <b>현재 버전</b><span>${esc(v.version_id.slice(0,13))} · ${esc(v.state)}</span><em>실제 서버 데이터</em>`:`${ico('cup',19)} <b>변경 내용</b><span>컵 색상 변경: 빨간색 → 청록색</span><em>디자인 예시</em>`;
   $('#timeline-content').innerHTML=timelineHTML();
@@ -113,9 +119,11 @@ function render(){
   $('#checks-btn').disabled=state.busy||!v;
   $('#refresh-btn').disabled=state.busy||!v;
   $('#load-btn').disabled=state.busy;
+  $('#create-btn').disabled=state.busy; // busy() 가 끈 생성 버튼을 다시 켠다 (빠지면 첫 작업 뒤 새 프로젝트를 못 만든다)
   document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('selected',b.dataset.view===state.view));
   $('#viewer').classList.toggle('single',state.view==='focus');
-  if(state.view==='focus')$('#video-grid').firstElementChild?.classList.add('hidden-in-focus');
+  $('#video-grid').firstElementChild?.classList.toggle('hidden-in-focus',state.view==='focus');
+  syncUX();
 }
 function timelineHTML(){
   let scenes=currentScenes();let d=durationMs();if(!scenes.length)return `<div class="timeline-empty">${ico('film',24)}<b>아직 영상 타임라인이 없습니다</b><p>프로젝트를 생성하면 장면과 객체 정보를 확인할 수 있습니다.</p></div>`;
@@ -152,26 +160,36 @@ function schedulePoll(id){stopPoll();state.poll=setTimeout(async()=>{try{if(stat
 async function loadChecks(){if(!state.version)return;state.checks=await api('GET',`/api/versions/${encodeURIComponent(state.version.version_id)}/checks`);render();}
 async function loadTracks(){if(!state.version||!state.selectedEntity)return;const e=selectedEntity();if(!e)return;const id=state.version.version_id;const key=e.entity_key;try{let res=await api('GET',`/api/versions/${encodeURIComponent(id)}/entities/${encodeURIComponent(e.entity_id)}/tracks`);if(state.version?.version_id===id&&state.selectedEntity===key){state.tracks=res;render();}}catch{/* track endpoint may be unavailable before generation */}}
 async function run(fn){if(state.busy)return;busy(true);try{await fn()}catch(e){toast(e.message,'error')}finally{busy(false)}}
-$('#create-form').addEventListener('submit',e=>{e.preventDefault();run(async()=>{
-  const title=$('#title-input').value.trim(),prompt=$('#prompt-input').value.trim();if(!title||!prompt)throw new Error('제목과 요구사항을 입력하세요.');
-  stopPoll();state.checks=null;state.tracks=null;state.parent=null;state.selectedEntity='';state.selectedScene='';
-  const created=await api('POST','/api/projects',{title,prompt,target_duration_ms:Math.round(Number($('#duration-input').value)*1000)||undefined,reference_images:[]});
-  state.project=created;state.version=null;await refreshVersion(created.version_id,{silent:true});toast('프로젝트가 접수됐습니다. 구조화가 진행 중이면 상태가 자동 갱신됩니다.');
-});});
-$('#refresh-btn').addEventListener('click',()=>run(async()=>{if(state.version)await refreshVersion(state.version.version_id)}));
-$('#load-btn').addEventListener('click',()=>run(async()=>{const id=$('#version-input').value.trim();if(!id)throw new Error('버전 ID를 입력하세요.');state.checks=null;state.tracks=null;await refreshVersion(id);loadTracks();}));
-$('#generate-btn').addEventListener('click',()=>run(async()=>{const v=state.version;if(v?.state!=='DRAFT')throw new Error('DRAFT 버전에서만 생성할 수 있습니다.');await api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/generations`);state.checks=null;state.tracks=null;await refreshVersion(v.version_id,{silent:true});toast('생성 요청이 접수되었습니다. 진행 상태가 자동 갱신됩니다.');}));
-$('#checks-btn').addEventListener('click',()=>run(async()=>{await loadChecks();toast('검수 결과를 불러왔습니다.');}));
-$('#revise-btn').addEventListener('click',()=>run(async()=>{
+// 다른 버전·프로젝트로 넘어갈 때 앞 버전의 검수·추적 결과와 유지 선택을 비운다 (남으면 새 버전에 앞 버전 결과가 보인다)
+function resetVersionView(){state.checks=null;state.tracks=null;state.keep=new Set();}
+async function openVersion(id){resetVersionView();await refreshVersion(id);loadTracks().catch(()=>{});}
+// 수정 버전 만들기와 수정 계획 미리보기가 함께 쓰는 요청 본문 (CreateRevisionIn · RevisionPlanIn)
+function revisionRequest(){
   const v=state.version;if(!v)throw new Error('먼저 프로젝트를 생성해 주세요.');
   const predicate=$('#predicate-select').value,new_value=$('#new-value').value.trim(),entity_key=state.selectedEntity;
   if(!entity_key||!predicate||!new_value)throw new Error('수정 대상, 속성, 새 값을 모두 입력하세요.');
   const scope=state.scope,scene_keys=scope==='SCENES'?[state.selectedScene]:[];
   if(scope==='SCENES'&&!state.selectedScene)throw new Error('수정할 장면을 선택해 주세요.');
-  const r=await api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/revisions`,{entity_key,predicate,new_value,scope,scene_keys});
-  state.parent=v;state.checks=null;state.tracks=null;await refreshVersion(r.version_id,{silent:true});toast(`수정 버전 생성 완료. 영향받는 장면: ${r.changed_scene_keys?.join(', ')||'없음'}. 실제 영상은 새 버전에서 생성해야 합니다.`);
+  return {entity_key,predicate,new_value,scope,scene_keys,keep:keepItems(state.keep),request_text:$('#request-text').value.trim()||null};
+}
+$('#create-form').addEventListener('submit',e=>{e.preventDefault();run(async()=>{
+  const title=$('#title-input').value.trim(),prompt=$('#prompt-input').value.trim();if(!title||!prompt)throw new Error('제목과 요구사항을 입력하세요.');
+  stopPoll();resetVersionView();state.parent=null;state.selectedEntity='';state.selectedScene='';
+  const created=await api('POST','/api/projects',{title,prompt,target_duration_ms:Math.round(Number($('#duration-input').value)*1000)||undefined,reference_images:[]});
+  recordUXProject({project_id:created.project_id,title,version_id:created.version_id});
+  state.project=created;state.version=null;await refreshVersion(created.version_id,{silent:true});toast('프로젝트가 접수됐습니다. 구조화가 진행 중이면 상태가 자동 갱신됩니다.');
+});});
+$('#refresh-btn').addEventListener('click',()=>run(async()=>{if(state.version)await refreshVersion(state.version.version_id)}));
+$('#load-btn').addEventListener('click',()=>run(async()=>{const id=$('#version-input').value.trim();if(!id)throw new Error('버전 ID를 입력하세요.');await openVersion(id);}));
+$('#generate-btn').addEventListener('click',()=>run(async()=>{const v=state.version;if(v?.state!=='DRAFT')throw new Error('DRAFT 버전에서만 생성할 수 있습니다.');await api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/generations`);state.checks=null;state.tracks=null;await refreshVersion(v.version_id,{silent:true});toast('생성 요청이 접수되었습니다. 진행 상태가 자동 갱신됩니다.');}));
+$('#checks-btn').addEventListener('click',()=>run(async()=>{await loadChecks();toast('검수 결과를 불러왔습니다.');}));
+$('#revise-btn').addEventListener('click',()=>run(async()=>{
+  const v=state.version,body=revisionRequest();
+  const r=await api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/revisions`,body);
+  state.parent=v;resetVersionView();await refreshVersion(r.version_id,{silent:true});toast(`수정 버전 생성 완료. 영향받는 장면: ${r.changed_scene_keys?.join(', ')||'없음'}${body.keep.length?` · 유지 요청 ${body.keep.length}개`:''}. 실제 영상은 새 버전에서 생성해야 합니다.`);
 }));
 $('#entity-chips').addEventListener('click',e=>{const b=e.target.closest('[data-entity]');if(b)selectEntity(b.dataset.entity);});
+$('#keep-options').addEventListener('change',e=>{const id=e.target.dataset?.keep;if(!id)return;if(e.target.checked)state.keep.add(id);else state.keep.delete(id);});
 $('#scene-list').addEventListener('click',e=>{const b=e.target.closest('[data-scene]');if(b){state.selectedScene=b.dataset.scene;render();}});
 $('#timeline-content').addEventListener('click',e=>{const b=e.target.closest('[data-track]');if(b)selectEntity(b.dataset.track);});
 $('#scene-select').addEventListener('change',e=>state.selectedScene=e.target.value);

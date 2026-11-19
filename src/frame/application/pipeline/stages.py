@@ -164,6 +164,7 @@ class TrackStage(PipelineStage):
                 scene=scene,
                 clip=ctx.clips[scene.scene_key],
                 entity_keys=scene.entity_keys,
+                entities=tuple(ctx.ir.entity(key) for key in scene.entity_keys),
             )
             ctx.tracks.extend(self._tracker.track(request))
 

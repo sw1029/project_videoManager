@@ -47,6 +47,12 @@ class InMemoryProjectRepository(ProjectRepository):
     def get(self, project_id: str) -> Project | None:
         return copy.deepcopy(self._store.projects.get(project_id))
 
+    def list_recent(self, limit: int) -> list[Project]:
+        items = sorted(
+            self._store.projects.values(), key=lambda p: (p.created_at, p.project_id), reverse=True
+        )
+        return [copy.deepcopy(x) for x in items[:limit]]
+
 
 class InMemoryVersionRepository(VersionRepository):
     def __init__(self, store: InMemoryStore) -> None:

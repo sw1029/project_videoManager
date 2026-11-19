@@ -37,8 +37,12 @@ llm = ["openai>=1.50"]
 video = ["imageio-ffmpeg==0.6.0"]
 # FRAME_SPEECH_RECOGNIZER=faster_whisper: 이 컴퓨터에서 말소리를 받아 적는다 (모델은 처음 쓸 때 받는다)
 speech-local = ["faster-whisper>=1.1,<2"]
-# 실제 모델 어댑터를 붙일 때만 설치 (문서의 개발 환경 버전 고정)
-ml = ["torch==2.5.1", "torchvision==0.20.1", "opencv-python==4.10.0.84", "numpy==1.26.4"]
+# FRAME_TRACKER=opencv: 프레임마다 객체를 따라가는 추적기 (ADR-0036). CSRT · KCF 는 contrib 판에만 있고,
+# 서버라 GUI 없는 headless 판을 쓴다. 판은 문서의 개발 환경 고정(ml)과 같다
+tracking = ["opencv-contrib-python-headless==4.10.0.84", "numpy==1.26.4"]
+# 실제 모델 어댑터를 붙일 때만 설치 (문서의 개발 환경 버전 고정). OpenCV 는 tracking 과 같은 판을 쓴다:
+# opencv-python 과 opencv-contrib-python-headless 를 함께 깔면 cv2 가 둘이 되어 깨진다
+ml = ["torch==2.5.1", "torchvision==0.20.1", "opencv-contrib-python-headless==4.10.0.84", "numpy==1.26.4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

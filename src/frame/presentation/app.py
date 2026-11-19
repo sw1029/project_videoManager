@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from frame import __version__
 from frame.application.errors import ConfigurationError
-from frame.config.container import Container, change_interpreter_key
+from frame.config.container import Container, change_interpreter_key, identity_key
 from frame.config.settings import Settings
 
 from . import mappers
@@ -126,7 +126,7 @@ def _health(container: Container, request: Request) -> HealthOut:
             generator=s.generator,
             tracker=s.tracker,
             checkers=list(s.checkers),
-            identity=s.identity,
+            identity=identity_key(s),  # auto 를 풀어 쓴 값 (실제로 쓰는 추출기)
             change_interpreter=change_interpreter_key(s),
             persistence=s.persistence,
             jobs=s.jobs,

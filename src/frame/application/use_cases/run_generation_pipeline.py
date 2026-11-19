@@ -61,6 +61,11 @@ class RunGenerationPipeline:
         self._ids = ids
         self._now = clock.now
 
+    @property
+    def stage_names(self) -> tuple[str, ...]:
+        """실행하는 단계 이름, 순서대로. 버전의 progress 는 시작한 단계만 담으니 전체 진행은 이것과 함께 센다."""
+        return tuple(stage.name for stage in self._stages)
+
     def execute(self, version_id: str) -> VideoVersion:
         with self._uow_factory() as uow:
             version = uow.versions.get(version_id)

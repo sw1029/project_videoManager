@@ -362,6 +362,9 @@ class ProgressOut(BaseModel):
     stage: str | None  # 마지막으로 시작한 단계 (처리 중·완료·실패)
     elapsed_ms: int  # 시작한 단계들의 소요 시간 합
     stages: list[StageProgressOut]  # 시작한 단계만, 순서대로
+    # 이 서버의 파이프라인이 실행하는 단계 전체, 순서대로 (아직 시작하지 않은 단계 포함).
+    # 시작한 단계만으로 비율을 내면 단계가 늘 때 줄어들어서, 진행 막대는 이것을 분모로 쓴다
+    planned_stages: list[str] = Field(default_factory=list)
 
 
 class VersionOut(BaseModel):
@@ -522,6 +525,14 @@ class TrackRecordOut(BaseModel):
 class EntityTracksOut(BaseModel):
     version_id: str
     entity_key: str
+    records: list[TrackRecordOut]
+
+
+class VersionTracksOut(BaseModel):
+    """버전의 모든 객체·장면 추적. 박스의 t_ms 는 영상 타임라인 시각이라, 재생 중인 영상의 currentTime 으로
+    바로 찾아 그 박스를 겹쳐 그린다 (화면 크기에 대한 비율 좌표, ADR-0036)."""
+
+    version_id: str
     records: list[TrackRecordOut]
 
 

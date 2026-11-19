@@ -10,7 +10,7 @@ from dataclasses import replace
 
 from frame.adapters.llm.openai_client import OPENAI_BASE_URL
 from frame.adapters.shared.media.ffmpeg import resolve_ffmpeg
-from frame.application.errors import ConfigurationError
+from frame.application.errors import ConfigurationError, LLMUnavailable
 from frame.application.ports import ArtifactStore, JobHandlerRegistry
 from frame.application.ports.llm import LLMClient
 
@@ -80,3 +80,20 @@ def vlm_client(registry: AdapterRegistry, ctx: BuildContext) -> LLMClient:
     settings = ctx.settings
     model = settings.vlm_model or settings.llm_model
     return llm_client(registry, replace(ctx, settings=replace(settings, llm_model=model)))
+
+
+def vlm_client_for(
+    registry: AdapterRegistry, ctx: BuildContext, *, feature: str, off: str
+) -> LLMClient:
+    """어떤 기능이 쓰는 VLM. 키가 없어 만들 수 없으면 그 기능 이름과 끄는 방법을 적어 기동 시점에 알린다.
+
+    feature: '인물 일관성(FRAME_IDENTITY=auto → vlm_crop)' 처럼 무엇이 VLM 을 쓰는지.
+    off: 'FRAME_IDENTITY=off' 처럼 끄는 설정.
+    기본으로 켜지는 기능은 직접 고르지 않은 사람도 이 오류를 만난다 (ADR-0035).
+    """
+    try:
+        return vlm_client(registry, ctx)
+    except (ConfigurationError, LLMUnavailable) as exc:
+        raise ConfigurationError(
+            f"{feature}이 쓰는 VLM 을 준비하지 못했습니다: {exc} ({feature.split('(')[0]}을 끄려면 {off})"
+        ) from exc

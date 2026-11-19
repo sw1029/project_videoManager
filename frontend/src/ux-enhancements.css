@@ -1,0 +1,139 @@
+/* Layer on top of the existing FRAME design tokens. Do not replace base styles. */
+.ux-steps{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px!important;max-width:none!important}
+.ux-stage{display:flex;align-items:center;gap:11px;padding:14px 16px;border:1px solid #deebe6;border-radius:14px;background:#fff;color:#25423a;text-align:left;min-width:0;cursor:pointer;box-shadow:0 2px 8px #0b4b3411}.ux-stage:hover,.ux-stage:focus-visible{border-color:#0b9670}.ux-stage.active{background:#0b715a;color:white;border-color:#0b715a;box-shadow:0 8px 24px #006b5330}.ux-stage-index{display:grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border:1px solid currentColor;border-radius:50%;font-size:12px;font-weight:800}.ux-stage-text{display:grid;gap:3px;min-width:0}.ux-stage-text b{font-size:14px;white-space:nowrap}.ux-stage-text small{font-size:10px;line-height:1.4;opacity:.8}.ux-stage-check{margin-left:auto;font-weight:800;opacity:.35}.ux-workflow-heading{display:flex;justify-content:space-between;align-items:center;margin:18px 0}.ux-workflow-heading h2{font-size:26px;margin:0}.ux-workflow-heading p{margin:5px 0;color:#657e75}.ux-kicker{color:#088c6b!important;font-size:11px;font-weight:800;letter-spacing:.13em}.ux-progress-panel{background:#fff;border:1px solid #e1eae5;border-radius:14px;padding:16px 22px;margin:8px auto 20px;max-width:1280px;width:100%}.ux-progress-top{display:flex;justify-content:space-between;font-size:13px;font-weight:750}.ux-progress-track{height:10px;background:#e6eee9;border-radius:20px;overflow:hidden;margin:11px 0 7px}.ux-progress-track>div{width:0;height:100%;background:linear-gradient(90deg,#20b78d,#006b52);transition:width .4s}.ux-progress-panel p{font-size:11px;color:#64796e}.ux-project-manager,.ux-media-analysis,.ux-export{background:#fff;border:1px solid #e0e9e5;border-radius:18px;padding:24px;margin:20px 0}.ux-title-row{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:14px}.ux-title-row h2,.ux-title-row h3{font-size:18px;margin:0 0 5px}.ux-title-row p,.ux-project-manager p,.ux-media-analysis p,.ux-export p{color:#657d73;font-size:12px;line-height:1.6}.ux-bubble{display:inline-flex;align-items:center;border-radius:15px;padding:6px 10px;color:#08775b;background:#e5f7ef;font-size:11px;font-weight:800;white-space:nowrap}.ux-project-search{display:flex;gap:8px;margin:12px 0}.ux-project-search input{flex:1;min-width:0;border:1px solid #d9e8e1;border-radius:9px;padding:11px 12px}.ux-project-search button,.ux-outline-action{border:1px solid #b8d9ca;background:#fff;border-radius:9px;padding:10px 13px;color:#126c54;font-weight:750}.ux-project-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:14px}.ux-project-card{display:flex;gap:12px;align-items:center;border:1px solid #e1ebe5;border-radius:12px;padding:14px;text-align:left;background:#fafffc;min-width:0}.ux-project-card:hover{border-color:#158a6b;background:#effbf5}.ux-card-mark{background:#e5f3ee;padding:8px;border-radius:9px;font-size:20px}.ux-project-meta{display:grid;gap:5px;flex:1;min-width:0}.ux-project-meta strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}.ux-project-meta small{color:#71857a;font-size:11px}.ux-help{display:block;color:#657b70;font-size:11px;line-height:1.65;margin-top:8px}.ux-empty{padding:15px;color:#6c8175;font-size:12px}.ux-advanced{margin:12px 0;border-top:1px solid #e9eeeb;padding-top:12px}.ux-advanced summary{cursor:pointer;color:#778d82;font-size:11px}.ux-edit-keep{grid-column:1/-1;padding:18px;background:#f3fbf7;border:1px solid #d7e9df;border-radius:13px;margin-top:8px}.ux-keep-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.ux-keep-grid label{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:650}.ux-keep-grid input{accent-color:#08775f;width:16px;height:16px}.ux-generate-cta{display:flex;justify-content:space-between;align-items:center;gap:15px;padding:17px 20px;background:#f0faf5;border:1px solid #d3e9df;border-radius:13px;margin:17px 0}.ux-generate-cta h2{font-size:17px}.ux-generate-cta p,.ux-generate-cta small{font-size:12px;color:#59766a}.ux-generate-cta button,.ux-export-action{display:inline-block;border:0;border-radius:10px;background:#087459;color:white;padding:13px 17px;font-weight:800;text-decoration:none;white-space:nowrap}.ux-generate-cta button:disabled{background:#d4ded8;color:#536b5f;cursor:not-allowed}.ux-ratio-toolbar{display:flex;align-items:center;gap:10px;padding:8px 0;flex-wrap:wrap;color:#497160;font-size:12px}.ux-ratio-toolbar label{font-weight:800}.ux-ratio-toolbar select{border:1px solid #d5e7dc;background:#fff;border-radius:8px;padding:7px}.ux-ratio-toolbar span{color:#82958b;font-size:11px}#video-grid .media{aspect-ratio:var(--ux-aspect,9/16);max-height:440px;background:#e6eae8;display:flex;align-items:center;justify-content:center}#video-grid .media img,#video-grid .media video{height:100%;width:100%;object-fit:contain}#video-grid.ux-ratio-auto .media{aspect-ratio:auto;min-height:280px}.ux-checks-explainer{padding:12px;border:1px solid #dce9e2;border-radius:11px;background:#f4faf6;margin-bottom:10px}.ux-checks-explainer h3{font-size:13px;margin:0 0 7px}.ux-checks-explainer p,.ux-checks-explainer small{font-size:11px;color:#567366;line-height:1.6}.ux-metric-card{border:1px solid #e0efe7;border-radius:12px}.ux-timeline-bottom{margin-top:16px!important}.ux-analysis-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}.ux-analysis-grid article{background:#f7faf8;border:1px solid #e5eeea;border-radius:12px;padding:15px}.ux-analysis-grid h3{font-size:14px;margin:0 0 7px}.ux-analysis-grid p{min-height:50px}.ux-analysis-grid button{border:0;border-radius:8px;padding:9px;background:#e9eeeb;color:#53685f;font-size:11px}.ux-media-analysis input[type=file]{display:block;margin:10px 0;max-width:100%}.ux-export{min-height:150px}.ux-export-action[hidden]{display:none}.ux-security{color:#5b776a;font-size:11px}.ux-stage,.ux-project-card,.ux-generate-cta button{transition:.15s}.ux-stage:focus-visible,.ux-project-card:focus-visible{outline:3px solid #8ed4bd;outline-offset:2px}@media(max-width:940px){.ux-stage-text small{display:none}.ux-keep-grid,.ux-analysis-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.ux-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.ux-stage{padding:12px}.ux-keep-grid,.ux-analysis-grid{grid-template-columns:1fr}.ux-generate-cta{align-items:stretch;flex-direction:column}.ux-workflow-heading h2{font-size:22px}}
+
+.ux-check-row{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #e5eee9}.ux-check-row>div{display:grid;gap:4px}.ux-check-row strong{font-size:12px}.ux-check-row small{color:#75877d;font-size:11px}.ux-verdict{font-size:11px;font-weight:800;padding:5px 9px;border-radius:7px;background:#f2f1ed;color:#776e58;white-space:nowrap}.ux-verdict.PASS{background:#e4f7ec;color:#147649}.ux-verdict.FAIL{background:#fff0ea;color:#b44428}
+
+/* PAGE ROUTER: isolated screens, not anchored sections */
+.ux-route-page[hidden],.ux-progress-panel[hidden],.steps[hidden],#project-name[hidden],#guide-btn[hidden],#project-tools[hidden]{display:none!important}
+.ux-page-root{width:100%;max-width:1360px;margin:0 auto 36px}
+.ux-route-page{animation:ux-page-in .18s ease-out;min-height:60vh}
+@keyframes ux-page-in{from{opacity:.75;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.ux-workflow-heading{margin:35px 0 23px;padding:0 2px}
+.ux-workflow-heading h2{font-size:30px;letter-spacing:-.035em}
+.ux-workflow-heading .ux-kicker{font-size:10px}
+.ux-steps{display:flex!important;gap:0!important;justify-content:flex-start;border-bottom:1px solid #dce9e2;max-width:1360px!important;margin:4px auto 18px!important;box-shadow:none}
+.ux-stage{flex:1;justify-content:center;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:#71847b!important;padding:17px 10px!important;border-bottom:3px solid transparent!important;transition:color .15s,border-color .15s}
+.ux-stage.active{color:#08654e!important;border-color:#07775b!important;background:#eef8f2!important}
+.ux-stage-index{border:0;background:#e7f0eb;width:25px;height:25px;flex-basis:25px}
+.ux-stage.active .ux-stage-index{background:#08765d;color:white}
+.ux-stage-text small,.ux-stage-check{display:none!important}
+.ux-stage-text b{font-size:14px}
+.ux-progress-panel{max-width:1360px!important;border:0;border-radius:9px!important;box-shadow:none;background:#f4f9f6;padding:14px 20px!important;margin:0 auto 26px!important}
+.ux-route-page > .panel-section,.ux-route-page > .review-panel,.ux-route-page > .edit-panel,.ux-route-page > .ux-media-analysis,.ux-route-page > .ux-project-manager,.ux-route-page > .ux-export,.ux-route-page > .timeline-card{width:100%;margin:0 0 25px!important;box-shadow:none!important;border:0!important;border-radius:0!important;border-bottom:1px solid #e1eae5!important;padding:22px 4px 28px!important;background:transparent!important}
+.ux-route-page > .panel-section,.ux-route-page > .ux-project-manager,.ux-route-page > .ux-media-analysis{max-width:none}
+.ux-route-page > .edit-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));row-gap:26px}
+.ux-route-page .edit-col{border-right:0;padding:8px 18px}
+.ux-route-page .edit-col:nth-child(odd){border-right:1px solid #e3eae5}
+.ux-route-page .edit-col:nth-child(-n+2){border-bottom:1px solid #e3eae5;padding-bottom:22px}
+.ux-route-page #review .compare-grid{grid-template-columns:260px minmax(0,1fr)}
+.ux-page-actions{display:flex;justify-content:flex-end;gap:10px;margin:22px 0 40px}
+.ux-page-button{border:0;border-radius:9px;padding:13px 22px;background:#006f57;color:#fff;font-weight:800}
+.ux-page-button.secondary{color:#08785f;border:1px solid #b8dacc;background:#fff}
+.ux-page-intro{color:#687d73;margin:0 0 18px;font-size:14px}
+.ux-page-instruction{background:#f2f8f5;border-left:3px solid #08846a;padding:20px 23px;line-height:1.6}
+.ux-page-instruction h3{font-size:16px;margin:0 0 6px}
+.ux-page-instruction p{color:#5b7569;font-size:13px}
+.ux-project-cards{display:block!important;border-top:1px solid #e3ede6;margin-top:18px!important}
+.ux-project-card{width:100%;display:flex;border:0!important;border-bottom:1px solid #e3ede6!important;border-radius:0!important;background:transparent!important;padding:20px 13px!important}
+.ux-project-card:hover{background:#ecf8f1!important}
+.ux-route-page .ux-generate-cta{margin:22px 0 28px;background:#eaf8f1}
+.ux-route-page > .panel-section .scene-list{max-height:none}
+.ux-route-page #project-tools{display:none!important}
+@media(max-width:800px){.ux-stage{gap:4px;flex-direction:column;padding:12px 5px!important}.ux-stage-text b{font-size:12px}.ux-route-page > .edit-panel{grid-template-columns:1fr}.ux-route-page .edit-col{border-right:0!important;border-bottom:1px solid #e3eae5;padding:15px 3px}.ux-route-page #review .compare-grid{grid-template-columns:1fr}.ux-workflow-heading h2{font-size:25px}}
+
+
+/* FRAME product refinement: page content uses a single coherent field system.
+   Previous selectors relied on .secondary-panel ancestors after nodes were moved
+   into independent routes. They no longer matched, exposing tiny native inputs. */
+:root{--ux-ink:#19382f;--ux-line:#dee9e3;--ux-muted:#667b71;--ux-accent:#08765b}
+.workspace{width:min(1330px,calc(100% - 56px));padding-top:22px}
+.ux-page-root{max-width:1250px}
+.ux-workflow-heading{margin:27px 0 21px}
+.ux-workflow-heading .ux-kicker{display:none}
+.ux-workflow-heading h2{font-size:30px;color:#18382e;letter-spacing:-.045em;font-weight:800}
+.ux-workflow-heading p{font-size:14px;color:#71877c;margin-top:6px}
+.ux-steps{max-width:1250px!important;margin-bottom:34px!important}
+.ux-stage{padding:16px 10px!important}
+.ux-progress-panel{max-width:1250px!important;margin:0 auto 30px!important;background:#eef8f3;padding:12px 18px!important}
+.ux-progress-panel[hidden]{display:none!important}
+.ux-progress-panel #ux-progress-explain{display:none}
+.ux-progress-track{height:6px}
+.ux-route-page>.panel-section,.ux-route-page>.review-panel,.ux-route-page>.edit-panel,.ux-route-page>.ux-media-analysis,.ux-route-page>.ux-project-manager,.ux-route-page>.ux-export,.ux-route-page>.timeline-card{padding:0 0 30px!important;margin-bottom:34px!important}
+.ux-route-page>.panel-section h2,.ux-route-page>.review-panel h1,.ux-route-page>.ux-project-manager h2,.ux-route-page>.ux-export h2{font-size:23px;letter-spacing:-.035em;line-height:1.35;color:var(--ux-ink)}
+.ux-route-page>.panel-section>p,.ux-route-page>.review-panel .review-header p{font-size:13px;line-height:1.55;color:var(--ux-muted);margin-top:7px}
+/* Form layout explicitly scoped to the page route, NOT .secondary-panel. */
+#ux-page-requirements{max-width:1000px;margin:0 auto}
+#ux-page-requirements>.panel-section{max-width:100%;border:0!important;padding-bottom:20px!important;margin-bottom:24px!important}
+#ux-page-requirements #create-form{display:flex;flex-direction:column;gap:21px;margin-top:25px;width:100%;max-width:850px}
+#ux-page-requirements #create-form>label,#ux-page-requirements #create-form .two-col label{display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:700;color:#34574a;margin:0}
+#ux-page-requirements #create-form select,#ux-page-requirements #create-form input,#ux-page-requirements #create-form textarea{
+ appearance:none;display:block;box-sizing:border-box;width:100%!important;max-width:none!important;min-width:0;
+ border:1px solid #ceded5;border-radius:12px;background:#fff;color:#16372e;padding:15px 16px;font-size:15px;line-height:1.55;
+ font-family:inherit;font-weight:500;outline:none;box-shadow:0 1px 2px #093b2708;
+}
+#ux-page-requirements #create-form select{appearance:auto;min-height:54px;cursor:pointer}
+#ux-page-requirements #create-form input{min-height:54px}
+#ux-page-requirements #create-form textarea{min-height:210px;resize:vertical;white-space:pre-wrap;tab-size:2}
+#ux-page-requirements #create-form input:focus,#ux-page-requirements #create-form select:focus,#ux-page-requirements #create-form textarea:focus{border-color:#138567;outline:3px solid #15856724;outline-offset:0}
+#ux-page-requirements #create-form .two-col{display:grid;grid-template-columns:minmax(0,2fr) minmax(140px,1fr);gap:18px}
+#ux-page-requirements #create-form .form-actions{margin:0;display:flex;align-items:center;gap:15px;justify-content:space-between;flex-wrap:wrap}
+#ux-page-requirements #create-form .form-actions button{min-height:51px;border-radius:11px;font-size:14px;padding:0 22px}
+#ux-page-requirements #create-form .subtle-badge{font-size:12px;background:#f3f8f5;color:#677f72}
+#ux-page-requirements #llm-key-panel{margin:16px 0 14px;max-width:850px}
+/* Unsupported future work should not be shown as three giant disabled cards. */
+.ux-analysis-disclosure{border-top:1px solid var(--ux-line);padding:19px 0;margin:16px 0 30px}
+.ux-analysis-disclosure>summary{display:flex;align-items:center;gap:12px;cursor:pointer;color:#335f50;font-size:14px;font-weight:750;list-style:none}
+.ux-analysis-disclosure>summary:before{content:'+';font-size:20px;font-weight:400;color:#118065}
+.ux-analysis-disclosure[open]>summary:before{content:'−'}
+.ux-analysis-disclosure>summary small{font-size:11px;font-weight:500;color:#7f9186}
+.ux-analysis-disclosure>.ux-media-analysis{border:0;margin:12px 0;padding:16px 0}
+.ux-analysis-disclosure .ux-analysis-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ux-analysis-disclosure .ux-title-row>.ux-bubble{display:none}
+/* Non-user implementation details remain in DOM for existing event handlers only. */
+.ux-advanced,.ux-advanced[hidden],#ux-page-generation .ux-page-instruction,.ux-route-page .ux-checks-explainer,.ux-route-page .ux-ratio-toolbar>span,.ux-route-page .field-note,.workspace>footer{display:none!important}
+/* 유지할 요소: 편집 칸 아래 한 줄 전체. 고른 것은 수정 버전·계획 미리보기 요청의 keep 으로 간다 (keep.js). */
+.ux-edit-keep{display:none!important}
+#ux-page-review .edit-col.protect{grid-column:1/-1;order:5;border-right:0!important;border-top:1px solid var(--ux-line)!important;margin-top:20px;padding-top:20px!important}
+.keep-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.keep-group{display:grid;gap:9px;padding:13px 15px;border:1px solid var(--ux-line);border-radius:12px;background:#f7fbf9}
+.keep-group>b{font-size:13px;color:var(--ux-ink)}
+.keep-group>b small{font-weight:500;color:var(--ux-muted);margin-left:4px}
+.keep-group .ux-keep-grid label{margin:0;color:#365a4c}
+.keep-group .ux-keep-grid input{padding:0;min-height:0}
+@media(max-width:850px){#ux-page-review .edit-col.protect{margin-top:0;border-top:0!important;padding-top:17px!important}}
+#ux-page-review>.edit-panel{grid-template-columns:minmax(210px,1fr) minmax(280px,1.65fr) minmax(210px,1fr);column-gap:0;row-gap:0;background:#fff!important;border:1px solid var(--ux-line)!important;border-radius:16px!important;padding:25px 12px!important;margin:24px 0 30px!important}
+#ux-page-review .edit-col{border:0!important;border-right:1px solid var(--ux-line)!important;border-bottom:0!important;padding:2px 20px!important}
+#ux-page-review .edit-col:last-of-type{border-right:0!important}
+#ux-page-review .edit-col h2{font-size:17px}
+#ux-page-review .edit-col p{font-size:12px;line-height:1.5;color:var(--ux-muted)}
+#ux-page-review .edit-col select,#ux-page-review .edit-col input:not([type=checkbox]),#ux-page-review .edit-col textarea{font-size:14px!important;padding:12px!important;border-radius:10px!important;width:100%!important;min-height:46px}
+#ux-page-review .edit-col textarea{min-height:85px}
+#ux-page-review .edit-col .two-col{grid-template-columns:1fr 1fr;gap:12px}
+#ux-page-review .edit-col .primary{font-size:14px;min-height:52px}
+#ux-page-review .ux-timeline-bottom{margin-top:10px!important}
+#ux-page-review .ux-ratio-toolbar{margin:7px 0 13px}
+#ux-page-review .review-header{margin-bottom:20px}
+#ux-page-review .change-card{background:#f8fbf9}
+#ux-page-review .ux-plan-now{margin-top:8px}
+/* When no project is selected, show an actual empty state, not fake edits. */
+.ux-empty-state{padding:90px 24px 110px;text-align:center;margin:auto;max-width:560px}
+.ux-empty-state[hidden]{display:none!important}
+.ux-empty-symbol{margin:0 auto 19px;display:grid;place-items:center;width:72px;height:72px;border-radius:18px;background:#e9f7f0;color:#128063;font-size:40px}
+.ux-empty-state h2{font-size:24px;letter-spacing:-.04em;color:#24483c}
+.ux-empty-state p{font-size:14px;color:#72867c;line-height:1.7;margin:12px 0 26px}
+/* A calm project browser instead of cards-inside-cards. */
+#ux-page-projects .ux-project-manager{max-width:1000px;margin:0 auto!important}
+#ux-page-projects .ux-project-search{margin-top:26px}
+#ux-page-projects .ux-project-search input{border:1px solid var(--ux-line);border-radius:11px;padding:14px 17px;font-size:14px}
+#ux-page-projects .ux-project-card{font-size:14px;min-height:77px}
+#ux-page-projects .ux-project-meta strong{font-size:15px}
+#ux-page-projects .ux-project-meta small{font-size:12px}
+#ux-page-generation>.panel-section{max-width:1050px;margin:auto!important}
+#ux-page-generation .ux-generate-cta{max-width:1050px;margin:32px auto!important}
+#ux-page-generation .scene-list{font-size:13px}
+#ux-page-export .ux-export{max-width:950px;margin:auto!important}
+.ux-page-actions{margin:24px 0 60px}
+.ux-page-button{padding:14px 24px;font-size:13px}
+@media(max-width:850px){#ux-page-review>.edit-panel{grid-template-columns:1fr;padding:20px 15px!important}#ux-page-review .edit-col{border:0!important;border-bottom:1px solid var(--ux-line)!important;padding:17px 0!important}#ux-page-review .edit-col:last-of-type{border-bottom:0!important}#ux-page-requirements #create-form .two-col{grid-template-columns:1fr}#ux-page-requirements #create-form .form-actions{align-items:stretch;flex-direction:column}#ux-page-requirements #create-form .form-actions button{width:100%}.ux-analysis-disclosure .ux-analysis-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.workspace{width:calc(100% - 30px)}.ux-workflow-heading h2{font-size:25px}#ux-page-requirements #create-form textarea{min-height:230px}.ux-page-root{width:100%}}

@@ -47,6 +47,24 @@ def test_progress_is_null_until_the_pipeline_runs_then_lists_every_stage():
     ]
     assert all(isinstance(s["elapsed_ms"], int) for s in progress["stages"])
     assert progress["elapsed_ms"] == sum(s["elapsed_ms"] for s in progress["stages"])
+    assert progress["planned_stages"] == [s["stage"] for s in progress["stages"]]
+
+
+def test_progress_lists_the_planned_stages_it_has_not_reached():
+    """화면이 전체 진행 비율을 셀 수 있게, 아직 시작하지 않은 단계까지 실행 순서대로 내려준다.
+
+    시작한 단계(stages)만으로 비율을 내면 단계가 하나 늘 때마다 비율이 줄어든다.
+    """
+    store = InMemoryArtifactStore()
+    client, dispatcher = _api(
+        artifact_store=store, generator=FakeVideoGenerator(store, fail_scene_keys={"closeup"})
+    )
+    vid = _draft(client, dispatcher)
+
+    progress = _generate(client, dispatcher, vid)["progress"]
+
+    assert [s["stage"] for s in progress["stages"]] == ["generate"]
+    assert progress["planned_stages"] == ["generate", "track", "check"]
 
 
 def test_failed_version_serves_the_finished_clip_and_says_where_it_stopped():

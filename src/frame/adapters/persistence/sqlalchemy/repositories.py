@@ -92,6 +92,16 @@ class SqlAlchemyProjectRepository(ProjectRepository):
             return None
         return Project(project_id=row.project_id, title=row.title, created_at=row.created_at)
 
+    def list_recent(self, limit: int) -> list[Project]:
+        rows = self._session.scalars(
+            select(ProjectRow)
+            .order_by(ProjectRow.created_at.desc(), ProjectRow.project_id.desc())
+            .limit(limit)
+        ).all()
+        return [
+            Project(project_id=r.project_id, title=r.title, created_at=r.created_at) for r in rows
+        ]
+
 
 class SqlAlchemyVersionRepository(VersionRepository):
     def __init__(self, session: Session) -> None:

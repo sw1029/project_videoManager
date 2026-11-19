@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from typing import Any
 from urllib.parse import quote
 
 from frame.application.dto import (
     ChecksView,
-    EntityTracksView,
     ProjectDashboardView,
     ProjectDetail,
     VersionComparisonView,
@@ -81,13 +80,17 @@ def project_out(detail: ProjectDetail) -> s.ProjectOut:
     )
 
 
-def progress_out(progress: PipelineProgress | None) -> s.ProgressOut | None:
+def progress_out(
+    progress: PipelineProgress | None, planned_stages: Sequence[str] = ()
+) -> s.ProgressOut | None:
+    """planned_stages: 파이프라인이 실행하는 단계 전체 (RunGenerationPipeline.stage_names)."""
     if progress is None:
         return None
     return s.ProgressOut(
         stage=progress.current.stage if progress.current is not None else None,
         elapsed_ms=progress.elapsed_ms,
         stages=[s.StageProgressOut(**stage.to_dict()) for stage in progress.stages],
+        planned_stages=list(planned_stages),
     )
 
 
@@ -201,10 +204,12 @@ def version_out(
     api_prefix: str = "/api",
     media_type_of: Callable[[str], str] = guess_media_type,
     is_stored: Callable[[str], bool] = lambda uri: False,
+    planned_stages: Sequence[str] = (),
 ) -> s.VersionOut:
     """api_prefix·media_type_of 로 내부 URI 대신 재생 가능한 HTTP 경로와 미디어 형식을 채운다.
 
     is_stored: 참조 이미지가 산출물 저장소에 있는지. 있으면 image_url 로 내려받을 경로를 준다.
+    planned_stages: 파이프라인이 실행하는 단계 전체. progress.planned_stages 로 내려간다.
     """
     v = detail.version
     base = f"{api_prefix}/versions/{quote(v.version_id, safe='')}"
@@ -294,7 +299,7 @@ def version_out(
             for r in detail.reference_images
         ],
         created_at=v.created_at,
-        progress=progress_out(v.progress),
+        progress=progress_out(v.progress, planned_stages),
         revision=revision_out(v.intent),
     )
 
@@ -321,28 +326,7 @@ def checks_out(view: ChecksView) -> s.ChecksOut:
     )
 
 
-def tracks_out(view: EntityTracksView) -> s.EntityTracksOut:
-    return s.EntityTracksOut(
-        version_id=view.version_id,
-        entity_key=view.entity_key,
-        records=[
-            s.TrackRecordOut(
-                scene_key=t.scene_key,
-                entity_key=t.entity_key,
-                status=str(t.status),
-                track_uri=t.track_uri,
-                segments=[
-                    s.TrackSegmentOut(
-                        start_ms=seg.start_ms,
-                        end_ms=seg.end_ms,
-                        boxes=[s.BoxOut(**asdict(b)) for b in seg.boxes],
-                    )
-                    for seg in t.segments
-                ],
-            )
-            for t in view.records
-        ],
-    )
+# 객체 추적 결과의 변환은 track_mappers.py 에 있다 (US-03, ADR-0036)
 
 
 # ---- US-04 전후 비교·대시보드 (ADR-0014) ----------------------------------------------

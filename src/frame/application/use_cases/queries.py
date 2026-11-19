@@ -9,7 +9,7 @@ from frame.domain.enums import CheckType, Verdict, VersionState
 from frame.domain.errors import MediaNotAvailable, NotFound, ValidationError
 from frame.domain.identifiers import entity_id as make_entity_id
 from frame.domain.metrics import summarize
-from frame.domain.models import VideoVersion
+from frame.domain.models import Project, VideoVersion
 
 from ..dto import (
     ChecksView,
@@ -20,6 +20,7 @@ from ..dto import (
     VersionComparisonView,
     VersionDetail,
     VersionOverview,
+    VersionTracksView,
 )
 from ..ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 
@@ -27,6 +28,10 @@ from ..ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 class ProjectQueries:
     def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
         self._uow_factory = uow_factory
+
+    def list_projects(self, limit: int = 100) -> list[Project]:
+        with self._uow_factory() as uow:
+            return uow.projects.list_recent(min(max(limit, 1), 100))
 
     def get_project(self, project_id: str) -> ProjectDetail:
         with self._uow_factory() as uow:
@@ -60,6 +65,13 @@ class ProjectQueries:
             entity_key = self._resolve_entity_key(version, entity_ref)
             records = tuple(uow.tracks.list_by_entity(version_id, entity_key))
             return EntityTracksView(version_id=version_id, entity_key=entity_key, records=records)
+
+    def get_version_tracks(self, version_id: str) -> VersionTracksView:
+        """버전의 모든 추적 기록 (없는 버전은 NotFound). 재생 중 겹쳐 그리는 화면이 한 번에 받는다."""
+        with self._uow_factory() as uow:
+            self._require_version(uow, version_id)
+            records = tuple(uow.tracks.list_by_version(version_id))
+            return VersionTracksView(version_id=version_id, records=records)
 
     def get_video_uri(self, version_id: str) -> str:
         """결과 영상의 저장소 URI. 생성 전이거나 실패한 버전은 MediaNotAvailable."""

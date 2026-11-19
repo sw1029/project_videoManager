@@ -106,6 +106,30 @@ def test_tracks_endpoint_accepts_entity_key_or_entity_id(api):
     assert by_key["records"][0]["segments"][0]["boxes"]
 
 
+@pytest.mark.ac("AC-31")
+def test_version_tracks_lists_every_entity_at_once_on_the_video_timeline(api):
+    """재생 중 영상 위에 박스를 겹쳐 그리는 화면이 한 번에 받는다: 모든 객체·장면의 구간과 박스 (ADR-0036)."""
+    client, dispatcher = api
+    created = _create(client, dispatcher)
+    version_id = created["version_id"]
+    client.post(f"/api/versions/{version_id}/generations")
+    dispatcher.run_all()
+    version = client.get(f"/api/versions/{version_id}").json()
+
+    body = client.get(f"/api/versions/{version_id}/tracks").json()
+
+    expected = {(s["scene_key"], k) for s in version["ir"]["scenes"] for k in s["entity_keys"]}
+    assert body["version_id"] == version_id
+    assert {(r["scene_key"], r["entity_key"]) for r in body["records"]} == expected
+    scenes = {s["scene_key"]: s for s in version["ir"]["scenes"]}
+    for record in body["records"]:
+        scene = scenes[record["scene_key"]]
+        boxes = [b for segment in record["segments"] for b in segment["boxes"]]
+        assert boxes
+        assert all(scene["planned_start_ms"] <= b["t_ms"] < scene["planned_end_ms"] for b in boxes)
+    assert client.get("/api/versions/ver_missing/tracks").status_code == 404
+
+
 @pytest.mark.ac("AC-43")
 def test_revision_flow_allows_before_after_comparison(api):
     client, dispatcher = api

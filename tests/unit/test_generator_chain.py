@@ -121,6 +121,7 @@ def test_warns_when_generic_timeout_would_cut_before_the_openrouter_timeout(capl
     settings = Settings(
         jobs="recording",
         generator="external_api",
+        identity="off",  # 기본 auto 의 vlm_crop 은 VLM 키가 필요하다 — 시간 제한 경고 시험과 무관 (ADR-0035)
         generator_timeout_s=600,
         video_timeout_s=600,
     )
@@ -133,6 +134,7 @@ def test_no_warning_when_generic_timeout_is_longer(caplog):
     settings = Settings(
         jobs="recording",
         generator="external_api",
+        identity="off",
         generator_timeout_s=900,
         video_timeout_s=600,
     )
