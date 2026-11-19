@@ -92,8 +92,16 @@
 .ux-analysis-disclosure .ux-title-row>.ux-bubble{display:none}
 /* Non-user implementation details remain in DOM for existing event handlers only. */
 .ux-advanced,.ux-advanced[hidden],#ux-page-generation .ux-page-instruction,.ux-route-page .ux-checks-explainer,.ux-route-page .ux-ratio-toolbar>span,.ux-route-page .field-note,.workspace>footer{display:none!important}
-/* No preserve options are shown or quietly sent in requests. */
-.ux-edit-keep,#ux-page-review .edit-col.protect{display:none!important}
+/* 유지할 요소: 편집 칸 아래 한 줄 전체. 고른 것은 수정 버전·계획 미리보기 요청의 keep 으로 간다 (keep.js). */
+.ux-edit-keep{display:none!important}
+#ux-page-review .edit-col.protect{grid-column:1/-1;order:5;border-right:0!important;border-top:1px solid var(--ux-line)!important;margin-top:20px;padding-top:20px!important}
+.keep-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.keep-group{display:grid;gap:9px;padding:13px 15px;border:1px solid var(--ux-line);border-radius:12px;background:#f7fbf9}
+.keep-group>b{font-size:13px;color:var(--ux-ink)}
+.keep-group>b small{font-weight:500;color:var(--ux-muted);margin-left:4px}
+.keep-group .ux-keep-grid label{margin:0;color:#365a4c}
+.keep-group .ux-keep-grid input{padding:0;min-height:0}
+@media(max-width:850px){#ux-page-review .edit-col.protect{margin-top:0;border-top:0!important;padding-top:17px!important}}
 #ux-page-review>.edit-panel{grid-template-columns:minmax(210px,1fr) minmax(280px,1.65fr) minmax(210px,1fr);column-gap:0;row-gap:0;background:#fff!important;border:1px solid var(--ux-line)!important;border-radius:16px!important;padding:25px 12px!important;margin:24px 0 30px!important}
 #ux-page-review .edit-col{border:0!important;border-right:1px solid var(--ux-line)!important;border-bottom:0!important;padding:2px 20px!important}
 #ux-page-review .edit-col:last-of-type{border-right:0!important}

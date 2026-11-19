@@ -61,6 +61,7 @@ def _version_out(container: Container, version_id: str) -> VersionOut:
         api_prefix=container.settings.api_prefix,
         media_type_of=container.artifact_store.content_type,
         is_stored=_stored_in(container),
+        planned_stages=container.run_generation_pipeline.stage_names,
     )
 
 

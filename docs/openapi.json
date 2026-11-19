@@ -1722,6 +1722,13 @@
             "title": "Elapsed Ms",
             "type": "integer"
           },
+          "planned_stages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Planned Stages",
+            "type": "array"
+          },
           "stage": {
             "anyOf": [
               {

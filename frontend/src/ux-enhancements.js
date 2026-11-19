@@ -1,5 +1,6 @@
 /** FRAME UX upgrade. No API tokens in browser storage. Backend remains source of truth. */
 import './ux-enhancements.css';
+import { describeStage, progressPercent } from './progress.js';
 const $ = s => document.querySelector(s);
 const escapeHTML = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let ctx;
@@ -14,6 +15,7 @@ const steps = [
   {name:'검수·수정',desc:'검수 결과를 보고 필요한 장면만 수정합니다',anchor:'edit'},
   {name:'출력',desc:'완성된 영상을 확인하고 저장합니다',anchor:'ux-export'},
 ];
+const PLAN_HINT = '실행 전에 영향을 받는 장면과 예상 처리 방식을 확인할 수 있습니다.';
 const stateLabel = {STRUCTURING:'요구사항 분석 중',DRAFT:'생성 준비 완료',QUEUED:'작업 대기 중',PROCESSING:'영상 생성·검수 중',COMPLETED:'생성 완료',FAILED:'처리 실패'};
 function addElement(parent,position,tag,cl,html){const el=document.createElement(tag);el.className=cl;el.innerHTML=html;parent.insertAdjacentElement(position,el);return el;}
 function readHistory(){try {return JSON.parse(localStorage.getItem('frame-recent-projects')||'[]').filter(p=>p?.project_id).slice(0,30);}catch{return []}}
@@ -21,7 +23,8 @@ function putHistory(p){if(!p?.project_id)return;const merged=[p,...readHistory()
 export function recordUXProject(p){putHistory({project_id:p.project_id,title:p.title||'제목 없는 프로젝트',version_id:p.version_id,created_at:p.created_at||new Date().toISOString()});refreshProjects().catch(()=>{});}
 function renderProjectCards(){const list=$('#ux-project-cards');if(!list)return;const q=($('#ux-project-search')?.value||'').trim().toLowerCase();const filtered=projects.filter(p=>(p.title||'').toLowerCase().includes(q)||p.project_id?.toLowerCase().includes(q));list.innerHTML=filtered.length?filtered.slice(0,40).map(p=>`<button type="button" class="ux-project-card" data-project="${escapeHTML(p.project_id)}"><span class="ux-card-mark">▣</span><span class="ux-project-meta"><strong>${escapeHTML(p.title||'제목 없는 프로젝트')}</strong><small>${escapeHTML(p.latest_state?stateLabel[p.latest_state]||p.latest_state:'프로젝트 열기')} · ${escapeHTML(p.created_at?new Date(p.created_at).toLocaleDateString('ko-KR'):'')}</small></span><span aria-hidden="true">→</span></button>`).join(''):'<div class="ux-empty">프로젝트가 없습니다. 아래에서 새로 만들어 보세요.</div>';$('#ux-project-count').textContent=`${projects.length}개`;$('#ux-project-source').textContent=serverCatalog?'서버 DB에서 조회한 프로젝트':'이 브라우저에서 작업한 프로젝트만 표시 중 (서버 목록 API 없음)';}
 async function refreshProjects(){if(!ctx)return;let data=[];try{const res=await ctx.api('GET','/api/projects');if(Array.isArray(res))data=res;else data=res.items||res.projects||[];serverCatalog=true;}catch{serverCatalog=false;data=readHistory();}projects=data;renderProjectCards();}
-async function openProject(id){try{const data=await ctx.api('GET',`/api/projects/${encodeURIComponent(id)}`);const versions=data.versions||[];const last=[...versions].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0];if(!last?.version_id)throw new Error('이 프로젝트에 열 수 있는 버전이 없습니다.');await ctx.refreshVersion(last.version_id);recordUXProject({project_id:id,title:data.title,version_id:last.version_id});setStep(last.state==='DRAFT'?1:2);}catch(e){ctx.toast('프로젝트 열기 실패: '+e.message,'error')}}
+// 프로젝트의 가장 최근 버전을 연다. ctx.openVersion 이 앞 프로젝트의 검수·추적 결과와 유지 선택을 비우고, ctx.run 이 다른 작업과 겹치지 않게 한다.
+async function openProject(id){await ctx.run(async()=>{try{const data=await ctx.api('GET',`/api/projects/${encodeURIComponent(id)}`);const versions=data.versions||[];const last=[...versions].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0];if(!last?.version_id)throw new Error('이 프로젝트에 열 수 있는 버전이 없습니다.');await ctx.openVersion(last.version_id);recordUXProject({project_id:id,title:data.title,version_id:last.version_id});setStep(last.state==='DRAFT'?1:2);}catch(e){throw new Error('프로젝트 열기 실패: '+e.message);}});}
 function createStageNav(){const wrap=$('.steps');if(!wrap)return;wrap.classList.add('ux-steps');wrap.innerHTML=steps.map((s,i)=>`<button type="button" class="ux-stage" data-step="${i}" aria-current="${i===0?'step':'false'}"><span class="ux-stage-index">${i+1}</span><span class="ux-stage-text"><b>${s.name}</b><small>${s.desc}</small></span><span class="ux-stage-check" aria-hidden="true">✓</span></button>`).join('');wrap.addEventListener('click',e=>{const b=e.target.closest('[data-step]');if(b)setStep(Number(b.dataset.step));});}
 function createLayout(){
   const workspace=$('.workspace');const projectTools=$('#project-tools');const edit=$('#edit');const timeline=$('.timeline-card');const viewer=$('#viewer');
@@ -38,8 +41,6 @@ function createLayout(){
   $('#ux-project-cards').addEventListener('click',e=>{const b=e.target.closest('[data-project]');if(b)openProject(b.dataset.project);});
   // Technical IDs remain in collapsible advanced details for troubleshooting only.
   const idblock=$('.id-block');if(idblock){let details=document.createElement('details');details.className='ux-advanced';details.hidden=true;details.innerHTML='<summary>고급 정보 · 프로젝트/버전 ID</summary>';idblock.parentElement.insertBefore(details,idblock);details.append(idblock);let load=$('#version-input')?.parentElement;if(load)details.append(load);}
-  // Maintenance/keep controls were redundant and inactive in the original prototype.
-  edit.querySelector('.edit-col.protect')?.remove();
   // Dedicated generation entrypoint, so generation isn't buried in the edit panel.
   if(viewer){addElement(viewer,'beforebegin','div','ux-generate-cta',`<div><h2>영상 생성</h2><p>장면 구성을 확인한 다음 영상을 생성하세요.</p><small id="ux-generate-hint"></small></div><button id="ux-generate-now" type="button">영상 생성 요청</button>`);$('#ux-generate-now').addEventListener('click',()=>$('#generate-btn')?.click());}
   // Preview ratio control. No stretched video: native aspect ratio is preserved.
@@ -50,8 +51,7 @@ function createLayout(){
   $('#ux-video-upload').addEventListener('change',e=>{const f=e.target.files?.[0];$('#ux-media-meta').textContent=f?`${f.name} · ${(f.size/1024/1024).toFixed(1)} MB · 로컬 파일 선택됨 (전송하지 않음)`:'파일을 선택하지 않았습니다.';});
   // Existing secure key entry is retained; no duplicate security banner in the main form.
 
-  if($('#request-text')){const note=$('#request-text').parentElement.querySelector('.field-note');if(note)note.textContent='수정 요청을 확인한 뒤 새 영상 버전을 만들 수 있습니다.';}
-  const btn=$('#revise-btn');if(btn){btn.insertAdjacentHTML('afterend','<button type="button" id="ux-plan-now" class="ux-outline-action">수정 계획 미리보기</button><p id="ux-plan-info" class="ux-help">실행 전에 영향을 받는 장면과 예상 처리 방식을 확인할 수 있습니다.</p>');$('#ux-plan-now').addEventListener('click',previewRevision);}
+  const btn=$('#revise-btn');if(btn){btn.insertAdjacentHTML('afterend','<button type="button" id="ux-plan-now" class="ux-outline-action">수정 계획 미리보기</button><p id="ux-plan-info" class="ux-help">${PLAN_HINT}</p>');$('#ux-plan-now').addEventListener('click',previewRevision);}
   const title=$('#project-tools .panel-section h2');if(title)title.innerHTML='새 영상 만들기';
   const form=$('#create-form');if(form){
     const labels=Array.from(form.querySelectorAll('label'));
@@ -129,8 +129,7 @@ function showRouteFromHash(){
 function navigateTo(route){if(!['projects',...pageRoutes].includes(route))return;const hash='#/'+route;if(window.location.hash===hash)showRouteFromHash();else window.location.hash=hash;}
 function setStep(i){if(pageRoutes[i])navigateTo(pageRoutes[i]);}
 
-function currentProgress(){const v=ctx?.state?.version;const p=v?.progress;const s=p?.stages||[];const total=s.reduce((acc,x)=>acc+(Number(x.total)||0),0);const done=s.reduce((acc,x)=>acc+(Number(x.done)||0),0);if(total>0)return Math.max(1,Math.min(100,Math.round(done/total*100)));return ({STRUCTURING:8,DRAFT:25,QUEUED:35,PROCESSING:55,COMPLETED:100,FAILED:0})[v?.state]||0;}
-export function syncUX(){if(!ctx||!$('#ux-progress-label'))return;const v=ctx.state.version;const pct=currentProgress();$('#ux-progress-label').textContent=stateLabel[v?.state]||'프로젝트를 생성하거나 선택하세요';$('#ux-progress-value').textContent=pct+'%';const el=$('#ux-progress-fill');el.style.width=pct+'%';el.parentElement.setAttribute('aria-valuenow',String(pct));const p=v?.progress;$('#ux-progress-explain').textContent=p?.stage?`현재 단계: ${p.stage} · 경과 시간 ${Math.round((p.elapsed_ms||0)/1000)}초`:'수치는 현재 서버 상태를 나타냅니다. 실제 영상 생성 속도의 예측치는 아닙니다.';
+export function syncUX(){if(!ctx||!$('#ux-progress-label'))return;const v=ctx.state.version;const p=v?.progress;const step=describeStage(p);const pct=progressPercent(v);$('#ux-progress-label').textContent=(stateLabel[v?.state]||'프로젝트를 생성하거나 선택하세요')+(v?.state==='PROCESSING'&&step?` · ${step}`:'');$('#ux-progress-value').textContent=pct+'%';const el=$('#ux-progress-fill');el.style.width=pct+'%';el.parentElement.setAttribute('aria-valuenow',String(pct));$('#ux-progress-explain').textContent=step?`현재 단계: ${step} · 경과 시간 ${Math.round((p.elapsed_ms||0)/1000)}초`:'수치는 현재 서버 상태를 나타냅니다. 실제 영상 생성 속도의 예측치는 아닙니다.';
   $('#ux-generate-now')?.toggleAttribute('disabled',v?.state!=='DRAFT'||ctx.state.busy);
   const progressBox=$('.ux-progress-panel');if(progressBox)progressBox.hidden=!v||routeFromHash()==='projects';
   const reviewReady=!!v;for(const selector of ['#review','#edit','#ux-page-review > .timeline-card','#ux-page-review > .panel-section']){const el=$(selector);if(el)el.hidden=!reviewReady;}const reviewEmpty=$('#ux-review-empty');if(reviewEmpty)reviewEmpty.hidden=reviewReady;
@@ -138,7 +137,7 @@ export function syncUX(){if(!ctx||!$('#ux-progress-label'))return;const v=ctx.st
   $('#ux-generate-hint').textContent=why;
   for(const id of ['generate-btn','revise-btn']){const b=$('#'+id);if(!b)continue;let hint=document.getElementById('ux-reason-'+id);if(!hint){hint=document.createElement('small');hint.className='ux-help';hint.id='ux-reason-'+id;b.insertAdjacentElement('afterend',hint);}hint.textContent=id==='generate-btn'?why:!v?'먼저 프로젝트를 생성하세요.':!ctx.state.selectedEntity?'수정할 객체를 선택하세요.':v.state==='PROCESSING'||v.state==='STRUCTURING'?'처리가 끝나면 수정할 수 있습니다.':'수정 대상과 속성, 새 값을 선택한 뒤 새 버전을 만드세요.';b.title=b.disabled?hint.textContent:'';}
   const video=v?.video_url&&String(v?.video_media_type||'').startsWith('video/');$('#ux-export-state').textContent=v?.state==='COMPLETED'?'완료':stateLabel[v?.state]||'결과 없음';$('#ux-export-message').textContent=video?'실제 영상 파일이 준비됐습니다.':v?.state==='COMPLETED'?'현재는 Fake 영상 생성 결과(JSON)입니다. 실제 MP4를 만들려면 모델 연결이 필요합니다.':'영상이 완료되면 이곳에서 저장할 수 있습니다.';const link=$('#ux-export-link');link.hidden=!video;if(video)link.href=v.video_url;
-  const key=ctx.state.project?.project_id;if(key&&key!==lastProjectId){lastProjectId=key;recordUXProject({project_id:key,title:ctx.state.project?.title||$('#project-name')?.textContent,version_id:v?.version_id});}lastVersionId=v?.version_id||'';
+  const key=ctx.state.project?.project_id;if(key&&key!==lastProjectId){lastProjectId=key;recordUXProject({project_id:key,title:ctx.state.project?.title||$('#project-name')?.textContent,version_id:v?.version_id});}const versionId=v?.version_id||'';if(versionId!==lastVersionId){const info=$('#ux-plan-info');if(info)info.textContent=PLAN_HINT;}lastVersionId=versionId; // 버전이 바뀌면 앞 버전의 계획 미리보기 결과를 지운다
   const stats=[['#metric-reflection','요구사항 충족'],['#metric-consistency','장면 간 일관성'],['#metric-preservation','비대상 보존']];for(const [sel,label] of stats){let e=$(sel);if(!e)continue;let cell=e.parentElement;cell.setAttribute('aria-label',`${label} ${e.textContent}`);cell.classList.add('ux-metric-card');}
   if(ctx.state.checks?.results?.length){
     const list=$('#checks-list');const types={REQUIREMENT:'요구사항 반영',CONSISTENCY:'장면 간 일관성',PRESERVATION:'비대상 요소 보존'};
@@ -147,6 +146,6 @@ export function syncUX(){if(!ctx||!$('#ux-progress-label'))return;const v=ctx.st
   }
   document.querySelectorAll('.media video,.media img').forEach(el=>el.style.objectFit='contain');
 }
-export function collectUXKeep(){return []; /* No hidden preserve controls: backend receives an explicit empty keep list. */}
-async function previewRevision(){const v=ctx.state.version;const entity_key=ctx.state.selectedEntity,predicate=$('#predicate-select')?.value,new_value=$('#new-value')?.value.trim();if(!v||!predicate||!new_value){ctx.toast('프로젝트, 수정 대상·속성·새 값을 먼저 선택하세요.','error');return;}const body={entity_key,predicate,new_value,scope:ctx.state.scope,scene_keys:ctx.state.scope==='SCENES'?[ctx.state.selectedScene]:[],keep:collectUXKeep(ctx.state)};try{const plan=await ctx.api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/revision-plans`,body);const affected=(plan.target_scene_keys||[]).join(', ')||'없음';$('#ux-plan-info').textContent=`변경 계획: ${plan.kind||'CHANGE'} · 대상 장면 ${affected}. 실행하면 새 버전이 생성됩니다.`;}catch(e){$('#ux-plan-info').textContent=`변경 계획을 확인하지 못했습니다: ${e.message}`;}}
+// 수정 버전 만들기와 같은 본문(ctx.revisionRequest: 유지할 요소 포함)으로 계획만 미리 본다. 상태는 바뀌지 않는다.
+async function previewRevision(){let body;try{body=ctx.revisionRequest();}catch(e){ctx.toast(e.message,'error');return;}const v=ctx.state.version;try{const plan=await ctx.api('POST',`/api/versions/${encodeURIComponent(v.version_id)}/revision-plans`,body);const affected=(plan.target_scene_keys||[]).join(', ')||'없음';const kept=plan.revision_request?.keep?.length||0;$('#ux-plan-info').textContent=`변경 계획: ${plan.kind||'CHANGE'} · 대상 장면 ${affected}${kept?` · 유지 요청 ${kept}개`:''}. 실행하면 새 버전이 생성됩니다.`;}catch(e){$('#ux-plan-info').textContent=`변경 계획을 확인하지 못했습니다: ${e.message}`;}}
 export function installUX(components){ctx=components;createLayout();syncUX();}
