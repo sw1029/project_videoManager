@@ -27,10 +27,11 @@ class Settings:
     generator_timeout_s: float = 0.0
     generator_retries: int = 0
     generator_cache: bool = True  # 같은 조건·생성기 설정의 장면은 한 번만 생성 (ADR-0013)
-    # --- 장면 사이 객체 일관성 (ADR-0015) ---
-    # off | fake | frame(클립 가운데 프레임 전체) | vlm_crop(VLM 으로 객체 위치를 찾아 잘라냄, FRAME_VLM_* 사용)
+    # --- 장면 사이 객체 일관성 (ADR-0015 · ADR-0035) ---
+    # auto | off | fake | frame(클립 가운데 프레임 전체) | vlm_crop(VLM 으로 객체 위치를 찾아 잘라냄, FRAME_VLM_* 사용)
     # 켜면 객체가 처음 나온 클립에서 정체성 기준 이미지를 뽑아 그 객체가 나오는 다른 장면 생성에 참조로 넘긴다.
-    identity: str = "off"
+    # auto(기본): 실제 영상 생성기(fake 가 아닌 FRAME_GENERATOR)면 vlm_crop, 가짜 생성기면 off (container.identity_key)
+    identity: str = "auto"
     identity_kinds: tuple[str, ...] = ("PERSON", "ANIMAL", "PROP", "OTHER")  # 우선순위 순
     identity_max_references: int = 3  # 장면 요청 하나에 넘기는 기준 이미지 상한
     # vlm_crop: 요구한 고정 속성과 분명히 다르게 나온 객체는 기준으로 쓰지 않는다 (잘못 나온 모습이 번지지 않게)

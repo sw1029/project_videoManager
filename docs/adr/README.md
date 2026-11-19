@@ -43,5 +43,6 @@
 | [0032](0032-no-machine-paths-single-source-settings.md) | 컴퓨터에 묶인 경로와 값의 사본을 두지 않는다: 절대 경로 금지 · 설정값은 출처 하나 · 이름 없는 수 금지 | 채택 (2026-11-15) |
 | [0033](0033-fastapi-starlette-upgrade-for-known-vulnerabilities.md) | FastAPI · Starlette 의 판을 올린다: 알려진 취약점, 그리고 Starlette 를 직접 고정한다 | 채택 (2026-11-15) |
 | [0034](0034-docker-image-distribution-ffmpeg-and-in-image-checks.md) | Docker 이미지는 배포판의 ffmpeg 와 한글 글꼴을 쓰고, CI 가 이미지 안에서 실제 영상 경로를 돌린다 | 채택 (2026-11-15) |
+| [0035](0035-identity-on-by-default-for-real-video.md) | 인물 일관성은 실제 영상 생성기에서 기본으로 켠다 (FRAME_IDENTITY=auto) | 채택 (2026-11-19) |
 
-나눠 가진 번호는 지금 없다 (0022~0029 를 나눠 가졌던 브랜치들이 모두 dev 에 들어왔다). 다음 ADR 은 0035 다.
+나눠 가진 번호는 지금 없다 (0022~0029 를 나눠 가졌던 브랜치들이 모두 dev 에 들어왔다). 다음 ADR 은 0036 이다.

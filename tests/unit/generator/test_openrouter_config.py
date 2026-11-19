@@ -101,6 +101,7 @@ def test_video_settings_defaults(env):
 def test_external_api_builds_the_openrouter_generator(key_file, fake_ffmpeg):
     settings = Settings(
         generator="external_api",
+        identity="off",  # 기본 auto 는 실제 생성기에서 vlm_crop(VLM 키 필요)을 켠다 (ADR-0035)
         video_key_file=str(key_file),
         video_ffmpeg=str(fake_ffmpeg),
         video_resolution="480p",
@@ -118,6 +119,7 @@ def test_external_api_is_cached_by_default_under_its_own_profile(key_file, fake_
     """#7: 캐시는 기본으로 켜지고, 키 프로필은 OpenRouter 설정(모델·해상도 등)을 따른다."""
     settings = Settings(
         generator="external_api",
+        identity="off",
         video_key_file=str(key_file),
         video_ffmpeg=str(fake_ffmpeg),
         video_resolution="480p",
@@ -131,7 +133,10 @@ def test_external_api_is_cached_by_default_under_its_own_profile(key_file, fake_
 def test_external_api_reads_the_key_from_the_environment(monkeypatch, fake_ffmpeg):
     monkeypatch.setenv("OPENROUTER_API_KEY", OPENROUTER_KEY)
     settings = Settings(
-        generator="external_api", video_ffmpeg=str(fake_ffmpeg), generator_cache=False
+        generator="external_api",
+        identity="off",
+        video_ffmpeg=str(fake_ffmpeg),
+        generator_cache=False,
     )
     assert isinstance(build_container(settings).generator, OpenRouterVideoGenerator)
 

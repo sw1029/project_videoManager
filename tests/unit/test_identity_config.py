@@ -182,3 +182,69 @@ def test_change_interpreter_follows_the_structurer_unless_set():
     assert isinstance(forced.plan_revision._interpreter, LLMChangeRequestInterpreter)
     with pytest.raises(ConfigurationError, match="ChangeRequestInterpreter"):
         build_container(Settings(change_interpreter="telepathy"))
+
+
+# ---- 기본값 auto: 실제 영상 생성기면 인물 일관성을 켠다 (ADR-0035) ----------------------------------
+
+
+def _openrouter_key_file(tmp_path) -> str:
+    key = tmp_path / "openrouter.key"
+    key.write_text("sk-or-v1-" + "0" * 40, encoding="utf-8")  # 형식만 맞춘 가짜 키
+    return str(key)
+
+
+def test_identity_defaults_to_auto_which_follows_the_generator():
+    """가짜 생성기의 클립(JSON)에는 자를 프레임이 없어 끄고, 실제 영상 생성기면 vlm_crop 으로 켠다."""
+    from frame.config.container import identity_key
+
+    assert Settings().identity == "auto"
+    assert Settings.from_env({}).identity == "auto"
+    assert identity_key(Settings()) == "off"
+    assert identity_key(Settings(generator="external_api")) == "vlm_crop"
+    # 직접 정한 값은 그대로 따른다 (끄는 것도 된다)
+    assert identity_key(Settings(generator="external_api", identity="off")) == "off"
+    assert identity_key(Settings(identity="frame")) == "frame"
+
+
+def test_auto_builds_no_extractor_with_the_fake_generator():
+    assert build_container(Settings()).identity_extractor is None
+
+
+def test_auto_builds_the_vlm_crop_extractor_for_the_real_generator(
+    fake_ffmpeg, tmp_path, monkeypatch
+):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    settings = Settings(
+        generator="external_api",
+        video_key_file=_openrouter_key_file(tmp_path),
+        video_ffmpeg=str(fake_ffmpeg),
+        llm_provider="fake",
+    )
+
+    assert isinstance(build_container(settings).identity_extractor, VlmCropIdentityExtractor)
+
+
+def test_vlm_crop_without_a_vlm_key_fails_at_startup_saying_how_to_turn_it_off(
+    fake_ffmpeg, tmp_path, monkeypatch
+):
+    """기본으로 켜지는 기능이라, 키가 없을 때 무엇이 키를 찾는지와 끄는 방법을 함께 알린다."""
+    pytest.importorskip("openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    settings = Settings(
+        generator="external_api",
+        video_key_file=_openrouter_key_file(tmp_path),
+        video_ffmpeg=str(fake_ffmpeg),
+    )
+
+    with pytest.raises(ConfigurationError, match="FRAME_IDENTITY=off"):
+        build_container(settings)
+
+
+def test_health_reports_the_identity_extractor_actually_in_use():
+    from fastapi.testclient import TestClient
+
+    from frame.presentation.app import create_app
+
+    adapters = TestClient(create_app(build_container(Settings()))).get("/health").json()["adapters"]
+    assert adapters["identity"] == "off"  # auto 를 풀어 쓴 값

@@ -740,6 +740,7 @@ def test_edit_settings_reach_the_adapter(tmp_path):
     ffmpeg.write_bytes(b"")
     env = {
         "FRAME_GENERATOR": "external_api",
+        "FRAME_IDENTITY": "off",  # 기본 auto 의 vlm_crop 은 VLM 키가 필요하다 — 편집 설정 시험과 무관 (ADR-0035)
         "FRAME_GENERATOR_CACHE": "false",
         "FRAME_VIDEO_KEY_FILE": str(key_file),
         "FRAME_VIDEO_FFMPEG": str(ffmpeg),

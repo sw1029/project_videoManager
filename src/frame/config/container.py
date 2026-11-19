@@ -102,7 +102,7 @@ class Container:
     # 재시작 복구 (#2): 서버 기동 훅과 주기 검사가 부른다
     recover_pending_versions: RecoverPendingVersions
     llm_keys: LLMKeySource | None = None  # FRAME_STRUCTURER=llm + openai 일 때만
-    # 정체성 기준 이미지 추출기 (ADR-0015). FRAME_IDENTITY=off 면 None
+    # 정체성 기준 이미지 추출기 (ADR-0015). 끈 설정(off, 가짜 생성기의 auto)이면 None
     identity_extractor: IdentityReferenceExtractor | None = None
     # 테마 추출·시리즈 편·녹음 붙이기·화면 국소 수정 (ADR-0025~0027). 조립은 config/theme_wiring.py
     series: ThemeServices | None = None
@@ -130,6 +130,17 @@ def change_interpreter_key(settings: Settings) -> str:
     if settings.change_interpreter != "auto":
         return settings.change_interpreter
     return "llm" if settings.structurer == "llm" else "rule_based"
+
+
+def identity_key(settings: Settings) -> str:
+    """정체성 기준 이미지 추출기의 종류. auto 는 생성기를 따른다 (ADR-0035).
+
+    실제 영상을 만드는 생성기면 vlm_crop 으로 켜서, 객체가 처음 나온 클립의 모습을 다른 장면 생성에 참조로 넘긴다
+    (같은 인물이 장면마다 다른 사람으로 나오는 문제, ADR-0015). 가짜 생성기의 클립(JSON)에는 자를 프레임이 없어 끈다.
+    """
+    if settings.identity != "auto":
+        return settings.identity
+    return "off" if settings.generator == "fake" else "vlm_crop"
 
 
 def _identity_policy(settings: Settings) -> IdentityPolicy:
@@ -193,7 +204,7 @@ def build_container(
     assembler = pick("assembler", lambda: registry.build(VideoAssembler, settings.assembler, ctx))
     identity_extractor: IdentityReferenceExtractor | None = pick(
         "identity_extractor",
-        lambda: registry.build(IdentityReferenceExtractor, settings.identity, ctx),
+        lambda: registry.build(IdentityReferenceExtractor, identity_key(settings), ctx),
     )
     tracker = pick("tracker", lambda: registry.build(ObjectTracker, settings.tracker, ctx))
     checkers: tuple[Checker, ...] = pick(

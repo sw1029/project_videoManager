@@ -256,7 +256,8 @@ def test_identity_settings_are_read_from_the_environment():
     assert settings.identity_kinds == ("PERSON", "PROP")
     assert settings.identity_max_references == 2
     defaults = Settings.from_env({})
-    assert (defaults.identity, defaults.identity_max_references) == ("off", 3)
+    # 기본 auto: 실제 영상 생성기면 vlm_crop, 가짜 생성기면 off (ADR-0035)
+    assert (defaults.identity, defaults.identity_max_references) == ("auto", 3)
 
     container = make_container(Settings(jobs="recording", identity="fake"))
     assert isinstance(container.identity_extractor, FakeIdentityExtractor)
