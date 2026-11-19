@@ -20,6 +20,7 @@ from ..dto import (
     VersionComparisonView,
     VersionDetail,
     VersionOverview,
+    VersionTracksView,
 )
 from ..ports.unit_of_work import UnitOfWork, UnitOfWorkFactory
 
@@ -64,6 +65,13 @@ class ProjectQueries:
             entity_key = self._resolve_entity_key(version, entity_ref)
             records = tuple(uow.tracks.list_by_entity(version_id, entity_key))
             return EntityTracksView(version_id=version_id, entity_key=entity_key, records=records)
+
+    def get_version_tracks(self, version_id: str) -> VersionTracksView:
+        """버전의 모든 추적 기록 (없는 버전은 NotFound). 재생 중 겹쳐 그리는 화면이 한 번에 받는다."""
+        with self._uow_factory() as uow:
+            self._require_version(uow, version_id)
+            records = tuple(uow.tracks.list_by_version(version_id))
+            return VersionTracksView(version_id=version_id, records=records)
 
     def get_video_uri(self, version_id: str) -> str:
         """결과 영상의 저장소 URI. 생성 전이거나 실패한 버전은 MediaNotAvailable."""

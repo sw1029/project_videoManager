@@ -248,7 +248,7 @@ FRAME/
 │   ├── adapters/                   # [교체 가능 구현]
 │   │   ├── structurer/             #   rule_based(DSL) · fake · llm_stub
 │   │   ├── generator/              #   fake · decorators(Caching/Retrying) · openrouter(external_api) · ffmpeg(클립 정규화·조립) · stubs(diffusers + compile_prompt)
-│   │   ├── tracker/                #   fake · opencv_stub
+│   │   ├── tracker/                #   fake · opencv(VLM 시작 위치 + CSRT/KCF/MIL) · locator(VLM 찾기·박스 확인)
 │   │   ├── checker/                #   fake(요구사항/일관성/보존)
 │   │   ├── persistence/            #   memory(깊은 복사) · sqlalchemy(models/repositories/uow/engine)
 │   │   ├── storage/                #   memory · local_fs
@@ -288,7 +288,7 @@ FRAME/
 | 요구사항 구조화 모델 | `RequirementStructurer` | `rule_based`(DSL) · `fake` | `llm`(OpenAI/Anthropic/vLLM, `LLMStructurer._complete` 구현) · VLM(참조 이미지 → 속성) | `FRAME_STRUCTURER` | `tests/contract/test_structurer_contract.py` |
 | 영상 생성 모델 | `VideoGenerator` | `fake` | `external_api`(OpenRouter 영상 API, 기본 Wan 3.0 · ADR-0011) · `diffusers`(CogVideoX/Wan 로컬, 뼈대) | `FRAME_GENERATOR`, `FRAME_GENERATOR_RETRIES`, `FRAME_GENERATOR_CACHE`, `FRAME_VIDEO_*` | `test_generator_contract.py` |
 | 클립 조립 | `VideoAssembler` | `fake` | `ffmpeg`(concat, 같은 규격이면 스트림 복사 · ADR-0011) | `FRAME_ASSEMBLER` | 〃 |
-| 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(CSRT/KCF) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER` | `test_tracker_contract.py` |
+| 객체 추적 모델 | `ObjectTracker` | `fake` | `opencv`(VLM 이 시작 위치를 찾고 박스를 확인한 뒤 CSRT/KCF/MIL 로 프레임마다 따라감, tracking extra · ADR-0036) · SAM2 · YOLO+ByteTrack | `FRAME_TRACKER`, `FRAME_TRACKER_ALGORITHM`, `FRAME_TRACKER_SAMPLE_MS`, `FRAME_TRACKER_REDETECT_MS`, `FRAME_TRACKER_VERIFY_BOXES` | `test_tracker_contract.py` |
 | 검수기 | `Checker` (CheckType 별) | `fake_requirement` · `fake_consistency` · `fake_preservation` | `vlm_requirement`(요구조건별 프레임 판정, ADR-0018) · `vlm_consistency`(표본 프레임 VLM 판정, ADR-0015) · `vlm_preservation`(유지 요소를 부모 클립과 견줌, ADR-0018) · `ssim_preservation`(부모 클립 대비 SSIM, ADR-0016) · CLIP/임베딩 속성 판정 | `FRAME_CHECKERS` (쉼표 목록), `FRAME_REQUIREMENT_*`, `FRAME_CONSISTENCY_*`, `FRAME_PRESERVATION_*` | `test_checker_contract.py` · `test_vlm_requirement_checker.py` · `test_vlm_preservation_checker.py` |
 | 정체성 기준 추출 | `IdentityReferenceExtractor` | `off`(없음) · `fake` | `vlm_crop`(VLM 박스로 잘라 냄) · `frame`(화면 전체) · 추적 박스·마스크 | `FRAME_IDENTITY` (`auto` 는 실제 영상 생성기면 `vlm_crop`, ADR-0035), `FRAME_IDENTITY_KINDS`, `FRAME_IDENTITY_MAX_REFERENCES`, `FRAME_IDENTITY_VERIFY_ATTRIBUTES`, `FRAME_VLM_MODEL` | `test_identity_extractor_contract.py` |
 | 변경 요청 해석 | `ChangeRequestInterpreter` | `rule_based`(`cup.color = teal` 형식) | `llm`(자연어, ADR-0019) | `FRAME_CHANGE_INTERPRETER` (`auto` 는 구조화기를 따른다) | `test_change_request_interpreters.py` |
@@ -374,6 +374,7 @@ IR 은 **문서(JSON) + 정규화 행** 으로 이중 저장한다(ADR-0004). �
 | POST | `/api/versions/{version_id}/generations` | `AcceptGeneration` | 202 `{version_id, QUEUED}` | 404 / 409 `VERSION_NOT_GENERATABLE` / 429 |
 | GET | `/api/versions/{version_id}/checks` | `get_checks` | 200 판정 목록 + 요약(반영률·일관성·보존율) | 404 |
 | GET | `/api/versions/{version_id}/entities/{entity_id}/tracks` | `get_entity_tracks` | 200 등장 구간·박스·상태 (`entity_key` 또는 `project_id:entity_key`) | 404 |
+| GET | `/api/versions/{version_id}/tracks` | `get_version_tracks` | 200 모든 객체·장면의 구간·박스 (박스 `t_ms` 는 영상 타임라인 시각 — 재생 중 겹쳐 그리기, ADR-0036) | 404 |
 | GET | `/api/versions/{version_id}/comparison?against=` | `compare_versions` | 200 양쪽 요약·장면별 `REUSED`/`REGENERATED`/`ADDED`/`REMOVED`/`UNAVAILABLE`·요구조건 변경과 판정·`checks_delta` (`against` 생략 시 부모) | 404 / 409 `VERSION_NOT_COMPARABLE` / 422 |
 | GET | `/api/projects/{project_id}/dashboard` | `get_dashboard` | 200 버전 트리·버전별 상태·검수 요약·바뀐 장면 수, 상태별 개수·최신 버전 | 404 |
 | GET | `/api/vocabulary/predicates` | (어휘 조회) | 200 술어 이름·값 종류·관계 여부·별칭 (화면의 속성 블록용) | — |

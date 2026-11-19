@@ -41,6 +41,9 @@ def test_signature_covers_the_fields_the_frontend_reads():
         "GET /api/versions/{version_id} -> 200:progress.planned_stages[]",
         "GET /api/versions/{version_id} -> 200:progress.stages[].done",
         "GET /api/versions/{version_id} -> 200:progress.stages[].total",
+        # 재생 중 따라가는 박스: 버전의 모든 객체 추적을 한 번에 (ADR-0036)
+        "GET /api/versions/{version_id}/tracks -> 200:records[].segments[].boxes[].t_ms",
+        "GET /api/versions/{version_id}/tracks -> 200:records[].entity_key",
         # 수정 버전의 유지할 요소 (ADR-0017)
         "POST /api/versions/{version_id}/revisions body:keep[].aspect",
         "POST /api/versions/{version_id}/revision-plans body:keep[].entity_key",

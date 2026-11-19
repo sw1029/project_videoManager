@@ -80,16 +80,18 @@ DEFAULT_KEYS: dict[type, list[str]] = {
 
 # 키·패키지·네트워크 같은 바깥 것이 있어야 만들어지는 어댑터. 각자의 테스트가 따로 본다
 # (openai: tests/unit/test_settings.py, external_api: tests/unit/generator/test_openrouter_config.py,
-#  로컬 인식의 꾸러미와 모델 폴더: tests/unit/test_local_speech.py, 한글 글꼴: tests/unit/test_theme_wiring.py)
+#  로컬 인식의 꾸러미와 모델 폴더: tests/unit/test_local_speech.py, 한글 글꼴: tests/unit/test_theme_wiring.py,
+#  OpenCV 추적기의 tracking extra: tests/unit/tracker/test_tracker_config.py)
 NEEDS_THE_OUTSIDE = {
     (LLMClient, "openai"),
     (VideoGenerator, "external_api"),
     (SpeechRecognizer, "faster_whisper"),
     (OverlayRenderer, "ffmpeg"),
+    (ObjectTracker, "opencv"),
 }
 
 # 자리(설정 키)는 있지만 구현이 아직 없는 뼈대 어댑터. 고르면 서버가 뜨지 않는다 (감사 A-31)
-SKELETONS = [(VideoGenerator, "diffusers"), (ObjectTracker, "opencv")]
+SKELETONS = [(VideoGenerator, "diffusers")]
 
 BUILDABLE_OFFLINE = [
     (port, key)
@@ -177,11 +179,8 @@ def test_a_skeleton_adapter_is_refused_when_it_is_built(port, key, context):
 
 @pytest.mark.parametrize(
     ("settings", "variable"),
-    [
-        (Settings(tracker="opencv"), "FRAME_TRACKER"),
-        (Settings(generator="diffusers"), "FRAME_GENERATOR"),
-    ],
-    ids=["tracker", "generator"],
+    [(Settings(generator="diffusers"), "FRAME_GENERATOR")],
+    ids=["generator"],
 )
 def test_choosing_a_skeleton_adapter_stops_the_server_from_starting(settings, variable):
     """다른 어댑터와 같은 원칙이다: 쓸 수 없는 구성은 요청을 받기 전에, 기동할 때 실패한다."""

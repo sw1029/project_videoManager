@@ -528,6 +528,14 @@ class EntityTracksOut(BaseModel):
     records: list[TrackRecordOut]
 
 
+class VersionTracksOut(BaseModel):
+    """버전의 모든 객체·장면 추적. 박스의 t_ms 는 영상 타임라인 시각이라, 재생 중인 영상의 currentTime 으로
+    바로 찾아 그 박스를 겹쳐 그린다 (화면 크기에 대한 비율 좌표, ADR-0036)."""
+
+    version_id: str
+    records: list[TrackRecordOut]
+
+
 # ---- US-04 전후 비교·대시보드 (ADR-0014) ----------------------------------------------
 
 

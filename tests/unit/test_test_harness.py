@@ -22,6 +22,7 @@ from tests.support.switches import (
     missing_drawtext_message,
     missing_ffmpeg_message,
     missing_korean_font_message,
+    missing_opencv_message,
     shell_leak_names,
 )
 
@@ -99,6 +100,17 @@ def test_a_missing_ffmpeg_fails_the_run_only_when_required():
     assert "ffmpeg 를 찾지 못했습니다" in (missing_ffmpeg_message(required, None) or "")
     assert missing_ffmpeg_message(required, "bin/ffmpeg") is None
     assert missing_ffmpeg_message({}, None) is None  # 로컬에서는 지금처럼 건너뛴다
+
+
+def test_a_missing_opencv_fails_the_run_only_when_required():
+    """CI test 잡은 tracking extra 가 없으면 추적기 테스트를 조용히 건너뛰지 않고 실패한다 (ADR-0036)."""
+    required = {"FRAME_REQUIRE_OPENCV": "1"}
+
+    assert "pip install -e '.[tracking]'" in (
+        missing_opencv_message(required, available=False) or ""
+    )
+    assert missing_opencv_message(required, available=True) is None
+    assert missing_opencv_message({}, available=False) is None  # 로컬에서는 건너뛴다
 
 
 def test_a_korean_font_is_required_only_when_asked():

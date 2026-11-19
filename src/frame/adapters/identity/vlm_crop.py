@@ -38,6 +38,7 @@ from frame.adapters.shared.media.ffmpeg import require_ffmpeg
 from frame.adapters.shared.media.frames import Box, ClipFrames, FrameSampler
 from frame.adapters.shared.media.probe import video_size
 from frame.adapters.shared.vlm.answers import match_answers
+from frame.adapters.shared.vlm.boxes import valid_box
 from frame.application.errors import AdapterError, LLMBadResponse
 from frame.application.ports.artifact_store import ArtifactStore
 from frame.application.ports.identity import (
@@ -57,7 +58,6 @@ from ._crop_question import (
     fixed_attributes,
     read_verdicts,
     user_prompt,
-    valid_box,
 )
 from .keys import identity_index_key, identity_key
 

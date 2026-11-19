@@ -1,4 +1,7 @@
-"""ObjectTracker 계약 테스트. 실제 추적기(OpenCV/SAM2)는 slow 마커로 같은 스위트에 추가한다."""
+"""ObjectTracker 계약 테스트: 가짜와 OpenCV 추적기(ADR-0036)가 같은 스위트를 통과한다.
+
+OpenCV 는 tracking extra 가 있을 때만 돈다 (합성 클립의 움직이는 사각형 + 정해진 시작 박스).
+"""
 
 import pytest
 
@@ -8,33 +11,71 @@ from frame.adapters.tracker import FakeObjectTracker
 from frame.application.errors import TrackingError
 from frame.application.ports.generator import SceneGenerationRequest
 from frame.application.ports.tracker import TrackingRequest
+from frame.domain.artifacts import GeneratedClip
 from frame.domain.enums import TrackingStatus
 
-TRACKERS = [pytest.param(lambda: FakeObjectTracker(), id="fake")]
+COLORS = [(0, 0, 255), (0, 200, 0), (255, 80, 0)]
 
 
-@pytest.fixture(params=TRACKERS)
-def tracker(request):
-    return request.param()
-
-
-@pytest.fixture
-def tracking_request(ir):
+def _fake_case(ir, tmp_path):
     store = InMemoryArtifactStore()
     scene = ir.scene("intro")
     clip = FakeVideoGenerator(store).generate_scene(
         SceneGenerationRequest("ver_1", scene, tuple(ir.entity(k) for k in scene.entity_keys))
     )
-    return TrackingRequest("ver_1", scene, clip, scene.entity_keys)
+    return FakeObjectTracker(), TrackingRequest("ver_1", scene, clip, scene.entity_keys)
 
 
-def test_returns_one_record_per_requested_entity(tracker, tracking_request):
+def _opencv_case(ir, tmp_path):
+    pytest.importorskip("cv2")
+    from frame.adapters.tracker import OpenCvObjectTracker  # noqa: PLC0415
+    from tests.support.tracking_video import ScriptedLocator, Square, write_squares  # noqa: PLC0415
+
+    scene = ir.scene("intro")
+    squares = {
+        key: Square(color=COLORS[i % len(COLORS)], y=20 + 70 * i)
+        for i, key in enumerate(scene.entity_keys)
+    }
+    path = tmp_path / "intro.mp4"
+    truth = write_squares(path, squares, scene.duration_ms)
+    store = InMemoryArtifactStore()
+    uri = store.put("clips/ver_1/intro.mp4", path.read_bytes(), "video/mp4")
+    request = TrackingRequest(
+        "ver_1",
+        scene,
+        GeneratedClip("intro", uri, scene.duration_ms, "fp"),
+        scene.entity_keys,
+        entities=tuple(ir.entity(k) for k in scene.entity_keys),
+    )
+    locator = ScriptedLocator(answers=[{key: truth[key][0] for key in squares}])
+    tracker = OpenCvObjectTracker(
+        store, locator, algorithm="csrt", sample_ms=200, redetect_ms=1000, verify_boxes=True
+    )
+    return tracker, request
+
+
+CASES = [pytest.param(_fake_case, id="fake"), pytest.param(_opencv_case, id="opencv")]
+
+
+@pytest.fixture(params=CASES)
+def case(request, ir, tmp_path):
+    return request.param(ir, tmp_path)
+
+
+@pytest.fixture
+def tracking_request(ir, tmp_path):
+    return _fake_case(ir, tmp_path)[1]
+
+
+def test_returns_one_record_per_requested_entity(case):
+    tracker, tracking_request = case
     records = tracker.track(tracking_request)
     assert [r.entity_key for r in records] == list(tracking_request.entity_keys)
     assert all(r.scene_key == "intro" and r.version_id == "ver_1" for r in records)
 
 
-def test_segments_stay_within_scene_bounds(tracker, tracking_request):
+def test_segments_stay_within_scene_bounds(case):
+    tracker, tracking_request = case
     scene = tracking_request.scene
     for record in tracker.track(tracking_request):
         assert record.status is TrackingStatus.COMPLETED

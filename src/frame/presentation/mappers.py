@@ -9,7 +9,6 @@ from urllib.parse import quote
 
 from frame.application.dto import (
     ChecksView,
-    EntityTracksView,
     ProjectDashboardView,
     ProjectDetail,
     VersionComparisonView,
@@ -327,28 +326,7 @@ def checks_out(view: ChecksView) -> s.ChecksOut:
     )
 
 
-def tracks_out(view: EntityTracksView) -> s.EntityTracksOut:
-    return s.EntityTracksOut(
-        version_id=view.version_id,
-        entity_key=view.entity_key,
-        records=[
-            s.TrackRecordOut(
-                scene_key=t.scene_key,
-                entity_key=t.entity_key,
-                status=str(t.status),
-                track_uri=t.track_uri,
-                segments=[
-                    s.TrackSegmentOut(
-                        start_ms=seg.start_ms,
-                        end_ms=seg.end_ms,
-                        boxes=[s.BoxOut(**asdict(b)) for b in seg.boxes],
-                    )
-                    for seg in t.segments
-                ],
-            )
-            for t in view.records
-        ],
-    )
+# 객체 추적 결과의 변환은 track_mappers.py 에 있다 (US-03, ADR-0036)
 
 
 # ---- US-04 전후 비교·대시보드 (ADR-0014) ----------------------------------------------

@@ -2,7 +2,8 @@
 
 - 묻는 것: 지시문(SYSTEM_PROMPT, 고정 속성 확인을 켜면 VERIFY_PROMPT 를 붙인다), 객체 목록(user_prompt),
   응답 형식(RESPONSE_SCHEMA · VERIFY_RESPONSE_SCHEMA).
-- 답 읽기: 쓸 만한 박스(valid_box), 고정 속성마다의 판정(read_verdicts).
+- 답 읽기: 고정 속성마다의 판정(read_verdicts). 쓸 만한 박스(valid_box)와 박스 형식은 객체 추적과 함께 쓴다
+  (adapters/shared/vlm/boxes.py).
 무엇을 왜 이렇게 묻는지는 vlm_crop.py 머리말과 ADR-0015 에 있다.
 """
 
@@ -12,7 +13,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from frame.adapters.shared.media.frames import Box
+from frame.adapters.shared.vlm.boxes import BOX_SCHEMA
 from frame.adapters.shared.vlm.wording import predicate_words
 from frame.application.ports.identity import IdentityExtractionRequest
 from frame.domain.identity import appearance_attributes
@@ -47,13 +48,6 @@ VERIFY_PROMPT = (
     "given as the name, and return an empty list when none are listed."
 )
 VERDICTS = ("yes", "no", "unclear")
-
-BOX_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["x", "y", "w", "h"],
-    "properties": {name: {"type": "number"} for name in ("x", "y", "w", "h")},
-}
 
 
 def _response_schema(*, verify: bool) -> dict[str, Any]:
@@ -170,18 +164,3 @@ def _asked_by_predicate(expected: Sequence[str]) -> dict[str, str]:
         if predicate:
             asked.setdefault(predicate, []).append(name)
     return {predicate: names[0] for predicate, names in asked.items() if len(names) == 1}
-
-
-def valid_box(answer: Mapping[str, Any], min_area: float) -> Box | None:
-    """보인다고 답했고 박스가 화면 안의 쓸 만한 크기일 때만 Box. 나머지는 None."""
-    if answer.get("visible") is not True or not isinstance(answer.get("box"), Mapping):
-        return None
-    raw = answer["box"]
-    try:
-        x, y, w, h = (float(raw[name]) for name in ("x", "y", "w", "h"))
-    except (KeyError, TypeError, ValueError):
-        return None
-    if not (0.0 <= x < 1.0 and 0.0 <= y < 1.0 and w > 0.0 and h > 0.0):
-        return None
-    w, h = min(w, 1.0 - x), min(h, 1.0 - y)
-    return Box(x, y, w, h) if w * h >= min_area else None

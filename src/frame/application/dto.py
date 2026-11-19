@@ -90,6 +90,14 @@ class EntityTracksView:
 
 
 @dataclass(frozen=True)
+class VersionTracksView:
+    """버전의 모든 객체·장면 추적 (재생 중 영상 위에 박스를 겹쳐 그릴 때 한 번에 받는다, ADR-0036)."""
+
+    version_id: str
+    records: tuple[TrackRecord, ...]
+
+
+@dataclass(frozen=True)
 class VersionOverview:
     """전후 비교와 대시보드가 함께 쓰는 버전 요약 (상태·결과 영상·검수 요약)."""
 

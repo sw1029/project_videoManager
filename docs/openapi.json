@@ -3209,6 +3209,28 @@
         "title": "VersionSummaryOut",
         "type": "object"
       },
+      "VersionTracksOut": {
+        "description": "버전의 모든 객체·장면 추적. 박스의 t_ms 는 영상 타임라인 시각이라, 재생 중인 영상의 currentTime 으로\n바로 찾아 그 박스를 겹쳐 그린다 (화면 크기에 대한 비율 좌표, ADR-0036).",
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/TrackRecordOut"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "records"
+        ],
+        "title": "VersionTracksOut",
+        "type": "object"
+      },
       "VocabularyOut": {
         "properties": {
           "predicates": {
@@ -4338,6 +4360,59 @@
           }
         },
         "summary": "장면 클립을 내려준다 (SceneOut.clip_url)",
+        "tags": [
+          "versions"
+        ]
+      }
+    },
+    "/api/versions/{version_id}/tracks": {
+      "get": {
+        "description": "박스의 t_ms 는 영상 타임라인의 시각(장면 시작부터)이고 x·y·w·h 는 화면에 대한 비율(0~1)이다. FRAME_TRACKER=opencv 면 프레임을 따라간 실제 위치를 FRAME_TRACKER_SAMPLE_MS 간격으로, fake 면 자리 표시용 박스를 준다. 박스 사이의 시각은 앞뒤 박스를 이어 그린다 (ADR-0036).",
+        "operationId": "get_version_tracks_api_versions__version_id__tracks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionTracksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "모든 객체의 추적 구간·박스를 한 번에 조회한다 (재생 중 영상 위에 박스를 겹쳐 그릴 때)",
         "tags": [
           "versions"
         ]

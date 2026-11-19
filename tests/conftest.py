@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import socket
 from typing import Any
@@ -13,9 +14,14 @@ from tests.support.switches import (
     missing_drawtext_message,
     missing_ffmpeg_message,
     missing_korean_font_message,
+    missing_opencv_message,
     shell_leak_names,
 )
 from tests.support.video import drawtext_problem, find_ffmpeg, find_korean_font
+
+
+def _opencv_available() -> bool:
+    return importlib.util.find_spec("cv2") is not None
 
 
 def pytest_report_header(config: pytest.Config) -> list[str]:
@@ -28,6 +34,7 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
     return [
         f"ffmpeg: {ffmpeg or '없음 — 실제 영상 테스트는 건너뜀'}{drawing}",
         f"한글 글꼴: {find_korean_font() or '없음 — 화면 문구 합성 테스트는 건너뜀'}",
+        f"OpenCV: {'있음' if _opencv_available() else '없음 — 추적기(opencv) 테스트는 건너뜀'}",
     ]
 
 
@@ -36,12 +43,14 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     화면 문구 합성을 도는 잡은 FRAME_REQUIRE_KOREAN_FONT=1 · FRAME_REQUIRE_DRAWTEXT=1 로 돈다:
     한글 글꼴이나 글자를 그리는 ffmpeg 를 찾지 못하면 같은 식으로 실패한다.
+    test 잡은 FRAME_REQUIRE_OPENCV=1 로도 돈다: tracking extra 가 없으면 추적기 테스트가 조용히 빠지지 않게.
     """
     ffmpeg = find_ffmpeg()
     messages = (
         missing_ffmpeg_message(os.environ, ffmpeg),
         missing_korean_font_message(os.environ, find_korean_font()),
         missing_drawtext_message(os.environ, problem=drawtext_problem(ffmpeg)),
+        missing_opencv_message(os.environ, available=_opencv_available()),
     )
     for message in messages:
         if message is not None:

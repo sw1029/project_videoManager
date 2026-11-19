@@ -48,6 +48,22 @@ def test_pipeline_completes_and_persists_video_tracks_and_checks(container, draf
     assert checks.summary.requirement_reflection_rate == 1.0
 
 
+def test_the_tracker_gets_each_scene_entity_with_its_description():
+    """추적기는 화면에서 객체를 찾아야 하므로 키만이 아니라 종류·외형 설명을 받는다 (ADR-0036)."""
+    tracker = FakeObjectTracker()
+    container = make_container(tracker=tracker)
+    draft = create_draft(container)
+
+    generate(container, draft.version_id)
+
+    ir = cafe_ir()
+    by_scene = {r.scene.scene_key: r for r in tracker.requests}
+    for scene in ir.scenes:
+        request = by_scene[scene.scene_key]
+        assert request.entities == tuple(ir.entity(k) for k in scene.entity_keys)
+        assert [e.entity_key for e in request.entities] == list(request.entity_keys)
+
+
 def test_generation_failure_marks_version_failed_with_cause():
     store = InMemoryArtifactStore()
     container = make_container(

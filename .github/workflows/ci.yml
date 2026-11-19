@@ -24,6 +24,8 @@ jobs:
     env:
       # 실제 영상 테스트(ffmpeg)를 조용히 건너뛰지 않는다. ffmpeg 는 video extra 가 가져온다
       FRAME_REQUIRE_FFMPEG: "1"
+      # 추적기(FRAME_TRACKER=opencv) 테스트도 건너뛰지 않는다. OpenCV 는 아래의 tracking extra 가 가져온다 (ADR-0036)
+      FRAME_REQUIRE_OPENCV: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,6 +34,8 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev,llm,video]"
+      # 이 잡에서만 깐다: 다른 잡(compat · docker · demo-smoke)은 OpenCV 없이 돌고 추적기 테스트는 건너뛴다
+      - run: pip install -e ".[tracking]"
       - name: 포맷
         run: python scripts/check.py format
       - name: 정적 검사

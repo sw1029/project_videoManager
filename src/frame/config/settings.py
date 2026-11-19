@@ -15,7 +15,16 @@ class Settings:
     change_interpreter: str = "auto"
     generator: str = "fake"
     assembler: str = "fake"
+    # 객체 추적 (US-03, ADR-0036): fake | opencv (프레임마다 따라가는 박스 — tracking extra 필요)
     tracker: str = "fake"
+    # opencv: 프레임을 따라가는 방법 csrt(정확·느림) | kcf(빠름) | mil. 시작 위치는 VLM(FRAME_VLM_*)이 찾는다
+    tracker_algorithm: str = "csrt"
+    tracker_sample_ms: int = 100  # 박스를 남기는 간격(ms). 화면은 그 사이를 이어 그린다
+    # 장면의 객체를 모두 VLM 으로 다시 찾는 간격(ms): 놓친·늦게 나온 객체를 찾고, 어긋난 박스를 다시 맞춘다.
+    # 0 이면 첫 프레임과 컷에서만 찾는다
+    tracker_redetect_ms: int = 1000
+    # VLM 이 짚은 박스를 잘라 그 객체가 맞는지 한 번 더 묻는다 (아니면 버린다. 따라가던 박스는 맞다고 해야 옮긴다)
+    tracker_verify_boxes: bool = True
     checkers: tuple[str, ...] = ("fake_requirement", "fake_consistency", "fake_preservation")
     artifact_store: str = "memory"
     artifact_dir: str = "./artifacts"
@@ -120,6 +129,11 @@ class Settings:
             generator=text("GENERATOR", base.generator),
             assembler=text("ASSEMBLER", base.assembler),
             tracker=text("TRACKER", base.tracker),
+            tracker_algorithm=text("TRACKER_ALGORITHM", "").strip().lower()
+            or base.tracker_algorithm,
+            tracker_sample_ms=int(text("TRACKER_SAMPLE_MS", "") or base.tracker_sample_ms),
+            tracker_redetect_ms=int(text("TRACKER_REDETECT_MS", "") or base.tracker_redetect_ms),
+            tracker_verify_boxes=flag("TRACKER_VERIFY_BOXES", base.tracker_verify_boxes),
             checkers=tuple(c.strip() for c in checkers_raw.split(",") if c.strip()),
             artifact_store=text("ARTIFACT_STORE", base.artifact_store),
             artifact_dir=text("ARTIFACT_DIR", base.artifact_dir),
