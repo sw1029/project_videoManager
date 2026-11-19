@@ -84,3 +84,13 @@ def test_the_test_job_runs_the_tracker_tests_with_opencv():
 
     assert 'pip install -e ".[tracking]"' in test_job
     assert 'FRAME_REQUIRE_OPENCV: "1"' in test_job
+
+
+def test_the_demo_smoke_job_runs_the_key_helper_without_a_terminal():
+    """키 도우미는 터미널이 아니면 묻지 않고 상태만 보인다.
+
+    세 OS 에서 그 경로가 멈추지 않고 끝나는지 본다 (ADR-0037).
+    """
+    steps = _settings(_jobs()["demo-smoke"])
+
+    assert "- run: python scripts/frame_demo.py keys --status" in steps

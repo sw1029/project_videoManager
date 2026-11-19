@@ -354,18 +354,34 @@ exec "$PY" -I -m frame.tools.demo --root "$DIR" @COMMAND@ "$@"
 """
 
 _PURPOSE = {
-    "run": "Options: --offline --lan --port N --reset --no-browser",
-    "setup": "Optional: saves an OpenAI key to .demo/openai.key (--key-file PATH)",
+    "run": "Options: --offline --lan --port N --reset --no-browser --video (real video, ffmpeg on PATH)",
+    "setup": "Optional: saves OpenAI / OpenRouter keys to .demo (--key-file PATH, --video)",
+    "keys": "API key helper: OpenAI / OpenRouter keys in .demo (interactive). Options: --status --check",
 }
+# 대화형 명령(키를 묻는다): 더블클릭으로 열면 끝에서 멈춘다. 창이 바로 닫히면 마지막 안내를 읽을 수 없다.
+# 판별: 탐색기의 더블클릭은 `cmd.exe /c ""<이 파일의 전체 경로>" "` 로 연다 — 따옴표를 뺀 명령줄이
+# `%ComSpec% /c <전체 경로> ` 와 같을 때만 멈춘다. 명령줄은 따옴표 안에서만 펼쳐 경로의 & 가 줄을 가르지 않고,
+# 터미널 · PowerShell · `cmd /c "... --help"`(번들 확인)는 같지 않아 멈추지 않는다. scripts/*.cmd 도 같은 줄이다
+_INTERACTIVE = frozenset({"keys", "setup"})
+_CMD_PAUSE_START = [
+    'set "PAUSE_AT_END="',
+    'set "LAUNCH=%cmdcmdline:"=%"',
+    'if /i "%LAUNCH%"=="%ComSpec% /c %~f0 " set "PAUSE_AT_END=1"',
+]
+_CMD_PAUSE_END = ['set "CODE=%errorlevel%"', "if defined PAUSE_AT_END pause", "exit /b %CODE%"]
+
+
+def _cmd_lines(command: str, purpose: str) -> list[str]:
+    *head, run, end = _CMD_TEMPLATE
+    interactive = command in _INTERACTIVE
+    lines = [*head, *_CMD_PAUSE_START, run, *_CMD_PAUSE_END] if interactive else [*head, run, end]
+    return [line.replace("@COMMAND@", command).replace("@PURPOSE@", purpose) for line in lines]
 
 
 def write_wrappers(root: Path, target: Target) -> None:
     for command, purpose in _PURPOSE.items():
         if target.windows:  # cmd.exe 는 콘솔 코드 페이지로 읽으므로 ASCII + CRLF
-            lines = [
-                line.replace("@COMMAND@", command).replace("@PURPOSE@", purpose)
-                for line in _CMD_TEMPLATE
-            ]
+            lines = _cmd_lines(command, purpose)
             (root / f"{command}.cmd").write_bytes(("\r\n".join(lines) + "\r\n").encode("ascii"))
         else:
             text = _SH_TEMPLATE.replace("@COMMAND@", command).replace("@PURPOSE@", purpose)
@@ -376,7 +392,8 @@ def write_wrappers(root: Path, target: Target) -> None:
 
 def write_readme(root: Path, target: Target) -> None:
     if target.windows:
-        run, setup, key_path = "run.cmd", "setup.cmd", r".demo\openai.key"
+        run, keys, key_path = "run.cmd", "keys.cmd", r".demo\openai.key · .demo\openrouter.key"
+        install_ffmpeg = "winget install Gyan.FFmpeg"
         first_run = [
             "처음 실행할 때",
             '- "게시자를 확인할 수 없습니다" 경고가 나오면 [실행] 을 누릅니다.',
@@ -385,7 +402,9 @@ def write_readme(root: Path, target: Target) -> None:
         start = "run.cmd 를 더블클릭합니다 (또는 명령 프롬프트에서 run.cmd)."
         doctor = r"python\python.exe -I -m frame.tools.demo --root . doctor"
     else:
-        run, setup, key_path = "sh run.sh", "sh setup.sh", ".demo/openai.key (소유자만 읽기 가능)"
+        run, keys = "sh run.sh", "sh keys.sh"
+        key_path = ".demo/openai.key · .demo/openrouter.key (소유자만 읽기 가능)"
+        install_ffmpeg = "brew install ffmpeg" if target.macos else "sudo apt install ffmpeg"
         start = "터미널에서 이 폴더로 이동해  sh run.sh"
         doctor = "python/bin/python3 -I -m frame.tools.demo --root . doctor"
         first_run = ["처음 실행할 때"]
@@ -405,11 +424,14 @@ def write_readme(root: Path, target: Target) -> None:
         "",
         f"1. 실행: {start}",
         "   브라우저가 http://127.0.0.1:8000 으로 열립니다. 끝내려면 터미널(검은 창)에서 Ctrl+C.",
-        "2. OpenAI 키: 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣습니다.",
-        "   키는 브라우저에 저장하지 않고 서버 메모리에만 두며, 다시 시작하면 다시 넣어야 합니다.",
-        f"   키를 저장해 두려면 {setup} 를 실행합니다 → {key_path}",
+        f"2. API 키: 키 도우미 {keys} 로 OpenAI · OpenRouter 키를 넣고, 통하는지 확인합니다 → {key_path}",
+        "   저장한 키는 서버를 시작할 때 읽습니다. 실행 중에 저장했다면 Ctrl+C 로 끝내고 다시 실행하세요.",
+        "   OpenAI 키는 실행 후 화면 '새 영상 만들기'(요구사항 단계)의 'OpenAI API 키' 칸에 넣어도 됩니다",
+        "   (바로 쓰입니다. 브라우저에 저장하지 않고 서버 메모리에만 두며, 다시 시작하면 다시 넣어야 합니다).",
         f"   {launcher.KEY_STAYS_IN_FOLDER}.",
         f"3. 키·인터넷 없이 시연: {run} --offline   (DSL 프리셋)",
+        f"4. 실제 영상 생성 (OpenRouter, 장면마다 요금): {run} --video   (OpenRouter 키가 필요)",
+        f"   이 번들에는 ffmpeg 가 없습니다. 설치해 PATH 에 두세요: {install_ffmpeg}",
         "",
         *first_run,
         "- 압축은 바탕화면처럼 쓰기 가능한 폴더에 풉니다. DB·결과는 이 폴더의 .demo 에 저장됩니다.",

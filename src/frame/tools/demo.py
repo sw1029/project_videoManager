@@ -3,13 +3,16 @@
     python scripts/frame_demo.py doctor   # 실행 환경 점검
     python scripts/frame_demo.py setup    # 가상환경·의존성 설치, 화면 빌드, (선택) API 키 저장
     python scripts/frame_demo.py run      # 서버 하나로 화면과 API 를 띄우고 브라우저를 연다
+    python scripts/frame_demo.py keys     # API 키 설정 도우미 (OpenAI · OpenRouter): 넣기 · 확인 · 지우기
     python scripts/frame_demo.py smoke    # 설치 확인: 화면·API·구조화·키 입력 경로 자동 점검
 
-래퍼: Windows 는 scripts\\setup.cmd · scripts\\run.cmd, macOS·Linux 는 sh scripts/setup.sh · sh scripts/run.sh
+실제 영상 생성(OpenRouter, 요금): setup --video 로 ffmpeg 와 OpenRouter 키를 준비하고 run --video (demo_video).
+
+래퍼: Windows 는 scripts\\setup.cmd · run.cmd · keys.cmd, macOS·Linux 는 sh scripts/setup.sh · run.sh · keys.sh
 
 의존성을 설치하기 전에도 실행되므로 frame 의 다른 모듈(pydantic·fastapi 사용)을 import 하지 않는다.
-표준 라이브러리만 쓰는 frame.adapters.shared.api_keys (키 파일 읽는 규칙)만 가져온다.
-시연 상태(DB·산출물·키 파일)는 저장소의 .demo/ 에 두며 git 에서 제외된다.
+표준 라이브러리만 쓰는 frame.adapters.shared.api_keys (키 파일 읽는 규칙)와 같은 패키지의 demo_keys ·
+demo_video 만 가져온다. 시연 상태(DB·산출물·키 파일)는 저장소의 .demo/ 에 두며 git 에서 제외된다.
 """
 
 from __future__ import annotations
@@ -36,7 +39,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from http import HTTPStatus
 from pathlib import Path, PurePath
 
-from frame.adapters.shared.api_keys import find_key
+from frame.tools import demo_key_guide, demo_keys, demo_video
+from frame.tools.demo_keys import KEY_STAYS_IN_FOLDER, OPENAI, OPENROUTER
 
 MIN_PYTHON = (3, 11)
 MIN_NODE = 18
@@ -49,16 +53,11 @@ HEALTH_WAIT_S = 90.0  # 서버가 /health 에 답할 때까지 기다리는 시�
 RECOVERY_WAIT_S = 300.0
 SLOW_START_NOTICE_S = 15.0  # 이만큼 지나도 뜨지 않으면 까닭과 건너뛰는 방법을 알린다
 QUICK_TIMEOUT_S = 60.0  # 버전·상태를 묻는 짧은 실행. 이 안에 답이 없으면 없는 것으로 본다
+INTERRUPTED_EXIT_CODE = 130  # Ctrl+C 로 멈췄다 (셸의 관례: 128 + SIGINT 의 번호 2)
 LOOPBACK = "127.0.0.1"
-DEMO_DIR = ".demo"
-KEY_FILE_NAME = "openai.key"
+DEMO_DIR = demo_keys.DEMO_DIR
+KEY_FILE_NAME = OPENAI.file_name
 BUNDLE_MARKER = "frame-bundle.json"  # OS별 번들(Python·화면 동봉)의 루트에 있는 표식 파일
-# 저장한 키는 폴더 안에 평문으로 남는다. 준비해 둔 폴더를 USB·드라이브로 넘기면 키가 따라간다
-KEY_STAYS_IN_FOLDER = (
-    "저장한 키는 암호화되지 않은 채 이 폴더 안에 있습니다. "
-    "폴더를 복사하거나 다른 사람에게 넘기기 전에 .demo 폴더를 지우세요"
-)
-_KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]{17,400}")
 
 INSTALL_HINTS = {
     "python": {
@@ -117,11 +116,9 @@ def extract_key(text: str) -> str | None:
     """키 파일 내용이나 입력에서 OpenAI 키(sk-...)를 찾는다 (키만 있는 줄과 OPENAI_API_KEY=... 줄 모두).
 
     다른 서비스의 키는 집지 않는다: 다른 환경 변수의 값과 OpenRouter 키(sk-or-...)는 OpenAI 키가 아니다.
+    규칙은 demo_keys 에 있다 (OpenRouter 키도 같은 규칙으로 읽는다).
     """
-    key = find_key(text or "", name="OPENAI_API_KEY", token=_KEY_TOKEN)
-    if key is None or _KEY_TOKEN.fullmatch(key) is None or key.startswith("sk-or-"):
-        return None
-    return key
+    return demo_keys.extract(OPENAI, text)
 
 
 def npm_install_command(frontend: Path) -> list[str]:
@@ -137,22 +134,31 @@ def demo_env(
     base_env: Mapping[str, str],
     key_file: Path | None,
     lan: bool = False,
+    video: bool = False,
+    video_key_file: Path | None = None,
 ) -> dict[str, str]:
-    """시연 서버용 환경 변수. offline 이면 규칙 기반(DSL) 구조화로 인터넷·키 없이 동작한다."""
+    """시연 서버용 환경 변수. offline 이면 규칙 기반(DSL) 구조화로 인터넷·키 없이 동작한다.
+
+    video 면 실제 영상 모드다: OpenRouter 생성 · ffmpeg 조립 · 백그라운드 작업, DB 와 산출물은 .demo/video
+    (demo_video). video_key_file 은 저장한 OpenRouter 키다 (없으면 서버가 OPENROUTER_API_KEY 를 본다).
+    """
     demo = root / DEMO_DIR
+    state = demo_video.state_dir(demo) if video else demo
     env = dict(base_env)
     env.update(
         {
             "FRAME_STRUCTURER": "rule_based" if offline else "llm",
-            "FRAME_JOBS": "inline",  # 화면에 자동 새로고침이 없어 요청 안에서 처리를 끝낸다
+            "FRAME_JOBS": "inline",  # 가짜 생성기는 금방 끝나 요청 안에서 처리를 끝낸다 (실제 영상 모드는 thread)
             "FRAME_PERSISTENCE": "sqlalchemy",
-            "FRAME_DB_URL": sqlite_url(demo / "frame.db"),
+            "FRAME_DB_URL": sqlite_url(state / "frame.db"),
             "FRAME_ARTIFACT_STORE": "local_fs",
-            "FRAME_ARTIFACT_DIR": str(demo / "artifacts"),
+            "FRAME_ARTIFACT_DIR": str(state / "artifacts"),
             "FRAME_FRONTEND_DIST": str(root / "frontend" / "dist"),
             "PYTHONUTF8": "1",
         }
     )
+    if video:
+        demo_video.apply(env, key_file=video_key_file)
     if not offline:
         env["FRAME_LLM_RUNTIME_KEY"] = "true"  # 키가 없으면 화면에서 입력 (서버와 같은 기기에서만)
         if key_file is not None:
@@ -248,6 +254,10 @@ def setup_hint(platform: str = sys.platform, *, bundle: bool = False) -> str:
     return _wrapper_hint("setup", platform, bundle)
 
 
+def keys_hint(platform: str = sys.platform, *, bundle: bool = False) -> str:
+    return _wrapper_hint("keys", platform, bundle)
+
+
 def _wrapper_hint(name: str, platform: str, bundle: bool) -> str:
     """래퍼 위치: 저장소는 scripts/ 아래, 번들은 압축을 푼 폴더 바로 아래."""
     windows = platform_key(platform) == "win32"
@@ -257,18 +267,8 @@ def _wrapper_hint(name: str, platform: str, bundle: bool) -> str:
 
 
 def save_key(demo_dir: Path, key: str) -> Path:
-    """키를 .demo/openai.key 에 저장한다. POSIX 는 처음부터 소유자만 읽고 쓰게 만든다."""
-    demo_dir.mkdir(parents=True, exist_ok=True)
-    path = demo_dir / KEY_FILE_NAME
-    content = key.strip() + "\n"
-    if os.name == "nt":  # 사용자 폴더의 접근 권한(ACL)을 그대로 따른다
-        path.write_text(content, encoding="utf-8")
-        return path
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(content)
-    path.chmod(0o600)  # 이미 있던 파일이면 권한을 다시 맞춘다
-    return path
+    """키를 .demo/openai.key 에 저장한다. POSIX 는 처음부터 소유자만 읽고 쓰게 만든다 (demo_keys.save)."""
+    return demo_keys.save(demo_dir, OPENAI, key)
 
 
 def reset_state(demo_dir: Path) -> None:
@@ -286,7 +286,17 @@ def key_file_path(root: Path) -> Path:
 
 
 def _say(message: str) -> None:
-    print(f"[frame-demo] {message}", flush=True)
+    print(f"[frame-demo] {message}" if message else "", flush=True)
+
+
+def _console() -> demo_key_guide.Console:
+    """키 도우미가 쓰는 입출력: 이 실행기의 출력 형식, 보이는 입력(input), 보이지 않는 입력(getpass)."""
+    return demo_key_guide.Console(
+        say=_say,
+        error=lambda message: print(f"[frame-demo] 오류: {message}", file=sys.stderr, flush=True),
+        ask=lambda prompt: input(f"[frame-demo] {prompt}"),
+        ask_secret=lambda prompt: getpass.getpass(f"[frame-demo] {prompt}"),
+    )
 
 
 def _fail(message: str) -> int:
@@ -603,18 +613,39 @@ def _ready_to_run(root: Path) -> str | None:
 
 
 def _report_key_and_port(root: Path) -> None:
-    if key_file_path(root).is_file():
-        _say(f"OpenAI 키: .demo/openai.key 있음. {KEY_STAYS_IN_FOLDER}")
-    elif os.environ.get("OPENAI_API_KEY"):
-        _say("OpenAI 키: OPENAI_API_KEY 환경 변수 있음")
-    else:
-        _say(
-            "OpenAI 키: 없음. 실행 후 화면에서 넣거나, run --offline 으로 키 없이 시연할 수 있습니다"
-        )
+    bundle = is_bundle(root)
+    openai = demo_keys.status(root, OPENAI, os.environ)
+    later = (
+        ""
+        if openai.active
+        else ". 실행 후 화면에서 넣거나, run --offline 으로 키 없이 시연할 수 있습니다"
+    )
+    _say(f"OpenAI 키: {openai.describe()}{later}")
+    _say(
+        f"OpenRouter 키 (실제 영상 생성): {demo_keys.status(root, OPENROUTER, os.environ).describe()}"
+    )
+    if demo_keys.any_key_file(root):
+        _say(KEY_STAYS_IN_FOLDER)
+    _say(f"키 넣기 · 확인 · 지우기: {keys_hint(bundle=bundle)}")
+    video = _video_problems(root, os.environ)
+    _say(f"실제 영상 모드(run --video): {' / '.join(video) if video else '준비됨'}")
     port_state = (
         "사용 가능" if _port_free(DEFAULT_PORT, LOOPBACK) else "사용 중 (run --port 로 변경)"
     )
     _say(f"포트 {DEFAULT_PORT}: {port_state}")
+
+
+def _video_problems(root: Path, env: Mapping[str, str]) -> list[str]:
+    bundle = is_bundle(root)
+    return demo_video.problems(
+        root,
+        env,
+        bundle=bundle,
+        runtime_python=runtime_python(root),
+        ask=_ask,
+        keys_hint=keys_hint(bundle=bundle),
+        setup_hint=setup_hint(bundle=bundle),
+    )
 
 
 # ---- 명령 ---------------------------------------------------------------------------------
@@ -663,14 +694,24 @@ def cmd_doctor(root: Path) -> int:
     return 0 if python_ok and problem is None else 1
 
 
-def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: bool) -> int:
+def cmd_setup(
+    root: Path,
+    *,
+    key_file: str | None,
+    no_key: bool,
+    skip_frontend: bool,
+    video: bool = False,
+    openrouter_key_file: str | None = None,
+) -> int:
+    """video: 실제 영상 생성 준비 — 영상 묶음(ffmpeg)을 함께 설치하고 OpenRouter 키를 묻는다."""
     if is_bundle(root):  # 번들은 Python·의존성·화면이 이미 들어 있어 키 저장만 한다
         _say("이 번들에는 Python 과 화면이 들어 있어 설치가 필요 없습니다")
-        status = _store_key(root, key_file=key_file, no_key=no_key)
+        status = _store_key(root, key_file=key_file, no_key=no_key) or _store_video_key(
+            root, video=video, key_file=openrouter_key_file, no_key=no_key
+        )
         if status:
             return status
-        runner = runner_hint(bundle=True)
-        _say(f"실행: {runner}   (키 없이 오프라인 시연: {runner} --offline)")
+        _say_ready(root, video=video)
         return 0
     if not is_frame_checkout(
         root
@@ -698,8 +739,10 @@ def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: 
                 "가상환경을 만들지 못했습니다. Ubuntu·Debian 은 venv 패키지가 필요합니다: "
                 f"sudo apt install python{minor}-venv"
             )
-    _say("백엔드 의존성을 설치합니다 (처음에는 몇 분 걸릴 수 있습니다)")
-    pip = [str(venv), "-m", "pip", "install", "--disable-pip-version-check", "-e", ".[llm]"]
+    extras = f"llm,{demo_video.VIDEO_EXTRA}" if video else "llm"
+    with_video = " · 실제 영상용 ffmpeg 포함" if video else ""
+    _say(f"백엔드 의존성을 설치합니다 (처음에는 몇 분 걸릴 수 있습니다{with_video})")
+    pip = [str(venv), "-m", "pip", "install", "--disable-pip-version-check", "-e", f".[{extras}]"]
     if _run(pip, root) != 0:
         return _fail(
             "백엔드 의존성 설치에 실패했습니다. 인터넷 연결과 위의 pip 메시지를 확인하세요"
@@ -728,10 +771,51 @@ def cmd_setup(root: Path, *, key_file: str | None, no_key: bool, skip_frontend: 
                     "화면 빌드에 실패했습니다. frontend/node_modules 를 지우고 다시 실행해 보세요"
                 )
 
-    status = _store_key(root, key_file=key_file, no_key=no_key)
+    status = _store_key(root, key_file=key_file, no_key=no_key) or _store_video_key(
+        root, video=video, key_file=openrouter_key_file, no_key=no_key
+    )
     if status:
         return status
-    _say(f"준비 완료. 실행: {runner_hint()}   (키 없이 오프라인 시연: {runner_hint()} --offline)")
+    _say_ready(root, video=video)
+    return 0
+
+
+def _say_ready(root: Path, *, video: bool) -> None:
+    bundle = is_bundle(root)
+    runner = runner_hint(bundle=bundle)
+    _say(
+        f"{'실행' if bundle else '준비 완료. 실행'}: {runner}   (키 없이 오프라인 시연: {runner} --offline)"
+    )
+    if not video:
+        prepare = demo_video.prepare_hint(bundle=bundle, setup_hint=setup_hint(bundle=bundle))
+        _say(f"실제 영상 생성(OpenRouter, 요금): {runner} --video — {prepare}")
+    elif problems := _video_problems(root, os.environ):
+        _say(f"실제 영상 모드는 아직 준비되지 않았습니다: {' / '.join(problems)}")
+    else:
+        _say(f"실제 영상: {runner} --video   (장면마다 OpenRouter 요금)")
+    _say(f"키 넣기 · 확인 · 지우기: {keys_hint(bundle=bundle)}")
+
+
+def _store_video_key(root: Path, *, video: bool, key_file: str | None, no_key: bool) -> int:
+    """OpenRouter 키 (실제 영상 생성). --openrouter-key-file 이면 그 파일에서, setup --video 면 물어서 저장한다."""
+    console = _console()
+    if key_file:
+        if not demo_key_guide.import_file(root, OPENROUTER, key_file, console):
+            return 1
+        _say(KEY_STAYS_IN_FOLDER)
+        return 0
+    if not video:
+        return 0
+    current = demo_keys.status(root, OPENROUTER, os.environ)
+    if current.active:
+        _say(f"OpenRouter 키: {current.describe()}")
+        return 0
+    if no_key or not sys.stdin.isatty():
+        later = keys_hint(bundle=is_bundle(root))
+        _say(f"OpenRouter 키는 {later} 로 넣을 수 있습니다 (실제 영상 생성에 필요)")
+        return 0
+    if demo_key_guide.enter_key(root, OPENROUTER, os.environ, console, offer_check=False):
+        _say(KEY_STAYS_IN_FOLDER)
     return 0
 
 
@@ -778,23 +862,45 @@ def _say_key_saved(root: Path) -> None:
 
 
 def cmd_run(
-    root: Path, *, port: int, offline: bool, lan: bool, open_browser: bool, reset: bool
+    root: Path,
+    *,
+    port: int,
+    offline: bool,
+    lan: bool,
+    open_browser: bool,
+    reset: bool,
+    video: bool = False,
 ) -> int:
+    """video: 실제 영상 생성 (OpenRouter · ffmpeg, 데이터는 .demo/video — demo_video)."""
+    if video and offline:
+        return _fail(
+            "--video 와 --offline 은 함께 쓸 수 없습니다 (실제 영상 생성에는 인터넷이 필요합니다)"
+        )
     problem = _ready_to_run(root)
     if problem:
         return _fail(problem)
+    if video and (problems := _video_problems(root, os.environ)):
+        return _fail(" / ".join(problems))
     demo = root / DEMO_DIR
+    state = demo_video.state_dir(demo) if video else demo
     host = "0.0.0.0" if lan else LOOPBACK  # noqa: S104 - --lan 은 같은 네트워크에 여는 선택 기능이다
     if not _port_free(port, host):  # 지우기 전에 본다: 띄우지도 못할 실행이 DB 를 지우지 않게
         return _fail(f"포트 {port} 를 이미 쓰고 있습니다. --port 로 바꾸세요 (예: --port 8010)")
     if reset:
-        reset_state(demo)
-        _say("시연 DB 와 산출물을 지웠습니다 (키 파일은 그대로)")
-    demo.mkdir(exist_ok=True)
+        reset_state(state)
+        where = f"{DEMO_DIR}/{demo_video.VIDEO_DIR}" if video else DEMO_DIR
+        _say(f"시연 DB 와 산출물을 지웠습니다 ({where}, 키 파일은 그대로)")
+    state.mkdir(parents=True, exist_ok=True)
     _stop_on_termination_signals()
-    key = key_file_path(root)
+    # .demo 의 키 파일은 그 서비스의 키가 들어 있을 때만 넘긴다: 아니면 셸의 FRAME_*_KEY_FILE 을 덮지 않는다
     env = demo_env(
-        root, offline=offline, lan=lan, base_env=os.environ, key_file=key if key.is_file() else None
+        root,
+        offline=offline,
+        lan=lan,
+        base_env=os.environ,
+        key_file=demo_keys.usable_key_file(root, OPENAI),
+        video=video,
+        video_key_file=demo_keys.usable_key_file(root, OPENROUTER) if video else None,
     )
     process = _start_server(root, env, host, port)
     base = f"http://{LOOPBACK}:{port}"
@@ -804,7 +910,14 @@ def cmd_run(
         )
         if problem:
             return _fail(problem)
-        _announce(base, port, offline=offline, lan=lan_notes(env) if lan else None)
+        _announce(
+            base,
+            port,
+            offline=offline,
+            lan=lan_notes(env) if lan else None,
+            video=demo_video.notices(env, root) if video else None,
+            keys_command=keys_hint(bundle=is_bundle(root)),
+        )
         if open_browser and can_open_browser():
             webbrowser.open(base)
         while process.poll() is None:  # Windows 에서도 Ctrl+C 로 바로 끝낼 수 있게 짧게 기다린다
@@ -817,9 +930,23 @@ def cmd_run(
         _stop(process)
 
 
-def _announce(base: str, port: int, *, offline: bool, lan: Sequence[str] | None) -> None:
-    """lan: 네트워크에 열었으면 그때 적용된 설정 안내(lan_notes), 이 기기에만 열었으면 None."""
+def _announce(
+    base: str,
+    port: int,
+    *,
+    offline: bool,
+    lan: Sequence[str] | None,
+    video: Sequence[str] | None = None,
+    keys_command: str = "",
+) -> None:
+    """lan: 네트워크에 열었으면 그때 적용된 설정 안내(lan_notes), 이 기기에만 열었으면 None.
+
+    video: 실제 영상 모드의 안내(demo_video.notices), 가짜 생성기면 None.
+    keys_command: 키 도우미를 부르는 명령 (저장소·번들마다 다르다. 비우면 저장소의 것).
+    """
     mode = "오프라인 (DSL 프리셋, 키 불필요)" if offline else "LLM 자연어 구조화"
+    if video is not None:
+        mode += " + 실제 영상 생성"
     _say(f"실행 중: {base}   [{mode}]   끝내려면 Ctrl+C")
     if not offline:
         key = _json("GET", f"{base}/health")[1].get("llm_key") or {}
@@ -827,8 +954,11 @@ def _announce(base: str, port: int, *, offline: bool, lan: Sequence[str] | None)
             _say(f"OpenAI 키: 준비됨 ({key.get('hint')})")
         else:
             _say(
-                "OpenAI 키: 없음 → 화면 '01 · 새 프로젝트 생성'의 'OpenAI API 키' 칸에 넣으세요 (이 기기에서만)"
+                "OpenAI 키: 없음 → 화면 '새 영상 만들기'(요구사항 단계)의 'OpenAI API 키' 칸에 넣거나, "
+                f"끝낸 뒤 {keys_command or keys_hint()} 로 저장하세요"
             )
+    for note in video or ():
+        _say(note)
     if lan is not None:
         _say(f"같은 네트워크의 다른 기기(iPhone·iPad·다른 PC): http://{_lan_ip()}:{port}")
         _say(
@@ -951,6 +1081,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-key", action="store_true", help="키를 묻지 않음 (실행 후 화면에서 입력)"
     )
     setup.add_argument("--skip-frontend", action="store_true", help="화면 빌드 생략")
+    setup.add_argument(
+        "--video",
+        action="store_true",
+        help="실제 영상 생성 준비: 영상 묶음(ffmpeg)을 함께 설치하고 OpenRouter 키를 묻는다",
+    )
+    setup.add_argument(
+        "--openrouter-key-file",
+        metavar="PATH",
+        help="OpenRouter 키가 든 파일 (내용을 .demo/openrouter.key 로 복사)",
+    )
     run = sub.add_parser("run", help="화면+API 서버 실행")
     run.add_argument("--port", type=int, default=DEFAULT_PORT)
     run.add_argument(
@@ -959,9 +1099,81 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--lan", action="store_true", help="같은 네트워크의 다른 기기에서 보기 허용")
     run.add_argument("--no-browser", action="store_true", help="브라우저를 자동으로 열지 않음")
     run.add_argument("--reset", action="store_true", help="시연 DB·산출물을 지우고 시작 (키 유지)")
+    run.add_argument(
+        "--video",
+        action="store_true",
+        help="실제 영상 생성 (OpenRouter · 장면마다 요금 · 480p). 데이터는 .demo/video 에 따로",
+    )
+    keys = sub.add_parser(
+        "keys", help="API 키 설정 도우미 (OpenAI · OpenRouter): 넣기 · 확인 · 지우기"
+    )
+    keys.add_argument("--status", action="store_true", help="저장한 키의 상태만 보기")
+    keys.add_argument(
+        "--check", action="store_true", help="키가 통하는지 온라인으로 확인 (돈이 들지 않는 조회)"
+    )
+    keys.add_argument(
+        "--openai-file", metavar="PATH", help="OpenAI 키가 든 파일 (.demo/openai.key 로 복사)"
+    )
+    keys.add_argument(
+        "--openrouter-file",
+        metavar="PATH",
+        help="OpenRouter 키가 든 파일 (.demo/openrouter.key 로 복사)",
+    )
+    keys.add_argument(
+        "--remove",
+        action="append",
+        choices=[kind.name for kind in demo_keys.KINDS],
+        help="저장한 키 파일 지우기 (여러 번 줄 수 있다)",
+    )
     smoke = sub.add_parser("smoke", help="설치 확인용 자동 점검")
     smoke.add_argument("--port", type=int, default=0, help="0 이면 빈 포트를 자동 선택")
     return parser
+
+
+def cmd_keys(root: Path, args: argparse.Namespace) -> int:
+    """API 키 설정 도우미. 옵션 없이 터미널에서 부르면 대화형으로, 아니면 옵션대로 하고 상태를 보인다."""
+    bundle = is_bundle(root)
+    hints = demo_key_guide.Hints(
+        run=runner_hint(bundle=bundle),
+        keys=keys_hint(bundle=bundle),
+        prepare_video=demo_video.prepare_hint(bundle=bundle, setup_hint=setup_hint(bundle=bundle)),
+    )
+    sources = ((OPENAI, args.openai_file), (OPENROUTER, args.openrouter_file))
+    try:
+        return demo_key_guide.keys_command(
+            root,
+            os.environ,
+            _console(),
+            hints,
+            interactive=sys.stdin.isatty(),
+            show_only=args.status,
+            run_check=args.check,
+            files={kind: path for kind, path in sources if path},
+            remove_names=tuple(args.remove or ()),
+            online=demo_keys.Online(addresses=lambda: service_addresses(root)),
+        )
+    except KeyboardInterrupt:  # 확인을 기다리다 Ctrl+C (대화형 메뉴 안에서는 메뉴로 돌아간다)
+        _say("멈췄습니다")
+        return INTERRUPTED_EXIT_CODE
+
+
+def service_addresses(root: Path) -> dict[str, str] | None:
+    """서버가 키를 보낼 주소 (설치된 서버 코드에 묻는다, demo_keys.ADDRESS_PROBE). 설치 전이면 None.
+
+    런처는 frame.config 를 import 하지 못한다 (의존성 설치 전에도 돈다). 주소를 여기 다시 적지 않고 서버의
+    Python(번들의 python 또는 .venv)으로 설정을 읽어, 서버가 실제로 쓸 주소(셸의 FRAME_*_BASE_URL 포함)를 받는다.
+    """
+    python = runtime_python(root)
+    if not python.is_file():
+        return None
+    done = _ask([str(python), "-I", "-X", "utf8", "-c", demo_keys.ADDRESS_PROBE], cwd=root)
+    if done is None or done.returncode != 0 or not done.stdout.strip():
+        return None
+    try:
+        data = json.loads(done.stdout.strip().splitlines()[-1])
+    except ValueError:
+        return None
+    return {str(k): str(v) for k, v in data.items() if v} if isinstance(data, dict) else None
 
 
 def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
@@ -973,9 +1185,16 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     if not python_supported(sys.version_info[:2]):
         current = pyplatform.python_version()
         return _fail(f"Python 3.11 이상이 필요합니다 (현재 {current}). 설치: {_hint('python')}")
+    if args.command == "keys":
+        return cmd_keys(root, args)
     if args.command == "setup":
         return cmd_setup(
-            root, key_file=args.key_file, no_key=args.no_key, skip_frontend=args.skip_frontend
+            root,
+            key_file=args.key_file,
+            no_key=args.no_key,
+            skip_frontend=args.skip_frontend,
+            video=args.video,
+            openrouter_key_file=args.openrouter_key_file,
         )
     if args.command == "run":
         return cmd_run(
@@ -985,6 +1204,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
             lan=args.lan,
             open_browser=not args.no_browser,
             reset=args.reset,
+            video=args.video,
         )
     return cmd_smoke(root, port=args.port)
 

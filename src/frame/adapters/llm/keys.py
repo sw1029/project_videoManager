@@ -5,14 +5,14 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from frame.adapters.shared import api_keys
 
 KEY_VARIABLE = "OPENAI_API_KEY"
 OPENROUTER_PREFIX = "sk-or-"  # 다른 회사(OpenRouter)의 키. OpenAI 주소로는 보내지 않는다
-_KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]+")
+# 키 모양은 공용 모듈의 것이다: 시연 실행기의 키 도우미도 같은 규칙으로 읽는다 (ADR-0037)
+_KEY_TOKEN = api_keys.OPENAI_KEY_TOKEN
 
 
 def read_key_file(path: str | Path) -> str | None:

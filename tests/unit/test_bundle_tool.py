@@ -184,6 +184,47 @@ def test_readme_matches_the_os(tmp_path):
     assert "sh run.sh" in linux and "xattr" not in linux
 
 
+@pytest.mark.parametrize("command", ["keys", "setup"])
+def test_bundle_wrappers_that_ask_for_keys_wait_only_when_double_clicked(tmp_path, command):
+    bundle.write_wrappers(tmp_path, WINDOWS)
+    raw = (tmp_path / f"{command}.cmd").read_bytes()
+    assert raw.isascii() and all(byte >= 0x20 or byte in b"\r\n" for byte in raw)
+    lines = raw.decode("ascii").splitlines()
+    assert any(f"--root . {command} %*" in line for line in lines)
+    # 탐색기가 여는 꼴(%ComSpec% /c <이 파일의 전체 경로>)과 똑같을 때만 멈춘다. 명령줄은 따옴표 안에서만 펼친다
+    start = lines.index('set "PAUSE_AT_END="')
+    assert lines[start + 1] == 'set "LAUNCH=%cmdcmdline:"=%"'
+    assert lines[start + 2] == 'if /i "%LAUNCH%"=="%ComSpec% /c %~f0 " set "PAUSE_AT_END=1"'
+    assert lines[-3:] == bundle._CMD_PAUSE_END  # 멈춘 뒤에도 그 명령의 종료 코드를 돌려준다
+    bundle.write_wrappers(tmp_path, LINUX)
+    assert f'--root "$DIR" {command} "$@"' in (tmp_path / f"{command}.sh").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_bundle_run_wrapper_never_waits(tmp_path):
+    """CI 의 번들 확인이 cmd /c run.cmd --help 를 부른다 — 멈춰서 입력을 기다리면 안 된다."""
+    bundle.write_wrappers(tmp_path, WINDOWS)
+    assert "PAUSE_AT_END" not in (tmp_path / "run.cmd").read_text(encoding="ascii")
+
+
+@pytest.mark.parametrize(
+    ("target", "keys", "ffmpeg"),
+    [
+        (WINDOWS, "keys.cmd", "winget install Gyan.FFmpeg"),
+        (MAC_ARM, "sh keys.sh", "brew install ffmpeg"),
+        (LINUX, "sh keys.sh", "sudo apt install ffmpeg"),
+    ],
+    ids=["windows", "macos", "linux"],
+)
+def test_readme_explains_the_key_helper_and_what_real_videos_need(tmp_path, target, keys, ffmpeg):
+    bundle.write_readme(tmp_path, target)
+    readme = (tmp_path / "README.txt").read_text(encoding="utf-8")
+    assert f"키 도우미 {keys}" in readme and "openrouter.key" in readme
+    # 번들에는 ffmpeg 를 넣지 않는다 (크기 · 라이선스, ADR-0037): 실제 영상 모드는 설치한 ffmpeg 를 쓴다
+    assert "--video" in readme and ffmpeg in readme
+
+
 @pytest.mark.parametrize("target", [WINDOWS, MAC_ARM, LINUX], ids=["windows", "macos", "linux"])
 def test_readme_warns_that_a_stored_key_travels_with_the_folder(tmp_path, target):
     # setup 으로 저장한 키는 번들 폴더 안(.demo)에 평문으로 남는다 - 폴더를 넘기면 키가 따라간다
