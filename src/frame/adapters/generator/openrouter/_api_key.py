@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -17,7 +16,8 @@ from frame.application.errors import (
 )
 
 KEY_ENV = "OPENROUTER_API_KEY"
-KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
+# 키 모양은 공용 모듈의 것이다: 시연 실행기의 키 도우미도 같은 규칙으로 읽는다 (ADR-0037)
+KEY_TOKEN = api_keys.OPENROUTER_KEY_TOKEN
 
 
 def resolve_openrouter_key(

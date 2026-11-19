@@ -1,5 +1,6 @@
 @echo off
 rem FRAME demo run for Windows. Options: --offline --lan --port N --reset --no-browser
+rem --video: real video generation with OpenRouter (paid per scene, needs setup --video and an OpenRouter key)
 setlocal
 cd /d "%~dp0.."
 set "PY="

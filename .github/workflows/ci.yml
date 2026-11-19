@@ -193,6 +193,7 @@ jobs:
 
   demo-smoke:
     # 새 기기 시연 경로(docs/DEMO.md)를 세 OS 에서 그대로 따라 한다: setup → smoke (키·외부 호출 없음)
+    # → 키 도우미의 상태 보기 (터미널이 아니면 묻지 않고 상태만 보인다 — CI 에서 멈추지 않는다, ADR-0037)
     strategy:
       fail-fast: false
       matrix:
@@ -209,3 +210,4 @@ jobs:
           node-version: "20"
       - run: python scripts/frame_demo.py setup --no-key
       - run: python scripts/frame_demo.py smoke
+      - run: python scripts/frame_demo.py keys --status

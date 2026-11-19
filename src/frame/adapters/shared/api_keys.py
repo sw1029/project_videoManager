@@ -16,7 +16,14 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["find_key", "mask_key"]
+__all__ = ["OPENAI_KEY_TOKEN", "OPENROUTER_KEY_TOKEN", "find_key", "mask_key"]
+
+# 서비스마다 키 파일에서 키로 알아보는 모양. 서버의 어댑터(llm.keys · openrouter._api_key)와 시연 실행기의 키
+# 도우미가 이것 하나로 읽는다 — 도우미가 알리는 키가 서버가 실제로 읽을 키와 같도록 (ADR-0037).
+# OpenAI 의 모양은 sk-or- 도 받는다: FRAME_LLM_BASE_URL 을 OpenRouter 로 돌리면 그 키를 쓴다
+# (OpenAI 주소로는 보내지 않는다 — llm.openai_client)
+OPENAI_KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_\-]+")
+OPENROUTER_KEY_TOKEN = re.compile(r"sk-or-[A-Za-z0-9_\-]+")
 
 _ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$")
 _ENVIRONMENT_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")

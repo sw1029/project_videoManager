@@ -522,3 +522,384 @@ def test_entry_script_points_at_the_repository_root():
     script = Path(__file__).resolve().parents[2] / "scripts" / "frame_demo.py"
     assert script.is_file()
     assert "parents[1]" in script.read_text(encoding="utf-8")
+
+
+# ---- 실제 영상 모드 (run --video) 와 키 도우미 (keys), ADR-0037 ---------------------------------
+
+ROUTER_KEY = "sk-or-v1-" + "b" * 24 + "cdef"
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+
+
+def test_video_demo_env_uses_the_real_generator_and_its_own_data_folder(tmp_path):
+    key = tmp_path / ".demo" / "openrouter.key"
+    env = demo.demo_env(
+        tmp_path,
+        offline=False,
+        base_env={"FRAME_VIDEO_RESOLUTION": "720p", "FRAME_JOBS": "inline"},
+        key_file=None,
+        video=True,
+        video_key_file=key,
+    )
+    assert env["FRAME_GENERATOR"] == "external_api" and env["FRAME_ASSEMBLER"] == "ffmpeg"
+    assert (
+        env["FRAME_JOBS"] == "thread"
+    )  # 장면 하나에 몇 분: 요청 안에서 끝낼 수 없다 (셸의 값도 덮는다)
+    assert env["FRAME_VIDEO_KEY_FILE"] == str(key)
+    # 가짜 생성기로 쓰던 DB 의 남은 작업이 기동 복구로 유료 생성기에 돌지 않게 따로 둔다
+    assert env["FRAME_DB_URL"] == demo.sqlite_url(tmp_path / ".demo" / "video" / "frame.db")
+    assert env["FRAME_ARTIFACT_DIR"] == str(tmp_path / ".demo" / "video" / "artifacts")
+    assert env["FRAME_VIDEO_RESOLUTION"] == "720p"  # 셸에서 정한 값은 그대로
+    assert env["FRAME_CHECKERS"] == "vlm_requirement,vlm_consistency,ssim_preservation"
+    plain = demo.demo_env(tmp_path, offline=False, base_env={}, key_file=None)
+    assert "FRAME_GENERATOR" not in plain and plain["FRAME_JOBS"] == "inline"
+
+
+def test_video_demo_env_is_understood_by_frame_settings(tmp_path):
+    env = demo.demo_env(tmp_path, offline=False, base_env={}, key_file=None, video=True)
+    settings = Settings.from_env(env)
+    assert settings.generator == "external_api" and settings.assembler == "ffmpeg"
+    assert settings.jobs == "thread" and settings.video_resolution == "480p"
+    assert settings.checkers == ("vlm_requirement", "vlm_consistency", "ssim_preservation")
+    # 생성기 전체의 시간 제한은 영상 하나를 기다리는 시간보다 길어야 한다 (ADR-0012)
+    assert settings.generator_timeout_s > settings.video_timeout_s
+
+
+def test_video_mode_problems_say_what_to_do_in_a_repository_and_in_a_bundle(tmp_path, monkeypatch):
+    monkeypatch.setattr(demo.demo_video.shutil, "which", lambda name: None)
+    nothing = lambda command: None  # noqa: E731 - 런타임 Python 이 없어 imageio-ffmpeg 도 못 찾는다
+    common = {"runtime_python": tmp_path / "python", "ask": nothing, "keys_hint": "keys.cmd"}
+
+    repository = demo.demo_video.problems(
+        tmp_path, {}, bundle=False, setup_hint="setup.cmd", **common
+    )
+    bundled = demo.demo_video.problems(tmp_path, {}, bundle=True, setup_hint="setup.cmd", **common)
+
+    assert "OpenRouter 키가 없습니다. keys.cmd 로 넣으세요" in repository[0]
+    assert "setup.cmd --video" in repository[1] and "PATH" in bundled[1]
+    with_key = {"OPENROUTER_API_KEY": ROUTER_KEY, "FRAME_VIDEO_FFMPEG": str(SCRIPTS / "run.sh")}
+    assert (
+        demo.demo_video.problems(tmp_path, with_key, bundle=False, setup_hint="s", **common) == []
+    )
+
+
+def test_run_video_stops_before_starting_a_server_when_it_is_not_ready(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(demo, "_ready_to_run", lambda root: None)
+    monkeypatch.setattr(demo, "_video_problems", lambda root, env: ["OpenRouter 키가 없습니다"])
+    monkeypatch.setattr(demo, "_start_server", lambda *a, **k: pytest.fail("띄우면 안 된다"))
+
+    code = demo.main(["run", "--video", "--no-browser"], root=tmp_path)
+
+    assert code == 1 and "OpenRouter 키가 없습니다" in capsys.readouterr().err
+    assert demo.main(["run", "--video", "--offline"], root=tmp_path) == 1
+    assert "함께 쓸 수 없습니다" in capsys.readouterr().err
+
+
+def test_setup_video_installs_ffmpeg_with_the_backend_and_stores_the_openrouter_key(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "frame").mkdir(parents=True)
+    (tmp_path / "src" / "frame" / "__init__.py").write_text("", encoding="utf-8")
+    source = tmp_path / "router.txt"
+    source.write_text(f"OPENROUTER_API_KEY={ROUTER_KEY}\n", encoding="utf-8")
+    commands: list[list[str]] = []
+    monkeypatch.setattr(demo, "_venv_ready", lambda python: True)
+    monkeypatch.setattr(demo, "_run", lambda command, cwd: commands.append(list(command)) or 0)
+    monkeypatch.setattr(demo, "_video_problems", lambda root, env: [])
+
+    code = demo.main(
+        ["setup", "--video", "--no-key", "--skip-frontend", "--openrouter-key-file", str(source)],
+        root=tmp_path,
+    )
+
+    assert code == 0
+    assert commands[-1][-2:] == ["-e", ".[llm,video]"]
+    assert (tmp_path / ".demo" / "openrouter.key").read_text(encoding="utf-8") == ROUTER_KEY + "\n"
+    out = capsys.readouterr().out
+    assert ROUTER_KEY not in out and "--video" in out
+
+
+def test_plain_setup_keeps_the_lighter_install_and_says_how_to_get_real_videos(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "frame").mkdir(parents=True)
+    (tmp_path / "src" / "frame" / "__init__.py").write_text("", encoding="utf-8")
+    commands: list[list[str]] = []
+    monkeypatch.setattr(demo, "_venv_ready", lambda python: True)
+    monkeypatch.setattr(demo, "_run", lambda command, cwd: commands.append(list(command)) or 0)
+
+    assert demo.main(["setup", "--no-key", "--skip-frontend"], root=tmp_path) == 0
+
+    assert commands[-1][-1] == ".[llm]"
+    assert not (tmp_path / ".demo" / "openrouter.key").exists()
+    assert f"{demo.setup_hint()} --video" in capsys.readouterr().out
+
+
+def test_doctor_reports_both_keys_and_whether_real_video_mode_is_ready(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(demo, "_video_problems", lambda root, env: ["ffmpeg 가 없습니다"])
+    demo.demo_keys.save(tmp_path / ".demo", demo.OPENROUTER, ROUTER_KEY)
+
+    demo._report_key_and_port(tmp_path)
+
+    out = capsys.readouterr().out
+    assert "OpenRouter 키 (실제 영상 생성): .demo/openrouter.key 있음 (sk-or-...cdef)" in out
+    assert "실제 영상 모드(run --video): ffmpeg 가 없습니다" in out
+    assert f"키 넣기 · 확인 · 지우기: {demo.keys_hint()}" in out
+    assert ROUTER_KEY not in out
+
+
+def test_keys_command_without_a_terminal_shows_the_status_and_asks_nothing(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(demo.sys.stdin, "isatty", lambda: False, raising=False)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("묻지 않는다"))
+
+    assert demo.main(["keys"], root=tmp_path) == 0
+
+    out = capsys.readouterr().out
+    assert "OpenAI API 키: 없음" in out and "OpenRouter API 키: 없음" in out
+
+
+def test_service_addresses_are_asked_of_the_installed_server_code(tmp_path, monkeypatch):
+    assert demo.service_addresses(tmp_path) is None  # 설치 전: 물을 서버 Python 이 없다
+    python = demo.venv_python(tmp_path)
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+    asked: list[list[str]] = []
+    answer = 'log line\n{"openai": "https://a.example/v1", "openrouter": "https://b.example/v1"}\n'
+
+    def ask(command, *, cwd=None, env=None):
+        asked.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout=answer, stderr="")
+
+    monkeypatch.setattr(demo, "_ask", ask)
+
+    assert demo.service_addresses(tmp_path) == {
+        "openai": "https://a.example/v1",
+        "openrouter": "https://b.example/v1",
+    }
+    assert asked[0][:2] == [str(python), "-I"]  # 서버와 같은 격리 실행 (다른 Python 설정을 무시)
+    assert demo.demo_keys.ADDRESS_PROBE in asked[0]
+    monkeypatch.setattr(demo, "_ask", lambda *a, **k: None)  # 시간 안에 답하지 못함
+    assert demo.service_addresses(tmp_path) is None
+
+
+def test_keys_options_are_parsed():
+    args = demo.build_parser().parse_args(
+        [
+            "keys",
+            "--check",
+            "--remove",
+            "openai",
+            "--remove",
+            "openrouter",
+            "--openrouter-file",
+            "k",
+        ]
+    )
+    assert args.check and args.remove == ["openai", "openrouter"] and args.openrouter_file == "k"
+    with pytest.raises(SystemExit):
+        demo.build_parser().parse_args(["keys", "--remove", "everything"])
+
+
+@pytest.mark.parametrize("command", ["keys", "setup"])
+def test_interactive_wrappers_wait_only_when_double_clicked(command):
+    """키를 묻는 래퍼는 탐색기 더블클릭으로 열었을 때만 끝에서 멈춘다 — 번들의 래퍼와 같은 판별 줄이다."""
+    from frame.tools import bundle
+
+    raw = (SCRIPTS / f"{command}.cmd").read_bytes()
+    assert raw.isascii() and raw.count(b"\r\n") == raw.count(b"\n")  # cmd.exe: ASCII + CRLF
+    # 역슬래시가 이스케이프로 먹혀 생긴 제어 문자(scripts\frame_demo 의 \f 등)가 없다
+    assert all(byte >= 0x20 or byte in b"\r\n" for byte in raw)
+    lines = raw.decode("ascii").splitlines()
+    assert f"%PY% scripts\\frame_demo.py {command} %*" in lines
+    # 명령줄은 따옴표 안에서만 펼치고(경로의 & 가 줄을 가르지 않게), 탐색기가 여는 꼴과 똑같을 때만 멈춘다
+    start = lines.index(bundle._CMD_PAUSE_START[0])
+    assert lines[start : start + len(bundle._CMD_PAUSE_START)] == bundle._CMD_PAUSE_START
+    assert lines[-3:] == bundle._CMD_PAUSE_END  # 멈춘 뒤에도 도우미의 종료 코드를 돌려준다
+    sh = (SCRIPTS / f"{command}.sh").read_text(encoding="utf-8")
+    assert f'scripts/frame_demo.py {command} "$@"' in sh
+
+
+def test_run_wrapper_never_waits_for_a_key():
+    """run.cmd 는 CI(번들 확인의 run.cmd --help)와 서버 실행에 쓰인다 — 끝에서 멈추지 않는다."""
+    assert "PAUSE_AT_END" not in (SCRIPTS / "run.cmd").read_text(encoding="ascii")
+
+
+def test_run_video_hands_the_server_the_real_generator_and_resets_only_its_own_data(
+    tmp_path, monkeypatch, capsys
+):
+    """--video --reset: 서버에는 실제 생성기 설정이 가고, 지우는 것은 .demo/video 뿐이다 (가짜 모드 DB 는 그대로)."""
+    demo.demo_keys.save(tmp_path / ".demo", demo.OPENROUTER, ROUTER_KEY)
+    (tmp_path / ".demo" / "openai.key").write_text("not a key\n", encoding="utf-8")
+    plain_db = tmp_path / ".demo" / "frame.db"
+    plain_db.write_text("plain", encoding="utf-8")
+    (tmp_path / ".demo" / "video").mkdir()
+    video_db = tmp_path / ".demo" / "video" / "frame.db"
+    video_db.write_text("video", encoding="utf-8")
+    seen: dict[str, str] = {}
+
+    def start(root, env, host, port):
+        seen.update(env)
+        raise RuntimeError("멈춤")
+
+    monkeypatch.setattr(demo, "_ready_to_run", lambda root: None)
+    monkeypatch.setattr(demo, "_video_problems", lambda root, env: [])
+    monkeypatch.setattr(demo, "_port_free", lambda port, host: True)
+    monkeypatch.setattr(demo, "_stop_on_termination_signals", lambda: None)
+    monkeypatch.setattr(demo, "_start_server", start)
+    monkeypatch.delenv("FRAME_LLM_KEY_FILE", raising=False)
+
+    with pytest.raises(RuntimeError, match="멈춤"):
+        demo.cmd_run(
+            tmp_path,
+            port=8099,
+            offline=False,
+            lan=False,
+            open_browser=False,
+            reset=True,
+            video=True,
+        )
+
+    assert seen["FRAME_GENERATOR"] == "external_api" and seen["FRAME_JOBS"] == "thread"
+    assert seen["FRAME_DB_URL"] == demo.sqlite_url(video_db)
+    assert seen["FRAME_VIDEO_KEY_FILE"] == str(tmp_path / ".demo" / "openrouter.key")
+    assert "FRAME_LLM_KEY_FILE" not in seen  # 키가 아닌 .demo/openai.key 는 서버에 넘기지 않는다
+    assert plain_db.exists() and not video_db.exists()
+    assert ".demo/video" in capsys.readouterr().out
+
+
+def test_ffmpeg_installed_by_setup_video_is_found_through_the_servers_python(tmp_path, monkeypatch):
+    pytest.importorskip("imageio_ffmpeg")  # video extra (CI 의 test · compat 잡은 깐다)
+    monkeypatch.setattr(demo.demo_video.shutil, "which", lambda name: None)
+
+    found = demo.demo_video.ffmpeg_source({}, tmp_path, Path(sys.executable), demo._ask)
+
+    assert found is not None and Path(found).is_file()
+    exe = tmp_path / "ff" / "ffmpeg.exe"
+    answer = subprocess.CompletedProcess([], 0, stdout=f"warning\n{exe}\n", stderr="")
+    picked = demo.demo_video.ffmpeg_source({}, tmp_path, Path("python"), lambda command: answer)
+    assert picked == str(exe)  # 마지막 줄이 경로다 (앞의 경고는 무시)
+
+
+def test_a_wrong_ffmpeg_setting_is_reported_as_that_setting_not_as_a_missing_install(
+    tmp_path, monkeypatch
+):
+    """FRAME_VIDEO_FFMPEG 를 정했으면 서버는 그 파일만 본다 (PATH 로 넘어가지 않는다) — 고칠 것은 그 변수다."""
+    on_path = str(tmp_path / "elsewhere" / "ffmpeg.exe")
+    monkeypatch.setattr(demo.demo_video.shutil, "which", lambda name: on_path)
+    env = {"OPENROUTER_API_KEY": ROUTER_KEY, "FRAME_VIDEO_FFMPEG": "ffmpeg"}
+    common = {"runtime_python": tmp_path / "python", "ask": lambda command: None}
+
+    found = demo.demo_video.problems(
+        tmp_path, env, bundle=False, keys_hint="keys.cmd", setup_hint="setup.cmd", **common
+    )
+
+    assert len(found) == 1 and "FRAME_VIDEO_FFMPEG 에 지정한 실행 파일이 없습니다" in found[0]
+    (tmp_path / "ffmpeg").write_text("", encoding="utf-8")  # 상대 경로는 서버가 뜨는 root 기준
+    assert (
+        demo.demo_video.problems(
+            tmp_path, env, bundle=False, keys_hint="k", setup_hint="s", **common
+        )
+        == []
+    )
+
+
+def test_the_generator_time_limit_follows_a_video_time_limit_set_in_the_shell(tmp_path):
+    """범용 시간 제한은 어댑터의 영상 대기 시간보다 길어야 한다 (ADR-0012): 셸에서 늘렸으면 그만큼 늘린다."""
+    longer = demo.demo_env(
+        tmp_path,
+        offline=False,
+        base_env={"FRAME_VIDEO_TIMEOUT_S": "1200"},
+        key_file=None,
+        video=True,
+    )
+    unreadable = demo.demo_env(
+        tmp_path,
+        offline=False,
+        base_env={"FRAME_VIDEO_TIMEOUT_S": "soon"},
+        key_file=None,
+        video=True,
+    )
+    chosen = demo.demo_env(
+        tmp_path,
+        offline=False,
+        base_env={"FRAME_GENERATOR_TIMEOUT_S": "2000"},
+        key_file=None,
+        video=True,
+    )
+
+    assert longer["FRAME_GENERATOR_TIMEOUT_S"] == "1500"
+    settings = Settings.from_env(longer)
+    assert settings.generator_timeout_s > settings.video_timeout_s
+    assert unreadable["FRAME_GENERATOR_TIMEOUT_S"] == "900"
+    assert chosen["FRAME_GENERATOR_TIMEOUT_S"] == "2000"  # 셸에서 정한 값은 그대로
+
+
+def test_keys_check_asks_the_server_for_addresses_and_fails_on_a_rejected_key(
+    tmp_path, monkeypatch, capsys
+):
+    demo.demo_keys.save(tmp_path / ".demo", demo.OPENROUTER, ROUTER_KEY)
+    python = demo.venv_python(tmp_path)
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+    answer = '{"openai": "https://a.example/v1", "openrouter": "https://b.example/api/v1"}\n'
+    monkeypatch.setattr(
+        demo, "_ask", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=answer, stderr="")
+    )
+    calls: list[str] = []
+
+    class Rejecting(demo.demo_keys.HttpTransport):
+        def request(self, method, url, *, headers=None, body=None, timeout=60.0):
+            calls.append(url)
+            return demo.demo_keys.HttpResponse(401, b'{"error": {"code": "invalid_api_key"}}')
+
+    monkeypatch.setattr(demo.demo_keys, "default_transport", Rejecting)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    assert demo.main(["keys", "--check"], root=tmp_path) == 1
+
+    assert calls == ["https://b.example/api/v1/key"]
+    assert "[거절됨]" in capsys.readouterr().err
+
+
+def test_bundle_setup_says_real_videos_need_ffmpeg_on_path_not_setup_video(tmp_path, capsys):
+    _make_bundle(tmp_path)
+
+    assert demo.main(["setup", "--no-key"], root=tmp_path) == 0
+
+    out = capsys.readouterr().out
+    assert "ffmpeg 가 PATH 에 있어야 합니다" in out
+    assert "setup.cmd --video" not in out and "setup.sh --video" not in out
+
+
+def test_ffmpeg_under_a_folder_name_outside_the_code_page_is_still_found(tmp_path, monkeypatch):
+    """-I 는 PYTHONUTF8 을 무시한다: 확인용 Python 이 utf8 로 찍지 않으면 cp949 의 'é' 같은 글자에서 실패한다."""
+    pytest.importorskip("imageio_ffmpeg")
+    exe = tmp_path / "José 한글" / "ffmpeg.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"")
+    monkeypatch.setenv("IMAGEIO_FFMPEG_EXE", str(exe))  # imageio-ffmpeg 가 이 경로를 돌려준다
+    monkeypatch.setattr(demo.demo_video.shutil, "which", lambda name: None)
+
+    found = demo.demo_video.ffmpeg_source({}, tmp_path, Path(sys.executable), demo._ask)
+
+    assert found is not None
+
+
+def test_ctrl_c_while_the_keys_command_runs_ends_with_the_shells_interrupted_code(
+    tmp_path, monkeypatch, capsys
+):
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(demo.demo_key_guide, "keys_command", interrupted)
+
+    assert demo.main(["keys", "--check"], root=tmp_path) == demo.INTERRUPTED_EXIT_CODE == 130
+    assert "멈췄습니다" in capsys.readouterr().out

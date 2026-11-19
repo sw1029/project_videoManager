@@ -16,13 +16,15 @@
 
 **저장소에서** (Python 3.11+, Node.js 18+ 필요):
 
-| OS | 설치 (한 번) | 실행 |
-|---|---|---|
-| Windows | `scripts\setup.cmd` | `scripts\run.cmd` |
-| macOS · Linux | `sh scripts/setup.sh` | `sh scripts/run.sh` |
+| OS | 설치 (한 번) | API 키 (도우미) | 실행 |
+|---|---|---|---|
+| Windows | `scripts\setup.cmd` | `scripts\keys.cmd` (더블클릭 가능) | `scripts\run.cmd` |
+| macOS · Linux | `sh scripts/setup.sh` | `sh scripts/keys.sh` | `sh scripts/run.sh` |
 
 `run --offline` 은 키·인터넷 없이 DSL 프리셋으로, `run --lan` 은 같은 네트워크의 iPhone·iPad 에서 보기용으로 띄운다.
-OpenAI 키는 설치 때 입력하거나(`.demo/openai.key`, git 제외) 실행 후 화면의 키 칸에 넣는다(서버 메모리에만, 같은 기기에서만).
+`run --video` 는 OpenRouter 로 실제 영상을 만든다 (장면마다 요금, 먼저 `setup --video` 로 ffmpeg 와 OpenRouter 키를 준비, 데이터는 `.demo/video`).
+키 도우미(`keys`)는 OpenAI · OpenRouter 키를 넣고(`.demo/*.key`, git 제외) 통하는지 확인하고 지운다. OpenAI 키는 실행 후 화면의
+키 칸에 넣어도 된다(서버 메모리에만, 같은 기기에서만). 자세한 것은 [docs/DEMO.md](docs/DEMO.md) 5절, [ADR-0037](docs/adr/0037-demo-launcher-key-helper-and-real-video-mode.md).
 
 ## 빠른 시작 (개발)
 
